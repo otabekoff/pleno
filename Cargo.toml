@@ -1,0 +1,16 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/pleno-ast",
+    "crates/pleno-lexer",
+    "crates/pleno-parser",
+    "crates/pleno-runtime",
+    "crates/pleno-cli",
+]
+
+[workspace.package]
+edition = "2024"
+license = "MIT"
+
+[workspace.dependencies]
+thiserror = "1"
