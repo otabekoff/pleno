@@ -2019,6 +2019,12 @@ fn resolve_builtin_method(ty: &str, name: &str) -> Option<NativeFunction> {
     match (ty, name) {
         ("String", "upper") => Some(native_string_upper),
         ("String", "lower") => Some(native_string_lower),
+        ("String", "trim") => Some(native_string_trim),
+        ("String", "split") => Some(native_string_split),
+        ("String", "contains") => Some(native_string_contains),
+        ("String", "startsWith") => Some(native_string_starts_with),
+        ("String", "endsWith") => Some(native_string_ends_with),
+        ("String", "replace") => Some(native_string_replace),
         ("Array", "push") => Some(native_array_push),
         ("Array", "pop") => Some(native_array_pop),
         ("Array", "clear") => Some(native_array_clear),
@@ -2026,6 +2032,9 @@ fn resolve_builtin_method(ty: &str, name: &str) -> Option<NativeFunction> {
         ("Array", "map") => Some(native_array_map),
         ("Array", "filter") => Some(native_array_filter),
         ("Array", "reduce") => Some(native_array_reduce),
+        ("Array", "reverse") => Some(native_array_reverse),
+        ("Array", "contains") => Some(native_array_contains),
+        ("Array", "indexOf") => Some(native_array_index_of),
         ("Set", "add") => Some(native_set_add),
         ("Set", "remove") => Some(native_set_remove),
         ("Set", "clear") => Some(native_set_clear),
@@ -2060,6 +2069,96 @@ fn native_string_lower(args: &[Value]) -> Result<Value, RuntimeError> {
         _ => return Err(RuntimeError::new("expected string")),
     };
     Ok(Value::String(Rc::new(s.to_lowercase())))
+}
+
+fn native_string_trim(args: &[Value]) -> Result<Value, RuntimeError> {
+    let s = match &args[0] {
+        Value::String(s) => s,
+        _ => return Err(RuntimeError::new("expected string")),
+    };
+    Ok(Value::String(Rc::new(s.trim().to_string())))
+}
+
+fn native_string_split(args: &[Value]) -> Result<Value, RuntimeError> {
+    let s = match &args[0] {
+        Value::String(s) => s,
+        _ => return Err(RuntimeError::new("expected string")),
+    };
+    if args.len() < 2 {
+        return Err(RuntimeError::new("split() expects 1 argument (separator)"));
+    }
+    let separator = match &args[1] {
+        Value::String(sep) => sep.as_str(),
+        _ => return Err(RuntimeError::new("split() separator must be string")),
+    };
+    let parts: Vec<Value> = s.split(separator)
+        .map(|part| Value::String(Rc::new(part.to_string())))
+        .collect();
+    Ok(Value::Array(Rc::new(RefCell::new(parts))))
+}
+
+fn native_string_contains(args: &[Value]) -> Result<Value, RuntimeError> {
+    let s = match &args[0] {
+        Value::String(s) => s,
+        _ => return Err(RuntimeError::new("expected string")),
+    };
+    if args.len() < 2 {
+        return Err(RuntimeError::new("contains() expects 1 argument"));
+    }
+    let substr = match &args[1] {
+        Value::String(sub) => sub.as_str(),
+        _ => return Err(RuntimeError::new("contains() argument must be string")),
+    };
+    Ok(Value::Bool(s.contains(substr)))
+}
+
+fn native_string_starts_with(args: &[Value]) -> Result<Value, RuntimeError> {
+    let s = match &args[0] {
+        Value::String(s) => s,
+        _ => return Err(RuntimeError::new("expected string")),
+    };
+    if args.len() < 2 {
+        return Err(RuntimeError::new("startsWith() expects 1 argument"));
+    }
+    let prefix = match &args[1] {
+        Value::String(pre) => pre.as_str(),
+        _ => return Err(RuntimeError::new("startsWith() argument must be string")),
+    };
+    Ok(Value::Bool(s.starts_with(prefix)))
+}
+
+fn native_string_ends_with(args: &[Value]) -> Result<Value, RuntimeError> {
+    let s = match &args[0] {
+        Value::String(s) => s,
+        _ => return Err(RuntimeError::new("expected string")),
+    };
+    if args.len() < 2 {
+        return Err(RuntimeError::new("endsWith() expects 1 argument"));
+    }
+    let suffix = match &args[1] {
+        Value::String(suf) => suf.as_str(),
+        _ => return Err(RuntimeError::new("endsWith() argument must be string")),
+    };
+    Ok(Value::Bool(s.ends_with(suffix)))
+}
+
+fn native_string_replace(args: &[Value]) -> Result<Value, RuntimeError> {
+    let s = match &args[0] {
+        Value::String(s) => s,
+        _ => return Err(RuntimeError::new("expected string")),
+    };
+    if args.len() < 3 {
+        return Err(RuntimeError::new("replace() expects 2 arguments (old, new)"));
+    }
+    let old_str = match &args[1] {
+        Value::String(old) => old.as_str(),
+        _ => return Err(RuntimeError::new("replace() old argument must be string")),
+    };
+    let new_str = match &args[2] {
+        Value::String(new) => new.as_str(),
+        _ => return Err(RuntimeError::new("replace() new argument must be string")),
+    };
+    Ok(Value::String(Rc::new(s.replace(old_str, new_str))))
 }
 
 fn native_array_push(args: &[Value]) -> Result<Value, RuntimeError> {
@@ -2184,6 +2283,47 @@ fn native_array_filter(_args: &[Value]) -> Result<Value, RuntimeError> {
 fn native_array_reduce(_args: &[Value]) -> Result<Value, RuntimeError> {
     // TODO: Implement reduce() - requires calling function for each element
     Err(RuntimeError::new("reduce() is not fully implemented yet - requires function calling in native code"))
+}
+
+fn native_array_reverse(args: &[Value]) -> Result<Value, RuntimeError> {
+    let arr = match &args[0] {
+        Value::Array(arr) => arr,
+        _ => return Err(RuntimeError::new("expected array")),
+    };
+    let mut array = arr.borrow_mut();
+    array.reverse();
+    Ok(Value::Null)
+}
+
+fn native_array_contains(args: &[Value]) -> Result<Value, RuntimeError> {
+    let arr = match &args[0] {
+        Value::Array(arr) => arr,
+        _ => return Err(RuntimeError::new("expected array")),
+    };
+    if args.len() < 2 {
+        return Err(RuntimeError::new("contains() expects 1 argument"));
+    }
+    let array = arr.borrow();
+    let search_value = &args[1];
+    Ok(Value::Bool(array.contains(search_value)))
+}
+
+fn native_array_index_of(args: &[Value]) -> Result<Value, RuntimeError> {
+    let arr = match &args[0] {
+        Value::Array(arr) => arr,
+        _ => return Err(RuntimeError::new("expected array")),
+    };
+    if args.len() < 2 {
+        return Err(RuntimeError::new("indexOf() expects 1 argument"));
+    }
+    let array = arr.borrow();
+    let search_value = &args[1];
+    for (i, item) in array.iter().enumerate() {
+        if item == search_value {
+            return Ok(Value::Int(i as i64));
+        }
+    }
+    Ok(Value::Int(-1)) // Not found
 }
 
 // Result type constructors and methods

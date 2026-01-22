@@ -33,7 +33,7 @@ This roadmap stages the implementation from core language to v1 features.
 
 ## Stage 6 - Data Structures (complete)
 
-- Completed: map/array/set literals; array/map indexing; index assignment; array/map/set iteration; set membership; tuples (positional and named); tuple index access; dot access for Strings, Arrays, Sets, and Maps (builtin methods like `.len`, `.upper()`, `.push()`, etc.); array slicing syntax ([1..4], [2..], [..3]); array slice() method; array map/filter/reduce method stubs (partial - need VM function calling support)
+- Completed: map/array/set literals; array/map indexing; index assignment; array/map/set iteration; set membership; tuples (positional and named); tuple index access; dot access for Strings, Arrays, Sets, and Maps (builtin methods like `.len`, `.upper()`, `.lower()`, `.trim()`, `.split()`, `.contains()`, `.startsWith()`, `.endsWith()`, `.replace()`, `.push()`, `.pop()`, `.clear()`, `.slice()`, `.reverse()`, `.indexOf()`, etc.); array slicing syntax ([1..4], [2..], [..3]); array slice() method; array map/filter/reduce method stubs (partial - need VM function calling support)
 
 ## Stage 7 - OOP Core (complete)
 
@@ -44,10 +44,9 @@ This roadmap stages the implementation from core language to v1 features.
 - Missing: 
 
 
-## Stage 10 - Error Handling (partial)
+## Stage 10 - Error Handling (complete)
 
-- Completed: basic try/catch/finally, throw syntax and VM support; multiple catch blocks with type checking (e.g., `catch (e: MyError)`)
-- Missing: Result/Option syntax (monadic sugar) - in progress
+- Completed: basic try/catch/finally, throw syntax and VM support; multiple catch blocks with type checking (e.g., `catch (e: MyError)`); Result and Option type constructors (Ok, Err, Some, None); Result methods (unwrap, unwrapOr, expect, isOk, isErr); Option methods (unwrap, unwrapOr, expect, isSome, isNone)
 
 ## Stage 11 - Async + Concurrency (not started)
 
