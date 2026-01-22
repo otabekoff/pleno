@@ -26,12 +26,28 @@ fn main() {
     };
 
     let mut parser = pleno_parser::Parser::new(tokens);
-    match parser.parse_program() {
-        Ok(program) => {
-            println!("Parsed {} statements.", program.statements.len());
-        }
+    let program = match parser.parse_program() {
+        Ok(program) => program,
         Err(err) => {
             eprintln!("Parse error at {}..{}: {}", err.span.start, err.span.end, err.message);
+            process::exit(1);
+        }
+    };
+
+    let mut compiler = pleno_compiler::Compiler::new();
+    let chunk = match compiler.compile(&program) {
+        Ok(chunk) => chunk,
+        Err(err) => {
+            eprintln!("Compile error: {}", err.message);
+            process::exit(1);
+        }
+    };
+
+    let mut vm = pleno_vm::VM::new();
+    match vm.execute(chunk) {
+        Ok(value) => println!("{value:?}"),
+        Err(err) => {
+            eprintln!("Runtime error: {}", err.message);
             process::exit(1);
         }
     }

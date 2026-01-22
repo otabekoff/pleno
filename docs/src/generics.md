@@ -1,0 +1,89 @@
+## 10. Generics
+
+### 10.1 Generic Functions
+
+```pleno
+fn identity<T>(value: T): T {
+    return value;
+}
+
+let num = identity<Int>(42);
+let str = identity<String>("hello");
+let inferred = identity(3.14);  // Type inferred as Float
+```
+
+### 10.2 Generic Classes
+
+```pleno
+class Box<T> {
+    private value: T;
+    
+    constructor(value: T) {
+        this.value = value;
+    }
+    
+    public fn get(): T {
+        return this.value;
+    }
+    
+    public fn set(value: T): Void {
+        this.value = value;
+    }
+}
+
+let intBox = Box<Int>(42);
+let strBox = Box<String>("hello");
+```
+
+### 10.3 Generic Constraints
+
+```pleno
+// Constraint: T must implement Comparable
+fn findMax<T: Comparable>(items: T[]): T? {
+    if (items.isEmpty()) return None;
+    
+    let max = items[0];
+    for (item in items) {
+        if (item > max) {
+            max = item;
+        }
+    }
+    return Some(max);
+}
+
+// Multiple constraints
+fn process<T: Serializable & Cloneable>(item: T): T {
+    let copy = item.clone();
+    serialize(copy);
+    return copy;
+}
+```
+
+### 10.4 Generic Interfaces
+
+```pleno
+interface Container<T> {
+    fn add(item: T): Void;
+    fn get(index: Int): T?;
+    fn size(): Int;
+}
+
+class ArrayList<T> implements Container<T> {
+    private items: T[] = [];
+    
+    fn add(item: T): Void {
+        this.items.push(item);
+    }
+    
+    fn get(index: Int): T? {
+        if (index >= 0 && index < this.items.length) {
+            return Some(this.items[index]);
+        }
+        return None;
+    }
+    
+    fn size(): Int {
+        return this.items.length;
+    }
+}
+```

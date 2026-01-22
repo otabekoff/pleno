@@ -13,17 +13,32 @@ pub enum TokenKind {
     KeywordConst,
     KeywordFn,
     KeywordReturn,
+    KeywordIf,
+    KeywordElse,
+    KeywordWhile,
+    KeywordFor,
+    KeywordIn,
+    KeywordClass,
+    KeywordThis,
+    KeywordSuper,
     LParen,
     RParen,
     LBrace,
     RBrace,
+    LBracket,
+    RBracket,
     Comma,
     Semicolon,
     Colon,
+    Dot,
+    DotDot,
+    DotDotEqual,
     Plus,
     Minus,
     Star,
     Slash,
+    AndAnd,
+    OrOr,
     Equal,
     EqualEqual,
     Bang,
@@ -61,9 +76,31 @@ pub fn lex(source: &str) -> Result<Vec<Token>, LexError> {
             ')' => token_simple(TokenKind::RParen, start),
             '{' => token_simple(TokenKind::LBrace, start),
             '}' => token_simple(TokenKind::RBrace, start),
+            '[' => token_simple(TokenKind::LBracket, start),
+            ']' => token_simple(TokenKind::RBracket, start),
             ',' => token_simple(TokenKind::Comma, start),
             ';' => token_simple(TokenKind::Semicolon, start),
             ':' => token_simple(TokenKind::Colon, start),
+            '.' => {
+                if matches!(chars.peek(), Some((_, '.'))) {
+                    chars.next();
+                    if matches!(chars.peek(), Some((_, '='))) {
+                        let end = chars.next().map(|(idx, _)| idx + 1).unwrap_or(start + 2);
+                        Token {
+                            kind: TokenKind::DotDotEqual,
+                            span: Span::new(start, end),
+                        }
+                    } else {
+                        let end = chars.peek().map(|(idx, _)| idx + 1).unwrap_or(start + 2);
+                        Token {
+                            kind: TokenKind::DotDot,
+                            span: Span::new(start, end),
+                        }
+                    }
+                } else {
+                    token_simple(TokenKind::Dot, start)
+                }
+            }
             '+' => token_simple(TokenKind::Plus, start),
             '-' => token_simple(TokenKind::Minus, start),
             '*' => token_simple(TokenKind::Star, start),
@@ -77,6 +114,34 @@ pub fn lex(source: &str) -> Result<Vec<Token>, LexError> {
                     }
                 } else {
                     token_simple(TokenKind::Bang, start)
+                }
+            }
+            '&' => {
+                if matches!(chars.peek(), Some((_, '&'))) {
+                    let end = chars.next().map(|(idx, _)| idx + 1).unwrap_or(start + 1);
+                    Token {
+                        kind: TokenKind::AndAnd,
+                        span: Span::new(start, end),
+                    }
+                } else {
+                    return Err(LexError {
+                        message: "Unexpected '&'".to_string(),
+                        span: Span::new(start, start + 1),
+                    });
+                }
+            }
+            '|' => {
+                if matches!(chars.peek(), Some((_, '|'))) {
+                    let end = chars.next().map(|(idx, _)| idx + 1).unwrap_or(start + 1);
+                    Token {
+                        kind: TokenKind::OrOr,
+                        span: Span::new(start, end),
+                    }
+                } else {
+                    return Err(LexError {
+                        message: "Unexpected '|'".to_string(),
+                        span: Span::new(start, start + 1),
+                    });
                 }
             }
             '=' => {
@@ -134,6 +199,14 @@ pub fn lex(source: &str) -> Result<Vec<Token>, LexError> {
                     "const" => TokenKind::KeywordConst,
                     "fn" => TokenKind::KeywordFn,
                     "return" => TokenKind::KeywordReturn,
+                    "if" => TokenKind::KeywordIf,
+                    "else" => TokenKind::KeywordElse,
+                    "while" => TokenKind::KeywordWhile,
+                    "for" => TokenKind::KeywordFor,
+                    "in" => TokenKind::KeywordIn,
+                    "class" => TokenKind::KeywordClass,
+                    "this" => TokenKind::KeywordThis,
+                    "super" => TokenKind::KeywordSuper,
                     "true" => TokenKind::Bool(true),
                     "false" => TokenKind::Bool(false),
                     "null" => TokenKind::Null,
@@ -217,6 +290,11 @@ fn lex_number(
 
     while let Some((idx, ch)) = chars.peek().copied() {
         if ch == '.' && !has_dot {
+            let mut lookahead = chars.clone();
+            lookahead.next();
+            if matches!(lookahead.peek(), Some((_, '.'))) {
+                break;
+            }
             has_dot = true;
             chars.next();
             end = idx + 1;

@@ -1,0 +1,70 @@
+## 8. Modules & Imports
+
+### 8.1 Module Definition
+
+```pleno
+// File: math_utils.pln
+module MathUtils;
+
+// Public export
+export fn square(x: Float): Float {
+    return x * x;
+}
+
+export const PI: Float = 3.14159;
+
+// Private (not exported)
+fn helperFunction(): Void {
+    // Only available within module
+}
+
+export class Calculator {
+    public fn add(a: Float, b: Float): Float {
+        return a + b;
+    }
+}
+```
+
+### 8.2 Importing
+
+```pleno
+// Import entire module
+import MathUtils;
+MathUtils.square(5.0);
+
+// Import specific items
+import { square, PI } from MathUtils;
+square(5.0);
+
+// Import with alias
+import { square as sq } from MathUtils;
+sq(5.0);
+
+// Import all exported items
+import * from MathUtils;
+square(5.0);
+PI;
+
+// Relative imports
+import { User } from "./models/user.pln";
+import { Database } from "../db/connection.pln";
+```
+
+### 8.3 Package Management
+
+```pleno
+// File: package.pln (package configuration)
+{
+    "name": "my-app",
+    "version": "1.0.0",
+    "dependencies": {
+        "http-client": "^2.0.0",
+        "json-parser": "^1.5.0"
+    },
+    "entry": "main.pln"
+}
+
+// Using external packages
+import { HttpClient } from "http-client";
+import { parse } from "json-parser";
+```

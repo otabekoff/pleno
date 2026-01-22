@@ -1,0 +1,14 @@
+[package]
+name = "pleno-compiler"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[dependencies]
+pleno-ast = { workspace = true }
+pleno-bytecode = { workspace = true }
+pleno-value = { workspace = true }
+
+[dev-dependencies]
+pleno-lexer = { workspace = true }
+pleno-parser = { workspace = true }

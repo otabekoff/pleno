@@ -1,0 +1,8 @@
+[package]
+name = "pleno-diagnostics"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[dependencies]
+pleno-common = { workspace = true }

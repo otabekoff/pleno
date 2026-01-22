@@ -1,8 +1,11 @@
 [package]
 name = "pleno-cli"
-version = "0.1.0"
-edition = "2024"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
 
 [dependencies]
-pleno-lexer = { path = "../pleno-lexer" }
-pleno-parser = { path = "../pleno-parser" }
+pleno-lexer = { workspace = true }
+pleno-parser = { workspace = true }
+pleno-compiler = { workspace = true }
+pleno-vm = { workspace = true }
