@@ -582,6 +582,12 @@ impl Compiler {
                 }
                 Ok(dest)
             }
+            Expr::Match { expr, arms } => {
+                self.collect_idents_expr(expr, used);
+                for arm in arms {
+                    self.collect_idents_expr(&arm.body, used);
+                }
+            }
             Expr::Pipeline { left, right } => {
                 let left_reg = self.compile_expr(left)?;
                 let right_reg = self.compile_expr(right)?;
@@ -703,6 +709,57 @@ impl Compiler {
                     self.free_temp(args_reg);
                     Ok(dest)
                 }
+            }
+            Expr::Match { expr, arms } => {
+                let value_reg = self.compile_expr(expr)?;
+                let dest = self.registers.allocate()?;
+                let mut end_jumps = Vec::new();
+
+                for arm in arms {
+                    let mut next_arm_jump = None;
+                    match &arm.pattern {
+                        Pattern::Literal(lit) => {
+                            let lit_reg = self.compile_expr(&Expr::Literal(lit.clone()))?;
+                            let eq_reg = self.registers.allocate()?;
+                            self.emit(Opcode::Eq, eq_reg, value_reg, lit_reg);
+                            self.free_temp(lit_reg);
+                            next_arm_jump = Some(self.emit_jump(Opcode::JumpIfNot, eq_reg));
+                            self.free_temp(eq_reg);
+                        }
+                        Pattern::Ident(name) => {
+                            // Identity match: always matches and binds
+                            let reg = self.registers.allocate()?;
+                            self.emit(Opcode::Move, reg, value_reg, 0);
+                            self.insert_local(name.clone(), reg, false);
+                        }
+                        Pattern::Underscore => {
+                            // Wildcard match: always matches
+                        }
+                    }
+
+                    let body_reg = self.compile_expr(&arm.body)?;
+                    self.emit(Opcode::Move, dest, body_reg, 0);
+                    self.free_temp(body_reg);
+
+                    let jump = self.emit_jump(Opcode::Jump, 0);
+                    end_jumps.push(jump);
+
+                    if let Some(jump) = next_arm_jump {
+                        self.patch_jump(jump)?;
+                    }
+
+                    // If it was a wildcard or identity match, we don't need to check further arms
+                    if matches!(arm.pattern, Pattern::Underscore | Pattern::Ident(_)) {
+                        break;
+                    }
+                }
+
+                for jump in end_jumps {
+                    self.patch_jump(jump)?;
+                }
+
+                self.free_temp(value_reg);
+                Ok(dest)
             }
         }
     }

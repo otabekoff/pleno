@@ -32,6 +32,8 @@ pub enum TokenKind {
     KeywordExport,
     KeywordModule,
     KeywordClass,
+    KeywordMatch,
+    KeywordCase,
     KeywordThis,
     KeywordSuper,
     LParen,
@@ -64,6 +66,7 @@ pub enum TokenKind {
     At,
     Underscore,
     Arrow,
+    FatArrow,
     Pipe,
     Eof,
 }
@@ -162,9 +165,15 @@ pub fn lex(source: &str) -> Result<Vec<Token>, LexError> {
             }
             '=' => {
                 if matches!(chars.peek(), Some((_, '='))) {
-                    let end = chars.next().map(|(idx, _)| idx + 1).unwrap_or(start + 1);
+                    let end = chars.next().map(|(idx, _)| idx + 1).unwrap_or(start + 2);
                     Token {
                         kind: TokenKind::EqualEqual,
+                        span: Span::new(start, end),
+                    }
+                } else if matches!(chars.peek(), Some((_, '>'))) {
+                    let end = chars.next().map(|(idx, _)| idx + 1).unwrap_or(start + 2);
+                    Token {
+                        kind: TokenKind::FatArrow,
                         span: Span::new(start, end),
                     }
                 } else {
@@ -234,6 +243,8 @@ pub fn lex(source: &str) -> Result<Vec<Token>, LexError> {
                     "export" => TokenKind::KeywordExport,
                     "module" => TokenKind::KeywordModule,
                     "class" => TokenKind::KeywordClass,
+                    "match" => TokenKind::KeywordMatch,
+                    "case" => TokenKind::KeywordCase,
                     "this" => TokenKind::KeywordThis,
                     "super" => TokenKind::KeywordSuper,
                     "true" => TokenKind::Bool(true),
