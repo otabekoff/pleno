@@ -15,6 +15,7 @@ pub enum Literal {
     Int(i64),
     Float(f64),
     String(String),
+    Char(char),
     Bool(bool),
     Null,
 }
@@ -39,6 +40,7 @@ pub enum BinaryOp {
     LessEqual,
     Greater,
     GreaterEqual,
+    NullCoalesce,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -57,6 +59,10 @@ pub enum Expr {
         right: Box<Expr>,
     },
     Property {
+        object: Box<Expr>,
+        name: String,
+    },
+    SafeProperty {
         object: Box<Expr>,
         name: String,
     },
