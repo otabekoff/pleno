@@ -145,7 +145,7 @@ pub enum Stmt {
         body: Box<Stmt>,
     },
     For {
-        name: String,
+        names: Vec<String>,
         iterable: Expr,
         body: Box<Stmt>,
     },
@@ -168,11 +168,24 @@ pub enum Stmt {
         body: Box<Stmt>,
         annotations: Vec<Annotation>,
     },
+    Try {
+        try_branch: Box<Stmt>,
+        catch_branches: Vec<CatchBlock>,
+        finally_branch: Option<Box<Stmt>>,
+    },
+    Throw(Expr),
     Return(Option<Expr>),
     Break,
     Continue,
     Block(Vec<Stmt>),
     Expr(Expr),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct CatchBlock {
+    pub name: String,
+    pub ty: Option<String>,
+    pub body: Box<Stmt>,
 }
 
 #[derive(Debug, Clone, PartialEq)]

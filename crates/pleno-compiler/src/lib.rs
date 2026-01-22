@@ -1,4 +1,4 @@
-use pleno_ast::{Expr, FunctionDecl, FunctionKind, Literal, Program, Stmt};
+use pleno_ast::{Expr, FunctionDecl, FunctionKind, Literal, Pattern, Program, Stmt};
 use pleno_bytecode::{Chunk, FunctionProto, Instruction, Opcode, ParamSpec};
 use pleno_value::Value;
 use std::collections::HashMap;
@@ -223,7 +223,18 @@ impl Compiler {
                 self.patch_loop_jumps(loop_ctx, loop_end)?;
                 Ok(())
             }
-            Stmt::For { name, iterable, body } => self.compile_for_stmt(name, iterable, body),
+            Stmt::For { names, iterable, body } => self.compile_for_stmt(names, iterable, body),
+            Stmt::Try {
+                try_branch,
+                catch_branches,
+                finally_branch,
+            } => self.compile_try_stmt(try_branch, catch_branches, finally_branch.as_deref()),
+            Stmt::Throw(expr) => {
+                let reg = self.compile_expr(expr)?;
+                self.emit(Opcode::Throw, reg, 0, 0);
+                self.free_temp(reg);
+                Ok(())
+            }
             Stmt::Import { path, kind } => {
                 let module_reg = self.registers.allocate()?;
                 let path_idx = self.add_constant(Value::String(path.clone().into()));
@@ -787,6 +798,9 @@ impl Compiler {
                         Pattern::Underscore => {
                             // Wildcard match: always matches
                         }
+                        Pattern::Tuple(_) => {
+                            return Err(CompileError::new("tuple patterns not supported yet in match"));
+                        }
                     }
 
                     let body_reg = self.compile_expr(&arm.body)?;
@@ -908,13 +922,70 @@ impl Compiler {
         Ok(dest)
     }
 
+    fn compile_try_stmt(
+        &mut self,
+        try_branch: &Stmt,
+        catch_branches: &[pleno_ast::CatchBlock],
+        finally_branch: Option<&Stmt>,
+    ) -> Result<(), CompileError> {
+        let error_reg = self.registers.allocate()?;
+        // Reserve the register so it's not reused as a temp
+        let error_name = format!("$try_error_{}", self.loop_counter);
+        self.loop_counter += 1;
+        self.insert_local(error_name.clone(), error_reg, false);
+
+        let push_handler_idx = self.chunk.code.len();
+        self.emit(Opcode::PushHandler, error_reg, 0, 0);
+
+        self.compile_stmt(try_branch)?;
+        self.emit(Opcode::PopHandler, 0, 0, 0);
+
+        let jump_to_finally = self.emit_jump(Opcode::Jump, 0);
+
+        // Patch PushHandler to point here
+        self.patch_jump(push_handler_idx)?;
+
+        // Error occurred, error_reg contains the value
+        if !catch_branches.is_empty() {
+            // For now, support only the first catch block without type checking
+            let catch = &catch_branches[0];
+            self.locals.push(HashMap::new());
+            self.insert_local(catch.name.clone(), error_reg, false);
+            self.compile_stmt(&catch.body)?;
+            self.pop_scope();
+        } else {
+            // Re-throw if no catch blocks
+            self.emit(Opcode::Throw, error_reg, 0, 0);
+        }
+
+        self.patch_jump(jump_to_finally)?;
+
+        if let Some(finally) = finally_branch {
+            self.compile_stmt(finally)?;
+        }
+
+        // The error_reg is now a local in the outer scope, it will be freed when that scope ends.
+        Ok(())
+    }
+
     fn compile_for_stmt(
         &mut self,
-        name: &str,
+        names: &[String],
         iterable: &Expr,
         body: &Stmt,
     ) -> Result<(), CompileError> {
-        if let Expr::Range { start, end, inclusive } = iterable {
+        if let Expr::Range {
+            start,
+            end,
+            inclusive,
+        } = iterable
+        {
+            if names.len() > 1 {
+                return Err(CompileError::new(
+                    "range-based for loops only support one variable",
+                ));
+            }
+            let name = &names[0];
             match (start, end) {
                 (Some(start), Some(end)) => {
                     return self.compile_for_range(name, start, end, *inclusive, body);
@@ -936,7 +1007,12 @@ impl Compiler {
         if matches!(iterable, Expr::Literal(_)) {
             return Err(CompileError::new("for loop expects array, set, or range"));
         }
-        self.compile_for_iterable(name, iterable, body)
+        if names.len() > 2 {
+            return Err(CompileError::new(
+                "for loop supports at most two variables (key, value)",
+            ));
+        }
+        self.compile_for_iterable(names, iterable, body)
     }
 
     fn compile_break_stmt(&mut self) -> Result<(), CompileError> {
@@ -1045,14 +1121,19 @@ impl Compiler {
 
     fn compile_for_iterable(
         &mut self,
-        name: &str,
+        names: &[String],
         iterable: &Expr,
         body: &Stmt,
     ) -> Result<(), CompileError> {
         self.locals.push(HashMap::new());
         let source_reg = self.compile_expr(iterable)?;
         let collection_reg = self.registers.allocate()?;
-        self.emit(Opcode::IterValues, collection_reg, source_reg, 0);
+        let opcode = if names.len() > 1 {
+            Opcode::IterEntries
+        } else {
+            Opcode::IterValues
+        };
+        self.emit(opcode, collection_reg, source_reg, 0);
         self.free_temp(source_reg);
         let collection_name = format!("$for_collection_{}", self.loop_counter);
         self.loop_counter += 1;
@@ -1075,15 +1156,26 @@ impl Compiler {
 
         let item_reg = self.registers.allocate()?;
         self.emit(Opcode::GetIndex, item_reg, collection_reg, index_reg);
-        if self
-            .locals
-            .last()
-            .map(|scope| scope.contains_key(name))
-            .unwrap_or(false)
-        {
-            return Err(CompileError::new("for loop variable already defined in scope"));
+
+        if names.len() == 1 {
+            self.insert_local(names[0].clone(), item_reg, true);
+        } else {
+            let key_reg = self.registers.allocate()?;
+            let zero_reg = self.registers.allocate()?;
+            self.emit(Opcode::LoadInt, zero_reg, 0, 0);
+            self.emit(Opcode::GetIndex, key_reg, item_reg, zero_reg);
+            self.insert_local(names[0].clone(), key_reg, true);
+
+            let val_reg = self.registers.allocate()?;
+            let one_reg = self.registers.allocate()?;
+            self.emit(Opcode::LoadInt, one_reg, 1, 0);
+            self.emit(Opcode::GetIndex, val_reg, item_reg, one_reg);
+            self.insert_local(names[1].clone(), val_reg, true);
+
+            self.free_temp(zero_reg);
+            self.free_temp(one_reg);
+            self.free_temp(item_reg);
         }
-        self.insert_local(name.to_string(), item_reg, true);
 
         self.push_loop(None);
         self.compile_stmt(body)?;
@@ -1269,7 +1361,12 @@ impl Compiler {
                 }
             }
             Stmt::While { body, .. } => self.collect_locals(body, locals),
-            Stmt::For { body, .. } => self.collect_locals(body, locals),
+            Stmt::For { names, body, .. } => {
+                for name in names {
+                    locals.insert(name.clone(), ());
+                }
+                self.collect_locals(body, locals)
+            }
             Stmt::Fn { name, .. } => {
                 locals.insert(name.clone(), ());
             }

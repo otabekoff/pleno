@@ -62,7 +62,7 @@ pub struct Range {
     pub inclusive: bool,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Class {
     pub name: Rc<String>,
     pub methods: HashMap<String, MethodInfo>,
@@ -83,7 +83,7 @@ pub enum MethodVisibility {
     Internal,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct MethodInfo {
     pub function: usize,
     pub visibility: MethodVisibility,
@@ -136,7 +136,84 @@ impl PartialEq for Value {
     }
 }
 
-#[derive(Debug, Clone)]
+impl std::fmt::Display for Value {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Value::Null => write!(f, "null"),
+            Value::Missing => write!(f, "<missing>"),
+            Value::Bool(v) => write!(f, "{}", v),
+            Value::Int(v) => write!(f, "{}", v),
+            Value::Float(v) => write!(f, "{}", v),
+            Value::String(v) => write!(f, "{}", v),
+            Value::Range(r) => {
+                if let Some(start) = r.start {
+                    write!(f, "{}", start)?;
+                }
+                if r.inclusive {
+                    write!(f, "..=")?;
+                } else {
+                    write!(f, "..")?;
+                }
+                if let Some(end) = r.end {
+                    write!(f, "{}", end)?;
+                }
+                Ok(())
+            }
+            Value::Class(c) => write!(f, "<class {}>", c.name),
+            Value::Function(_) => write!(f, "<fn>"),
+            Value::BoundMethod { owner, .. } => write!(f, "<method of {}>", owner),
+            Value::StaticMethod { owner, .. } => write!(f, "<static method of {}>", owner),
+            Value::Closure { .. } => write!(f, "<closure>"),
+            Value::NativeFunction(_) => write!(f, "<native fn>"),
+            Value::Map(m) => {
+                write!(f, "{{")?;
+                for (i, (k, v)) in m.borrow().iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "\"{}\": {}", k, v)?;
+                }
+                write!(f, "}}")
+            }
+            Value::Array(a) => {
+                write!(f, "[")?;
+                for (i, v) in a.borrow().iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{}", v)?;
+                }
+                write!(f, "]")
+            }
+            Value::Set(s) => {
+                write!(f, "{{")?;
+                for (i, v) in s.borrow().iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    match v {
+                        ValueKey::Null => write!(f, "null")?,
+                        ValueKey::Bool(v) => write!(f, "{}", v)?,
+                        ValueKey::Int(v) => write!(f, "{}", v)?,
+                        ValueKey::Float(bits) => write!(f, "{}", f64::from_bits(*bits))?,
+                        ValueKey::String(v) => write!(f, "\"{}\"", v)?,
+                    }
+                }
+                write!(f, "}}")
+            }
+            Value::Object(o) => {
+                if let Some(class) = &o.borrow().class {
+                    write!(f, "<instance of {}>", class.name)
+                } else {
+                    write!(f, "<object>")
+                }
+            }
+            Value::Partial { .. } => write!(f, "<partial>"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct Object {
     pub class: Option<Rc<Class>>,
     pub fields: HashMap<String, Value>,
