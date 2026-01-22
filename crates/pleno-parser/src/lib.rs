@@ -38,28 +38,8 @@ impl Parser {
             TokenKind::KeywordWhile => self.parse_while_stmt(),
             TokenKind::KeywordFor => self.parse_for_stmt(),
             TokenKind::KeywordImport => self.parse_import_stmt(),
-            TokenKind::KeywordExport => self.parse_export_stmt(),
-            TokenKind::KeywordClass => {
-                let stmt = self.parse_class_stmt()?;
-                if let Stmt::Class {
-                    name,
-                    fields,
-                    methods,
-                    superclass,
-                    ..
-                } = stmt
-                {
-                    Ok(Stmt::Class {
-                        name,
-                        fields,
-                        methods,
-                        superclass,
-                        annotations,
-                    })
-                } else {
-                    Ok(stmt)
-                }
-            }
+            TokenKind::KeywordExport => self.parse_export_stmt(annotations),
+            TokenKind::KeywordClass => self.parse_class_stmt(annotations),
             TokenKind::KeywordFn => {
                 let decl = self.parse_function_decl(
                     pleno_ast::FunctionKind::Method,
@@ -246,12 +226,19 @@ impl Parser {
         Ok(Stmt::While { condition, body })
     }
 
-    fn parse_fn_stmt(&mut self) -> Result<Stmt, ParseError> {
-        let decl = self.parse_function_decl(pleno_ast::FunctionKind::Method, false, None, None)?;
+    fn parse_fn_stmt(&mut self, annotations: Vec<pleno_ast::Annotation>) -> Result<Stmt, ParseError> {
+        let decl = self.parse_function_decl(
+            pleno_ast::FunctionKind::Method,
+            false,
+            None,
+            None,
+            annotations,
+        )?;
         Ok(Stmt::Fn {
             name: decl.name,
             params: decl.params,
             body: decl.body,
+            annotations: decl.annotations,
         })
     }
 
@@ -381,9 +368,15 @@ impl Parser {
         Ok(Stmt::Import { path, kind })
     }
 
-    fn parse_export_stmt(&mut self) -> Result<Stmt, ParseError> {
+    fn parse_export_stmt(&mut self, annotations: Vec<pleno_ast::Annotation>) -> Result<Stmt, ParseError> {
         self.advance();
         if self.matches(&TokenKind::LBrace) {
+            if !annotations.is_empty() {
+                return Err(ParseError {
+                    message: "Annotations are not allowed on export lists".to_string(),
+                    span: self.previous_span(),
+                });
+            }
             let mut items = Vec::new();
             while !matches!(self.peek_kind(), TokenKind::RBrace) {
                 let name = match self.advance().kind.clone() {
@@ -420,8 +413,8 @@ impl Parser {
             return Ok(Stmt::ExportList(items));
         }
         let stmt = match self.peek_kind() {
-            TokenKind::KeywordFn => self.parse_fn_stmt()?,
-            TokenKind::KeywordClass => self.parse_class_stmt()?,
+            TokenKind::KeywordFn => self.parse_fn_stmt(annotations)?,
+            TokenKind::KeywordClass => self.parse_class_stmt(annotations)?,
             TokenKind::KeywordLet => self.parse_let_stmt()?,
             TokenKind::KeywordConst => self.parse_const_stmt()?,
             other => {
@@ -434,7 +427,7 @@ impl Parser {
         Ok(Stmt::Export(Box::new(stmt)))
     }
 
-    fn parse_class_stmt(&mut self) -> Result<Stmt, ParseError> {
+    fn parse_class_stmt(&mut self, annotations: Vec<pleno_ast::Annotation>) -> Result<Stmt, ParseError> {
         self.advance();
         let name = match self.advance().kind.clone() {
             TokenKind::Ident(value) => value,
@@ -462,7 +455,7 @@ impl Parser {
         let mut fields = Vec::new();
         let mut methods = Vec::new();
         while !self.is_at_end() && !matches!(self.peek_kind(), TokenKind::RBrace) {
-            let annotations = self.parse_annotations()?;
+            let member_annotations = self.parse_annotations()?;
             let mut visibility = None;
             let mut is_static = false;
             loop {
@@ -496,7 +489,7 @@ impl Parser {
                     true,
                     visibility,
                     Some(is_static),
-                    annotations,
+                    member_annotations,
                 )?);
                 continue;
             }
@@ -505,7 +498,7 @@ impl Parser {
                     pleno_ast::FunctionKind::Getter,
                     visibility,
                     is_static,
-                    annotations,
+                    member_annotations,
                 )?);
                 continue;
             }
@@ -514,7 +507,7 @@ impl Parser {
                     pleno_ast::FunctionKind::Setter,
                     visibility,
                     is_static,
-                    annotations,
+                    member_annotations,
                 )?);
                 continue;
             }
@@ -532,7 +525,7 @@ impl Parser {
                 name,
                 is_static,
                 visibility,
-                annotations,
+                annotations: member_annotations,
             });
         }
         self.expect(TokenKind::RBrace, "Expected '}' after class body")?;
@@ -541,6 +534,7 @@ impl Parser {
             fields,
             methods,
             superclass,
+            annotations,
         })
     }
 
@@ -565,6 +559,19 @@ impl Parser {
         self.expect(TokenKind::LParen, "Expected '(' after function name")?;
         let params = self.parse_param_list()?;
         self.expect(TokenKind::RParen, "Expected ')' after parameters")?;
+        let return_ty = if self.matches(&TokenKind::Arrow) {
+            match self.advance().kind.clone() {
+                TokenKind::Ident(name) => Some(name),
+                other => {
+                    return Err(ParseError {
+                        message: format!("Expected return type name after '->', found {other:?}"),
+                        span: self.previous_span(),
+                    });
+                }
+            }
+        } else {
+            None
+        };
         let body = Box::new(self.parse_block_stmt()?);
         let (visibility, is_static) = if allow_modifiers {
             (visibility, is_static.unwrap_or(false))
@@ -580,6 +587,7 @@ impl Parser {
         Ok(pleno_ast::FunctionDecl {
             name,
             params,
+            return_ty,
             body,
             is_static,
             visibility,
@@ -627,6 +635,7 @@ impl Parser {
         Ok(pleno_ast::FunctionDecl {
             name,
             params,
+            return_ty: None,
             body: Box::new(body),
             is_static,
             visibility,
@@ -712,6 +721,19 @@ impl Parser {
                     })
                 }
             };
+            let ty = if self.matches(&TokenKind::Colon) {
+                match self.advance().kind.clone() {
+                    TokenKind::Ident(value) => Some(value),
+                    other => {
+                        return Err(ParseError {
+                            message: format!("Expected type name after ':', found {other:?}"),
+                            span: self.previous_span(),
+                        })
+                    }
+                }
+            } else {
+                None
+            };
             let default = if self.matches(&TokenKind::Equal) {
                 Some(self.parse_expr()?)
             } else {
@@ -725,6 +747,7 @@ impl Parser {
             }
             params.push(pleno_ast::Param {
                 name,
+                ty,
                 default,
                 is_variadic,
                 is_keyword_only: keyword_only,
@@ -753,7 +776,19 @@ impl Parser {
     }
 
     fn parse_expr(&mut self) -> Result<Expr, ParseError> {
-        self.parse_or()
+        self.parse_pipeline()
+    }
+
+    fn parse_pipeline(&mut self) -> Result<Expr, ParseError> {
+        let mut expr = self.parse_or()?;
+        while self.matches(&TokenKind::Pipe) {
+            let right = self.parse_or()?;
+            expr = Expr::Pipeline {
+                left: Box::new(expr),
+                right: Box::new(right),
+            };
+        }
+        Ok(expr)
     }
 
     fn parse_or(&mut self) -> Result<Expr, ParseError> {

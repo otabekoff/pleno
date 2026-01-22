@@ -369,6 +369,7 @@ impl Compiler {
                 let decl = FunctionDecl {
                     name: name.clone(),
                     params: params.clone(),
+                    return_ty: None,
                     body: body.clone(),
                     is_static: false,
                     visibility: None,
@@ -571,6 +572,16 @@ impl Compiler {
                 }
                 Ok(dest)
             }
+            Expr::SetLiteral(items) => {
+                let dest = self.registers.allocate()?;
+                self.emit(Opcode::NewSet, dest, 0, 0);
+                for item in items {
+                    let value_reg = self.compile_expr(item)?;
+                    self.emit(Opcode::SetAdd, dest, value_reg, 0);
+                    self.free_temp(value_reg);
+                }
+                Ok(dest)
+            }
             Expr::Underscore => {
                 Err(CompileError::new("underscore is only allowed as a placeholder in calls"))
             }
@@ -645,6 +656,7 @@ impl Compiler {
                                 self.emit(Opcode::SetProperty, arg_reg, named_reg, name_idx);
                                 self.free_temp(arg_reg);
                             }
+                            pleno_ast::CallArg::Placeholder => unreachable!(),
                         }
                     }
                     let wrapper_reg = self.registers.allocate()?;
@@ -667,6 +679,7 @@ impl Compiler {
                             pleno_ast::CallArg::Named(_, _) => {
                                 return Err(CompileError::new("named arguments require name"))
                             }
+                            pleno_ast::CallArg::Placeholder => unreachable!(),
                         };
                         self.emit(Opcode::ArrayAppend, args_reg, arg_reg, 0);
                         self.free_temp(arg_reg);
@@ -677,6 +690,19 @@ impl Compiler {
                     self.free_temp(args_reg);
                     Ok(dest)
                 }
+            }
+            Expr::Pipeline { left, right } => {
+                let left_reg = self.compile_expr(left)?;
+                let right_reg = self.compile_expr(right)?;
+                let args_reg = self.registers.allocate()?;
+                self.emit(Opcode::NewArray, args_reg, 0, 0);
+                self.emit(Opcode::ArrayAppend, args_reg, left_reg, 0);
+                let dest = self.registers.allocate()?;
+                self.emit(Opcode::Call, dest, right_reg, args_reg);
+                self.free_temp(left_reg);
+                self.free_temp(right_reg);
+                self.free_temp(args_reg);
+                Ok(dest)
             }
         }
     }
@@ -1245,6 +1271,7 @@ impl Compiler {
                         pleno_ast::CallArg::Named(_, expr) => {
                             self.collect_idents_expr(expr, used);
                         }
+                        pleno_ast::CallArg::Placeholder => {}
                     }
                 }
             }
