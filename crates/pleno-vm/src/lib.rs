@@ -8,6 +8,13 @@ use std::fs;
 use std::rc::Rc;
 
 #[derive(Debug, Clone)]
+pub struct ExceptionHandler {
+    pub catch_ip: usize,
+    pub base: usize,
+    pub error_reg: usize,
+}
+
+#[derive(Debug, Clone)]
 pub struct CallFrame {
     pub function_index: usize,
     pub ip: usize,
@@ -18,6 +25,7 @@ pub struct CallFrame {
     pub current_class: Option<Rc<String>>,
     pub current_module: Option<Rc<String>>,
     pub current_module_path: Option<Rc<String>>,
+    pub exception_handlers: Vec<ExceptionHandler>,
 }
 
 pub struct VM {
@@ -73,6 +81,7 @@ impl VM {
             current_class: None,
             current_module: None,
             current_module_path: None,
+            exception_handlers: Vec::new(),
         });
         self.run_until(0)
     }
@@ -357,6 +366,60 @@ impl VM {
                                 })
                                 .collect::<Vec<_>>();
                             Value::Array(Rc::new(std::cell::RefCell::new(values)))
+                        }
+                        _ => return Err(RuntimeError::new("iter over non-collection value")),
+                    };
+                    self.registers[base + a] = value;
+                }
+                Opcode::IterEntries => {
+                    let value = match &self.registers[base + b] {
+                        Value::Array(array) => {
+                            let entries = array
+                                .borrow()
+                                .iter()
+                                .enumerate()
+                                .map(|(idx, val)| {
+                                    Value::Array(Rc::new(std::cell::RefCell::new(vec![
+                                        Value::Int(idx as i64),
+                                        val.clone(),
+                                    ])))
+                                })
+                                .collect::<Vec<_>>();
+                            Value::Array(Rc::new(std::cell::RefCell::new(entries)))
+                        }
+                        Value::Map(map) => {
+                            let entries = map
+                                .borrow()
+                                .iter()
+                                .map(|(key, val)| {
+                                    Value::Array(Rc::new(std::cell::RefCell::new(vec![
+                                        Value::String(Rc::new(key.clone())),
+                                        val.clone(),
+                                    ])))
+                                })
+                                .collect::<Vec<_>>();
+                            Value::Array(Rc::new(std::cell::RefCell::new(entries)))
+                        }
+                        Value::Set(set) => {
+                            let entries = set
+                                .borrow()
+                                .iter()
+                                .enumerate()
+                                .map(|(idx, val)| {
+                                    let val = match val {
+                                        ValueKey::Null => Value::Null,
+                                        ValueKey::Bool(v) => Value::Bool(*v),
+                                        ValueKey::Int(v) => Value::Int(*v),
+                                        ValueKey::Float(bits) => Value::Float(f64::from_bits(*bits)),
+                                        ValueKey::String(v) => Value::String(Rc::clone(v)),
+                                    };
+                                    Value::Array(Rc::new(std::cell::RefCell::new(vec![
+                                        Value::Int(idx as i64),
+                                        val,
+                                    ])))
+                                })
+                                .collect::<Vec<_>>();
+                            Value::Array(Rc::new(std::cell::RefCell::new(entries)))
                         }
                         _ => return Err(RuntimeError::new("iter over non-collection value")),
                     };
@@ -1083,13 +1146,32 @@ impl VM {
                     };
                 }
                 Opcode::Import => {
-
                     let path = match &function.chunk.constants[b] {
                         Value::String(value) => value.as_str().to_string(),
                         _ => return Err(RuntimeError::new("import path must be string")),
                     };
                     let module_value = self.execute_module(&path)?;
                     self.registers[base + a] = module_value;
+                }
+                Opcode::PushHandler => {
+                    let offset = decode_offset(instruction.b(), instruction.c());
+                    let catch_ip = apply_offset(frame.ip, offset)?;
+                    frame.exception_handlers.push(ExceptionHandler {
+                        catch_ip,
+                        base: frame.base,
+                        error_reg: a,
+                    });
+                }
+                Opcode::PopHandler => {
+                    frame
+                        .exception_handlers
+                        .pop()
+                        .ok_or_else(|| RuntimeError::new("pop handler underflow"))?;
+                }
+                Opcode::Throw => {
+                    let error_value = self.registers[base + a].clone();
+                    self.unwind_to_handler(error_value)?;
+                    continue;
                 }
                 _ => {
                     return Err(RuntimeError::new("opcode not implemented"));
@@ -1146,6 +1228,7 @@ impl VM {
             current_class,
             current_module,
             current_module_path,
+            exception_handlers: Vec::new(),
         });
         Ok(())
     }
@@ -1311,6 +1394,19 @@ impl VM {
         Ok(args)
     }
 
+    fn unwind_to_handler(&mut self, error_value: Value) -> Result<(), RuntimeError> {
+        while let Some(mut frame) = self.frames.pop() {
+            if let Some(handler) = frame.exception_handlers.pop() {
+                frame.ip = handler.catch_ip;
+                self.registers[handler.base + handler.error_reg] = error_value;
+                self.frames.push(frame);
+                return Ok(());
+            }
+            self.registers.truncate(frame.base);
+        }
+        Err(RuntimeError::new(format!("uncaught exception: {}", error_value)))
+    }
+
     fn execute_module(&mut self, path: &str) -> Result<Value, RuntimeError> {
         let base_dir = self
             .frames
@@ -1365,6 +1461,7 @@ impl VM {
             current_class: None,
             current_module: Some(Rc::clone(&module_rc)),
             current_module_path: Some(Rc::new(resolved_key.clone())),
+            exception_handlers: Vec::new(),
         });
         let result = self.run_until(depth)?;
         self.registers.truncate(base);
@@ -1443,7 +1540,7 @@ fn native_print(args: &[Value]) -> Result<Value, RuntimeError> {
         if idx > 0 {
             out.push(' ');
         }
-        out.push_str(&format!("{value:?}"));
+        out.push_str(&format!("{}", value));
     }
     println!("{out}");
     Ok(Value::Null)
@@ -1603,7 +1700,8 @@ fn add_values(a: Value, b: Value) -> Result<Value, RuntimeError> {
         (Value::Float(a), Value::Float(b)) => Ok(Value::Float(a + b)),
         (Value::Int(a), Value::Float(b)) => Ok(Value::Float(a as f64 + b)),
         (Value::Float(a), Value::Int(b)) => Ok(Value::Float(a + b as f64)),
-        (Value::String(a), Value::String(b)) => Ok(Value::String(Rc::new(format!("{}{}", a, b)))),
+        (Value::String(a), b) => Ok(Value::String(Rc::new(format!("{}{}", a, b)))),
+        (a, Value::String(b)) => Ok(Value::String(Rc::new(format!("{}{}", a, b)))),
         _ => Err(RuntimeError::new("invalid operands for +")),
     }
 }

@@ -10,14 +10,12 @@ This roadmap stages the implementation from core language to v1 features.
 
 ## Stage 1 - Core Syntax + Expressions (partial)
 
-- Completed: tokens for literals/idents/operators; operator precedence; expression AST/spans; UTF-8 decision; `&&`/`||` parsing + bytecode
-- Partial: dot token + parsing (member access only for map/object fields); range parsing + Range values (iteration semantics handled in Stage 2)
+- Completed: tokens for literals/idents/operators; operator precedence; expression AST/spans; UTF-8 decision; `&&`/`||` parsing + bytecode; dot token + parsing (member access only for map/object fields); range parsing + Range values
 - Missing: full member access semantics (methods/classes), more literal types
 
-## Stage 2 - Statements + Blocks (partial)
+## Stage 2 - Statements + Blocks (complete)
 
-- Completed: `let`/`const`/assignments; scoped blocks; `if/else`, `while`, `break`, `continue`
-- Partial: `for` loops over ranges/arrays/map keys/sets (unbounded `start..` requires `break`)
+- Completed: `let`/`const`/assignments; scoped blocks; `if/else`, `while`, `break`, `continue`; `for` loops over ranges/arrays/map keys/sets (including multiple identifiers `for (k, v in coll)`)
 - Missing: `for` over iterators/generators
 
 ## Stage 3 - Functions (complete)
@@ -42,7 +40,7 @@ This roadmap stages the implementation from core language to v1 features.
 - Missing: richer collection APIs
 
 ## Stage 7 - OOP Core (complete)
-...
+
 ## Stage 9 - Functional Features (partial)
 
 - Completed: pipeline operator, basic pattern matching, lambdas/closures (shorthand and anonymous fn expressions)
@@ -50,9 +48,10 @@ This roadmap stages the implementation from core language to v1 features.
 - Missing: 
 
 
-## Stage 10 - Error Handling (not started)
+## Stage 10 - Error Handling (partial)
 
-- Not started: try/catch/finally, Result/Option syntax
+- Completed: basic try/catch/finally, throw syntax and VM support
+- Missing: Result/Option syntax, multiple catch blocks with type checking
 
 ## Stage 11 - Async + Concurrency (not started)
 
@@ -69,8 +68,7 @@ This roadmap stages the implementation from core language to v1 features.
 
 ## Stage 14 - Runtime + VM (Register-Based) (partial)
 
-- Completed: register bytecode format; compiler for literals/unary/binary/if/while/assignments; VM arithmetic/comparison/jumps
-- Partial: function call frames, class instances
+- Completed: register bytecode format; compiler for literals/unary/binary/if/while/assignments; VM arithmetic/comparison/jumps; function call frames, class instances; exception handling
 - Missing: GC baseline (mark-sweep), performance work
 
 ## Stage 14.1 - Core VM Crates (partial)

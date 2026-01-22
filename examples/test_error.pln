@@ -1,0 +1,23 @@
+fn risky(fail) {
+    if (fail) {
+        throw "something went wrong";
+    }
+    return "success";
+}
+
+try {
+    print("Trying success...");
+    print(risky(false));
+} catch (e) {
+    print("Caught error: " + e);
+}
+
+try {
+    print("Trying failure...");
+    let result = risky(true);
+    print(result);
+} catch (e) {
+    print("Caught error: " + e);
+} finally {
+    print("Finally block executed");
+}
