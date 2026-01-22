@@ -132,19 +132,29 @@ impl Compiler {
                 value,
                 mutable,
                 is_const,
-                ..
+                ty,
             } => {
                 if *is_const && value.is_none() {
                     return Err(CompileError::new("const requires an initializer"));
                 }
-                if let Some(expr) = value {
+                let reg = if let Some(expr) = value {
                     let reg = self.compile_expr(expr)?;
-                    self.insert_local(name.clone(), reg, *mutable);
+                    if let Some(ty_name) = ty {
+                        self.emit_type_check(reg, ty_name)?;
+                    }
+                    reg
                 } else {
                     let reg = self.registers.allocate()?;
                     self.emit(Opcode::LoadNull, reg, 0, 0);
-                    self.insert_local(name.clone(), reg, *mutable);
-                }
+                    // For now, Null is only allowed if no type or if we add optional types later
+                    // but many primitives don't allow Null. 
+                    // Keeping it simple: if typed, Null must match the type (it won't for Int etc)
+                    if let Some(ty_name) = ty {
+                        self.emit_type_check(reg, ty_name)?;
+                    }
+                    reg
+                };
+                self.insert_local(name.clone(), reg, *mutable, ty.clone());
                 Ok(())
             }
             Stmt::Assign { name, value } => {
@@ -154,6 +164,9 @@ impl Compiler {
                     .ok_or_else(|| CompileError::new("unknown local in assignment"))?;
                 if !local.mutable {
                     return Err(CompileError::new("cannot assign to immutable binding"));
+                }
+                if let Some(ty_name) = &local.ty {
+                    self.emit_type_check(value_reg, ty_name)?;
                 }
                 self.emit(Opcode::Move, local.reg, value_reg, 0);
                 self.free_temp(value_reg);
@@ -242,13 +255,13 @@ impl Compiler {
                 match kind {
                     pleno_ast::ImportKind::Module { alias } => {
                         if let Some(name) = alias {
-                            self.insert_local(name.clone(), module_reg, false);
+                            self.insert_local(name.clone(), module_reg, false, None);
                         } else {
                             self.free_temp(module_reg);
                         }
                     }
                     pleno_ast::ImportKind::Star { alias } => {
-                        self.insert_local(alias.clone(), module_reg, false);
+                        self.insert_local(alias.clone(), module_reg, false, None);
                     }
                     pleno_ast::ImportKind::Names(items) => {
                         for item in items {
@@ -257,7 +270,7 @@ impl Compiler {
                             let dest = self.registers.allocate()?;
                             self.emit(Opcode::GetProperty, dest, module_reg, name_idx);
                             let local_name = item.alias.clone().unwrap_or(item.name.clone());
-                            self.insert_local(local_name, dest, false);
+                            self.insert_local(local_name, dest, false, None);
                         }
                         self.free_temp(module_reg);
                     }
@@ -403,7 +416,7 @@ impl Compiler {
                             "function name already defined in scope",
                         ));
                     }
-                    self.insert_local(name.clone(), func_reg, false);
+                    self.insert_local(name.clone(), func_reg, false, None);
                 }
                 Ok(())
             }
@@ -793,7 +806,7 @@ impl Compiler {
                             // Identity match: always matches and binds
                             let reg = self.registers.allocate()?;
                             self.emit(Opcode::Move, reg, value_reg, 0);
-                            self.insert_local(name.clone(), reg, false);
+                            self.insert_local(name.clone(), reg, false, None);
                         }
                         Pattern::Underscore => {
                             // Wildcard match: always matches
@@ -932,7 +945,7 @@ impl Compiler {
         // Reserve the register so it's not reused as a temp
         let error_name = format!("$try_error_{}", self.loop_counter);
         self.loop_counter += 1;
-        self.insert_local(error_name.clone(), error_reg, false);
+        self.insert_local(error_name.clone(), error_reg, false, None);
 
         let push_handler_idx = self.chunk.code.len();
         self.emit(Opcode::PushHandler, error_reg, 0, 0);
@@ -946,16 +959,61 @@ impl Compiler {
         self.patch_jump(push_handler_idx)?;
 
         // Error occurred, error_reg contains the value
-        if !catch_branches.is_empty() {
-            // For now, support only the first catch block without type checking
-            let catch = &catch_branches[0];
+        let mut end_jumps = Vec::new();
+
+        for catch in catch_branches {
+            let mut next_catch_jump = None;
+            if let Some(ty_name) = &catch.ty {
+                let type_reg = self.registers.allocate()?;
+                // Try to resolve as global or treat as primitive name
+                let name_idx = self.add_constant(Value::String(ty_name.clone().into()));
+                self.emit(Opcode::GetGlobal, type_reg, name_idx, 0);
+                
+                // If GetGlobal returned Null, it might be a primitive name
+                let is_null_reg = self.registers.allocate()?;
+                self.emit(Opcode::LoadNull, is_null_reg, 0, 0);
+                self.emit(Opcode::Eq, is_null_reg, type_reg, is_null_reg);
+                let skip_primitive_load = self.emit_jump(Opcode::JumpIfNot, is_null_reg);
+                
+                // Load primitive name as string
+                self.emit(Opcode::LoadConst, type_reg, name_idx, 0);
+                
+                self.patch_jump(skip_primitive_load)?;
+                self.free_temp(is_null_reg);
+
+                let is_match_reg = self.registers.allocate()?;
+                self.emit(Opcode::Is, is_match_reg, error_reg, type_reg);
+                next_catch_jump = Some(self.emit_jump(Opcode::JumpIfNot, is_match_reg));
+                
+                self.free_temp(type_reg);
+                self.free_temp(is_match_reg);
+            }
+
             self.locals.push(HashMap::new());
-            self.insert_local(catch.name.clone(), error_reg, false);
+            self.insert_local(catch.name.clone(), error_reg, false, catch.ty.clone());
             self.compile_stmt(&catch.body)?;
             self.pop_scope();
-        } else {
-            // Re-throw if no catch blocks
+
+            let jump = self.emit_jump(Opcode::Jump, 0);
+            end_jumps.push(jump);
+
+            if let Some(jump) = next_catch_jump {
+                self.patch_jump(jump)?;
+            }
+        }
+
+        // If no catch blocks matched, or if we fell through all of them
+        if !catch_branches.is_empty() {
+            // Re-throw if none of the catch blocks matched
             self.emit(Opcode::Throw, error_reg, 0, 0);
+        } else if finally_branch.is_none() {
+             // This case should be caught by parser (at least one catch or finally)
+             // but just in case, re-throw.
+             self.emit(Opcode::Throw, error_reg, 0, 0);
+        }
+
+        for jump in end_jumps {
+            self.patch_jump(jump)?;
         }
 
         self.patch_jump(jump_to_finally)?;
@@ -964,7 +1022,6 @@ impl Compiler {
             self.compile_stmt(finally)?;
         }
 
-        // The error_reg is now a local in the outer scope, it will be freed when that scope ends.
         Ok(())
     }
 
@@ -1047,12 +1104,12 @@ impl Compiler {
     ) -> Result<(), CompileError> {
         self.locals.push(HashMap::new());
         let start_reg = self.compile_expr(start)?;
-        self.insert_local(name.to_string(), start_reg, true);
+        self.insert_local(name.to_string(), start_reg, true, None);
 
         let end_reg = self.compile_expr(end)?;
         let end_name = format!("$for_end_{}", self.loop_counter);
         self.loop_counter += 1;
-        self.insert_local(end_name, end_reg, false);
+        self.insert_local(end_name, end_reg, false, None);
 
         let loop_start = self.chunk.code.len();
         let cond_reg = self.registers.allocate()?;
@@ -1093,7 +1150,7 @@ impl Compiler {
     ) -> Result<(), CompileError> {
         self.locals.push(HashMap::new());
         let start_reg = self.compile_expr(start)?;
-        self.insert_local(name.to_string(), start_reg, true);
+        self.insert_local(name.to_string(), start_reg, true, None);
 
         let loop_start = self.chunk.code.len();
         self.push_loop(None);
@@ -1137,13 +1194,13 @@ impl Compiler {
         self.free_temp(source_reg);
         let collection_name = format!("$for_collection_{}", self.loop_counter);
         self.loop_counter += 1;
-        self.insert_local(collection_name, collection_reg, false);
+        self.insert_local(collection_name, collection_reg, false, None);
 
         let index_reg = self.registers.allocate()?;
         self.emit(Opcode::LoadInt, index_reg, 0, 0);
         let index_name = format!("$for_index_{}", self.loop_counter);
         self.loop_counter += 1;
-        self.insert_local(index_name, index_reg, true);
+        self.insert_local(index_name, index_reg, true, None);
 
         let loop_start = self.chunk.code.len();
         let len_reg = self.registers.allocate()?;
@@ -1158,19 +1215,19 @@ impl Compiler {
         self.emit(Opcode::GetIndex, item_reg, collection_reg, index_reg);
 
         if names.len() == 1 {
-            self.insert_local(names[0].clone(), item_reg, true);
+            self.insert_local(names[0].clone(), item_reg, true, None);
         } else {
             let key_reg = self.registers.allocate()?;
             let zero_reg = self.registers.allocate()?;
             self.emit(Opcode::LoadInt, zero_reg, 0, 0);
             self.emit(Opcode::GetIndex, key_reg, item_reg, zero_reg);
-            self.insert_local(names[0].clone(), key_reg, true);
+            self.insert_local(names[0].clone(), key_reg, true, None);
 
             let val_reg = self.registers.allocate()?;
             let one_reg = self.registers.allocate()?;
             self.emit(Opcode::LoadInt, one_reg, 1, 0);
             self.emit(Opcode::GetIndex, val_reg, item_reg, one_reg);
-            self.insert_local(names[1].clone(), val_reg, true);
+            self.insert_local(names[1].clone(), val_reg, true, None);
 
             self.free_temp(zero_reg);
             self.free_temp(one_reg);
@@ -1231,7 +1288,15 @@ impl Compiler {
         params.extend(decl.params.iter().map(|param| param.name.clone()));
         for param in &params {
             let reg = compiler.registers.allocate()?;
-            compiler.insert_local(param.clone(), reg, true);
+            let ty = if param == "this" {
+                None
+            } else {
+                decl.params
+                    .iter()
+                    .find(|p| p.name == *param)
+                    .and_then(|p| p.ty.clone())
+            };
+            compiler.insert_local(param.clone(), reg, true, ty);
         }
         for param in decl.params.iter() {
             if let Some(default) = &param.default {
@@ -1496,10 +1561,11 @@ impl Compiler {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 struct Local {
     reg: u8,
     mutable: bool,
+    ty: Option<String>,
 }
 
 #[derive(Clone)]
@@ -1537,15 +1603,55 @@ impl Compiler {
         Ok(())
     }
 
-    fn insert_local(&mut self, name: String, reg: u8, mutable: bool) {
+    fn emit_type_check(&mut self, reg: u8, ty_name: &str) -> Result<(), CompileError> {
+        let type_reg = self.registers.allocate()?;
+        let name_idx = self.add_constant(Value::String(ty_name.to_string().into()));
+        self.emit(Opcode::GetGlobal, type_reg, name_idx, 0);
+
+        let is_null_reg = self.registers.allocate()?;
+        self.emit(Opcode::LoadNull, is_null_reg, 0, 0);
+        self.emit(Opcode::Eq, is_null_reg, type_reg, is_null_reg);
+        let skip_primitive_load = self.emit_jump(Opcode::JumpIfNot, is_null_reg);
+        self.emit(Opcode::LoadConst, type_reg, name_idx, 0);
+        self.patch_jump(skip_primitive_load)?;
+        self.free_temp(is_null_reg);
+
+        let is_match_reg = self.registers.allocate()?;
+        self.emit(Opcode::Is, is_match_reg, reg, type_reg);
+        let ok_jump = self.emit_jump(Opcode::JumpIf, is_match_reg);
+
+        // Throw type error
+        let error_msg = format!("Type error: expected {}, found ", ty_name);
+        let msg_idx = self.add_constant(Value::String(error_msg.into()));
+        let msg_reg = self.registers.allocate()?;
+        self.emit(Opcode::LoadConst, msg_reg, msg_idx, 0);
+
+        let actual_type_reg = self.registers.allocate()?;
+        self.emit(Opcode::TypeOf, actual_type_reg, reg, 0);
+
+        let final_msg_reg = self.registers.allocate()?;
+        self.emit(Opcode::Add, final_msg_reg, msg_reg, actual_type_reg);
+
+        self.emit(Opcode::Throw, final_msg_reg, 0, 0);
+
+        self.patch_jump(ok_jump)?;
+        self.free_temp(type_reg);
+        self.free_temp(is_match_reg);
+        self.free_temp(msg_reg);
+        self.free_temp(actual_type_reg);
+        self.free_temp(final_msg_reg);
+        Ok(())
+    }
+
+    fn insert_local(&mut self, name: String, reg: u8, mutable: bool, ty: Option<String>) {
         let scope = self.locals.last_mut().expect("scope exists");
-        scope.insert(name, Local { reg, mutable });
+        scope.insert(name, Local { reg, mutable, ty });
     }
 
     fn resolve_local(&self, name: &str) -> Option<Local> {
         for scope in self.locals.iter().rev() {
             if let Some(local) = scope.get(name) {
-                return Some(*local);
+                return Some(local.clone());
             }
         }
         None
