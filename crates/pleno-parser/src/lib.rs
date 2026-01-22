@@ -29,6 +29,7 @@ impl Parser {
     }
 
     fn parse_stmt(&mut self) -> Result<Stmt, ParseError> {
+        let annotations = self.parse_annotations()?;
         match self.peek_kind() {
             TokenKind::KeywordModule => self.parse_module_stmt(),
             TokenKind::KeywordLet => self.parse_let_stmt(),
@@ -38,13 +39,54 @@ impl Parser {
             TokenKind::KeywordFor => self.parse_for_stmt(),
             TokenKind::KeywordImport => self.parse_import_stmt(),
             TokenKind::KeywordExport => self.parse_export_stmt(),
-            TokenKind::KeywordClass => self.parse_class_stmt(),
-            TokenKind::KeywordFn => self.parse_fn_stmt(),
+            TokenKind::KeywordClass => {
+                let stmt = self.parse_class_stmt()?;
+                if let Stmt::Class {
+                    name,
+                    fields,
+                    methods,
+                    superclass,
+                    ..
+                } = stmt
+                {
+                    Ok(Stmt::Class {
+                        name,
+                        fields,
+                        methods,
+                        superclass,
+                        annotations,
+                    })
+                } else {
+                    Ok(stmt)
+                }
+            }
+            TokenKind::KeywordFn => {
+                let decl = self.parse_function_decl(
+                    pleno_ast::FunctionKind::Method,
+                    false,
+                    None,
+                    None,
+                    annotations,
+                )?;
+                Ok(Stmt::Fn {
+                    name: decl.name,
+                    params: decl.params,
+                    body: decl.body,
+                    annotations: decl.annotations,
+                })
+            }
             TokenKind::KeywordReturn => self.parse_return_stmt(),
             TokenKind::KeywordBreak => self.parse_break_stmt(),
             TokenKind::KeywordContinue => self.parse_continue_stmt(),
             TokenKind::LBrace => self.parse_block_stmt(),
             _ => {
+                if !annotations.is_empty() {
+                    return Err(ParseError {
+                        message: "Annotations are only allowed on functions, classes, and fields"
+                            .to_string(),
+                        span: self.previous_span(),
+                    });
+                }
                 let expr = self.parse_expr()?;
                 if self.matches(&TokenKind::Equal) {
                     let value = self.parse_expr()?;
@@ -420,6 +462,7 @@ impl Parser {
         let mut fields = Vec::new();
         let mut methods = Vec::new();
         while !self.is_at_end() && !matches!(self.peek_kind(), TokenKind::RBrace) {
+            let annotations = self.parse_annotations()?;
             let mut visibility = None;
             let mut is_static = false;
             loop {
@@ -453,6 +496,7 @@ impl Parser {
                     true,
                     visibility,
                     Some(is_static),
+                    annotations,
                 )?);
                 continue;
             }
@@ -461,6 +505,7 @@ impl Parser {
                     pleno_ast::FunctionKind::Getter,
                     visibility,
                     is_static,
+                    annotations,
                 )?);
                 continue;
             }
@@ -469,6 +514,7 @@ impl Parser {
                     pleno_ast::FunctionKind::Setter,
                     visibility,
                     is_static,
+                    annotations,
                 )?);
                 continue;
             }
@@ -478,7 +524,7 @@ impl Parser {
                     return Err(ParseError {
                         message: format!("Expected field name in class body, found {other:?}"),
                         span: self.previous_span(),
-                    })
+                    });
                 }
             };
             self.expect(TokenKind::Semicolon, "Expected ';' after field declaration")?;
@@ -486,7 +532,7 @@ impl Parser {
                 name,
                 is_static,
                 visibility,
-                annotations: Vec::new(),
+                annotations,
             });
         }
         self.expect(TokenKind::RBrace, "Expected '}' after class body")?;
@@ -504,6 +550,7 @@ impl Parser {
         allow_modifiers: bool,
         visibility: Option<pleno_ast::Visibility>,
         is_static: Option<bool>,
+        annotations: Vec<pleno_ast::Annotation>,
     ) -> Result<pleno_ast::FunctionDecl, ParseError> {
         self.advance();
         let name = match self.advance().kind.clone() {
@@ -512,7 +559,7 @@ impl Parser {
                 return Err(ParseError {
                     message: format!("Expected function name, found {other:?}"),
                     span: self.previous_span(),
-                })
+                });
             }
         };
         self.expect(TokenKind::LParen, "Expected '(' after function name")?;
@@ -537,7 +584,7 @@ impl Parser {
             is_static,
             visibility,
             kind,
-            annotations: Vec::new(),
+            annotations,
         })
     }
 
@@ -546,6 +593,7 @@ impl Parser {
         kind: pleno_ast::FunctionKind,
         visibility: Option<pleno_ast::Visibility>,
         is_static: bool,
+        annotations: Vec<pleno_ast::Annotation>,
     ) -> Result<pleno_ast::FunctionDecl, ParseError> {
         self.advance();
         let name = match self.advance().kind.clone() {
@@ -554,7 +602,7 @@ impl Parser {
                 return Err(ParseError {
                     message: format!("Expected accessor name, found {other:?}"),
                     span: self.previous_span(),
-                })
+                });
             }
         };
         self.expect(TokenKind::LParen, "Expected '(' after accessor name")?;
@@ -565,13 +613,13 @@ impl Parser {
                 return Err(ParseError {
                     message: "getter cannot take parameters".to_string(),
                     span: self.previous_span(),
-                })
+                });
             }
             pleno_ast::FunctionKind::Setter if params.len() != 1 => {
                 return Err(ParseError {
                     message: "setter must take exactly one parameter".to_string(),
                     span: self.previous_span(),
-                })
+                });
             }
             _ => {}
         }
@@ -583,8 +631,41 @@ impl Parser {
             is_static,
             visibility,
             kind,
-            annotations: Vec::new(),
+            annotations,
         })
+    }
+
+    fn parse_annotations(&mut self) -> Result<Vec<pleno_ast::Annotation>, ParseError> {
+        let mut annotations = Vec::new();
+        while self.matches(&TokenKind::At) {
+            annotations.push(self.parse_annotation()?);
+        }
+        Ok(annotations)
+    }
+
+    fn parse_annotation(&mut self) -> Result<pleno_ast::Annotation, ParseError> {
+        let name = match self.advance().kind.clone() {
+            TokenKind::Ident(name) => name,
+            other => {
+                return Err(ParseError {
+                    message: format!("Expected annotation name, found {other:?}"),
+                    span: self.previous_span(),
+                });
+            }
+        };
+        let mut args = Vec::new();
+        if self.matches(&TokenKind::LParen) {
+            if !matches!(self.peek_kind(), TokenKind::RParen) {
+                loop {
+                    args.push(self.parse_expr()?);
+                    if !self.matches(&TokenKind::Comma) {
+                        break;
+                    }
+                }
+            }
+            self.expect(TokenKind::RParen, "Expected ')' after annotation arguments")?;
+        }
+        Ok(pleno_ast::Annotation { name, args })
     }
 
     fn parse_param_list(&mut self) -> Result<Vec<pleno_ast::Param>, ParseError> {
@@ -868,6 +949,7 @@ impl Parser {
             TokenKind::String(value) => Expr::Literal(Literal::String(value)),
             TokenKind::Bool(value) => Expr::Literal(Literal::Bool(value)),
             TokenKind::Null => Expr::Literal(Literal::Null),
+            TokenKind::Underscore => Expr::Underscore,
             TokenKind::Ident(name) => Expr::Ident(name),
             TokenKind::KeywordThis => Expr::This,
             TokenKind::KeywordSuper => Expr::Super,
@@ -941,7 +1023,10 @@ impl Parser {
                 let mut args = Vec::new();
                 if !matches!(self.peek_kind(), TokenKind::RParen) {
                     loop {
-                        let arg = if matches!(self.peek_kind(), TokenKind::Ident(_))
+                        let arg = if matches!(self.peek_kind(), TokenKind::Underscore) {
+                            self.advance();
+                            pleno_ast::CallArg::Placeholder
+                        } else if matches!(self.peek_kind(), TokenKind::Ident(_))
                             && matches!(self.peek_next_kind(), Some(TokenKind::Equal))
                         {
                             let name = match self.advance().kind.clone() {

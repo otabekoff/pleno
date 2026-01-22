@@ -69,6 +69,7 @@ pub enum Opcode {
     LoadInt,
     AddInt,
     SubInt,
+    Partial,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
