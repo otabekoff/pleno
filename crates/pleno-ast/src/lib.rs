@@ -81,6 +81,23 @@ pub enum Expr {
         left: Box<Expr>,
         right: Box<Expr>,
     },
+    Match {
+        expr: Box<Expr>,
+        arms: Vec<MatchArm>,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct MatchArm {
+    pub pattern: Pattern,
+    pub body: Expr,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum Pattern {
+    Literal(Literal),
+    Ident(String),
+    Underscore,
 }
 
 #[derive(Debug, Clone, PartialEq)]
