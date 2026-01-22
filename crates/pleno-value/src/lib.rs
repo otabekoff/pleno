@@ -31,6 +31,10 @@ pub enum Value {
         captures: Vec<Value>,
     },
     NativeFunction(NativeFunction),
+    BoundNativeMethod {
+        receiver: Box<Value>,
+        function: NativeFunction,
+    },
     Map(Rc<RefCell<HashMap<String, Value>>>),
     Array(Rc<RefCell<Vec<Value>>>),
     Set(Rc<RefCell<HashSet<ValueKey>>>),
@@ -115,6 +119,16 @@ impl PartialEq for Value {
             (Value::NativeFunction(a), Value::NativeFunction(b)) => {
                 (*a as usize) == (*b as usize)
             }
+            (
+                Value::BoundNativeMethod {
+                    receiver: ra,
+                    function: fa,
+                },
+                Value::BoundNativeMethod {
+                    receiver: rb,
+                    function: fb,
+                },
+            ) => ra == rb && (*fa as usize) == (*fb as usize),
             (Value::Map(a), Value::Map(b)) => Rc::ptr_eq(a, b),
             (Value::Array(a), Value::Array(b)) => Rc::ptr_eq(a, b),
             (Value::Set(a), Value::Set(b)) => Rc::ptr_eq(a, b),
@@ -165,6 +179,7 @@ impl std::fmt::Display for Value {
             Value::StaticMethod { owner, .. } => write!(f, "<static method of {}>", owner),
             Value::Closure { .. } => write!(f, "<closure>"),
             Value::NativeFunction(_) => write!(f, "<native fn>"),
+            Value::BoundNativeMethod { .. } => write!(f, "<native method>"),
             Value::Map(m) => {
                 write!(f, "{{")?;
                 for (i, (k, v)) in m.borrow().iter().enumerate() {

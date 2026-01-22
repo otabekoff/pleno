@@ -1,6 +1,7 @@
 use pleno_bytecode::{Chunk, Opcode, ParamSpec};
 use pleno_value::{
-    Class, MethodInfo, MethodVisibility, Object, Range, RuntimeError, Value, ValueKey,
+    Class, MethodInfo, MethodVisibility, NativeFunction, Object, Range, RuntimeError, Value,
+    ValueKey,
 };
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -635,6 +636,7 @@ impl VM {
                                     None,
                                     Vec::new(),
                                     Some(Rc::clone(&info.owner)),
+                                    false,
                                 )?;
                                 continue;
                             }
@@ -669,6 +671,42 @@ impl VM {
                                     function: info.function,
                                     owner: Rc::clone(&info.owner),
                                     visibility: info.visibility,
+                                }
+                            } else {
+                                Value::Null
+                            }
+                        }
+                        Value::Set(set) => {
+                            if name == "len" {
+                                Value::Int(set.borrow().len() as i64)
+                            } else if let Some(func) = resolve_builtin_method("Set", &name) {
+                                Value::BoundNativeMethod {
+                                    receiver: Box::new(Value::Set(Rc::clone(set))),
+                                    function: func,
+                                }
+                            } else {
+                                Value::Null
+                            }
+                        }
+                        Value::Array(array) => {
+                            if name == "len" {
+                                Value::Int(array.borrow().len() as i64)
+                            } else if let Some(func) = resolve_builtin_method("Array", &name) {
+                                Value::BoundNativeMethod {
+                                    receiver: Box::new(Value::Array(Rc::clone(array))),
+                                    function: func,
+                                }
+                            } else {
+                                Value::Null
+                            }
+                        }
+                        Value::String(s) => {
+                            if name == "len" {
+                                Value::Int(s.len() as i64)
+                            } else if let Some(func) = resolve_builtin_method("String", &name) {
+                                Value::BoundNativeMethod {
+                                    receiver: Box::new(Value::String(Rc::clone(s))),
+                                    function: func,
                                 }
                             } else {
                                 Value::Null
@@ -1024,10 +1062,11 @@ impl VM {
                                 None,
                                 Vec::new(),
                                 None,
+                                false,
                             )?;
                         }
                         Value::Function(handle) => {
-                            self.call_function(handle, None, &args, base + a, None, Vec::new(), None)?;
+                            self.call_function(handle, None, &args, base + a, None, Vec::new(), None, false)?;
                         }
                         Value::Closure { function, captures } => {
                             self.call_function(
@@ -1038,10 +1077,17 @@ impl VM {
                                 None,
                                 captures,
                                 None,
+                                false,
                             )?;
                         }
                         Value::NativeFunction(func) => {
                             let result = func(&args)?;
+                            self.registers[base + a] = result;
+                        }
+                        Value::BoundNativeMethod { receiver, function } => {
+                            let mut merged_args = vec![*receiver];
+                            merged_args.extend(args);
+                            let result = function(&merged_args)?;
                             self.registers[base + a] = result;
                         }
                         Value::BoundMethod {
@@ -1058,6 +1104,7 @@ impl VM {
                                 None,
                                 Vec::new(),
                                 Some(owner),
+                                false,
                             )?;
                         }
                         Value::StaticMethod {
@@ -1071,6 +1118,7 @@ impl VM {
                                 None,
                                 Vec::new(),
                                 Some(owner),
+                                false,
                             )?;
                         }
                         Value::Class(class) => {
@@ -1087,6 +1135,7 @@ impl VM {
                                     Some(Value::Object(Rc::clone(&object))),
                                     Vec::new(),
                                     Some(Rc::clone(&class.name)),
+                                    false,
                                 )?;
                             } else {
                                 self.registers[base + a] = Value::Object(object);
@@ -1192,6 +1241,7 @@ impl VM {
                         Value::StaticMethod { .. } => "Function",
                         Value::Closure { .. } => "Function",
                         Value::NativeFunction(_) => "Function",
+                        Value::BoundNativeMethod { .. } => "Function",
                         Value::Map(_) => "Map",
                         Value::Array(_) => "Array",
                         Value::Set(_) => "Set",
@@ -1219,6 +1269,7 @@ impl VM {
                                 ("Function", Value::Function(_)) => true,
                                 ("Function", Value::Closure { .. }) => true,
                                 ("Function", Value::NativeFunction(_)) => true,
+                                ("Function", Value::BoundNativeMethod { .. }) => true,
                                 ("Function", Value::BoundMethod { .. }) => true,
                                 ("Function", Value::StaticMethod { .. }) => true,
                                 ("Function", Value::Partial { .. }) => true,
@@ -1365,6 +1416,16 @@ impl VM {
                 self.registers[return_reg] = result;
                 Ok(())
             }
+            Value::BoundNativeMethod { receiver, function } => {
+                if !named.is_empty() {
+                    return Err(RuntimeError::new("named args not supported for native functions"));
+                }
+                let mut merged_args = vec![*receiver];
+                merged_args.extend(positional);
+                let result = function(&merged_args)?;
+                self.registers[return_reg] = result;
+                Ok(())
+            }
             Value::Class(class) => {
                 let object = Rc::new(std::cell::RefCell::new(Object {
                     class: Some(Rc::clone(&class)),
@@ -1376,15 +1437,18 @@ impl VM {
                         .get(handle)
                         .ok_or_else(|| RuntimeError::new("unknown function handle"))?;
                     let args = self.build_named_args(function, true, &positional, &named)?;
+                    let mut final_args = vec![Value::Object(Rc::clone(&object))];
+                    final_args.extend(args);
                     let override_value = Some(Value::Object(Rc::clone(&object)));
                     self.call_function(
                         handle,
                         Some(object),
-                        &args,
+                        &final_args,
                         return_reg,
                         override_value,
                         Vec::new(),
                         Some(Rc::clone(&class.name)),
+                        true,
                     )
                 } else if positional.is_empty() && named.is_empty() {
                     self.registers[return_reg] = Value::Object(object);
@@ -1399,7 +1463,7 @@ impl VM {
                     .get(handle)
                     .ok_or_else(|| RuntimeError::new("unknown function handle"))?;
                 let args = self.build_named_args(function, false, &positional, &named)?;
-                self.call_function(handle, None, &args, return_reg, None, Vec::new(), None)
+                self.call_function(handle, None, &args, return_reg, None, Vec::new(), None, true)
             }
             Value::BoundMethod {
                 receiver,
@@ -1412,14 +1476,17 @@ impl VM {
                     .get(function)
                     .ok_or_else(|| RuntimeError::new("unknown function handle"))?;
                 let args = self.build_named_args(function_info, true, &positional, &named)?;
+                let mut final_args = vec![Value::Object(Rc::clone(&receiver))];
+                final_args.extend(args);
                 self.call_function(
                     function,
                     Some(receiver),
-                    &args,
+                    &final_args,
                     return_reg,
                     None,
                     Vec::new(),
                     Some(owner),
+                    true,
                 )
             }
             Value::StaticMethod {
@@ -1440,6 +1507,7 @@ impl VM {
                     None,
                     Vec::new(),
                     Some(owner),
+                    true,
                 )
             }
             Value::Closure { function, captures } => {
@@ -1448,7 +1516,7 @@ impl VM {
                     .get(function)
                     .ok_or_else(|| RuntimeError::new("unknown function handle"))?;
                 let args = self.build_named_args(function_info, false, &positional, &named)?;
-                self.call_function(function, None, &args, return_reg, None, captures, None)
+                self.call_function(function, None, &args, return_reg, None, captures, None, true)
             }
             _ => Err(RuntimeError::new("call on non-callable value")),
         }
@@ -1915,4 +1983,115 @@ fn apply_offset(ip: usize, offset: i16) -> Result<usize, RuntimeError> {
         return Err(RuntimeError::new("jump offset out of bounds"));
     }
     Ok(next as usize)
+}
+
+fn resolve_builtin_method(ty: &str, name: &str) -> Option<NativeFunction> {
+    match (ty, name) {
+        ("String", "upper") => Some(native_string_upper),
+        ("String", "lower") => Some(native_string_lower),
+        ("Array", "push") => Some(native_array_push),
+        ("Array", "pop") => Some(native_array_pop),
+        ("Array", "clear") => Some(native_array_clear),
+        ("Set", "add") => Some(native_set_add),
+        ("Set", "remove") => Some(native_set_remove),
+        ("Set", "clear") => Some(native_set_clear),
+        ("Set", "contains") => Some(native_set_contains),
+        _ => None,
+    }
+}
+
+fn native_string_upper(args: &[Value]) -> Result<Value, RuntimeError> {
+    let s = match &args[0] {
+        Value::String(s) => s,
+        _ => return Err(RuntimeError::new("expected string")),
+    };
+    Ok(Value::String(Rc::new(s.to_uppercase())))
+}
+
+fn native_string_lower(args: &[Value]) -> Result<Value, RuntimeError> {
+    let s = match &args[0] {
+        Value::String(s) => s,
+        _ => return Err(RuntimeError::new("expected string")),
+    };
+    Ok(Value::String(Rc::new(s.to_lowercase())))
+}
+
+fn native_array_push(args: &[Value]) -> Result<Value, RuntimeError> {
+    let arr = match &args[0] {
+        Value::Array(arr) => arr,
+        _ => return Err(RuntimeError::new("expected array")),
+    };
+    if args.len() < 2 {
+        return Err(RuntimeError::new("push() expects 1 argument"));
+    }
+    let val = args[1].clone();
+    arr.borrow_mut().push(val);
+    Ok(Value::Null)
+}
+
+fn native_array_pop(args: &[Value]) -> Result<Value, RuntimeError> {
+    let arr = match &args[0] {
+        Value::Array(arr) => arr,
+        _ => return Err(RuntimeError::new("expected array")),
+    };
+    Ok(arr.borrow_mut().pop().unwrap_or(Value::Null))
+}
+
+fn native_array_clear(args: &[Value]) -> Result<Value, RuntimeError> {
+    let arr = match &args[0] {
+        Value::Array(arr) => arr,
+        _ => return Err(RuntimeError::new("expected array")),
+    };
+    arr.borrow_mut().clear();
+    Ok(Value::Null)
+}
+
+fn native_set_add(args: &[Value]) -> Result<Value, RuntimeError> {
+    let set = match &args[0] {
+        Value::Set(set) => set,
+        _ => return Err(RuntimeError::new("expected set")),
+    };
+    if args.len() < 2 {
+        return Err(RuntimeError::new("add() expects 1 argument"));
+    }
+    let key = pleno_value::ValueKey::try_from_value(&args[1])
+        .ok_or_else(|| RuntimeError::new("invalid value for set"))?;
+    set.borrow_mut().insert(key);
+    Ok(Value::Null)
+}
+
+fn native_set_remove(args: &[Value]) -> Result<Value, RuntimeError> {
+    let set = match &args[0] {
+        Value::Set(set) => set,
+        _ => return Err(RuntimeError::new("expected set")),
+    };
+    if args.len() < 2 {
+        return Err(RuntimeError::new("remove() expects 1 argument"));
+    }
+    let key = pleno_value::ValueKey::try_from_value(&args[1])
+        .ok_or_else(|| RuntimeError::new("invalid value for set"))?;
+    set.borrow_mut().remove(&key);
+    Ok(Value::Null)
+}
+
+fn native_set_clear(args: &[Value]) -> Result<Value, RuntimeError> {
+    let set = match &args[0] {
+        Value::Set(set) => set,
+        _ => return Err(RuntimeError::new("expected set")),
+    };
+    set.borrow_mut().clear();
+    Ok(Value::Null)
+}
+
+fn native_set_contains(args: &[Value]) -> Result<Value, RuntimeError> {
+    let set = match &args[0] {
+        Value::Set(set) => set,
+        _ => return Err(RuntimeError::new("expected set")),
+    };
+    if args.len() < 2 {
+        return Err(RuntimeError::new("contains() expects 1 argument"));
+    }
+    let key = pleno_value::ValueKey::try_from_value(&args[1])
+        .ok_or_else(|| RuntimeError::new("invalid value for set"))?;
+    Ok(Value::Bool(set.borrow().contains(&key)))
 }

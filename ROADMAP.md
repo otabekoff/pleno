@@ -23,21 +23,20 @@ This roadmap stages the implementation from core language to v1 features.
 - Completed: native/builtin calls; user-defined function declarations/calls; `return`; closures with capture; defaults/named args (including method/closure calls); variadics; keyword-only params; richer call semantics (partials/decorators infrastructure)
 - Missing: keyword-only defaults with namespacing
 
-## Stage 4 - Types (Gradual) (partial)
+## Stage 4 - Types (Gradual) (complete)
 
-- Completed: type annotations parsing for parameters and return types
-- Not started: primitive checking, optional/union types
+- Completed: type annotations parsing for parameters and return types; runtime primitive checking (`Int`, `String`, etc.) in `let`/`assign` and `catch`; class type checking in `is` operator.
+- Missing: optional/union types
 
 ## Stage 5 - Modules + Imports (complete)
 
 - Completed: `import` statement (module load/execute), module export map, module caching, module declarations, structured imports/exports (string paths), basic resolver for relative paths and `sources/`, package/registry integration (stub), resolver for std/registry schemes
 - Missing: full package manager
 
-## Stage 6 - Data Structures (partial)
+## Stage 6 - Data Structures (complete)
 
-- Completed: map/array/set literals; array/map indexing; index assignment; array/map/set iteration; set membership; tuples (positional and named); tuple index access
-- Partial: dot access only on map/object fields
-- Missing: richer collection APIs
+- Completed: map/array/set literals; array/map indexing; index assignment; array/map/set iteration; set membership; tuples (positional and named); tuple index access; dot access for Strings, Arrays, Sets, and Maps (builtin methods like `.len`, `.upper()`, `.push()`, etc.)
+- Missing: richer collection APIs (slices, mapping/filtering)
 
 ## Stage 7 - OOP Core (complete)
 
@@ -48,10 +47,10 @@ This roadmap stages the implementation from core language to v1 features.
 - Missing: 
 
 
-## Stage 10 - Error Handling (partial)
+## Stage 10 - Error Handling (complete)
 
-- Completed: basic try/catch/finally, throw syntax and VM support
-- Missing: Result/Option syntax, multiple catch blocks with type checking
+- Completed: basic try/catch/finally, throw syntax and VM support; multiple catch blocks with type checking (e.g., `catch (e: MyError)`)
+- Missing: Result/Option syntax (monadic sugar)
 
 ## Stage 11 - Async + Concurrency (not started)
 
