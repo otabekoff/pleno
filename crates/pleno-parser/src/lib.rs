@@ -985,7 +985,7 @@ impl Parser {
             TokenKind::Bool(value) => Expr::Literal(Literal::Bool(value)),
             TokenKind::Null => Expr::Literal(Literal::Null),
             TokenKind::Underscore => Expr::Underscore,
-            TokenKind::Ident(name) => Expr::Ident(name),
+            TokenKind::KeywordMatch => self.parse_match_expr()?,
             TokenKind::KeywordThis => Expr::This,
             TokenKind::KeywordSuper => Expr::Super,
             TokenKind::LBrace => {
@@ -1164,6 +1164,40 @@ impl Parser {
             i += 1;
         }
         Ok(true)
+    }
+
+    fn parse_match_expr(&mut self) -> Result<Expr, ParseError> {
+        let expr = Box::new(self.parse_expr()?);
+        self.expect(TokenKind::LBrace, "Expected '{' after match expression")?;
+        let mut arms = Vec::new();
+        while !matches!(self.peek_kind(), TokenKind::RBrace) {
+            let pattern = self.parse_pattern()?;
+            self.expect(TokenKind::FatArrow, "Expected '=>' after pattern")?;
+            let body = self.parse_expr()?;
+            arms.push(pleno_ast::MatchArm { pattern, body });
+            if !self.matches(&TokenKind::Comma) {
+                break;
+            }
+        }
+        self.expect(TokenKind::RBrace, "Expected '}' after match arms")?;
+        Ok(Expr::Match { expr, arms })
+    }
+
+    fn parse_pattern(&mut self) -> Result<pleno_ast::Pattern, ParseError> {
+        let token = self.advance();
+        match token.kind.clone() {
+            TokenKind::Underscore => Ok(pleno_ast::Pattern::Underscore),
+            TokenKind::Ident(name) => Ok(pleno_ast::Pattern::Ident(name)),
+            TokenKind::Int(val) => Ok(pleno_ast::Pattern::Literal(pleno_ast::Literal::Int(val))),
+            TokenKind::Float(val) => Ok(pleno_ast::Pattern::Literal(pleno_ast::Literal::Float(val))),
+            TokenKind::String(val) => Ok(pleno_ast::Pattern::Literal(pleno_ast::Literal::String(val))),
+            TokenKind::Bool(val) => Ok(pleno_ast::Pattern::Literal(pleno_ast::Literal::Bool(val))),
+            TokenKind::Null => Ok(pleno_ast::Pattern::Literal(pleno_ast::Literal::Null)),
+            other => Err(ParseError {
+                message: format!("Expected pattern, found {other:?}"),
+                span: self.previous_span(),
+            }),
+        }
     }
 
     fn is_range_terminator(&self) -> bool {

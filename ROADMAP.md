@@ -25,9 +25,10 @@ This roadmap stages the implementation from core language to v1 features.
 - Completed: native/builtin calls; user-defined function declarations/calls; `return`; closures with capture; defaults/named args (including method/closure calls); variadics; keyword-only params; richer call semantics (partials/decorators infrastructure)
 - Missing: keyword-only defaults with namespacing
 
-## Stage 4 - Types (Gradual) (not started)
+## Stage 4 - Types (Gradual) (partial)
 
-- Not started: type annotations, primitive checking, optional/union types
+- Completed: type annotations parsing for parameters and return types
+- Not started: primitive checking, optional/union types
 
 ## Stage 5 - Modules + Imports (complete)
 
@@ -49,9 +50,10 @@ This roadmap stages the implementation from core language to v1 features.
 
 - Not started: inheritance/interfaces/abstracts, properties/static members
 
-## Stage 9 - Functional Features (not started)
+## Stage 9 - Functional Features (partial)
 
-- Not started: lambdas/closures, pipeline operator, pattern matching
+- Completed: pipeline operator, basic pattern matching
+- Not started: lambdas/closures
 
 ## Stage 10 - Error Handling (not started)
 
