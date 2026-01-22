@@ -165,6 +165,17 @@ pub fn lex(source: &str) -> Result<Vec<Token>, LexError> {
                     token_simple(TokenKind::Pipe, start)
                 }
             }
+            '&' => {
+                if matches!(chars.peek(), Some((_, '&'))) {
+                    let end = chars.next().map(|(idx, _)| idx + 1).unwrap_or(start + 2);
+                    Token {
+                        kind: TokenKind::AndAnd,
+                        span: Span::new(start, end),
+                    }
+                } else {
+                    token_simple(TokenKind::Ident("&".to_string()), start) // or a dedicated token if needed
+                }
+            }
             '=' => {
                 if matches!(chars.peek(), Some((_, '='))) {
                     let end = chars.next().map(|(idx, _)| idx + 1).unwrap_or(start + 2);

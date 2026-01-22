@@ -465,6 +465,7 @@ impl VM {
                                         None,
                                         Vec::new(),
                                         Some(Rc::clone(&info.owner)),
+                                        false,
                                     )?;
                                     continue;
                                 }
@@ -502,6 +503,7 @@ impl VM {
                                     None,
                                     Vec::new(),
                                     Some(Rc::clone(&info.owner)),
+                                    false,
                                 )?;
                                 continue;
                             }
@@ -574,6 +576,7 @@ impl VM {
                                         None,
                                         Vec::new(),
                                         Some(Rc::clone(&info.owner)),
+                                        false,
                                     )?;
                                     continue;
                                 }
@@ -1173,6 +1176,71 @@ impl VM {
                     self.unwind_to_handler(error_value)?;
                     continue;
                 }
+                Opcode::TypeOf => {
+                    let value = &self.registers[base + b];
+                    let type_name = match value {
+                        Value::Null => "Null",
+                        Value::Missing => "Missing",
+                        Value::Bool(_) => "Bool",
+                        Value::Int(_) => "Int",
+                        Value::Float(_) => "Float",
+                        Value::String(_) => "String",
+                        Value::Range(_) => "Range",
+                        Value::Class(_) => "Class",
+                        Value::Function(_) => "Function",
+                        Value::BoundMethod { .. } => "Function",
+                        Value::StaticMethod { .. } => "Function",
+                        Value::Closure { .. } => "Function",
+                        Value::NativeFunction(_) => "Function",
+                        Value::Map(_) => "Map",
+                        Value::Array(_) => "Array",
+                        Value::Set(_) => "Set",
+                        Value::Object(_) => "Object",
+                        Value::Partial { .. } => "Function",
+                    };
+                    self.registers[base + a] = Value::String(Rc::new(type_name.to_string()));
+                }
+                Opcode::Is => {
+                    let value = &self.registers[base + b];
+                    let type_val = &self.registers[base + c];
+                    let result = match type_val {
+                        Value::String(s) => {
+                            let type_name = s.as_str();
+                            match (type_name, value) {
+                                ("Null", Value::Null) => true,
+                                ("Bool", Value::Bool(_)) => true,
+                                ("Int", Value::Int(_)) => true,
+                                ("Float", Value::Float(_)) => true,
+                                ("String", Value::String(_)) => true,
+                                ("Array", Value::Array(_)) => true,
+                                ("Map", Value::Map(_)) => true,
+                                ("Set", Value::Set(_)) => true,
+                                ("Object", Value::Object(_)) => true,
+                                ("Function", Value::Function(_)) => true,
+                                ("Function", Value::Closure { .. }) => true,
+                                ("Function", Value::NativeFunction(_)) => true,
+                                ("Function", Value::BoundMethod { .. }) => true,
+                                ("Function", Value::StaticMethod { .. }) => true,
+                                ("Function", Value::Partial { .. }) => true,
+                                _ => false,
+                            }
+                        }
+                        Value::Class(target_class) => {
+                            match value {
+                                Value::Object(obj) => {
+                                    if let Some(class) = &obj.borrow().class {
+                                        is_subclass_of(class, target_class)
+                                    } else {
+                                        false
+                                    }
+                                }
+                                _ => false,
+                            }
+                        }
+                        _ => false,
+                    };
+                    self.registers[base + a] = Value::Bool(result);
+                }
                 _ => {
                     return Err(RuntimeError::new("opcode not implemented"));
                 }
@@ -1191,6 +1259,7 @@ impl VM {
         return_override: Option<Value>,
         captures: Vec<Value>,
         current_class: Option<Rc<String>>,
+        args_already_processed: bool,
     ) -> Result<(), RuntimeError> {
         let function = self
             .functions
@@ -1199,25 +1268,72 @@ impl VM {
             .clone();
         let current_module = function.module.clone();
         let current_module_path = function.module_path.clone();
-        let mut arg_offset = 0usize;
-        let total_args = if receiver.is_some() { args.len() + 1 } else { args.len() };
-        if total_args > function.arity {
-            return Err(RuntimeError::new("argument count mismatch"));
-        }
+        
+        let processed_args = if args_already_processed {
+            args.to_vec()
+        } else {
+            let mut final_args = Vec::new();
+            if let Some(recv) = receiver.clone() {
+                final_args.push(Value::Object(recv));
+            }
+            final_args.extend(args.iter().cloned());
+
+            let has_variadic = function.params.last().map(|p| p.is_variadic).unwrap_or(false);
+            
+            if !has_variadic && final_args.len() > function.arity {
+                return Err(RuntimeError::new("argument count mismatch"));
+            }
+
+            let mut processed = Vec::new();
+            let mut arg_idx = 0;
+            
+            for param in function.params.iter() {
+                if param.is_variadic {
+                    let rest = final_args[arg_idx..].to_vec();
+                    processed.push(Value::Array(Rc::new(RefCell::new(rest))));
+                    arg_idx = final_args.len();
+                    break;
+                }
+                
+                if param.is_keyword_only {
+                    if arg_idx < final_args.len() {
+                        return Err(RuntimeError::new("keyword-only argument requires name"));
+                    }
+                    if param.has_default {
+                        processed.push(Value::Missing);
+                    } else {
+                        return Err(RuntimeError::new("missing required keyword-only argument"));
+                    }
+                    continue;
+                }
+
+                if arg_idx < final_args.len() {
+                    processed.push(final_args[arg_idx].clone());
+                    arg_idx += 1;
+                } else if param.has_default {
+                    processed.push(Value::Missing);
+                } else {
+                    return Err(RuntimeError::new("missing required argument"));
+                }
+            }
+
+            if arg_idx < final_args.len() {
+                return Err(RuntimeError::new("too many positional arguments"));
+            }
+            processed
+        };
+
         let base = self.registers.len();
         let register_count = function.chunk.max_registers.max(function.arity);
         self.registers
             .extend(std::iter::repeat(Value::Null).take(register_count));
-        if let Some(receiver) = receiver {
-            self.registers[base] = Value::Object(receiver);
-            arg_offset = 1;
+        
+        for (idx, arg) in processed_args.iter().enumerate() {
+            if idx < register_count {
+                self.registers[base + idx] = arg.clone();
+            }
         }
-        for (idx, arg) in args.iter().enumerate() {
-            self.registers[base + idx + arg_offset] = arg.clone();
-        }
-        for idx in (args.len() + arg_offset)..function.arity {
-            self.registers[base + idx] = Value::Missing;
-        }
+        
         self.frames.push(CallFrame {
             function_index: handle,
             ip: 0,
@@ -1683,6 +1799,20 @@ fn is_subclass(
         current = next.superclass.as_ref().map(Rc::clone);
     }
     Some(false)
+}
+
+fn is_subclass_of(class: &Rc<Class>, target: &Rc<Class>) -> bool {
+    if Rc::ptr_eq(class, target) {
+        return true;
+    }
+    let mut current = class.superclass.clone();
+    while let Some(super_class) = current {
+        if Rc::ptr_eq(&super_class, target) {
+            return true;
+        }
+        current = super_class.superclass.clone();
+    }
+    false
 }
 
 fn is_truthy(value: &Value) -> bool {
