@@ -37,23 +37,18 @@ This roadmap stages the implementation from core language to v1 features.
 
 ## Stage 6 - Data Structures (partial)
 
-- Completed: map/array/set literals; array/map indexing; index assignment; array/map/set iteration; set membership
+- Completed: map/array/set literals; array/map indexing; index assignment; array/map/set iteration; set membership; tuples (positional and named); tuple index access
 - Partial: dot access only on map/object fields
-- Missing: tuples, richer collection APIs
+- Missing: richer collection APIs
 
 ## Stage 7 - OOP Core (complete)
-
-- Completed: class declarations with methods/constructors; instance fields via dot; `this`; `super` + inheritance; static methods; static fields; access modifiers enforced for methods and fields; accessors (get/set) supported; property/accessor annotations; declarative properties
-- Missing: interface/abstract enforcement
-
-## Stage 8 - Advanced OOP (not started)
-
-- Not started: inheritance/interfaces/abstracts, properties/static members
-
+...
 ## Stage 9 - Functional Features (partial)
 
-- Completed: pipeline operator, basic pattern matching
-- Not started: lambdas/closures
+- Completed: pipeline operator, basic pattern matching, lambdas/closures (shorthand and anonymous fn expressions)
+- Partial: 
+- Missing: 
+
 
 ## Stage 10 - Error Handling (not started)
 

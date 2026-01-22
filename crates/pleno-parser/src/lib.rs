@@ -781,7 +781,7 @@ impl Parser {
 
     fn parse_pipeline(&mut self) -> Result<Expr, ParseError> {
         let mut expr = self.parse_or()?;
-        while self.matches(&TokenKind::Pipe) {
+        while self.matches(&TokenKind::Pipeline) {
             let right = self.parse_or()?;
             expr = Expr::Pipeline {
                 left: Box::new(expr),
@@ -976,6 +976,35 @@ impl Parser {
         self.parse_primary()
     }
 
+    fn parse_lambda_params(&mut self) -> Result<Vec<pleno_ast::Param>, ParseError> {
+        let mut params = Vec::new();
+        if matches!(self.peek_kind(), TokenKind::Pipe) {
+            return Ok(params);
+        }
+        loop {
+            let name = match self.advance().kind.clone() {
+                TokenKind::Ident(name) => name,
+                other => {
+                    return Err(ParseError {
+                        message: format!("Expected parameter name in lambda, found {other:?}"),
+                        span: self.previous_span(),
+                    });
+                }
+            };
+            params.push(pleno_ast::Param {
+                name,
+                ty: None,
+                default: None,
+                is_variadic: false,
+                is_keyword_only: false,
+            });
+            if !self.matches(&TokenKind::Comma) {
+                break;
+            }
+        }
+        Ok(params)
+    }
+
     fn parse_primary(&mut self) -> Result<Expr, ParseError> {
         let token = self.advance();
         let mut expr = match token.kind.clone() {
@@ -988,6 +1017,202 @@ impl Parser {
             TokenKind::KeywordMatch => self.parse_match_expr()?,
             TokenKind::KeywordThis => Expr::This,
             TokenKind::KeywordSuper => Expr::Super,
+            TokenKind::Pipe => {
+                let params = self.parse_lambda_params()?;
+                self.expect(TokenKind::Pipe, "Expected '|' after lambda parameters")?;
+                self.expect(TokenKind::FatArrow, "Expected '=>' after lambda parameters")?;
+                let body = self.parse_expr()?;
+                Expr::Lambda {
+                    params,
+                    body: Box::new(body),
+                    return_ty: None,
+                }
+            }
+            TokenKind::KeywordFn => {
+                self.expect(TokenKind::LParen, "Expected '(' after 'fn'")?;
+                let params = self.parse_param_list()?;
+                self.expect(TokenKind::RParen, "Expected ')' after parameters")?;
+                let return_ty = if self.matches(&TokenKind::Colon) {
+                    match self.advance().kind.clone() {
+                        TokenKind::Ident(name) => Some(name),
+                        _ => None,
+                    }
+                } else {
+                    None
+                };
+                let body = if self.matches(&TokenKind::FatArrow) {
+                    Box::new(self.parse_expr()?)
+                } else {
+                    let block = self.parse_block_stmt()?;
+                    if let Stmt::Block(stmts) = block {
+                        Box::new(Expr::Block(stmts))
+                    } else {
+                        unreachable!()
+                    }
+                };
+                Expr::Lambda {
+                    params,
+                    body,
+                    return_ty,
+                }
+            }
+            TokenKind::LBrace => {
+                if matches!(self.peek_kind(), TokenKind::RBrace) {
+                    self.expect(TokenKind::RBrace, "Expected '}' after map literal")?;
+                    Expr::MapLiteral(Vec::new())
+                } else if self.lookahead_is_set_literal()? {
+                    self.parse_set_literal()?
+                } else {
+                    self.parse_map_literal()?
+                }
+            }
+            TokenKind::LBracket => {
+                let mut items = Vec::new();
+                if !matches!(self.peek_kind(), TokenKind::RBracket) {
+                    loop {
+                        let value = self.parse_expr()?;
+                        items.push(value);
+                        if self.matches(&TokenKind::Comma) {
+                            if matches!(self.peek_kind(), TokenKind::RBracket) {
+                                break;
+                            }
+                            continue;
+                        }
+                        break;
+                    }
+                }
+                self.expect(TokenKind::RBracket, "Expected ']' after array literal")?;
+                Expr::ArrayLiteral(items)
+            }
+            TokenKind::LParen => {
+                if matches!(self.peek_kind(), TokenKind::RParen) {
+                    self.advance();
+                    Expr::TupleLiteral(Vec::new())
+                } else if matches!(self.peek_kind(), TokenKind::Ident(_))
+                    && matches!(self.peek_next_kind(), Some(TokenKind::Colon))
+                {
+                    let mut entries = Vec::new();
+                    loop {
+                        let name = match self.advance().kind.clone() {
+                            TokenKind::Ident(name) => name,
+                            _ => unreachable!(),
+                        };
+                        self.expect(TokenKind::Colon, "Expected ':' after named tuple field")?;
+                        let value = self.parse_expr()?;
+                        entries.push((name, value));
+                        if !self.matches(&TokenKind::Comma) {
+                            break;
+                        }
+                        if matches!(self.peek_kind(), TokenKind::RParen) {
+                            break;
+                        }
+                    }
+                    self.expect(TokenKind::RParen, "Expected ')' after named tuple")?;
+                    Expr::NamedTupleLiteral(entries)
+                } else {
+                    let first = self.parse_expr()?;
+                    if self.matches(&TokenKind::Comma) {
+                        let mut items = vec![first];
+                        while !matches!(self.peek_kind(), TokenKind::RParen) {
+                            items.push(self.parse_expr()?);
+                            if !self.matches(&TokenKind::Comma) {
+                                break;
+                            }
+                        }
+                        self.expect(TokenKind::RParen, "Expected ')' after tuple")?;
+                        Expr::TupleLiteral(items)
+                    } else {
+                        self.expect(TokenKind::RParen, "Expected ')' after expression")?;
+                        first
+                    }
+                }
+            }
+            other => {
+                return Err(ParseError {
+                    message: format!("Unexpected token in expression: {other:?}"),
+                    span: token.span,
+                })
+            }
+        };
+        loop {
+            if self.matches(&TokenKind::Dot) {
+                let name = match self.advance().kind.clone() {
+                    TokenKind::Ident(name) => name,
+                    TokenKind::Int(val) => val.to_string(),
+                    other => {
+                        return Err(ParseError {
+                            message: format!("Expected identifier or index after '.', found {other:?}"),
+                            span: self.previous_span(),
+                        });
+                    }
+                };
+                expr = Expr::Property {
+                    object: Box::new(expr),
+                    name,
+                };
+                continue;
+            }
+        if self.matches(&TokenKind::Minus) {
+            let expr = self.parse_unary()?;
+            return Ok(Expr::Unary {
+                op: pleno_ast::UnaryOp::Negate,
+                expr: Box::new(expr),
+            });
+        }
+        self.parse_primary()
+    }
+
+    fn parse_primary(&mut self) -> Result<Expr, ParseError> {
+        let token = self.advance();
+        let mut expr = match token.kind.clone() {
+            TokenKind::Int(value) => Expr::Literal(Literal::Int(value)),
+            TokenKind::Float(value) => Expr::Literal(Literal::Float(value)),
+            TokenKind::String(value) => Expr::Literal(Literal::String(value)),
+            TokenKind::Bool(value) => Expr::Literal(Literal::Bool(value)),
+            TokenKind::Null => Expr::Literal(Literal::Null),
+            TokenKind::Underscore => Expr::Underscore,
+            TokenKind::KeywordMatch => self.parse_match_expr()?,
+            TokenKind::KeywordThis => Expr::This,
+            TokenKind::KeywordSuper => Expr::Super,
+            TokenKind::Pipe => {
+                let params = self.parse_lambda_params()?;
+                self.expect(TokenKind::Pipe, "Expected '|' after lambda parameters")?;
+                self.expect(TokenKind::FatArrow, "Expected '=>' after lambda parameters")?;
+                let body = self.parse_expr()?;
+                Expr::Lambda {
+                    params,
+                    body: Box::new(body),
+                    return_ty: None,
+                }
+            }
+            TokenKind::KeywordFn => {
+                self.expect(TokenKind::LParen, "Expected '(' after 'fn'")?;
+                let params = self.parse_param_list()?;
+                self.expect(TokenKind::RParen, "Expected ')' after parameters")?;
+                let return_ty = if self.matches(&TokenKind::Colon) {
+                    match self.advance().kind.clone() {
+                        TokenKind::Ident(name) => Some(name),
+                        _ => None,
+                    }
+                } else {
+                    None
+                };
+                let body = if self.matches(&TokenKind::FatArrow) {
+                    Box::new(self.parse_expr()?)
+                } else {
+                    let block = self.parse_block_stmt()?;
+                    if let Stmt::Block(stmts) = block {
+                        Box::new(Expr::Block(stmts))
+                    } else {
+                        unreachable!()
+                    }
+                };
+                Expr::Lambda {
+                    params,
+                    body,
+                    return_ty,
+                }
+            }
             TokenKind::LBrace => {
                 if matches!(self.peek_kind(), TokenKind::RBrace) {
                     self.expect(TokenKind::RBrace, "Expected '}' after map literal")?;

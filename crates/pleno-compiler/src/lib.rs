@@ -562,6 +562,17 @@ impl Compiler {
                 }
                 Ok(dest)
             }
+            Expr::NamedTupleLiteral(entries) => {
+                let dest = self.registers.allocate()?;
+                self.emit(Opcode::NewMap, dest, 0, 0);
+                for (name, value_expr) in entries {
+                    let value_reg = self.compile_expr(value_expr)?;
+                    let name_idx = self.add_constant(Value::String(name.clone().into()));
+                    self.emit(Opcode::SetProperty, value_reg, dest, name_idx);
+                    self.free_temp(value_reg);
+                }
+                Ok(dest)
+            }
             Expr::ArrayLiteral(items) => {
                 let dest = self.registers.allocate()?;
                 self.emit(Opcode::NewArray, dest, 0, 0);
@@ -571,6 +582,53 @@ impl Compiler {
                     self.free_temp(value_reg);
                 }
                 Ok(dest)
+            }
+            Expr::TupleLiteral(items) => {
+                let dest = self.registers.allocate()?;
+                self.emit(Opcode::NewArray, dest, 0, 0);
+                for item in items {
+                    let value_reg = self.compile_expr(item)?;
+                    self.emit(Opcode::ArrayAppend, dest, value_reg, 0);
+                    self.free_temp(value_reg);
+                }
+                Ok(dest)
+            }
+            Expr::Lambda {
+                params,
+                body,
+                return_ty: _,
+            } => {
+                let body_stmt = match &**body {
+                    Expr::Block(stmts) => Stmt::Block(stmts.clone()),
+                    _ => Stmt::Return(Some((**body).clone())),
+                };
+                let decl = FunctionDecl {
+                    name: "anonymous".to_string(),
+                    params: params.clone(),
+                    return_ty: None,
+                    body: Box::new(body_stmt),
+                    is_static: false,
+                    visibility: None,
+                    kind: FunctionKind::Method,
+                    annotations: Vec::new(),
+                };
+                self.compile_function(&decl, false, false, None)
+            }
+            Expr::Block(stmts) => {
+                self.locals.push(HashMap::new());
+                for stmt in stmts {
+                    self.compile_stmt(stmt)?;
+                }
+                let reg = match self.last_expr_register {
+                    Some(reg) => reg,
+                    None => {
+                        let reg = self.registers.allocate()?;
+                        self.emit(Opcode::LoadNull, reg, 0, 0);
+                        reg
+                    }
+                };
+                self.pop_scope();
+                Ok(reg)
             }
             Expr::SetLiteral(items) => {
                 let dest = self.registers.allocate()?;
