@@ -582,12 +582,6 @@ impl Compiler {
                 }
                 Ok(dest)
             }
-            Expr::Match { expr, arms } => {
-                self.collect_idents_expr(expr, used);
-                for arm in arms {
-                    self.collect_idents_expr(&arm.body, used);
-                }
-            }
             Expr::Pipeline { left, right } => {
                 let left_reg = self.compile_expr(left)?;
                 let right_reg = self.compile_expr(right)?;
@@ -1331,6 +1325,16 @@ impl Compiler {
                         pleno_ast::CallArg::Placeholder => {}
                     }
                 }
+            }
+            Expr::Match { expr, arms } => {
+                self.collect_idents_expr(expr, used);
+                for arm in arms {
+                    self.collect_idents_expr(&arm.body, used);
+                }
+            }
+            Expr::Pipeline { left, right } => {
+                self.collect_idents_expr(left, used);
+                self.collect_idents_expr(right, used);
             }
             _ => {}
         }

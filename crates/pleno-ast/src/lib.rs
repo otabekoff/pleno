@@ -67,6 +67,7 @@ pub enum Expr {
     },
     MapLiteral(Vec<(String, Expr)>),
     ArrayLiteral(Vec<Expr>),
+    TupleLiteral(Vec<Expr>),
     Underscore,
     Index {
         collection: Box<Expr>,
@@ -97,6 +98,7 @@ pub struct MatchArm {
 pub enum Pattern {
     Literal(Literal),
     Ident(String),
+    Tuple(Vec<Pattern>),
     Underscore,
 }
 

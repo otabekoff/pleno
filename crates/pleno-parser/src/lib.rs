@@ -1017,9 +1017,26 @@ impl Parser {
                 Expr::ArrayLiteral(items)
             }
             TokenKind::LParen => {
-                let expr = self.parse_expr()?;
-                self.expect(TokenKind::RParen, "Expected ')' after expression")?;
-                expr
+                if matches!(self.peek_kind(), TokenKind::RParen) {
+                    self.advance();
+                    Expr::TupleLiteral(Vec::new())
+                } else {
+                    let first = self.parse_expr()?;
+                    if self.matches(&TokenKind::Comma) {
+                        let mut items = vec![first];
+                        while !matches!(self.peek_kind(), TokenKind::RParen) {
+                            items.push(self.parse_expr()?);
+                            if !self.matches(&TokenKind::Comma) {
+                                break;
+                            }
+                        }
+                        self.expect(TokenKind::RParen, "Expected ')' after tuple")?;
+                        Expr::TupleLiteral(items)
+                    } else {
+                        self.expect(TokenKind::RParen, "Expected ')' after expression")?;
+                        first
+                    }
+                }
             }
             other => {
                 return Err(ParseError {
@@ -1188,6 +1205,22 @@ impl Parser {
         match token.kind.clone() {
             TokenKind::Underscore => Ok(pleno_ast::Pattern::Underscore),
             TokenKind::Ident(name) => Ok(pleno_ast::Pattern::Ident(name)),
+            TokenKind::LParen => {
+                let mut items = Vec::new();
+                if !matches!(self.peek_kind(), TokenKind::RParen) {
+                    loop {
+                        items.push(self.parse_pattern()?);
+                        if !self.matches(&TokenKind::Comma) {
+                            break;
+                        }
+                        if matches!(self.peek_kind(), TokenKind::RParen) {
+                            break;
+                        }
+                    }
+                }
+                self.expect(TokenKind::RParen, "Expected ')' after tuple pattern")?;
+                Ok(pleno_ast::Pattern::Tuple(items))
+            }
             TokenKind::Int(val) => Ok(pleno_ast::Pattern::Literal(pleno_ast::Literal::Int(val))),
             TokenKind::Float(val) => Ok(pleno_ast::Pattern::Literal(pleno_ast::Literal::Float(val))),
             TokenKind::String(val) => Ok(pleno_ast::Pattern::Literal(pleno_ast::Literal::String(val))),
