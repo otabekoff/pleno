@@ -1,5 +1,5 @@
 use pleno_bytecode::{Chunk, Opcode};
-use pleno_value::{Range, RuntimeError, Value, ValueKey};
+use pleno_value::{Object, Range, RuntimeError, Value, ValueKey};
 use std::collections::HashMap;
 use std::rc::Rc;
 
@@ -165,6 +165,42 @@ impl VM {
                     };
                     self.registers[base + a] = Value::Array(Rc::new(std::cell::RefCell::new(values)));
                 }
+                Opcode::NewObject => {
+                    self.registers[base + a] = Value::Object(Rc::new(std::cell::RefCell::new(
+                        Object {
+                            fields: HashMap::new(),
+                        },
+                    )));
+                }
+                Opcode::SetField => {
+                    let name = match &frame.function.chunk.constants[c] {
+                        Value::String(value) => value.as_str().to_string(),
+                        _ => return Err(RuntimeError::new("field name must be string")),
+                    };
+                    let value = self.registers[base + a].clone();
+                    match &self.registers[base + b] {
+                        Value::Object(object) => {
+                            object.borrow_mut().fields.insert(name, value);
+                        }
+                        _ => return Err(RuntimeError::new("field set on non-object value")),
+                    }
+                }
+                Opcode::GetField => {
+                    let name = match &frame.function.chunk.constants[c] {
+                        Value::String(value) => value.as_str().to_string(),
+                        _ => return Err(RuntimeError::new("field name must be string")),
+                    };
+                    let value = match &self.registers[base + b] {
+                        Value::Object(object) => object
+                            .borrow()
+                            .fields
+                            .get(&name)
+                            .cloned()
+                            .unwrap_or(Value::Null),
+                        _ => return Err(RuntimeError::new("field access on non-object value")),
+                    };
+                    self.registers[base + a] = value;
+                }
                 Opcode::MapKeys => {
                     let keys = match &self.registers[base + b] {
                         Value::Map(map) => map
@@ -173,9 +209,49 @@ impl VM {
                             .cloned()
                             .map(|key| Value::String(Rc::new(key)))
                             .collect::<Vec<_>>(),
+                        Value::Object(object) => object
+                            .borrow()
+                            .fields
+                            .keys()
+                            .cloned()
+                            .map(|key| Value::String(Rc::new(key)))
+                            .collect::<Vec<_>>(),
                         _ => return Err(RuntimeError::new("map keys on non-map value")),
                     };
                     self.registers[base + a] = Value::Array(Rc::new(std::cell::RefCell::new(keys)));
+                }
+                Opcode::IterValues => {
+                    let value = match &self.registers[base + b] {
+                        Value::Array(array) => Value::Array(Rc::clone(array)),
+                        Value::Map(map) => {
+                            let values = map
+                                .borrow()
+                                .keys()
+                                .cloned()
+                                .map(|key| Value::String(Rc::new(key)))
+                                .collect::<Vec<_>>();
+                            Value::Array(Rc::new(std::cell::RefCell::new(values)))
+                        }
+                        Value::Set(set) => {
+                            let values = set
+                                .borrow()
+                                .iter()
+                                .cloned()
+                                .map(|key| match key {
+                                    pleno_value::ValueKey::Null => Value::Null,
+                                    pleno_value::ValueKey::Bool(value) => Value::Bool(value),
+                                    pleno_value::ValueKey::Int(value) => Value::Int(value),
+                                    pleno_value::ValueKey::Float(bits) => {
+                                        Value::Float(f64::from_bits(bits))
+                                    }
+                                    pleno_value::ValueKey::String(value) => Value::String(value),
+                                })
+                                .collect::<Vec<_>>();
+                            Value::Array(Rc::new(std::cell::RefCell::new(values)))
+                        }
+                        _ => return Err(RuntimeError::new("iter over non-collection value")),
+                    };
+                    self.registers[base + a] = value;
                 }
                 Opcode::ArrayLen => {
                     let len = match &self.registers[base + b] {
@@ -208,7 +284,13 @@ impl VM {
                             .get(&name)
                             .cloned()
                             .unwrap_or(Value::Null),
-                        _ => return Err(RuntimeError::new("property access on non-map value")),
+                        Value::Object(object) => object
+                            .borrow()
+                            .fields
+                            .get(&name)
+                            .cloned()
+                            .unwrap_or(Value::Null),
+                        _ => return Err(RuntimeError::new("property access on non-object value")),
                     };
                     self.registers[base + a] = value;
                 }

@@ -35,6 +35,10 @@ impl Parser {
             TokenKind::KeywordIf => self.parse_if_stmt(),
             TokenKind::KeywordWhile => self.parse_while_stmt(),
             TokenKind::KeywordFor => self.parse_for_stmt(),
+            TokenKind::KeywordFn => self.parse_fn_stmt(),
+            TokenKind::KeywordReturn => self.parse_return_stmt(),
+            TokenKind::KeywordBreak => self.parse_break_stmt(),
+            TokenKind::KeywordContinue => self.parse_continue_stmt(),
             TokenKind::LBrace => self.parse_block_stmt(),
             _ => {
                 if self.is_assignment() {
@@ -161,6 +165,67 @@ impl Parser {
         self.expect(TokenKind::RParen, "Expected ')' after while condition")?;
         let body = Box::new(self.parse_stmt()?);
         Ok(Stmt::While { condition, body })
+    }
+
+    fn parse_fn_stmt(&mut self) -> Result<Stmt, ParseError> {
+        self.advance();
+        let name = match self.advance().kind.clone() {
+            TokenKind::Ident(name) => name,
+            other => {
+                return Err(ParseError {
+                    message: format!("Expected function name, found {other:?}"),
+                    span: self.previous_span(),
+                })
+            }
+        };
+        self.expect(TokenKind::LParen, "Expected '(' after function name")?;
+        let mut params = Vec::new();
+        if !matches!(self.peek_kind(), TokenKind::RParen) {
+            loop {
+                match self.advance().kind.clone() {
+                    TokenKind::Ident(name) => params.push(name),
+                    other => {
+                        return Err(ParseError {
+                            message: format!("Expected parameter name, found {other:?}"),
+                            span: self.previous_span(),
+                        })
+                    }
+                }
+                if self.matches(&TokenKind::Comma) {
+                    if matches!(self.peek_kind(), TokenKind::RParen) {
+                        break;
+                    }
+                    continue;
+                }
+                break;
+            }
+        }
+        self.expect(TokenKind::RParen, "Expected ')' after parameters")?;
+        let body = Box::new(self.parse_block_stmt()?);
+        Ok(Stmt::Fn { name, params, body })
+    }
+
+    fn parse_return_stmt(&mut self) -> Result<Stmt, ParseError> {
+        self.advance();
+        let expr = if matches!(self.peek_kind(), TokenKind::Semicolon) {
+            None
+        } else {
+            Some(self.parse_expr()?)
+        };
+        self.expect(TokenKind::Semicolon, "Expected ';' after return")?;
+        Ok(Stmt::Return(expr))
+    }
+
+    fn parse_break_stmt(&mut self) -> Result<Stmt, ParseError> {
+        self.advance();
+        self.expect(TokenKind::Semicolon, "Expected ';' after break")?;
+        Ok(Stmt::Break)
+    }
+
+    fn parse_continue_stmt(&mut self) -> Result<Stmt, ParseError> {
+        self.advance();
+        self.expect(TokenKind::Semicolon, "Expected ';' after continue")?;
+        Ok(Stmt::Continue)
     }
 
     fn parse_for_stmt(&mut self) -> Result<Stmt, ParseError> {
@@ -453,6 +518,28 @@ impl Parser {
                 expr = Expr::Index {
                     collection: Box::new(expr),
                     index: Box::new(index),
+                };
+                continue;
+            }
+            if self.matches(&TokenKind::LParen) {
+                let mut args = Vec::new();
+                if !matches!(self.peek_kind(), TokenKind::RParen) {
+                    loop {
+                        let arg = self.parse_expr()?;
+                        args.push(arg);
+                        if self.matches(&TokenKind::Comma) {
+                            if matches!(self.peek_kind(), TokenKind::RParen) {
+                                break;
+                            }
+                            continue;
+                        }
+                        break;
+                    }
+                }
+                self.expect(TokenKind::RParen, "Expected ')' after arguments")?;
+                expr = Expr::Call {
+                    callee: Box::new(expr),
+                    args,
                 };
                 continue;
             }

@@ -22,6 +22,7 @@ pub struct Compiler {
     last_expr_register: Option<u8>,
     locals: Vec<HashMap<String, Local>>,
     loop_counter: u32,
+    loop_stack: Vec<LoopContext>,
 }
 
 impl Compiler {
@@ -32,6 +33,7 @@ impl Compiler {
             last_expr_register: None,
             locals: vec![HashMap::new()],
             loop_counter: 0,
+            loop_stack: Vec::new(),
         }
     }
 
@@ -123,12 +125,20 @@ impl Compiler {
                 let cond_reg = self.compile_expr(condition)?;
                 let jump_to_end = self.emit_jump(Opcode::JumpIfNot, cond_reg);
                 self.free_temp(cond_reg);
+                self.push_loop(Some(loop_start));
                 self.compile_stmt(body)?;
+                let loop_ctx = self.pop_loop().expect("loop stack underflow");
                 self.emit_loop(loop_start)?;
                 self.patch_jump(jump_to_end)?;
+                let loop_end = self.chunk.code.len();
+                self.patch_loop_jumps(loop_ctx, loop_end)?;
                 Ok(())
             }
             Stmt::For { name, iterable, body } => self.compile_for_stmt(name, iterable, body),
+            Stmt::Fn { .. } => Err(CompileError::new("functions are not supported yet")),
+            Stmt::Return(_) => Err(CompileError::new("return not supported yet")),
+            Stmt::Break => self.compile_break_stmt(),
+            Stmt::Continue => self.compile_continue_stmt(),
         }
     }
 
@@ -281,6 +291,7 @@ impl Compiler {
                 self.free_temp(index_reg);
                 Ok(dest)
             }
+            Expr::Call { .. } => Err(CompileError::new("calls are not supported yet")),
         }
     }
 
@@ -311,6 +322,18 @@ impl Compiler {
     fn patch_jump(&mut self, jump_index: usize) -> Result<(), CompileError> {
         let jump_from = jump_index as isize + 1;
         let jump_to = self.chunk.code.len() as isize;
+        let offset = jump_to - jump_from;
+        let offset = i16::try_from(offset).map_err(|_| CompileError::new("jump too large"))?;
+        let (b, c) = encode_offset(offset);
+        let instruction = self.chunk.code[jump_index];
+        self.chunk.code[jump_index] =
+            Instruction::new(instruction.opcode(), instruction.a(), b, c);
+        Ok(())
+    }
+
+    fn patch_jump_to(&mut self, jump_index: usize, jump_to: usize) -> Result<(), CompileError> {
+        let jump_from = jump_index as isize + 1;
+        let jump_to = jump_to as isize;
         let offset = jump_to - jump_from;
         let offset = i16::try_from(offset).map_err(|_| CompileError::new("jump too large"))?;
         let (b, c) = encode_offset(offset);
@@ -370,30 +393,51 @@ impl Compiler {
         iterable: &Expr,
         body: &Stmt,
     ) -> Result<(), CompileError> {
-        if let Expr::Range {
-            start: Some(start),
-            end: Some(end),
-            inclusive,
-        } = iterable
-        {
-            return self.compile_for_range(name, start, end, *inclusive, body);
-        }
-
-        if let Expr::Range { .. } = iterable {
-            return Err(CompileError::new(
-                "for loop requires start and end for range",
-            ));
-        }
-        if matches!(iterable, Expr::MapLiteral(_)) {
-            return self.compile_for_map(name, iterable, body);
-        }
-        if matches!(iterable, Expr::SetLiteral(_)) {
-            return self.compile_for_set(name, iterable, body);
+        if let Expr::Range { start, end, inclusive } = iterable {
+            match (start, end) {
+                (Some(start), Some(end)) => {
+                    return self.compile_for_range(name, start, end, *inclusive, body);
+                }
+                (None, Some(end)) => {
+                    let zero = Expr::Literal(Literal::Int(0));
+                    return self.compile_for_range(name, &zero, end, *inclusive, body);
+                }
+                (Some(start), None) => {
+                    return self.compile_for_open_range(name, start, body);
+                }
+                _ => {
+                    return Err(CompileError::new(
+                        "for loop requires a start or end value for range",
+                    ));
+                }
+            }
         }
         if matches!(iterable, Expr::Literal(_)) {
-            return Err(CompileError::new("for loop expects array, map, or range"));
+            return Err(CompileError::new("for loop expects array, set, or range"));
         }
-        self.compile_for_array(name, iterable, body)
+        self.compile_for_iterable(name, iterable, body)
+    }
+
+    fn compile_break_stmt(&mut self) -> Result<(), CompileError> {
+        if self.loop_stack.is_empty() {
+            return Err(CompileError::new("break used outside of loop"));
+        }
+        let jump = self.emit_jump(Opcode::Jump, 0);
+        if let Some(loop_ctx) = self.loop_stack.last_mut() {
+            loop_ctx.break_jumps.push(jump);
+        }
+        Ok(())
+    }
+
+    fn compile_continue_stmt(&mut self) -> Result<(), CompileError> {
+        if self.loop_stack.is_empty() {
+            return Err(CompileError::new("continue used outside of loop"));
+        }
+        let jump = self.emit_jump(Opcode::Jump, 0);
+        if let Some(loop_ctx) = self.loop_stack.last_mut() {
+            loop_ctx.continue_jumps.push(jump);
+        }
+        Ok(())
     }
 
     fn compile_for_range(
@@ -420,7 +464,12 @@ impl Compiler {
         let jump_to_end = self.emit_jump(Opcode::JumpIfNot, cond_reg);
         self.free_temp(cond_reg);
 
+        self.push_loop(None);
         self.compile_stmt(body)?;
+        let continue_target = self.chunk.code.len();
+        if let Some(ctx) = self.loop_stack.last_mut() {
+            ctx.continue_target = Some(continue_target);
+        }
 
         let one_reg = self.registers.allocate()?;
         self.emit(Opcode::LoadInt, one_reg, 1, 0);
@@ -432,18 +481,58 @@ impl Compiler {
 
         self.emit_loop(loop_start)?;
         self.patch_jump(jump_to_end)?;
+        let loop_end = self.chunk.code.len();
+        let loop_ctx = self.pop_loop().expect("loop stack underflow");
+        self.patch_loop_jumps(loop_ctx, loop_end)?;
         self.pop_scope();
         Ok(())
     }
 
-    fn compile_for_array(
+    fn compile_for_open_range(
+        &mut self,
+        name: &str,
+        start: &Expr,
+        body: &Stmt,
+    ) -> Result<(), CompileError> {
+        self.locals.push(HashMap::new());
+        let start_reg = self.compile_expr(start)?;
+        self.insert_local(name.to_string(), start_reg, true);
+
+        let loop_start = self.chunk.code.len();
+        self.push_loop(None);
+        self.compile_stmt(body)?;
+        let continue_target = self.chunk.code.len();
+        if let Some(ctx) = self.loop_stack.last_mut() {
+            ctx.continue_target = Some(continue_target);
+        }
+
+        let one_reg = self.registers.allocate()?;
+        self.emit(Opcode::LoadInt, one_reg, 1, 0);
+        let sum_reg = self.registers.allocate()?;
+        self.emit(Opcode::Add, sum_reg, start_reg, one_reg);
+        self.emit(Opcode::Move, start_reg, sum_reg, 0);
+        self.free_temp(one_reg);
+        self.free_temp(sum_reg);
+
+        self.emit_loop(loop_start)?;
+        let loop_end = self.chunk.code.len();
+        let loop_ctx = self.pop_loop().expect("loop stack underflow");
+        self.patch_loop_jumps(loop_ctx, loop_end)?;
+        self.pop_scope();
+        Ok(())
+    }
+
+    fn compile_for_iterable(
         &mut self,
         name: &str,
         iterable: &Expr,
         body: &Stmt,
     ) -> Result<(), CompileError> {
         self.locals.push(HashMap::new());
-        let collection_reg = self.compile_expr(iterable)?;
+        let source_reg = self.compile_expr(iterable)?;
+        let collection_reg = self.registers.allocate()?;
+        self.emit(Opcode::IterValues, collection_reg, source_reg, 0);
+        self.free_temp(source_reg);
         let collection_name = format!("$for_collection_{}", self.loop_counter);
         self.loop_counter += 1;
         self.insert_local(collection_name, collection_reg, false);
@@ -475,66 +564,12 @@ impl Compiler {
         }
         self.insert_local(name.to_string(), item_reg, true);
 
+        self.push_loop(None);
         self.compile_stmt(body)?;
-
-        let one_reg = self.registers.allocate()?;
-        self.emit(Opcode::LoadInt, one_reg, 1, 0);
-        let sum_reg = self.registers.allocate()?;
-        self.emit(Opcode::Add, sum_reg, index_reg, one_reg);
-        self.emit(Opcode::Move, index_reg, sum_reg, 0);
-        self.free_temp(one_reg);
-        self.free_temp(sum_reg);
-
-        self.emit_loop(loop_start)?;
-        self.patch_jump(jump_to_end)?;
-        self.pop_scope();
-        Ok(())
-    }
-
-    fn compile_for_map(
-        &mut self,
-        name: &str,
-        iterable: &Expr,
-        body: &Stmt,
-    ) -> Result<(), CompileError> {
-        self.locals.push(HashMap::new());
-        let map_reg = self.compile_expr(iterable)?;
-        let keys_reg = self.registers.allocate()?;
-        self.emit(Opcode::MapKeys, keys_reg, map_reg, 0);
-        self.free_temp(map_reg);
-
-        let collection_name = format!("$for_map_keys_{}", self.loop_counter);
-        self.loop_counter += 1;
-        self.insert_local(collection_name, keys_reg, false);
-
-        let index_reg = self.registers.allocate()?;
-        self.emit(Opcode::LoadInt, index_reg, 0, 0);
-        let index_name = format!("$for_index_{}", self.loop_counter);
-        self.loop_counter += 1;
-        self.insert_local(index_name, index_reg, true);
-
-        let loop_start = self.chunk.code.len();
-        let len_reg = self.registers.allocate()?;
-        self.emit(Opcode::ArrayLen, len_reg, keys_reg, 0);
-        let cond_reg = self.registers.allocate()?;
-        self.emit(Opcode::Lt, cond_reg, index_reg, len_reg);
-        let jump_to_end = self.emit_jump(Opcode::JumpIfNot, cond_reg);
-        self.free_temp(cond_reg);
-        self.free_temp(len_reg);
-
-        let item_reg = self.registers.allocate()?;
-        self.emit(Opcode::GetIndex, item_reg, keys_reg, index_reg);
-        if self
-            .locals
-            .last()
-            .map(|scope| scope.contains_key(name))
-            .unwrap_or(false)
-        {
-            return Err(CompileError::new("for loop variable already defined in scope"));
+        let continue_target = self.chunk.code.len();
+        if let Some(ctx) = self.loop_stack.last_mut() {
+            ctx.continue_target = Some(continue_target);
         }
-        self.insert_local(name.to_string(), item_reg, true);
-
-        self.compile_stmt(body)?;
 
         let one_reg = self.registers.allocate()?;
         self.emit(Opcode::LoadInt, one_reg, 1, 0);
@@ -546,65 +581,9 @@ impl Compiler {
 
         self.emit_loop(loop_start)?;
         self.patch_jump(jump_to_end)?;
-        self.pop_scope();
-        Ok(())
-    }
-
-    fn compile_for_set(
-        &mut self,
-        name: &str,
-        iterable: &Expr,
-        body: &Stmt,
-    ) -> Result<(), CompileError> {
-        self.locals.push(HashMap::new());
-        let set_reg = self.compile_expr(iterable)?;
-        let values_reg = self.registers.allocate()?;
-        self.emit(Opcode::SetValues, values_reg, set_reg, 0);
-        self.free_temp(set_reg);
-
-        let collection_name = format!("$for_set_values_{}", self.loop_counter);
-        self.loop_counter += 1;
-        self.insert_local(collection_name, values_reg, false);
-
-        let index_reg = self.registers.allocate()?;
-        self.emit(Opcode::LoadInt, index_reg, 0, 0);
-        let index_name = format!("$for_index_{}", self.loop_counter);
-        self.loop_counter += 1;
-        self.insert_local(index_name, index_reg, true);
-
-        let loop_start = self.chunk.code.len();
-        let len_reg = self.registers.allocate()?;
-        self.emit(Opcode::ArrayLen, len_reg, values_reg, 0);
-        let cond_reg = self.registers.allocate()?;
-        self.emit(Opcode::Lt, cond_reg, index_reg, len_reg);
-        let jump_to_end = self.emit_jump(Opcode::JumpIfNot, cond_reg);
-        self.free_temp(cond_reg);
-        self.free_temp(len_reg);
-
-        let item_reg = self.registers.allocate()?;
-        self.emit(Opcode::GetIndex, item_reg, values_reg, index_reg);
-        if self
-            .locals
-            .last()
-            .map(|scope| scope.contains_key(name))
-            .unwrap_or(false)
-        {
-            return Err(CompileError::new("for loop variable already defined in scope"));
-        }
-        self.insert_local(name.to_string(), item_reg, true);
-
-        self.compile_stmt(body)?;
-
-        let one_reg = self.registers.allocate()?;
-        self.emit(Opcode::LoadInt, one_reg, 1, 0);
-        let sum_reg = self.registers.allocate()?;
-        self.emit(Opcode::Add, sum_reg, index_reg, one_reg);
-        self.emit(Opcode::Move, index_reg, sum_reg, 0);
-        self.free_temp(one_reg);
-        self.free_temp(sum_reg);
-
-        self.emit_loop(loop_start)?;
-        self.patch_jump(jump_to_end)?;
+        let loop_end = self.chunk.code.len();
+        let loop_ctx = self.pop_loop().expect("loop stack underflow");
+        self.patch_loop_jumps(loop_ctx, loop_end)?;
         self.pop_scope();
         Ok(())
     }
@@ -616,7 +595,40 @@ struct Local {
     mutable: bool,
 }
 
+struct LoopContext {
+    break_jumps: Vec<usize>,
+    continue_jumps: Vec<usize>,
+    continue_target: Option<usize>,
+}
+
 impl Compiler {
+    fn push_loop(&mut self, continue_target: Option<usize>) {
+        self.loop_stack.push(LoopContext {
+            break_jumps: Vec::new(),
+            continue_jumps: Vec::new(),
+            continue_target,
+        });
+    }
+
+    fn pop_loop(&mut self) -> Option<LoopContext> {
+        self.loop_stack.pop()
+    }
+
+    fn patch_loop_jumps(
+        &mut self,
+        loop_ctx: LoopContext,
+        loop_end: usize,
+    ) -> Result<(), CompileError> {
+        let continue_target = loop_ctx.continue_target.unwrap_or(loop_end);
+        for jump in loop_ctx.continue_jumps {
+            self.patch_jump_to(jump, continue_target)?;
+        }
+        for jump in loop_ctx.break_jumps {
+            self.patch_jump_to(jump, loop_end)?;
+        }
+        Ok(())
+    }
+
     fn insert_local(&mut self, name: String, reg: u8, mutable: bool) {
         let scope = self.locals.last_mut().expect("scope exists");
         scope.insert(name, Local { reg, mutable });

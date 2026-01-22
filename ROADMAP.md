@@ -25,8 +25,8 @@ This roadmap stages the implementation from core language to v1 features.
 
 - `let`, `const`, assignments (mutable enforcement)
 - Blocks `{ ... }` with scoped locals
-- `if/else`, `while`
-- `for` loops over numeric ranges, arrays, map keys, and sets
+- `if/else`, `while`, `break`, `continue`
+- `for` loops over numeric ranges (including `..end` and `start..`), arrays, map keys, and sets
 
 ## Stage 3 - Functions (not started)
 
@@ -56,6 +56,7 @@ This roadmap stages the implementation from core language to v1 features.
 - Set literals (initial)
 - Set membership via index
 - Set iteration in `for` loops
+- Object literal fields via map syntax (used for member access)
 - Arrays, maps, sets, tuples, ranges
 - Indexing and member access
 
@@ -105,7 +106,7 @@ This roadmap stages the implementation from core language to v1 features.
 
 - pleno-common (spans, interning, utilities) (spans only)
 - pleno-diagnostics (errors, labels, reporting) (basic diagnostic)
-- pleno-value (runtime values) (primitives only)
+- pleno-value (runtime values) (primitives, ranges, arrays, maps, sets)
 - pleno-bytecode (instruction set, chunk)
 - pleno-compiler (AST -> bytecode)
 - pleno-vm (executor)
