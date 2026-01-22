@@ -582,6 +582,19 @@ impl Compiler {
                 }
                 Ok(dest)
             }
+            Expr::Pipeline { left, right } => {
+                let left_reg = self.compile_expr(left)?;
+                let right_reg = self.compile_expr(right)?;
+                let args_reg = self.registers.allocate()?;
+                self.emit(Opcode::NewArray, args_reg, 0, 0);
+                self.emit(Opcode::ArrayAppend, args_reg, left_reg, 0);
+                let dest = self.registers.allocate()?;
+                self.emit(Opcode::Call, dest, right_reg, args_reg);
+                self.free_temp(left_reg);
+                self.free_temp(right_reg);
+                self.free_temp(args_reg);
+                Ok(dest)
+            }
             Expr::Underscore => {
                 Err(CompileError::new("underscore is only allowed as a placeholder in calls"))
             }
