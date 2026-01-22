@@ -77,6 +77,10 @@ pub enum Expr {
         callee: Box<Expr>,
         args: Vec<CallArg>,
     },
+    Pipeline {
+        left: Box<Expr>,
+        right: Box<Expr>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -160,11 +164,21 @@ impl Program {
 pub struct FunctionDecl {
     pub name: String,
     pub params: Vec<Param>,
+    pub return_ty: Option<String>,
     pub body: Box<Stmt>,
     pub is_static: bool,
     pub visibility: Option<Visibility>,
     pub kind: FunctionKind,
     pub annotations: Vec<Annotation>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Param {
+    pub name: String,
+    pub ty: Option<String>,
+    pub default: Option<Expr>,
+    pub is_variadic: bool,
+    pub is_keyword_only: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -198,13 +212,6 @@ pub enum ImportKind {
 pub struct ExportName {
     pub name: String,
     pub alias: Option<String>,
-}
-#[derive(Debug, Clone, PartialEq)]
-pub struct Param {
-    pub name: String,
-    pub default: Option<Expr>,
-    pub is_variadic: bool,
-    pub is_keyword_only: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]

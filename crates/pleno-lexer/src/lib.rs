@@ -63,6 +63,8 @@ pub enum TokenKind {
     GreaterEqual,
     At,
     Underscore,
+    Arrow,
+    Pipe,
     Eof,
 }
 
@@ -124,40 +126,31 @@ pub fn lex(source: &str) -> Result<Vec<Token>, LexError> {
                 }
             }
             '+' => token_simple(TokenKind::Plus, start),
-            '-' => token_simple(TokenKind::Minus, start),
+            '-' => {
+                if matches!(chars.peek(), Some((_, '>'))) {
+                    let end = chars.next().map(|(idx, _)| idx + 1).unwrap_or(start + 2);
+                    Token {
+                        kind: TokenKind::Arrow,
+                        span: Span::new(start, end),
+                    }
+                } else {
+                    token_simple(TokenKind::Minus, start)
+                }
+            }
             '*' => token_simple(TokenKind::Star, start),
             '/' => token_simple(TokenKind::Slash, start),
             '@' => token_simple(TokenKind::At, start),
-            '!' => {
-                if matches!(chars.peek(), Some((_, '='))) {
-                    let end = chars.next().map(|(idx, _)| idx + 1).unwrap_or(start + 1);
-                    Token {
-                        kind: TokenKind::BangEqual,
-                        span: Span::new(start, end),
-                    }
-                } else {
-                    token_simple(TokenKind::Bang, start)
-                }
-            }
-            '&' => {
-                if matches!(chars.peek(), Some((_, '&'))) {
-                    let end = chars.next().map(|(idx, _)| idx + 1).unwrap_or(start + 1);
-                    Token {
-                        kind: TokenKind::AndAnd,
-                        span: Span::new(start, end),
-                    }
-                } else {
-                    return Err(LexError {
-                        message: "Unexpected '&'".to_string(),
-                        span: Span::new(start, start + 1),
-                    });
-                }
-            }
             '|' => {
                 if matches!(chars.peek(), Some((_, '|'))) {
-                    let end = chars.next().map(|(idx, _)| idx + 1).unwrap_or(start + 1);
+                    let end = chars.next().map(|(idx, _)| idx + 1).unwrap_or(start + 2);
                     Token {
                         kind: TokenKind::OrOr,
+                        span: Span::new(start, end),
+                    }
+                } else if matches!(chars.peek(), Some((_, '>'))) {
+                    let end = chars.next().map(|(idx, _)| idx + 1).unwrap_or(start + 2);
+                    Token {
+                        kind: TokenKind::Pipe,
                         span: Span::new(start, end),
                     }
                 } else {
