@@ -74,12 +74,15 @@ pub enum Expr {
     SetLiteral(Vec<Expr>),
     Call {
         callee: Box<Expr>,
-        args: Vec<Expr>,
+        args: Vec<CallArg>,
     },
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Stmt {
+    Module {
+        name: String,
+    },
     Let {
         name: String,
         mutable: bool,
@@ -115,14 +118,21 @@ pub enum Stmt {
         iterable: Expr,
         body: Box<Stmt>,
     },
+    Import {
+        path: String,
+        kind: ImportKind,
+    },
+    Export(Box<Stmt>),
+    ExportList(Vec<ExportName>),
     Class {
         name: String,
+        fields: Vec<FieldDecl>,
         methods: Vec<FunctionDecl>,
         superclass: Option<String>,
     },
     Fn {
         name: String,
-        params: Vec<String>,
+        params: Vec<Param>,
         body: Box<Stmt>,
     },
     Return(Option<Expr>),
@@ -146,15 +156,70 @@ impl Program {
 #[derive(Debug, Clone, PartialEq)]
 pub struct FunctionDecl {
     pub name: String,
-    pub params: Vec<String>,
+    pub params: Vec<Param>,
     pub body: Box<Stmt>,
     pub is_static: bool,
     pub visibility: Option<Visibility>,
+    pub kind: FunctionKind,
+    pub annotations: Vec<Annotation>,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct FieldDecl {
+    pub name: String,
+    pub is_static: bool,
+    pub visibility: Option<Visibility>,
+    pub annotations: Vec<Annotation>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Annotation {
+    pub name: String,
+    pub args: Vec<Expr>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ImportName {
+    pub name: String,
+    pub alias: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum ImportKind {
+    Module { alias: Option<String> },
+    Names(Vec<ImportName>),
+    Star { alias: String },
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ExportName {
+    pub name: String,
+    pub alias: Option<String>,
+}
+#[derive(Debug, Clone, PartialEq)]
+pub struct Param {
+    pub name: String,
+    pub default: Option<Expr>,
+    pub is_variadic: bool,
+    pub is_keyword_only: bool,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum CallArg {
+    Positional(Expr),
+    Named(String, Expr),
+}
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Visibility {
     Public,
     Private,
     Protected,
+    Internal,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FunctionKind {
+    Method,
+    Getter,
+    Setter,
 }

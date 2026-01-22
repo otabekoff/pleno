@@ -276,6 +276,15 @@ fn sum(...numbers: Int[]): Int {
 sum(1, 2, 3, 4, 5);  // 15
 ```
 
+### 3.4.1 Keyword-Only Parameters
+```pleno
+fn add(a: Int, *, b: Int): Int {
+    return a + b;
+}
+
+add(1, b: 2); // OK
+```
+
 ### 3.5 Higher-Order Functions
 ```pleno
 fn applyOperation(x: Int, y: Int, op: (Int, Int) => Int): Int {
@@ -550,6 +559,8 @@ class MathUtils {
 // Usage without instance
 print(MathUtils.PI);
 print(MathUtils.square(5.0));
+MathUtils.version = "1.0";
+print(MathUtils.version);
 ```
 
 ### 4.7 Access Modifiers
@@ -557,7 +568,9 @@ print(MathUtils.square(5.0));
 - `public` - Accessible everywhere (default for methods)
 - `private` - Accessible only within the class
 - `protected` - Accessible within class and subclasses
-- `internal` - Accessible within the same module/package
+- `internal` - Accessible within the same module
+
+Access modifiers are enforced for methods and class fields (including static fields), including `internal`.
 
 ```pleno
 class Example {
@@ -729,6 +742,18 @@ fn makeMultiplier(factor: Int): (Int) => Int {
 
 let double = makeMultiplier(2);
 print(double(5));  // 10
+```
+
+#### Default and Named Arguments
+
+```pleno
+fn sum(a, b = 2, c = 3) {
+    return a + b + c;
+}
+
+sum(1);                // 6
+sum(1, c = 10);        // 13
+sum(b = 5, a = 2);     // 10
 ```
 
 ### 6.2 Pure Functions
@@ -903,6 +928,17 @@ user.isNone();              // Check if None
 ---
 
 ## 8. Modules & Imports
+
+Current implementation supports:
+
+```pleno
+import "path/to/module.pln";
+import ModuleName from "path/to/module.pln";
+import { symbol, other as alias } from "path/to/module.pln";
+import * as ModuleName from "path/to/module.pln";
+```
+
+Exports are limited to `export` on `fn`, `class`, `let`, and `const` declarations plus `export { name as alias };`. Import returns a module namespace map (accessed via `ModuleName.field`). Module declarations and structured imports are implemented for string paths; relative paths and `sources/` lookups are supported. Package/registry resolution is not implemented yet.
 
 ### 8.1 Module Definition
 

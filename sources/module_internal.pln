@@ -1,0 +1,7 @@
+module InternalMod;
+
+export class Box {
+    internal secret;
+    fn set(v) { this.secret = v; }
+    fn get() { return this.secret; }
+}

@@ -1,0 +1,30 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Cache
+        uses: Swatinem/rust-cache@v2
+      - name: Build
+        run: cargo build --release -p pleno-cli
+      - name: Package
+        run: |
+          mkdir -p dist
+          cp target/release/pleno-cli dist/
+          tar czf pleno-${{ github.ref_name }}-linux-x86_64.tar.gz -C dist .
+      - name: Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: pleno-${{ github.ref_name }}-linux-x86_64.tar.gz
