@@ -70,6 +70,10 @@ pub enum Expr {
         index: Box<Expr>,
     },
     SetLiteral(Vec<Expr>),
+    Call {
+        callee: Box<Expr>,
+        args: Vec<Expr>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -99,6 +103,14 @@ pub enum Stmt {
         iterable: Expr,
         body: Box<Stmt>,
     },
+    Fn {
+        name: String,
+        params: Vec<String>,
+        body: Box<Stmt>,
+    },
+    Return(Option<Expr>),
+    Break,
+    Continue,
     Block(Vec<Stmt>),
     Expr(Expr),
 }

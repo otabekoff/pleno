@@ -82,6 +82,30 @@ fn evaluates_for_range() {
 }
 
 #[test]
+fn evaluates_for_open_start_range() {
+    let value = eval("let mut sum = 0; for (i in ..3) { sum = sum + i; } sum;");
+    assert_eq!(value, pleno_value::Value::Int(3));
+}
+
+#[test]
+fn evaluates_for_open_end_range_with_break() {
+    let value = eval("let mut sum = 0; for (i in 1..) { if (i > 3) { break; } sum = sum + i; } sum;");
+    assert_eq!(value, pleno_value::Value::Int(6));
+}
+
+#[test]
+fn evaluates_break_in_while() {
+    let value = eval("let mut x = 0; while (true) { if (x == 3) { break; } x = x + 1; } x;");
+    assert_eq!(value, pleno_value::Value::Int(3));
+}
+
+#[test]
+fn evaluates_continue_in_for() {
+    let value = eval("let mut sum = 0; for (i in 0..5) { if (i == 2) { continue; } sum = sum + i; } sum;");
+    assert_eq!(value, pleno_value::Value::Int(8));
+}
+
+#[test]
 fn evaluates_for_array() {
     let value = eval("let mut sum = 0; for (x in [1, 2, 3]) { sum = sum + x; } sum;");
     assert_eq!(value, pleno_value::Value::Int(6));
@@ -89,7 +113,7 @@ fn evaluates_for_array() {
 
 #[test]
 fn evaluates_for_map_keys() {
-    let value = eval("let mut count = 0; for (k in {\"a\": 1, \"b\": 2}) { count = count + 1; } count;");
+    let value = eval("let mut count = 0; let m = {\"a\": 1, \"b\": 2}; for (k in m) { count = count + 1; } count;");
     assert_eq!(value, pleno_value::Value::Int(2));
 }
 
@@ -143,7 +167,7 @@ fn evaluates_map_property_access() {
 #[test]
 fn property_access_on_non_map_errors() {
     let err = eval_result("let a = 1; a.b;").unwrap_err();
-    assert!(err.contains("non-map"));
+    assert!(err.contains("non-object"));
 }
 
 #[test]
@@ -162,4 +186,10 @@ fn evaluates_map_index() {
 fn evaluates_set_literal_and_has() {
     let value = eval("let s = {1, 2}; s[1];");
     assert_eq!(value, pleno_value::Value::Bool(true));
+}
+
+#[test]
+fn evaluates_map_property_access_via_object() {
+    let value = eval("let o = {\"x\": 1}; o.x;");
+    assert_eq!(value, pleno_value::Value::Int(1));
 }

@@ -13,6 +13,7 @@ pub enum Value {
     Map(Rc<RefCell<HashMap<String, Value>>>),
     Array(Rc<RefCell<Vec<Value>>>),
     Set(Rc<RefCell<HashSet<ValueKey>>>),
+    Object(Rc<RefCell<Object>>),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -47,9 +48,15 @@ impl PartialEq for Value {
             (Value::Map(a), Value::Map(b)) => Rc::ptr_eq(a, b),
             (Value::Array(a), Value::Array(b)) => Rc::ptr_eq(a, b),
             (Value::Set(a), Value::Set(b)) => Rc::ptr_eq(a, b),
+            (Value::Object(a), Value::Object(b)) => Rc::ptr_eq(a, b),
             _ => false,
         }
     }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Object {
+    pub fields: HashMap<String, Value>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]

@@ -28,12 +28,24 @@ fn for_requires_range_expression() {
 
 #[test]
 fn for_requires_bounded_range() {
-    let err = compile("for (i in 0..) { i; }").unwrap_err();
-    assert!(err.contains("start and end"));
+    let err = compile("for (i in ..) { i; }").unwrap_err();
+    assert!(err.contains("start or end"));
 }
 
 #[test]
 fn for_rejects_non_array_iterable() {
     let err = compile("for (i in 42) { i; }").unwrap_err();
     assert!(err.contains("expects"));
+}
+
+#[test]
+fn break_outside_loop_errors() {
+    let err = compile("break;").unwrap_err();
+    assert!(err.contains("break used outside"));
+}
+
+#[test]
+fn continue_outside_loop_errors() {
+    let err = compile("continue;").unwrap_err();
+    assert!(err.contains("continue used outside"));
 }

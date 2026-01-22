@@ -4,7 +4,6 @@
 - [Bytecode VM](./bytecode_vm.md)
 - [Distribution](./distribution.md)
 - [Releasing](./release.md)
-- [Specs](./specs.md)
 - [Core Syntax & Fundamentals](./core-syntax-fundamentals.md)
 - [Corntrol Flow](./control-flow.md)
 - [Functions](./functions.md)
