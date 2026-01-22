@@ -1,0 +1,30 @@
+{
+  "name": "pleno-language",
+  "displayName": "Pleno Language",
+  "description": "Syntax highlighting for Pleno (.pln)",
+  "version": "0.0.1",
+  "publisher": "pleno",
+  "engines": {
+    "vscode": "^1.80.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "contributes": {
+    "languages": [
+      {
+        "id": "pleno",
+        "aliases": ["Pleno", "pleno"],
+        "extensions": [".pln"],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "pleno",
+        "scopeName": "source.pleno",
+        "path": "./syntaxes/pleno.tmLanguage.json"
+      }
+    ]
+  }
+}

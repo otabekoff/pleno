@@ -1,0 +1,9 @@
+[package]
+name = "pleno-repl"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[dependencies]
+pleno-lexer = { workspace = true }
+pleno-parser = { workspace = true }

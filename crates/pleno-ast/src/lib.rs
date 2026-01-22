@@ -31,6 +31,8 @@ pub enum BinaryOp {
     Subtract,
     Multiply,
     Divide,
+    And,
+    Or,
     Equal,
     NotEqual,
     Less,
@@ -52,6 +54,22 @@ pub enum Expr {
         op: BinaryOp,
         right: Box<Expr>,
     },
+    Property {
+        object: Box<Expr>,
+        name: String,
+    },
+    Range {
+        start: Option<Box<Expr>>,
+        end: Option<Box<Expr>>,
+        inclusive: bool,
+    },
+    MapLiteral(Vec<(String, Expr)>),
+    ArrayLiteral(Vec<Expr>),
+    Index {
+        collection: Box<Expr>,
+        index: Box<Expr>,
+    },
+    SetLiteral(Vec<Expr>),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -61,7 +79,27 @@ pub enum Stmt {
         mutable: bool,
         ty: Option<String>,
         value: Option<Expr>,
+        is_const: bool,
     },
+    Assign {
+        name: String,
+        value: Expr,
+    },
+    If {
+        condition: Expr,
+        then_branch: Box<Stmt>,
+        else_branch: Option<Box<Stmt>>,
+    },
+    While {
+        condition: Expr,
+        body: Box<Stmt>,
+    },
+    For {
+        name: String,
+        iterable: Expr,
+        body: Box<Stmt>,
+    },
+    Block(Vec<Stmt>),
     Expr(Expr),
 }
 

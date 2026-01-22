@@ -1,0 +1,44 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "Pleno",
+  "scopeName": "source.pleno",
+  "patterns": [
+    { "include": "#comments" },
+    { "include": "#strings" },
+    { "include": "#numbers" },
+    { "include": "#keywords" },
+    { "include": "#types" }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        { "name": "comment.line.double-slash.pleno", "match": "//.*$" },
+        { "name": "comment.block.pleno", "begin": "/\\*", "end": "\\*/" }
+      ]
+    },
+    "strings": {
+      "patterns": [
+        { "name": "string.quoted.double.pleno", "begin": "\"", "end": "\"", "patterns": [
+          { "name": "constant.character.escape.pleno", "match": "\\\\." }
+        ] }
+      ]
+    },
+    "numbers": {
+      "patterns": [
+        { "name": "constant.numeric.float.pleno", "match": "\\b\\d+\\.\\d+\\b" },
+        { "name": "constant.numeric.integer.pleno", "match": "\\b\\d+\\b" }
+      ]
+    },
+    "keywords": {
+      "patterns": [
+        { "name": "keyword.control.pleno", "match": "\\b(let|const|mut|fn|return|if|else|for|while|match|class|interface|enum|import|export|async|await|try|catch|finally|throw)\\b" },
+        { "name": "constant.language.pleno", "match": "\\b(true|false|null)\\b" }
+      ]
+    },
+    "types": {
+      "patterns": [
+        { "name": "storage.type.pleno", "match": "\\b(Int|Float|String|Bool|Char|Void|Any|Null)\\b" }
+      ]
+    }
+  }
+}

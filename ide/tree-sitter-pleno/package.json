@@ -1,0 +1,8 @@
+{
+  "name": "tree-sitter-pleno",
+  "version": "0.0.1",
+  "description": "Tree-sitter grammar for Pleno",
+  "main": "grammar.js",
+  "keywords": ["tree-sitter", "pleno"],
+  "license": "MIT"
+}

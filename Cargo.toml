@@ -1,16 +1,25 @@
 [workspace]
 resolver = "2"
-members = [
-    "crates/pleno-ast",
-    "crates/pleno-lexer",
-    "crates/pleno-parser",
-    "crates/pleno-runtime",
-    "crates/pleno-cli",
-]
+members = ["crates/*"]
+default-members = ["crates/pleno-cli"]
 
 [workspace.package]
 edition = "2024"
+version = "0.1.0"
 license = "MIT"
 
 [workspace.dependencies]
+pleno-ast = { path = "crates/pleno-ast" }
+pleno-lexer = { path = "crates/pleno-lexer" }
+pleno-parser = { path = "crates/pleno-parser" }
+pleno-runtime = { path = "crates/pleno-runtime" }
+pleno-lsp = { path = "crates/pleno-lsp" }
+pleno-repl = { path = "crates/pleno-repl" }
+pleno-common = { path = "crates/pleno-common" }
+pleno-diagnostics = { path = "crates/pleno-diagnostics" }
+pleno-value = { path = "crates/pleno-value" }
+pleno-bytecode = { path = "crates/pleno-bytecode" }
+pleno-compiler = { path = "crates/pleno-compiler" }
+pleno-vm = { path = "crates/pleno-vm" }
 thiserror = "1"
+serde_json = "1"

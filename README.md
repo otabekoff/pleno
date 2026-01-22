@@ -15,3 +15,17 @@ Rust workspace for the Pleno programming language implementation.
 ```bash
 cargo run -p pleno-cli -- path/to/file.pln
 ```
+
+## Example
+
+```bash
+cargo run -p pleno-cli -- examples/hello.pln
+```
+
+## Roadmap
+
+See `ROADMAP.md` for staged milestones toward v1.
+
+<!-- ## Prompt
+Continue with ROADMAP.md and specs.md according to docs chapter_1.md and bytecode_vm.md files.
+-->
