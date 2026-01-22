@@ -1,33 +1,42 @@
 use pleno_bytecode::{Chunk, Opcode};
-use pleno_value::{Object, Range, RuntimeError, Value, ValueKey};
+use pleno_value::{Class, Object, Range, RuntimeError, Value, ValueKey};
 use std::collections::HashMap;
 use std::rc::Rc;
 
 #[derive(Debug, Clone)]
-pub struct Function {
-    pub name: Rc<String>,
-    pub chunk: Chunk,
-}
-
-#[derive(Debug, Clone)]
 pub struct CallFrame {
-    pub function: Function,
+    pub function_index: usize,
     pub ip: usize,
     pub base: usize,
+    pub return_reg: usize,
+    pub return_override: Option<Value>,
+    pub captures: Vec<Value>,
 }
 
 pub struct VM {
     registers: Vec<Value>,
     frames: Vec<CallFrame>,
     globals: HashMap<String, Value>,
+    functions: Vec<Function>,
+}
+
+#[derive(Debug, Clone)]
+pub struct Function {
+    pub name: Rc<String>,
+    pub chunk: Chunk,
+    pub arity: usize,
 }
 
 impl VM {
     pub fn new() -> Self {
+        let mut globals = HashMap::new();
+        globals.insert("print".to_string(), Value::NativeFunction(native_print));
+        globals.insert("id".to_string(), Value::NativeFunction(native_id));
         Self {
             registers: vec![Value::Null; 256],
             frames: Vec::new(),
-            globals: HashMap::new(),
+            globals,
+            functions: Vec::new(),
         }
     }
 
@@ -35,11 +44,17 @@ impl VM {
         let function = Function {
             name: Rc::new("<script>".to_string()),
             chunk,
+            arity: 0,
         };
+        let func_index = self.functions.len();
+        self.functions.push(function);
         self.frames.push(CallFrame {
-            function,
+            function_index: func_index,
             ip: 0,
             base: 0,
+            return_reg: 0,
+            return_override: None,
+            captures: Vec::new(),
         });
         self.run()
     }
@@ -47,10 +62,14 @@ impl VM {
     fn run(&mut self) -> Result<Value, RuntimeError> {
         loop {
             let frame = self.frames.last_mut().ok_or_else(|| RuntimeError::new("no frame"))?;
-            if frame.ip >= frame.function.chunk.code.len() {
+            let function = self
+                .functions
+                .get(frame.function_index)
+                .ok_or_else(|| RuntimeError::new("missing function"))?;
+            if frame.ip >= function.chunk.code.len() {
                 return Err(RuntimeError::new("instruction pointer out of bounds"));
             }
-            let instruction = frame.function.chunk.code[frame.ip];
+            let instruction = function.chunk.code[frame.ip];
             frame.ip += 1;
 
             let opcode = instruction.opcode();
@@ -64,7 +83,7 @@ impl VM {
                     self.registers[base + a] = self.registers[base + b].clone();
                 }
                 Opcode::LoadConst => {
-                    let value = frame.function.chunk.constants[b].clone();
+                    let value = function.chunk.constants[b].clone();
                     self.registers[base + a] = value;
                 }
                 Opcode::LoadNull => {
@@ -79,6 +98,57 @@ impl VM {
                 Opcode::LoadInt => {
                     let value = (b as i8) as i64;
                     self.registers[base + a] = Value::Int(value);
+                }
+                Opcode::Closure => {
+                    let proto = function
+                        .chunk
+                        .functions
+                        .get(b)
+                        .ok_or_else(|| RuntimeError::new("unknown function prototype"))?;
+                    let func_index = self.functions.len();
+                    self.functions.push(Function {
+                        name: Rc::new("<fn>".to_string()),
+                        chunk: proto.chunk.clone(),
+                        arity: proto.arity as usize,
+                    });
+                    let captures = vec![Value::Null; c];
+                    self.registers[base + a] = Value::Closure {
+                        function: func_index,
+                        captures,
+                    };
+                }
+                Opcode::FunctionRef => {
+                    let proto = function
+                        .chunk
+                        .functions
+                        .get(b)
+                        .ok_or_else(|| RuntimeError::new("unknown function prototype"))?;
+                    let func_index = self.functions.len();
+                    self.functions.push(Function {
+                        name: Rc::new("<fn>".to_string()),
+                        chunk: proto.chunk.clone(),
+                        arity: proto.arity as usize,
+                    });
+                    self.registers[base + a] = Value::Function(func_index);
+                }
+                Opcode::Capture => {
+                    let value = self.registers[base + b].clone();
+                    let closure = match &mut self.registers[base + a] {
+                        Value::Closure { captures, .. } => captures,
+                        _ => return Err(RuntimeError::new("capture on non-closure")),
+                    };
+                    let idx = c as usize;
+                    if idx >= closure.len() {
+                        return Err(RuntimeError::new("capture index out of bounds"));
+                    }
+                    closure[idx] = value;
+                }
+                Opcode::LoadCapture => {
+                    let idx = b as usize;
+                    if idx >= frame.captures.len() {
+                        return Err(RuntimeError::new("capture index out of bounds"));
+                    }
+                    self.registers[base + a] = frame.captures[idx].clone();
                 }
                 Opcode::BuildRange => {
                     let start = expect_int_or_null(&self.registers[base + b])?;
@@ -168,12 +238,13 @@ impl VM {
                 Opcode::NewObject => {
                     self.registers[base + a] = Value::Object(Rc::new(std::cell::RefCell::new(
                         Object {
+                            class: None,
                             fields: HashMap::new(),
                         },
                     )));
                 }
                 Opcode::SetField => {
-                    let name = match &frame.function.chunk.constants[c] {
+                    let name = match &function.chunk.constants[c] {
                         Value::String(value) => value.as_str().to_string(),
                         _ => return Err(RuntimeError::new("field name must be string")),
                     };
@@ -186,7 +257,7 @@ impl VM {
                     }
                 }
                 Opcode::GetField => {
-                    let name = match &frame.function.chunk.constants[c] {
+                    let name = match &function.chunk.constants[c] {
                         Value::String(value) => value.as_str().to_string(),
                         _ => return Err(RuntimeError::new("field name must be string")),
                     };
@@ -261,7 +332,7 @@ impl VM {
                     self.registers[base + a] = Value::Int(len);
                 }
                 Opcode::SetProperty => {
-                    let name = match &frame.function.chunk.constants[c] {
+                    let name = match &function.chunk.constants[c] {
                         Value::String(value) => value.as_str().to_string(),
                         _ => return Err(RuntimeError::new("property name must be string")),
                     };
@@ -270,11 +341,14 @@ impl VM {
                         Value::Map(map) => {
                             map.borrow_mut().insert(name, value);
                         }
-                        _ => return Err(RuntimeError::new("property set on non-map value")),
+                        Value::Object(object) => {
+                            object.borrow_mut().fields.insert(name, value);
+                        }
+                        _ => return Err(RuntimeError::new("property set on non-map/object value")),
                     }
                 }
                 Opcode::GetProperty => {
-                    let name = match &frame.function.chunk.constants[c] {
+                    let name = match &function.chunk.constants[c] {
                         Value::String(value) => value.as_str().to_string(),
                         _ => return Err(RuntimeError::new("property name must be string")),
                     };
@@ -289,10 +363,58 @@ impl VM {
                             .fields
                             .get(&name)
                             .cloned()
+                            .or_else(|| {
+                                object
+                                    .borrow()
+                                    .class
+                                    .as_ref()
+                                    .and_then(|class| resolve_method(class, &name))
+                                    .map(|function| Value::BoundMethod {
+                                        receiver: Rc::clone(object),
+                                        function,
+                                    })
+                            })
+                            .unwrap_or(Value::Null),
+                        Value::Class(class) => class
+                            .static_methods
+                            .get(&name)
+                            .copied()
+                            .map(Value::Function)
+                            .or_else(|| {
+                                class
+                                    .superclass
+                                    .as_ref()
+                                    .and_then(|superclass| superclass.static_methods.get(&name))
+                                    .copied()
+                                    .map(Value::Function)
+                            })
                             .unwrap_or(Value::Null),
                         _ => return Err(RuntimeError::new("property access on non-object value")),
                     };
                     self.registers[base + a] = value;
+                }
+                Opcode::GetSuper => {
+                    let name = match &function.chunk.constants[c] {
+                        Value::String(value) => value.as_str().to_string(),
+                        _ => return Err(RuntimeError::new("super property must be string")),
+                    };
+                    let receiver = match &self.registers[base + b] {
+                        Value::Object(object) => Rc::clone(object),
+                        _ => return Err(RuntimeError::new("super used on non-object value")),
+                    };
+                    let superclass = receiver
+                        .borrow()
+                        .class
+                        .as_ref()
+                        .and_then(|class| class.superclass.as_ref())
+                        .map(Rc::clone)
+                        .ok_or_else(|| RuntimeError::new("superclass missing"))?;
+                    let handle = resolve_method(&superclass, &name)
+                        .ok_or_else(|| RuntimeError::new("unknown super method"))?;
+                    self.registers[base + a] = Value::BoundMethod {
+                        receiver,
+                        function: handle,
+                    };
                 }
                 Opcode::GetIndex => {
                     let collection = self.registers[base + b].clone();
@@ -317,6 +439,25 @@ impl VM {
                         _ => return Err(RuntimeError::new("invalid index operation")),
                     };
                     self.registers[base + a] = value;
+                }
+                Opcode::SetIndex => {
+                    let value = self.registers[base + a].clone();
+                    let collection = self.registers[base + b].clone();
+                    let index = self.registers[base + c].clone();
+                    match (collection, index) {
+                        (Value::Array(array), Value::Int(idx)) => {
+                            let idx = idx as usize;
+                            let mut array = array.borrow_mut();
+                            if idx >= array.len() {
+                                return Err(RuntimeError::new("array index out of bounds"));
+                            }
+                            array[idx] = value;
+                        }
+                        (Value::Map(map), Value::String(key)) => {
+                            map.borrow_mut().insert(key.as_str().to_string(), value);
+                        }
+                        _ => return Err(RuntimeError::new("invalid index assignment")),
+                    }
                 }
                 Opcode::Add => {
                     let left = self.registers[base + b].clone();
@@ -393,16 +534,18 @@ impl VM {
                     }
                 }
                 Opcode::Return => {
-                    let result = self.registers[base + a].clone();
-                    self.frames.pop();
+                    let frame = self.frames.pop().ok_or_else(|| RuntimeError::new("no frame"))?;
+                    let result = frame
+                        .return_override
+                        .unwrap_or_else(|| self.registers[base + a].clone());
+                    self.registers.truncate(frame.base);
                     if self.frames.is_empty() {
                         return Ok(result);
                     }
-                    let caller = self.frames.last().unwrap();
-                    self.registers[caller.base] = result;
+                    self.registers[frame.return_reg] = result;
                 }
                 Opcode::GetGlobal => {
-                    let name = match &frame.function.chunk.constants[b] {
+                    let name = match &function.chunk.constants[b] {
                         Value::String(value) => value.as_str().to_string(),
                         _ => return Err(RuntimeError::new("global name must be string")),
                     };
@@ -410,12 +553,139 @@ impl VM {
                     self.registers[base + a] = value;
                 }
                 Opcode::SetGlobal => {
-                    let name = match &frame.function.chunk.constants[b] {
+                    let name = match &function.chunk.constants[b] {
                         Value::String(value) => value.as_str().to_string(),
                         _ => return Err(RuntimeError::new("global name must be string")),
                     };
                     let value = self.registers[base + a].clone();
                     self.globals.insert(name, value);
+                }
+                Opcode::DefineClass => {
+                    let name = match &function.chunk.constants[b] {
+                        Value::String(value) => value.as_str().to_string(),
+                        _ => return Err(RuntimeError::new("class name must be string")),
+                    };
+                    let methods_map = match &self.registers[base + c] {
+                        Value::Map(map) => map.borrow().clone(),
+                        _ => return Err(RuntimeError::new("class methods must be map")),
+                    };
+                    let mut methods = HashMap::new();
+                    let mut constructor = None;
+                    for (method_name, value) in methods_map {
+                        let handle = match value {
+                            Value::Function(handle) => handle,
+                            _ => {
+                                return Err(RuntimeError::new(
+                                    "class method must be a function",
+                                ))
+                            }
+                        };
+                        if method_name == "constructor" {
+                            constructor = Some(handle);
+                        } else {
+                            methods.insert(method_name, handle);
+                        }
+                    }
+                    let class = Class {
+                        name: Rc::new(name),
+                        methods,
+                        static_methods: HashMap::new(),
+                        constructor,
+                        superclass: None,
+                    };
+                    self.registers[base + a] = Value::Class(Rc::new(class));
+                }
+                Opcode::SetSuper => {
+                    let superclass = match &self.registers[base + b] {
+                        Value::Class(class) => Rc::clone(class),
+                        _ => return Err(RuntimeError::new("superclass must be class")),
+                    };
+                    match &mut self.registers[base + a] {
+                        Value::Class(class) => {
+                            let class = Class {
+                                name: Rc::clone(&class.name),
+                                methods: class.methods.clone(),
+                                static_methods: class.static_methods.clone(),
+                                constructor: class.constructor,
+                                superclass: Some(superclass),
+                            };
+                            self.registers[base + a] = Value::Class(Rc::new(class));
+                        }
+                        _ => return Err(RuntimeError::new("set super on non-class value")),
+                    }
+                }
+                Opcode::SetStatic => {
+                    let static_map = match &self.registers[base + b] {
+                        Value::Map(map) => map.borrow().clone(),
+                        _ => return Err(RuntimeError::new("static methods must be map")),
+                    };
+                    let mut static_methods = HashMap::new();
+                    for (method_name, value) in static_map {
+                        let handle = match value {
+                            Value::Function(handle) => handle,
+                            _ => {
+                                return Err(RuntimeError::new(
+                                    "static method must be a function",
+                                ))
+                            }
+                        };
+                        static_methods.insert(method_name, handle);
+                    }
+                    match &mut self.registers[base + a] {
+                        Value::Class(class) => {
+                            let class = Class {
+                                name: Rc::clone(&class.name),
+                                methods: class.methods.clone(),
+                                static_methods,
+                                constructor: class.constructor,
+                                superclass: class.superclass.clone(),
+                            };
+                            self.registers[base + a] = Value::Class(Rc::new(class));
+                        }
+                        _ => return Err(RuntimeError::new("set static on non-class value")),
+                    }
+                }
+                Opcode::Call => {
+                    let callee = self.registers[base + b].clone();
+                    let args = match &self.registers[base + c] {
+                        Value::Array(array) => array.borrow().clone(),
+                        _ => return Err(RuntimeError::new("call expects args array")),
+                    };
+                    match callee {
+                        Value::NativeFunction(func) => {
+                            let result = func(&args)?;
+                            self.registers[base + a] = result;
+                        }
+                        Value::Class(class) => {
+                            let object = Rc::new(std::cell::RefCell::new(Object {
+                                class: Some(Rc::clone(&class)),
+                                fields: HashMap::new(),
+                            }));
+                            if let Some(handle) = class.constructor {
+                                let override_value = Some(Value::Object(Rc::clone(&object)));
+                                self.call_function(
+                                    handle,
+                                    Some(object),
+                                    &args,
+                                    base + a,
+                                    override_value,
+                                    Vec::new(),
+                                )?;
+                            } else {
+                                self.registers[base + a] = Value::Object(object);
+                            }
+                        }
+                        Value::Function(handle) => {
+                            self.call_function(handle, None, &args, base + a, None, Vec::new())?;
+                        }
+                        Value::BoundMethod { receiver, function } => {
+                            self.call_function(function, Some(receiver), &args, base + a, None, Vec::new())?;
+                        }
+                        Value::Closure { function, captures } => {
+                            self.call_function(function, None, &args, base + a, None, captures)?;
+                        }
+                        _ => return Err(RuntimeError::new("call on non-callable value")),
+                    }
                 }
                 _ => {
                     return Err(RuntimeError::new("opcode not implemented"));
@@ -423,6 +693,75 @@ impl VM {
             }
         }
     }
+}
+
+impl VM {
+    fn call_function(
+        &mut self,
+        handle: usize,
+        receiver: Option<Rc<std::cell::RefCell<Object>>>,
+        args: &[Value],
+        return_reg: usize,
+        return_override: Option<Value>,
+        captures: Vec<Value>,
+    ) -> Result<(), RuntimeError> {
+        let function = self
+            .functions
+            .get(handle)
+            .ok_or_else(|| RuntimeError::new("unknown function handle"))?
+            .clone();
+        let mut arg_offset = 0usize;
+        let total_args = if receiver.is_some() { args.len() + 1 } else { args.len() };
+        if total_args != function.arity {
+            return Err(RuntimeError::new("argument count mismatch"));
+        }
+        let base = self.registers.len();
+        let register_count = function.chunk.max_registers.max(function.arity);
+        self.registers
+            .extend(std::iter::repeat(Value::Null).take(register_count));
+        if let Some(receiver) = receiver {
+            self.registers[base] = Value::Object(receiver);
+            arg_offset = 1;
+        }
+        for (idx, arg) in args.iter().enumerate() {
+            self.registers[base + idx + arg_offset] = arg.clone();
+        }
+        self.frames.push(CallFrame {
+            function_index: handle,
+            ip: 0,
+            base,
+            return_reg,
+            return_override,
+            captures,
+        });
+        Ok(())
+    }
+}
+
+fn native_print(args: &[Value]) -> Result<Value, RuntimeError> {
+    let mut out = String::new();
+    for (idx, value) in args.iter().enumerate() {
+        if idx > 0 {
+            out.push(' ');
+        }
+        out.push_str(&format!("{value:?}"));
+    }
+    println!("{out}");
+    Ok(Value::Null)
+}
+
+fn native_id(args: &[Value]) -> Result<Value, RuntimeError> {
+    Ok(args.get(0).cloned().unwrap_or(Value::Null))
+}
+
+fn resolve_method(class: &Class, name: &str) -> Option<usize> {
+    if let Some(handle) = class.methods.get(name) {
+        return Some(*handle);
+    }
+    class
+        .superclass
+        .as_ref()
+        .and_then(|superclass| resolve_method(superclass, name))
 }
 
 fn is_truthy(value: &Value) -> bool {

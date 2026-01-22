@@ -45,6 +45,8 @@ pub enum BinaryOp {
 pub enum Expr {
     Literal(Literal),
     Ident(String),
+    This,
+    Super,
     Unary {
         op: UnaryOp,
         expr: Box<Expr>,
@@ -89,6 +91,16 @@ pub enum Stmt {
         name: String,
         value: Expr,
     },
+    AssignProperty {
+        object: Expr,
+        name: String,
+        value: Expr,
+    },
+    AssignIndex {
+        collection: Expr,
+        index: Expr,
+        value: Expr,
+    },
     If {
         condition: Expr,
         then_branch: Box<Stmt>,
@@ -102,6 +114,11 @@ pub enum Stmt {
         name: String,
         iterable: Expr,
         body: Box<Stmt>,
+    },
+    Class {
+        name: String,
+        methods: Vec<FunctionDecl>,
+        superclass: Option<String>,
     },
     Fn {
         name: String,
@@ -124,4 +141,20 @@ impl Program {
     pub fn new(statements: Vec<Stmt>) -> Self {
         Self { statements }
     }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct FunctionDecl {
+    pub name: String,
+    pub params: Vec<String>,
+    pub body: Box<Stmt>,
+    pub is_static: bool,
+    pub visibility: Option<Visibility>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Visibility {
+    Public,
+    Private,
+    Protected,
 }

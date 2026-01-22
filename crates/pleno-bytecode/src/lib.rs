@@ -31,6 +31,9 @@ pub enum Opcode {
     Call,
     Return,
     Closure,
+    FunctionRef,
+    LoadCapture,
+    Capture,
     GetProperty,
     SetProperty,
     GetIndex,
@@ -46,6 +49,10 @@ pub enum Opcode {
     SetValues,
     MapKeys,
     IterValues,
+    DefineClass,
+    SetSuper,
+    SetStatic,
+    GetSuper,
     NewObject,
     GetField,
     SetField,
@@ -90,6 +97,7 @@ impl Instruction {
 pub struct Chunk {
     pub code: Vec<Instruction>,
     pub constants: Vec<Value>,
+    pub functions: Vec<FunctionProto>,
     pub lines: Vec<u32>,
     pub max_registers: usize,
 }
@@ -99,8 +107,15 @@ impl Chunk {
         Self {
             code: Vec::new(),
             constants: Vec::new(),
+            functions: Vec::new(),
             lines: Vec::new(),
             max_registers: 0,
         }
     }
+}
+
+#[derive(Debug, Clone)]
+pub struct FunctionProto {
+    pub chunk: Chunk,
+    pub arity: u8,
 }

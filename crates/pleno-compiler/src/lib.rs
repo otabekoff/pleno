@@ -1,5 +1,5 @@
-use pleno_ast::{Expr, Literal, Program, Stmt};
-use pleno_bytecode::{Chunk, Instruction, Opcode};
+use pleno_ast::{Expr, FunctionDecl, Literal, Program, Stmt};
+use pleno_bytecode::{Chunk, FunctionProto, Instruction, Opcode};
 use pleno_value::Value;
 use std::collections::HashMap;
 
@@ -23,6 +23,9 @@ pub struct Compiler {
     locals: Vec<HashMap<String, Local>>,
     loop_counter: u32,
     loop_stack: Vec<LoopContext>,
+    captures: HashMap<String, usize>,
+    is_top_level: bool,
+    current_super: Option<String>,
 }
 
 impl Compiler {
@@ -34,6 +37,9 @@ impl Compiler {
             locals: vec![HashMap::new()],
             loop_counter: 0,
             loop_stack: Vec::new(),
+            captures: HashMap::new(),
+            is_top_level: true,
+            current_super: None,
         }
     }
 
@@ -93,6 +99,29 @@ impl Compiler {
                 self.free_temp(value_reg);
                 Ok(())
             }
+            Stmt::AssignProperty { object, name, value } => {
+                let object_reg = self.compile_expr(object)?;
+                let value_reg = self.compile_expr(value)?;
+                let name_idx = self.add_constant(Value::String(name.clone().into()));
+                self.emit(Opcode::SetProperty, value_reg, object_reg, name_idx);
+                self.free_temp(value_reg);
+                self.free_temp(object_reg);
+                Ok(())
+            }
+            Stmt::AssignIndex {
+                collection,
+                index,
+                value,
+            } => {
+                let collection_reg = self.compile_expr(collection)?;
+                let index_reg = self.compile_expr(index)?;
+                let value_reg = self.compile_expr(value)?;
+                self.emit(Opcode::SetIndex, value_reg, collection_reg, index_reg);
+                self.free_temp(value_reg);
+                self.free_temp(index_reg);
+                self.free_temp(collection_reg);
+                Ok(())
+            }
             Stmt::Block(statements) => {
                 self.locals.push(HashMap::new());
                 for stmt in statements {
@@ -135,8 +164,93 @@ impl Compiler {
                 Ok(())
             }
             Stmt::For { name, iterable, body } => self.compile_for_stmt(name, iterable, body),
-            Stmt::Fn { .. } => Err(CompileError::new("functions are not supported yet")),
-            Stmt::Return(_) => Err(CompileError::new("return not supported yet")),
+            Stmt::Class {
+                name,
+                methods,
+                superclass,
+            } => {
+                let methods_reg = self.registers.allocate()?;
+                self.emit(Opcode::NewMap, methods_reg, 0, 0);
+                let static_reg = self.registers.allocate()?;
+                self.emit(Opcode::NewMap, static_reg, 0, 0);
+                for method in methods {
+                    let is_method = !method.is_static;
+                    let func_reg = self.compile_function(
+                        method,
+                        is_method,
+                        true,
+                        superclass.as_ref().cloned(),
+                    )?;
+                    let name_idx =
+                        self.add_constant(Value::String(method.name.clone().into()));
+                    let name_reg = self.registers.allocate()?;
+                    self.emit(Opcode::LoadConst, name_reg, name_idx, 0);
+                    if method.is_static {
+                        self.emit(Opcode::SetIndex, func_reg, static_reg, name_reg);
+                    } else {
+                        self.emit(Opcode::SetIndex, func_reg, methods_reg, name_reg);
+                    }
+                    self.free_temp(name_reg);
+                    self.free_temp(func_reg);
+                }
+                let class_reg = self.registers.allocate()?;
+                let name_idx = self.add_constant(Value::String(name.clone().into()));
+                self.emit(Opcode::DefineClass, class_reg, name_idx, methods_reg);
+                self.emit(Opcode::SetStatic, class_reg, static_reg, 0);
+                if let Some(superclass) = superclass {
+                    let super_reg = self.registers.allocate()?;
+                    let super_idx =
+                        self.add_constant(Value::String(superclass.clone().into()));
+                    self.emit(Opcode::GetGlobal, super_reg, super_idx, 0);
+                    self.emit(Opcode::SetSuper, class_reg, super_reg, 0);
+                    self.free_temp(super_reg);
+                }
+                self.emit(Opcode::SetGlobal, class_reg, name_idx, 0);
+                self.free_temp(class_reg);
+                self.free_temp(methods_reg);
+                self.free_temp(static_reg);
+                Ok(())
+            }
+            Stmt::Fn { name, params, body } => {
+                let decl = FunctionDecl {
+                    name: name.clone(),
+                    params: params.clone(),
+                    body: body.clone(),
+                    is_static: false,
+                    visibility: None,
+                };
+                let func_reg = self.compile_function(&decl, false, false, None)?;
+                if self.is_top_level {
+                    let name_idx = self.add_constant(Value::String(name.clone().into()));
+                    self.emit(Opcode::SetGlobal, func_reg, name_idx, 0);
+                    self.free_temp(func_reg);
+                } else {
+                    if self
+                        .locals
+                        .last()
+                        .map(|scope| scope.contains_key(name))
+                        .unwrap_or(false)
+                    {
+                        return Err(CompileError::new(
+                            "function name already defined in scope",
+                        ));
+                    }
+                    self.insert_local(name.clone(), func_reg, false);
+                }
+                Ok(())
+            }
+            Stmt::Return(expr) => {
+                let reg = match expr {
+                    Some(expr) => self.compile_expr(expr)?,
+                    None => {
+                        let reg = self.registers.allocate()?;
+                        self.emit(Opcode::LoadNull, reg, 0, 0);
+                        reg
+                    }
+                };
+                self.emit(Opcode::Return, reg, 0, 0);
+                Ok(())
+            }
             Stmt::Break => self.compile_break_stmt(),
             Stmt::Continue => self.compile_continue_stmt(),
         }
@@ -207,17 +321,46 @@ impl Compiler {
                 self.free_temp(value_reg);
                 Ok(dest)
             }
-            Expr::Ident(name) => self
-                .resolve_local(name)
+            Expr::Ident(name) => {
+                if let Some(local) = self.resolve_local(name) {
+                    Ok(local.reg)
+                } else if let Some(index) = self.captures.get(name) {
+                    let dest = self.registers.allocate()?;
+                    self.emit(Opcode::LoadCapture, dest, *index as u8, 0);
+                    Ok(dest)
+                } else {
+                    let dest = self.registers.allocate()?;
+                    let name_idx = self.add_constant(Value::String(name.clone().into()));
+                    self.emit(Opcode::GetGlobal, dest, name_idx, 0);
+                    Ok(dest)
+                }
+            }
+            Expr::This => self
+                .resolve_local("this")
                 .map(|local| local.reg)
-                .ok_or_else(|| CompileError::new("unknown local")),
+                .ok_or_else(|| CompileError::new("this used outside of method")),
+            Expr::Super => Err(CompileError::new("super is not supported yet")),
             Expr::Property { object, name } => {
-                let object_reg = self.compile_expr(object)?;
-                let dest = self.registers.allocate()?;
-                let name_idx = self.add_constant(Value::String(name.clone().into()));
-                self.emit(Opcode::GetProperty, dest, object_reg, name_idx);
-                self.free_temp(object_reg);
-                Ok(dest)
+                if matches!(**object, Expr::Super) {
+                    let this_reg = self
+                        .resolve_local("this")
+                        .map(|local| local.reg)
+                        .ok_or_else(|| CompileError::new("super used outside of method"))?;
+                    if self.current_super.is_none() {
+                        return Err(CompileError::new("super used without superclass"));
+                    }
+                    let dest = self.registers.allocate()?;
+                    let name_idx = self.add_constant(Value::String(name.clone().into()));
+                    self.emit(Opcode::GetSuper, dest, this_reg, name_idx);
+                    Ok(dest)
+                } else {
+                    let object_reg = self.compile_expr(object)?;
+                    let dest = self.registers.allocate()?;
+                    let name_idx = self.add_constant(Value::String(name.clone().into()));
+                    self.emit(Opcode::GetProperty, dest, object_reg, name_idx);
+                    self.free_temp(object_reg);
+                    Ok(dest)
+                }
             }
             Expr::Range {
                 start,
@@ -291,7 +434,21 @@ impl Compiler {
                 self.free_temp(index_reg);
                 Ok(dest)
             }
-            Expr::Call { .. } => Err(CompileError::new("calls are not supported yet")),
+            Expr::Call { callee, args } => {
+                let callee_reg = self.compile_expr(callee)?;
+                let args_reg = self.registers.allocate()?;
+                self.emit(Opcode::NewArray, args_reg, 0, 0);
+                for arg in args {
+                    let arg_reg = self.compile_expr(arg)?;
+                    self.emit(Opcode::ArrayAppend, args_reg, arg_reg, 0);
+                    self.free_temp(arg_reg);
+                }
+                let dest = self.registers.allocate()?;
+                self.emit(Opcode::Call, dest, callee_reg, args_reg);
+                self.free_temp(callee_reg);
+                self.free_temp(args_reg);
+                Ok(dest)
+            }
         }
     }
 
@@ -586,6 +743,223 @@ impl Compiler {
         self.patch_loop_jumps(loop_ctx, loop_end)?;
         self.pop_scope();
         Ok(())
+    }
+
+    fn compile_function(
+        &mut self,
+        decl: &FunctionDecl,
+        is_method: bool,
+        store_as_function: bool,
+        current_super: Option<String>,
+    ) -> Result<u8, CompileError> {
+        let captures = self.analyze_captures(decl, is_method);
+        if store_as_function && !captures.is_empty() {
+            return Err(CompileError::new(
+                "class methods cannot capture outer variables yet",
+            ));
+        }
+        let mut compiler = Compiler::new();
+        compiler.is_top_level = false;
+        compiler.locals = vec![HashMap::new()];
+        compiler.captures = captures
+            .iter()
+            .enumerate()
+            .map(|(idx, name)| (name.clone(), idx))
+            .collect();
+        compiler.current_super = current_super;
+        let mut params = Vec::new();
+        if is_method {
+            params.push("this".to_string());
+        }
+        params.extend(decl.params.iter().cloned());
+        for param in &params {
+            let reg = compiler.registers.allocate()?;
+            compiler.insert_local(param.clone(), reg, true);
+        }
+        compiler.compile_stmt(&decl.body)?;
+        let return_reg = match compiler.last_expr_register {
+            Some(reg) => reg,
+            None => {
+                let reg = compiler.registers.allocate()?;
+                compiler.emit(Opcode::LoadNull, reg, 0, 0);
+                reg
+            }
+        };
+        compiler.emit(Opcode::Return, return_reg, 0, 0);
+        compiler.chunk.max_registers = compiler.registers.max_used.max(params.len());
+        let func_index = self.chunk.functions.len();
+        let arity = params.len() as u8;
+        self.chunk.functions.push(FunctionProto {
+            chunk: compiler.chunk,
+            arity,
+        });
+        let dest = self.registers.allocate()?;
+        if store_as_function {
+            self.emit(Opcode::FunctionRef, dest, func_index as u8, 0);
+        } else {
+            let capture_count = captures.len() as u8;
+            self.emit(Opcode::Closure, dest, func_index as u8, capture_count);
+            for (idx, name) in captures.iter().enumerate() {
+                let reg = self
+                    .resolve_local(name)
+                    .ok_or_else(|| CompileError::new("unknown capture"))?
+                    .reg;
+                self.emit(Opcode::Capture, dest, reg, idx as u8);
+            }
+        }
+        Ok(dest)
+    }
+
+    fn analyze_captures(&self, decl: &FunctionDecl, is_method: bool) -> Vec<String> {
+        let mut locals = HashMap::new();
+        for name in &decl.params {
+            locals.insert(name.clone(), ());
+        }
+        if is_method {
+            locals.insert("this".to_string(), ());
+        }
+        self.collect_locals(&decl.body, &mut locals);
+        let mut used = HashMap::new();
+        self.collect_idents(&decl.body, &mut used);
+        let mut captures = Vec::new();
+        for name in used.keys() {
+            if !locals.contains_key(name) && self.resolve_local(name).is_some() {
+                captures.push(name.clone());
+            }
+        }
+        captures
+    }
+
+    fn collect_locals(&self, stmt: &Stmt, locals: &mut HashMap<String, ()>) {
+        match stmt {
+            Stmt::Let { name, .. } => {
+                locals.insert(name.clone(), ());
+            }
+            Stmt::Block(items) => {
+                for item in items {
+                    self.collect_locals(item, locals);
+                }
+            }
+            Stmt::If {
+                then_branch,
+                else_branch,
+                ..
+            } => {
+                self.collect_locals(then_branch, locals);
+                if let Some(else_branch) = else_branch {
+                    self.collect_locals(else_branch, locals);
+                }
+            }
+            Stmt::While { body, .. } => self.collect_locals(body, locals),
+            Stmt::For { body, .. } => self.collect_locals(body, locals),
+            Stmt::Fn { name, .. } => {
+                locals.insert(name.clone(), ());
+            }
+            _ => {}
+        }
+    }
+
+    fn collect_idents(&self, stmt: &Stmt, used: &mut HashMap<String, ()>) {
+        match stmt {
+            Stmt::Expr(expr) => self.collect_idents_expr(expr, used),
+            Stmt::Let { value, .. } => {
+                if let Some(value) = value {
+                    self.collect_idents_expr(value, used);
+                }
+            }
+            Stmt::Assign { name, value } => {
+                used.insert(name.clone(), ());
+                self.collect_idents_expr(value, used);
+            }
+            Stmt::AssignProperty { object, value, .. } => {
+                self.collect_idents_expr(object, used);
+                self.collect_idents_expr(value, used);
+            }
+            Stmt::AssignIndex {
+                collection,
+                index,
+                value,
+            } => {
+                self.collect_idents_expr(collection, used);
+                self.collect_idents_expr(index, used);
+                self.collect_idents_expr(value, used);
+            }
+            Stmt::If {
+                condition,
+                then_branch,
+                else_branch,
+            } => {
+                self.collect_idents_expr(condition, used);
+                self.collect_idents(then_branch, used);
+                if let Some(else_branch) = else_branch {
+                    self.collect_idents(else_branch, used);
+                }
+            }
+            Stmt::While { condition, body } => {
+                self.collect_idents_expr(condition, used);
+                self.collect_idents(body, used);
+            }
+            Stmt::For { iterable, body, .. } => {
+                self.collect_idents_expr(iterable, used);
+                self.collect_idents(body, used);
+            }
+            Stmt::Fn { .. } => {}
+            Stmt::Return(expr) => {
+                if let Some(expr) = expr {
+                    self.collect_idents_expr(expr, used);
+                }
+            }
+            Stmt::Block(items) => {
+                for item in items {
+                    self.collect_idents(item, used);
+                }
+            }
+            Stmt::Class { .. } => {}
+            _ => {}
+        }
+    }
+
+    fn collect_idents_expr(&self, expr: &Expr, used: &mut HashMap<String, ()>) {
+        match expr {
+            Expr::Ident(name) => {
+                used.insert(name.clone(), ());
+            }
+            Expr::Unary { expr, .. } => self.collect_idents_expr(expr, used),
+            Expr::Binary { left, right, .. } => {
+                self.collect_idents_expr(left, used);
+                self.collect_idents_expr(right, used);
+            }
+            Expr::Property { object, .. } => self.collect_idents_expr(object, used),
+            Expr::Range { start, end, .. } => {
+                if let Some(start) = start {
+                    self.collect_idents_expr(start, used);
+                }
+                if let Some(end) = end {
+                    self.collect_idents_expr(end, used);
+                }
+            }
+            Expr::MapLiteral(items) => {
+                for (_, value) in items {
+                    self.collect_idents_expr(value, used);
+                }
+            }
+            Expr::ArrayLiteral(items) | Expr::SetLiteral(items) => {
+                for item in items {
+                    self.collect_idents_expr(item, used);
+                }
+            }
+            Expr::Index { collection, index } => {
+                self.collect_idents_expr(collection, used);
+                self.collect_idents_expr(index, used);
+            }
+            Expr::Call { callee, args } => {
+                self.collect_idents_expr(callee, used);
+                for arg in args {
+                    self.collect_idents_expr(arg, used);
+                }
+            }
+            _ => {}
+        }
     }
 }
 
