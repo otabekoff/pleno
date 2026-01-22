@@ -6,6 +6,7 @@ pub enum TokenKind {
     Int(i64),
     Float(f64),
     String(String),
+    Char(char),
     Bool(bool),
     Null,
     KeywordLet,
@@ -73,6 +74,9 @@ pub enum TokenKind {
     FatArrow,
     Pipe,
     Pipeline,
+    Question,
+    QuestionDot,
+    NullCoalesce,
     Eof,
 }
 
@@ -215,10 +219,34 @@ pub fn lex(source: &str) -> Result<Vec<Token>, LexError> {
                     token_simple(TokenKind::Greater, start)
                 }
             }
+            '?' => {
+                if matches!(chars.peek(), Some((_, '.'))) {
+                    let end = chars.next().map(|(idx, _)| idx + 1).unwrap_or(start + 2);
+                    Token {
+                        kind: TokenKind::QuestionDot,
+                        span: Span::new(start, end),
+                    }
+                } else if matches!(chars.peek(), Some((_, '?'))) {
+                    let end = chars.next().map(|(idx, _)| idx + 1).unwrap_or(start + 2);
+                    Token {
+                        kind: TokenKind::NullCoalesce,
+                        span: Span::new(start, end),
+                    }
+                } else {
+                    token_simple(TokenKind::Question, start)
+                }
+            }
             '"' => {
                 let (value, end) = lex_string(&mut chars, start)?;
                 Token {
                     kind: TokenKind::String(value),
+                    span: Span::new(start, end),
+                }
+            }
+            '\'' => {
+                let (value, end) = lex_char(&mut chars, start)?;
+                Token {
+                    kind: TokenKind::Char(value),
                     span: Span::new(start, end),
                 }
             }
@@ -335,6 +363,55 @@ fn lex_string(
         message: "Unterminated string literal".to_string(),
         span: Span::new(start, start + 1),
     })
+}
+
+fn lex_char(
+    chars: &mut std::iter::Peekable<std::str::CharIndices<'_>>,
+    start: usize,
+) -> Result<(char, usize), LexError> {
+    let ch = match chars.next() {
+        Some((_, ch)) => {
+            if ch == '\\' {
+                // Handle escape sequences
+                match chars.next() {
+                    Some((_, esc)) => match esc {
+                        'n' => '\n',
+                        'r' => '\r',
+                        't' => '\t',
+                        '\'' => '\'',
+                        '\\' => '\\',
+                        other => other,
+                    },
+                    None => {
+                        return Err(LexError {
+                            message: "Unterminated char escape".to_string(),
+                            span: Span::new(start, start + 1),
+                        });
+                    }
+                }
+            } else {
+                ch
+            }
+        }
+        None => {
+            return Err(LexError {
+                message: "Unterminated char literal".to_string(),
+                span: Span::new(start, start + 1),
+            });
+        }
+    };
+    
+    match chars.next() {
+        Some((end, '\'')) => Ok((ch, end + 1)),
+        Some((_, other)) => Err(LexError {
+            message: format!("Expected ' after char, found '{}'", other),
+            span: Span::new(start, start + 1),
+        }),
+        None => Err(LexError {
+            message: "Unterminated char literal".to_string(),
+            span: Span::new(start, start + 1),
+        }),
+    }
 }
 
 fn lex_number(

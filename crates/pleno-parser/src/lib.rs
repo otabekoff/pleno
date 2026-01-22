@@ -114,15 +114,7 @@ impl Parser {
             }
         };
         let ty = if self.matches(&TokenKind::Colon) {
-            match self.advance().kind.clone() {
-                TokenKind::Ident(value) => Some(value),
-                other => {
-                    return Err(ParseError {
-                        message: format!("Expected type name after ':', found {other:?}"),
-                        span: self.previous_span(),
-                    })
-                }
-            }
+            Some(self.parse_type()?)
         } else {
             None
         };
@@ -159,15 +151,7 @@ impl Parser {
             }
         };
         let ty = if self.matches(&TokenKind::Colon) {
-            match self.advance().kind.clone() {
-                TokenKind::Ident(value) => Some(value),
-                other => {
-                    return Err(ParseError {
-                        message: format!("Expected type name after ':', found {other:?}"),
-                        span: self.previous_span(),
-                    })
-                }
-            }
+            Some(self.parse_type()?)
         } else {
             None
         };
@@ -630,15 +614,7 @@ impl Parser {
         let params = self.parse_param_list()?;
         self.expect(TokenKind::RParen, "Expected ')' after parameters")?;
         let return_ty = if self.matches(&TokenKind::Arrow) {
-            match self.advance().kind.clone() {
-                TokenKind::Ident(name) => Some(name),
-                other => {
-                    return Err(ParseError {
-                        message: format!("Expected return type name after '->', found {other:?}"),
-                        span: self.previous_span(),
-                    });
-                }
-            }
+            Some(self.parse_type()?)
         } else {
             None
         };
@@ -862,12 +838,25 @@ impl Parser {
     }
 
     fn parse_or(&mut self) -> Result<Expr, ParseError> {
-        let mut expr = self.parse_and()?;
+        let mut expr = self.parse_null_coalesce()?;
         while self.matches(&TokenKind::OrOr) {
-            let right = self.parse_and()?;
+            let right = self.parse_null_coalesce()?;
             expr = Expr::Binary {
                 left: Box::new(expr),
                 op: pleno_ast::BinaryOp::Or,
+                right: Box::new(right),
+            };
+        }
+        Ok(expr)
+    }
+
+    fn parse_null_coalesce(&mut self) -> Result<Expr, ParseError> {
+        let mut expr = self.parse_and()?;
+        while self.matches(&TokenKind::NullCoalesce) {
+            let right = self.parse_and()?;
+            expr = Expr::Binary {
+                left: Box::new(expr),
+                op: pleno_ast::BinaryOp::NullCoalesce,
                 right: Box::new(right),
             };
         }
@@ -1081,6 +1070,7 @@ impl Parser {
             TokenKind::Int(value) => Expr::Literal(Literal::Int(value)),
             TokenKind::Float(value) => Expr::Literal(Literal::Float(value)),
             TokenKind::String(value) => Expr::Literal(Literal::String(value)),
+            TokenKind::Char(value) => Expr::Literal(Literal::Char(value)),
             TokenKind::Bool(value) => Expr::Literal(Literal::Bool(value)),
             TokenKind::Null => Expr::Literal(Literal::Null),
             TokenKind::Ident(name) => Expr::Ident(name),
@@ -1104,10 +1094,7 @@ impl Parser {
                 let params = self.parse_param_list()?;
                 self.expect(TokenKind::RParen, "Expected ')' after parameters")?;
                 let return_ty = if self.matches(&TokenKind::Colon) {
-                    match self.advance().kind.clone() {
-                        TokenKind::Ident(name) => Some(name),
-                        _ => None,
-                    }
+                    Some(self.parse_type()?)
                 } else {
                     None
                 };
@@ -1218,6 +1205,23 @@ impl Parser {
                     }
                 };
                 expr = Expr::Property {
+                    object: Box::new(expr),
+                    name,
+                };
+                continue;
+            }
+            if self.matches(&TokenKind::QuestionDot) {
+                let name = match self.advance().kind.clone() {
+                    TokenKind::Ident(name) => name,
+                    TokenKind::Int(val) => val.to_string(),
+                    other => {
+                        return Err(ParseError {
+                            message: format!("Expected identifier or index after '?.', found {other:?}"),
+                            span: self.previous_span(),
+                        });
+                    }
+                };
+                expr = Expr::SafeProperty {
                     object: Box::new(expr),
                     name,
                 };
@@ -1457,6 +1461,48 @@ impl Parser {
 
     fn is_at_end(&self) -> bool {
         self.index >= self.tokens.len()
+    }
+
+    fn parse_type(&mut self) -> Result<String, ParseError> {
+        // Parse union types: Int | String | Float
+        let mut types = Vec::new();
+        loop {
+            let base_type = match self.advance().kind.clone() {
+                TokenKind::Ident(name) => name,
+                other => {
+                    return Err(ParseError {
+                        message: format!("Expected type name, found {other:?}"),
+                        span: self.previous_span(),
+                    });
+                }
+            };
+            
+            // Check for optional: Int?
+            let optional = if self.matches(&TokenKind::Question) {
+                true
+            } else {
+                false
+            };
+            
+            let type_str = if optional {
+                format!("{}?", base_type)
+            } else {
+                base_type
+            };
+            
+            types.push(type_str);
+            
+            // Check for union: |
+            if !self.matches(&TokenKind::Pipe) {
+                break;
+            }
+        }
+        
+        if types.len() == 1 {
+            Ok(types.into_iter().next().unwrap())
+        } else {
+            Ok(types.join(" | "))
+        }
     }
 }
 
