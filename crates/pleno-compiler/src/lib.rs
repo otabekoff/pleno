@@ -287,6 +287,7 @@ impl Compiler {
                 fields,
                 methods,
                 superclass,
+                annotations: _,
             } => {
                 let methods_reg = self.registers.allocate()?;
                 self.emit(Opcode::NewMap, methods_reg, 0, 0);
@@ -359,7 +360,12 @@ impl Compiler {
                 self.free_temp(static_reg);
                 Ok(())
             }
-            Stmt::Fn { name, params, body } => {
+            Stmt::Fn {
+                name,
+                params,
+                body,
+                annotations,
+            } => {
                 let decl = FunctionDecl {
                     name: name.clone(),
                     params: params.clone(),
@@ -367,7 +373,7 @@ impl Compiler {
                     is_static: false,
                     visibility: None,
                     kind: FunctionKind::Method,
-                    annotations: Vec::new(),
+                    annotations: annotations.clone(),
                 };
                 let func_reg = self.compile_function(&decl, false, false, None)?;
                 if self.is_top_level {
@@ -565,17 +571,11 @@ impl Compiler {
                 }
                 Ok(dest)
             }
-            Expr::SetLiteral(items) => {
-                let dest = self.registers.allocate()?;
-                self.emit(Opcode::NewSet, dest, 0, 0);
-                for item in items {
-                    let value_reg = self.compile_expr(item)?;
-                    self.emit(Opcode::SetAdd, dest, value_reg, 0);
-                    self.free_temp(value_reg);
-                }
-                Ok(dest)
+            Expr::Underscore => {
+                Err(CompileError::new("underscore is only allowed as a placeholder in calls"))
             }
             Expr::Index { collection, index } => {
+
                 let collection_reg = self.compile_expr(collection)?;
                 let index_reg = self.compile_expr(index)?;
                 let dest = self.registers.allocate()?;
@@ -586,7 +586,43 @@ impl Compiler {
             }
             Expr::Call { callee, args } => {
                 let callee_reg = self.compile_expr(callee)?;
-                let has_named = args.iter().any(|arg| matches!(arg, pleno_ast::CallArg::Named(_, _)));
+                let has_placeholder =
+                    args.iter()
+                        .any(|arg| matches!(arg, pleno_ast::CallArg::Placeholder));
+                let has_named = args
+                    .iter()
+                    .any(|arg| matches!(arg, pleno_ast::CallArg::Named(_, _)));
+
+                if has_placeholder {
+                    let args_reg = self.registers.allocate()?;
+                    self.emit(Opcode::NewArray, args_reg, 0, 0);
+                    for arg in args {
+                        match arg {
+                            pleno_ast::CallArg::Positional(expr) => {
+                                let arg_reg = self.compile_expr(expr)?;
+                                self.emit(Opcode::ArrayAppend, args_reg, arg_reg, 0);
+                                self.free_temp(arg_reg);
+                            }
+                            pleno_ast::CallArg::Placeholder => {
+                                let arg_reg = self.registers.allocate()?;
+                                self.emit(Opcode::LoadMissing, arg_reg, 0, 0);
+                                self.emit(Opcode::ArrayAppend, args_reg, arg_reg, 0);
+                                self.free_temp(arg_reg);
+                            }
+                            pleno_ast::CallArg::Named(_, _) => {
+                                return Err(CompileError::new(
+                                    "named arguments not supported in partials yet",
+                                ));
+                            }
+                        }
+                    }
+                    let dest = self.registers.allocate()?;
+                    self.emit(Opcode::Partial, dest, callee_reg, args_reg);
+                    self.free_temp(callee_reg);
+                    self.free_temp(args_reg);
+                    return Ok(dest);
+                }
+
                 if has_named {
                     let positional_reg = self.registers.allocate()?;
                     self.emit(Opcode::NewArray, positional_reg, 0, 0);

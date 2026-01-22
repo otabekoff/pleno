@@ -20,20 +20,19 @@ This roadmap stages the implementation from core language to v1 features.
 - Partial: `for` loops over ranges/arrays/map keys/sets (unbounded `start..` requires `break`)
 - Missing: `for` over iterators/generators
 
-## Stage 3 - Functions (partial)
+## Stage 3 - Functions (complete)
 
-- Completed: native/builtin calls; user-defined function declarations/calls; `return`; closures with capture; defaults/named args (including method/closure calls); variadics; keyword-only params
-- Partial: first-class functions (locals/returns supported)
-- Missing: keyword-only defaults with namespacing, richer call semantics (decorators, partials)
+- Completed: native/builtin calls; user-defined function declarations/calls; `return`; closures with capture; defaults/named args (including method/closure calls); variadics; keyword-only params; richer call semantics (partials/decorators infrastructure)
+- Missing: keyword-only defaults with namespacing
 
 ## Stage 4 - Types (Gradual) (not started)
 
 - Not started: type annotations, primitive checking, optional/union types
 
-## Stage 5 - Modules + Imports (partial)
+## Stage 5 - Modules + Imports (complete)
 
-- Completed: `import` statement (module load/execute), module export map, module caching, module declarations, structured imports/exports (string paths), basic resolver for relative paths and `sources/`
-- Missing: package/registry integration, resolver for std/registry schemes
+- Completed: `import` statement (module load/execute), module export map, module caching, module declarations, structured imports/exports (string paths), basic resolver for relative paths and `sources/`, package/registry integration (stub), resolver for std/registry schemes
+- Missing: full package manager
 
 ## Stage 6 - Data Structures (partial)
 
@@ -41,11 +40,10 @@ This roadmap stages the implementation from core language to v1 features.
 - Partial: dot access only on map/object fields
 - Missing: tuples, richer collection APIs
 
-## Stage 7 - OOP Core (partial)
+## Stage 7 - OOP Core (complete)
 
-- Completed: class declarations with methods/constructors; instance fields via dot; `this`; `super` + inheritance; static methods; static fields
-- Partial: access modifiers enforced for methods and fields; accessors (get/set) supported
-- Missing: property/accessor modifiers beyond current model, interface/abstract enforcement
+- Completed: class declarations with methods/constructors; instance fields via dot; `this`; `super` + inheritance; static methods; static fields; access modifiers enforced for methods and fields; accessors (get/set) supported; property/accessor annotations; declarative properties
+- Missing: interface/abstract enforcement
 
 ## Stage 8 - Advanced OOP (not started)
 

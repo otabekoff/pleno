@@ -35,6 +35,11 @@ pub enum Value {
     Array(Rc<RefCell<Vec<Value>>>),
     Set(Rc<RefCell<HashSet<ValueKey>>>),
     Object(Rc<RefCell<Object>>),
+    Partial {
+        function: usize,
+        args: Vec<Value>,
+        placeholders: Vec<usize>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -114,6 +119,18 @@ impl PartialEq for Value {
             (Value::Array(a), Value::Array(b)) => Rc::ptr_eq(a, b),
             (Value::Set(a), Value::Set(b)) => Rc::ptr_eq(a, b),
             (Value::Object(a), Value::Object(b)) => Rc::ptr_eq(a, b),
+            (
+                Value::Partial {
+                    function: fa,
+                    args: aa,
+                    placeholders: pa,
+                },
+                Value::Partial {
+                    function: fb,
+                    args: ab,
+                    placeholders: pb,
+                },
+            ) => fa == fb && aa == ab && pa == pb,
             _ => false,
         }
     }

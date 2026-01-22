@@ -67,6 +67,7 @@ pub enum Expr {
     },
     MapLiteral(Vec<(String, Expr)>),
     ArrayLiteral(Vec<Expr>),
+    Underscore,
     Index {
         collection: Box<Expr>,
         index: Box<Expr>,
@@ -129,11 +130,13 @@ pub enum Stmt {
         fields: Vec<FieldDecl>,
         methods: Vec<FunctionDecl>,
         superclass: Option<String>,
+        annotations: Vec<Annotation>,
     },
     Fn {
         name: String,
         params: Vec<Param>,
         body: Box<Stmt>,
+        annotations: Vec<Annotation>,
     },
     Return(Option<Expr>),
     Break,
@@ -208,6 +211,7 @@ pub struct Param {
 pub enum CallArg {
     Positional(Expr),
     Named(String, Expr),
+    Placeholder,
 }
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Visibility {

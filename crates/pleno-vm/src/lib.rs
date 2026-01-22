@@ -932,8 +932,102 @@ impl VM {
                         Value::Array(array) => array.borrow().clone(),
                         _ => return Err(RuntimeError::new("call expects args array")),
                     };
-                    let named = HashMap::new();
-                    self.call_with_named(callee, args, named, base + a)?;
+                    match callee {
+                        Value::Partial {
+                            function,
+                            args: saved_args,
+                            placeholders,
+                        } => {
+                            let mut merged_args = saved_args.clone();
+                            let mut new_arg_idx = 0;
+                            for &placeholder_idx in &placeholders {
+                                if new_arg_idx < args.len() {
+                                    merged_args[placeholder_idx] = args[new_arg_idx].clone();
+                                    new_arg_idx += 1;
+                                }
+                            }
+                            while new_arg_idx < args.len() {
+                                merged_args.push(args[new_arg_idx].clone());
+                                new_arg_idx += 1;
+                            }
+                            self.call_function(
+                                function,
+                                None,
+                                &merged_args,
+                                base + a,
+                                None,
+                                Vec::new(),
+                                None,
+                            )?;
+                        }
+                        Value::Function(handle) => {
+                            self.call_function(handle, None, &args, base + a, None, Vec::new(), None)?;
+                        }
+                        Value::Closure { function, captures } => {
+                            self.call_function(
+                                function,
+                                None,
+                                &args,
+                                base + a,
+                                None,
+                                captures,
+                                None,
+                            )?;
+                        }
+                        Value::NativeFunction(func) => {
+                            let result = func(&args)?;
+                            self.registers[base + a] = result;
+                        }
+                        Value::BoundMethod {
+                            receiver,
+                            function,
+                            owner,
+                            ..
+                        } => {
+                            self.call_function(
+                                function,
+                                Some(receiver),
+                                &args,
+                                base + a,
+                                None,
+                                Vec::new(),
+                                Some(owner),
+                            )?;
+                        }
+                        Value::StaticMethod {
+                            function, owner, ..
+                        } => {
+                            self.call_function(
+                                function,
+                                None,
+                                &args,
+                                base + a,
+                                None,
+                                Vec::new(),
+                                Some(owner),
+                            )?;
+                        }
+                        Value::Class(class) => {
+                            let object = Rc::new(std::cell::RefCell::new(Object {
+                                class: Some(Rc::clone(&class)),
+                                fields: HashMap::new(),
+                            }));
+                            if let Some(handle) = class.constructor {
+                                self.call_function(
+                                    handle,
+                                    Some(Rc::clone(&object)),
+                                    &args,
+                                    base + a,
+                                    Some(Value::Object(Rc::clone(&object))),
+                                    Vec::new(),
+                                    Some(Rc::clone(&class.name)),
+                                )?;
+                            } else {
+                                self.registers[base + a] = Value::Object(object);
+                            }
+                        }
+                        _ => return Err(RuntimeError::new("value is not callable")),
+                    }
                 }
                 Opcode::CallNamed => {
                     let callee = self.registers[base + b].clone();
@@ -952,9 +1046,44 @@ impl VM {
                         Value::Map(map) => map.borrow().clone(),
                         _ => return Err(RuntimeError::new("call named named must be map")),
                     };
-                    self.call_with_named(callee, positional, named, base + a)?;
+                    match callee {
+                        Value::Partial { .. } => {
+                            return Err(RuntimeError::new(
+                                "partial named calls not supported yet",
+                            ));
+                        }
+                        _ => {
+                            self.call_with_named(callee, positional, named, base + a)?;
+                        }
+                    }
+                }
+                Opcode::Partial => {
+                    let callee = self.registers[base + b].clone();
+                    let func_index = match callee {
+                        Value::Function(idx) => idx,
+                        Value::Closure { function, .. } => function,
+                        _ => return Err(RuntimeError::new("partial callee must be a function")),
+                    };
+                    let args_meta = match &self.registers[base + c] {
+                        Value::Array(arr) => arr.borrow().clone(),
+                        _ => return Err(RuntimeError::new("partial metadata must be an array")),
+                    };
+                    let mut args = Vec::new();
+                    let mut placeholders = Vec::new();
+                    for (idx, val) in args_meta.into_iter().enumerate() {
+                        if val == Value::Missing {
+                            placeholders.push(idx);
+                        }
+                        args.push(val);
+                    }
+                    self.registers[base + a] = Value::Partial {
+                        function: func_index,
+                        args,
+                        placeholders,
+                    };
                 }
                 Opcode::Import => {
+
                     let path = match &function.chunk.constants[b] {
                         Value::String(value) => value.as_str().to_string(),
                         _ => return Err(RuntimeError::new("import path must be string")),
@@ -1248,6 +1377,35 @@ fn resolve_module_path(
     path: &str,
     base_dir: Option<std::path::PathBuf>,
 ) -> Result<std::path::PathBuf, RuntimeError> {
+    if let Some(name) = path.strip_prefix("std:") {
+        let current_dir = std::env::current_dir().map_err(|err| {
+            RuntimeError::new(format!("failed to get current dir: {err}"))
+        })?;
+        let std_path = current_dir.join("sources/std").join(format!("{}.pln", name));
+        if std_path.exists() {
+            return Ok(std_path);
+        }
+        return Err(RuntimeError::new(format!("std module not found: {}", name)));
+    }
+
+    if let Some(name) = path.strip_prefix("registry:") {
+        let current_dir = std::env::current_dir().map_err(|err| {
+            RuntimeError::new(format!("failed to get current dir: {err}"))
+        })?;
+        let pkg_path = current_dir.join("sources/packages").join(format!("{}.pln", name));
+        if pkg_path.exists() {
+            return Ok(pkg_path);
+        }
+        let pkg_index = current_dir.join("sources/packages").join(name).join("index.pln");
+        if pkg_index.exists() {
+            return Ok(pkg_index);
+        }
+        return Err(RuntimeError::new(format!(
+            "registry package not found: {}",
+            name
+        )));
+    }
+
     let raw_path = std::path::Path::new(path);
     if raw_path.is_absolute() {
         return Ok(raw_path.to_path_buf());

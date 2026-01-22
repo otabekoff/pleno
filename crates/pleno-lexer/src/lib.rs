@@ -61,6 +61,8 @@ pub enum TokenKind {
     LessEqual,
     Greater,
     GreaterEqual,
+    At,
+    Underscore,
     Eof,
 }
 
@@ -125,6 +127,7 @@ pub fn lex(source: &str) -> Result<Vec<Token>, LexError> {
             '-' => token_simple(TokenKind::Minus, start),
             '*' => token_simple(TokenKind::Star, start),
             '/' => token_simple(TokenKind::Slash, start),
+            '@' => token_simple(TokenKind::At, start),
             '!' => {
                 if matches!(chars.peek(), Some((_, '='))) {
                     let end = chars.next().map(|(idx, _)| idx + 1).unwrap_or(start + 1);
@@ -243,6 +246,7 @@ pub fn lex(source: &str) -> Result<Vec<Token>, LexError> {
                     "true" => TokenKind::Bool(true),
                     "false" => TokenKind::Bool(false),
                     "null" => TokenKind::Null,
+                    "_" => TokenKind::Underscore,
                     _ => TokenKind::Ident(ident),
                 };
                 Token {
