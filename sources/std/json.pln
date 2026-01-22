@@ -1,0 +1,17 @@
+// JSON standard library module
+// JSON parsing and stringification
+
+export fn JSONParse(json: String): Any {
+    // TODO: Implement JSON parsing
+    return null;
+}
+
+export fn JSONStringify(value: Any): String {
+    // TODO: Implement JSON stringification
+    return "";
+}
+
+export fn JSONStringifyPretty(value: Any, indent: Int = 2): String {
+    // TODO: Implement pretty JSON stringification
+    return "";
+}

@@ -1,0 +1,27 @@
+// I/O standard library module
+// File and directory operations
+
+// File operations
+export fn FileRead(path: String): String {
+    // TODO: Implement file reading
+    return "";
+}
+
+export fn FileWrite(path: String, content: String): Void {
+    // TODO: Implement file writing
+}
+
+export fn FileExists(path: String): Bool {
+    // TODO: Implement file existence check
+    return false;
+}
+
+// Directory operations
+export fn DirectoryCreate(path: String): Void {
+    // TODO: Implement directory creation
+}
+
+export fn DirectoryExists(path: String): Bool {
+    // TODO: Implement directory existence check
+    return false;
+}

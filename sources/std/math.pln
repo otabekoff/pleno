@@ -1,0 +1,35 @@
+// Math standard library module
+// Mathematical operations and constants
+
+export const PI: Float = 3.141592653589793;
+export const E: Float = 2.718281828459045;
+
+export fn MathAbs(x: Float): Float {
+    // TODO: Implement absolute value
+    return if (x < 0) -x else x;
+}
+
+export fn MathMax(...values: Float[]): Float {
+    // TODO: Implement max
+    return 0.0;
+}
+
+export fn MathMin(...values: Float[]): Float {
+    // TODO: Implement min
+    return 0.0;
+}
+
+export fn MathPow(base: Float, exponent: Float): Float {
+    // TODO: Implement power
+    return 0.0;
+}
+
+export fn MathSqrt(x: Float): Float {
+    // TODO: Implement square root
+    return 0.0;
+}
+
+export fn MathRandom(): Float {
+    // TODO: Implement random
+    return 0.0;
+}

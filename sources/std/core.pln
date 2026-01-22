@@ -1,0 +1,20 @@
+// Core standard library module
+// Provides basic utilities and types
+
+// Result type utilities
+export fn ResultOk<T>(value: T): Result<T, String> {
+    return Ok(value);
+}
+
+export fn ResultErr<E>(error: E): Result<Int, E> {
+    return Err(error);
+}
+
+// Option type utilities  
+export fn OptionSome<T>(value: T): Option<T> {
+    return Some(value);
+}
+
+export fn OptionNone<T>(): Option<T> {
+    return None;
+}

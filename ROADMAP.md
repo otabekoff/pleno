@@ -8,10 +8,9 @@ This roadmap stages the implementation from core language to v1 features.
 - Basic lexer/parser scaffolding
 - Documentation baseline (mdBook)
 
-## Stage 1 - Core Syntax + Expressions (partial)
+## Stage 1 - Core Syntax + Expressions (complete)
 
-- Completed: tokens for literals/idents/operators; operator precedence; expression AST/spans; UTF-8 decision; `&&`/`||` parsing + bytecode; dot token + parsing (member access only for map/object fields); range parsing + Range values
-- Missing: full member access semantics (methods/classes), more literal types
+- Completed: tokens for literals/idents/operators; operator precedence; expression AST/spans; UTF-8 decision; `&&`/`||` parsing + bytecode; dot token + parsing (member access only for map/object fields); range parsing + Range values; Char literal support; optional types (Int?); union types (Int | String); null coalescing (??) and safe navigation (?.) operators
 
 ## Stage 2 - Statements + Blocks (complete)
 
@@ -25,8 +24,7 @@ This roadmap stages the implementation from core language to v1 features.
 
 ## Stage 4 - Types (Gradual) (complete)
 
-- Completed: type annotations parsing for parameters and return types; runtime primitive checking (`Int`, `String`, etc.) in `let`/`assign` and `catch`; class type checking in `is` operator.
-- Missing: optional/union types
+- Completed: type annotations parsing for parameters and return types; runtime primitive checking (`Int`, `String`, etc.) in `let`/`assign` and `catch`; class type checking in `is` operator; optional types (Int?); union types (Int | String); Void and Any type support
 
 ## Stage 5 - Modules + Imports (complete)
 
@@ -35,8 +33,7 @@ This roadmap stages the implementation from core language to v1 features.
 
 ## Stage 6 - Data Structures (complete)
 
-- Completed: map/array/set literals; array/map indexing; index assignment; array/map/set iteration; set membership; tuples (positional and named); tuple index access; dot access for Strings, Arrays, Sets, and Maps (builtin methods like `.len`, `.upper()`, `.push()`, etc.)
-- Missing: richer collection APIs (slices, mapping/filtering)
+- Completed: map/array/set literals; array/map indexing; index assignment; array/map/set iteration; set membership; tuples (positional and named); tuple index access; dot access for Strings, Arrays, Sets, and Maps (builtin methods like `.len`, `.upper()`, `.push()`, etc.); array slicing syntax ([1..4], [2..], [..3]); array slice() method; array map/filter/reduce method stubs (partial - need VM function calling support)
 
 ## Stage 7 - OOP Core (complete)
 
@@ -47,23 +44,24 @@ This roadmap stages the implementation from core language to v1 features.
 - Missing: 
 
 
-## Stage 10 - Error Handling (complete)
+## Stage 10 - Error Handling (partial)
 
 - Completed: basic try/catch/finally, throw syntax and VM support; multiple catch blocks with type checking (e.g., `catch (e: MyError)`)
-- Missing: Result/Option syntax (monadic sugar)
+- Missing: Result/Option syntax (monadic sugar) - in progress
 
 ## Stage 11 - Async + Concurrency (not started)
 
 - Not started: async/await, promises
 
-## Stage 12 - Standard Library Stubs (not started)
+## Stage 12 - Standard Library Stubs (partial)
 
-- Not started: stdlib stubs (string/math/collections/IO/JSON)
+- Completed: basic stdlib module stubs (std:core, std:io, std:json, std:http, std:math) with function signatures
+- Missing: actual implementations of stdlib functions
 
 ## Stage 13 - Tooling (partial)
 
-- Completed: LSP MVP (diagnostics, go-to-def)
-- Missing: formatter, linter, docs tooling
+- Completed: LSP MVP (diagnostics, go-to-def); basic formatter CLI command (pleno format); basic linter CLI command (pleno lint); type checker CLI command (pleno check)
+- Missing: full formatter implementation (indentation, spacing rules); full linter implementation (style rules, best practices); docs tooling
 
 ## Stage 14 - Runtime + VM (Register-Based) (partial)
 

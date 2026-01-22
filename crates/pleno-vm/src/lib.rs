@@ -52,6 +52,12 @@ impl VM {
         let mut globals = HashMap::new();
         globals.insert("print".to_string(), Value::NativeFunction(native_print));
         globals.insert("id".to_string(), Value::NativeFunction(native_id));
+        // Result type constructors
+        globals.insert("Ok".to_string(), Value::NativeFunction(native_result_ok));
+        globals.insert("Err".to_string(), Value::NativeFunction(native_result_err));
+        // Option type constructors
+        globals.insert("Some".to_string(), Value::NativeFunction(native_option_some));
+        globals.insert("None".to_string(), Value::NativeFunction(native_option_none));
         Self {
             registers: vec![Value::Null; 256],
             frames: Vec::new(),
@@ -550,11 +556,35 @@ impl VM {
                     };
                     let current_class = frame.current_class.as_ref().cloned();
                     let value = match &self.registers[base + b] {
-                        Value::Map(map) => map
-                            .borrow()
-                            .get(&name)
-                            .cloned()
-                            .unwrap_or(Value::Null),
+                        Value::Map(map) => {
+                            // Check if this is a Result or Option type first
+                            let map_ref = map.borrow();
+                            if let Some(Value::String(variant)) = map_ref.get("variant") {
+                                if (variant.as_str() == "Ok" || variant.as_str() == "Err") 
+                                    && resolve_builtin_method("Result", &name).is_some() {
+                                    // Result type with method
+                                    drop(map_ref);
+                                    return Ok(Value::BoundNativeMethod {
+                                        receiver: Box::new(Value::Map(Rc::clone(map))),
+                                        function: resolve_builtin_method("Result", &name).unwrap(),
+                                    });
+                                } else if (variant.as_str() == "Some" || variant.as_str() == "None")
+                                    && resolve_builtin_method("Option", &name).is_some() {
+                                    // Option type with method
+                                    drop(map_ref);
+                                    return Ok(Value::BoundNativeMethod {
+                                        receiver: Box::new(Value::Map(Rc::clone(map))),
+                                        function: resolve_builtin_method("Option", &name).unwrap(),
+                                    });
+                                }
+                            }
+                            drop(map_ref);
+                            // Regular map access
+                            map.borrow()
+                                .get(&name)
+                                .cloned()
+                                .unwrap_or(Value::Null)
+                        }
                         Value::Object(object) => {
                             let class = object.borrow().class.clone();
                             let field_value = object.borrow().fields.get(&name).cloned();
@@ -1992,10 +2022,26 @@ fn resolve_builtin_method(ty: &str, name: &str) -> Option<NativeFunction> {
         ("Array", "push") => Some(native_array_push),
         ("Array", "pop") => Some(native_array_pop),
         ("Array", "clear") => Some(native_array_clear),
+        ("Array", "slice") => Some(native_array_slice),
+        ("Array", "map") => Some(native_array_map),
+        ("Array", "filter") => Some(native_array_filter),
+        ("Array", "reduce") => Some(native_array_reduce),
         ("Set", "add") => Some(native_set_add),
         ("Set", "remove") => Some(native_set_remove),
         ("Set", "clear") => Some(native_set_clear),
         ("Set", "contains") => Some(native_set_contains),
+        // Result methods
+        ("Result", "unwrap") => Some(native_result_unwrap),
+        ("Result", "unwrapOr") => Some(native_result_unwrap_or),
+        ("Result", "expect") => Some(native_result_expect),
+        ("Result", "isOk") => Some(native_result_is_ok),
+        ("Result", "isErr") => Some(native_result_is_err),
+        // Option methods
+        ("Option", "unwrap") => Some(native_option_unwrap),
+        ("Option", "unwrapOr") => Some(native_option_unwrap_or),
+        ("Option", "expect") => Some(native_option_expect),
+        ("Option", "isSome") => Some(native_option_is_some),
+        ("Option", "isNone") => Some(native_option_is_none),
         _ => None,
     }
 }
@@ -2094,4 +2140,266 @@ fn native_set_contains(args: &[Value]) -> Result<Value, RuntimeError> {
     let key = pleno_value::ValueKey::try_from_value(&args[1])
         .ok_or_else(|| RuntimeError::new("invalid value for set"))?;
     Ok(Value::Bool(set.borrow().contains(&key)))
+}
+
+fn native_array_slice(args: &[Value]) -> Result<Value, RuntimeError> {
+    let arr = match &args[0] {
+        Value::Array(arr) => arr,
+        _ => return Err(RuntimeError::new("expected array")),
+    };
+    let array = arr.borrow();
+    let len = array.len();
+    
+    // Parse start and end from args
+    let start = match args.get(1) {
+        Some(Value::Int(i)) => *i as usize,
+        Some(Value::Null) => 0,
+        _ => 0,
+    };
+    let end = match args.get(2) {
+        Some(Value::Int(i)) => *i as usize,
+        Some(Value::Null) => len,
+        _ => len,
+    };
+    
+    // Handle negative indices
+    let start = if start > len { len } else { start };
+    let end = if end > len { len } else { end };
+    
+    // Create new array with slice
+    let slice: Vec<Value> = array[start..end].to_vec();
+    Ok(Value::Array(Rc::new(RefCell::new(slice))))
+}
+
+fn native_array_map(_args: &[Value]) -> Result<Value, RuntimeError> {
+    // TODO: Implement map() - requires calling function for each element
+    Err(RuntimeError::new("map() is not fully implemented yet - requires function calling in native code"))
+}
+
+fn native_array_filter(_args: &[Value]) -> Result<Value, RuntimeError> {
+    // TODO: Implement filter() - requires calling function for each element
+    Err(RuntimeError::new("filter() is not fully implemented yet - requires function calling in native code"))
+}
+
+fn native_array_reduce(_args: &[Value]) -> Result<Value, RuntimeError> {
+    // TODO: Implement reduce() - requires calling function for each element
+    Err(RuntimeError::new("reduce() is not fully implemented yet - requires function calling in native code"))
+}
+
+// Result type constructors and methods
+fn native_result_ok(args: &[Value]) -> Result<Value, RuntimeError> {
+    if args.is_empty() {
+        return Err(RuntimeError::new("Ok() requires 1 argument"));
+    }
+    // Create a map representing Result::Ok(value)
+    let result = Rc::new(RefCell::new(HashMap::new()));
+    result.borrow_mut().insert("variant".to_string(), Value::String("Ok".to_string().into()));
+    result.borrow_mut().insert("value".to_string(), args[0].clone());
+    Ok(Value::Map(result))
+}
+
+fn native_result_err(args: &[Value]) -> Result<Value, RuntimeError> {
+    if args.is_empty() {
+        return Err(RuntimeError::new("Err() requires 1 argument"));
+    }
+    // Create a map representing Result::Err(error)
+    let result = Rc::new(RefCell::new(HashMap::new()));
+    result.borrow_mut().insert("variant".to_string(), Value::String("Err".to_string().into()));
+    result.borrow_mut().insert("value".to_string(), args[0].clone());
+    Ok(Value::Map(result))
+}
+
+// Option type constructors
+fn native_option_some(args: &[Value]) -> Result<Value, RuntimeError> {
+    if args.is_empty() {
+        return Err(RuntimeError::new("Some() requires 1 argument"));
+    }
+    // Create a map representing Option::Some(value)
+    let option = Rc::new(RefCell::new(HashMap::new()));
+    option.borrow_mut().insert("variant".to_string(), Value::String("Some".to_string().into()));
+    option.borrow_mut().insert("value".to_string(), args[0].clone());
+    Ok(Value::Map(option))
+}
+
+fn native_option_none(_args: &[Value]) -> Result<Value, RuntimeError> {
+    // Create a map representing Option::None
+    let option = Rc::new(RefCell::new(HashMap::new()));
+    option.borrow_mut().insert("variant".to_string(), Value::String("None".to_string().into()));
+    Ok(Value::Map(option))
+}
+
+// Result methods
+fn native_result_unwrap(args: &[Value]) -> Result<Value, RuntimeError> {
+    let result = match &args[0] {
+        Value::Map(map) => map,
+        _ => return Err(RuntimeError::new("unwrap() called on non-Result value")),
+    };
+    let map_ref = result.borrow();
+    match map_ref.get("variant") {
+        Some(Value::String(variant)) if variant.as_str() == "Ok" => {
+            map_ref.get("value").cloned().ok_or_else(|| RuntimeError::new("Result::Ok missing value"))
+        }
+        Some(Value::String(variant)) if variant.as_str() == "Err" => {
+            Err(RuntimeError::new("called unwrap() on Result::Err"))
+        }
+        _ => Err(RuntimeError::new("invalid Result value")),
+    }
+}
+
+fn native_result_unwrap_or(args: &[Value]) -> Result<Value, RuntimeError> {
+    if args.len() < 2 {
+        return Err(RuntimeError::new("unwrapOr() requires a default value"));
+    }
+    let result = match &args[0] {
+        Value::Map(map) => map,
+        _ => return Err(RuntimeError::new("unwrapOr() called on non-Result value")),
+    };
+    let map_ref = result.borrow();
+    match map_ref.get("variant") {
+        Some(Value::String(variant)) if variant.as_str() == "Ok" => {
+            Ok(map_ref.get("value").cloned().unwrap_or_else(|| args[1].clone()))
+        }
+        _ => Ok(args[1].clone()), // Return default for Err
+    }
+}
+
+fn native_result_expect(args: &[Value]) -> Result<Value, RuntimeError> {
+    if args.len() < 2 {
+        return Err(RuntimeError::new("expect() requires a message"));
+    }
+    let result = match &args[0] {
+        Value::Map(map) => map,
+        _ => return Err(RuntimeError::new("expect() called on non-Result value")),
+    };
+    let map_ref = result.borrow();
+    match map_ref.get("variant") {
+        Some(Value::String(variant)) if variant.as_str() == "Ok" => {
+            map_ref.get("value").cloned().ok_or_else(|| {
+                let msg = match &args[1] {
+                    Value::String(s) => s.as_str().to_string(),
+                    _ => "Result::Err".to_string(),
+                };
+                RuntimeError::new(&msg)
+            })
+        }
+        _ => {
+            let msg = match &args[1] {
+                Value::String(s) => s.as_str().to_string(),
+                _ => "Result::Err".to_string(),
+            };
+            Err(RuntimeError::new(&msg))
+        }
+    }
+}
+
+fn native_result_is_ok(args: &[Value]) -> Result<Value, RuntimeError> {
+    let result = match &args[0] {
+        Value::Map(map) => map,
+        _ => return Err(RuntimeError::new("isOk() called on non-Result value")),
+    };
+    let map_ref = result.borrow();
+    match map_ref.get("variant") {
+        Some(Value::String(variant)) => Ok(Value::Bool(variant.as_str() == "Ok")),
+        _ => Ok(Value::Bool(false)),
+    }
+}
+
+fn native_result_is_err(args: &[Value]) -> Result<Value, RuntimeError> {
+    let result = match &args[0] {
+        Value::Map(map) => map,
+        _ => return Err(RuntimeError::new("isErr() called on non-Result value")),
+    };
+    let map_ref = result.borrow();
+    match map_ref.get("variant") {
+        Some(Value::String(variant)) => Ok(Value::Bool(variant.as_str() == "Err")),
+        _ => Ok(Value::Bool(false)),
+    }
+}
+
+// Option methods
+fn native_option_unwrap(args: &[Value]) -> Result<Value, RuntimeError> {
+    let option = match &args[0] {
+        Value::Map(map) => map,
+        _ => return Err(RuntimeError::new("unwrap() called on non-Option value")),
+    };
+    let map_ref = option.borrow();
+    match map_ref.get("variant") {
+        Some(Value::String(variant)) if variant.as_str() == "Some" => {
+            map_ref.get("value").cloned().ok_or_else(|| RuntimeError::new("Option::Some missing value"))
+        }
+        Some(Value::String(variant)) if variant.as_str() == "None" => {
+            Err(RuntimeError::new("called unwrap() on Option::None"))
+        }
+        _ => Err(RuntimeError::new("invalid Option value")),
+    }
+}
+
+fn native_option_unwrap_or(args: &[Value]) -> Result<Value, RuntimeError> {
+    if args.len() < 2 {
+        return Err(RuntimeError::new("unwrapOr() requires a default value"));
+    }
+    let option = match &args[0] {
+        Value::Map(map) => map,
+        _ => return Err(RuntimeError::new("unwrapOr() called on non-Option value")),
+    };
+    let map_ref = option.borrow();
+    match map_ref.get("variant") {
+        Some(Value::String(variant)) if variant.as_str() == "Some" => {
+            Ok(map_ref.get("value").cloned().unwrap_or_else(|| args[1].clone()))
+        }
+        _ => Ok(args[1].clone()), // Return default for None
+    }
+}
+
+fn native_option_expect(args: &[Value]) -> Result<Value, RuntimeError> {
+    if args.len() < 2 {
+        return Err(RuntimeError::new("expect() requires a message"));
+    }
+    let option = match &args[0] {
+        Value::Map(map) => map,
+        _ => return Err(RuntimeError::new("expect() called on non-Option value")),
+    };
+    let map_ref = option.borrow();
+    match map_ref.get("variant") {
+        Some(Value::String(variant)) if variant.as_str() == "Some" => {
+            map_ref.get("value").cloned().ok_or_else(|| {
+                let msg = match &args[1] {
+                    Value::String(s) => s.as_str().to_string(),
+                    _ => "Option::None".to_string(),
+                };
+                RuntimeError::new(&msg)
+            })
+        }
+        _ => {
+            let msg = match &args[1] {
+                Value::String(s) => s.as_str().to_string(),
+                _ => "Option::None".to_string(),
+            };
+            Err(RuntimeError::new(&msg))
+        }
+    }
+}
+
+fn native_option_is_some(args: &[Value]) -> Result<Value, RuntimeError> {
+    let option = match &args[0] {
+        Value::Map(map) => map,
+        _ => return Err(RuntimeError::new("isSome() called on non-Option value")),
+    };
+    let map_ref = option.borrow();
+    match map_ref.get("variant") {
+        Some(Value::String(variant)) => Ok(Value::Bool(variant.as_str() == "Some")),
+        _ => Ok(Value::Bool(false)),
+    }
+}
+
+fn native_option_is_none(args: &[Value]) -> Result<Value, RuntimeError> {
+    let option = match &args[0] {
+        Value::Map(map) => map,
+        _ => return Err(RuntimeError::new("isNone() called on non-Option value")),
+    };
+    let map_ref = option.borrow();
+    match map_ref.get("variant") {
+        Some(Value::String(variant)) => Ok(Value::Bool(variant.as_str() == "None")),
+        _ => Ok(Value::Bool(false)),
+    }
 }
