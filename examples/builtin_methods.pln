@@ -1,0 +1,24 @@
+let s = "hello";
+print("String len:", s.len);
+print("String upper:", s.upper());
+print("String lower:", s.upper().lower());
+
+let a = [1, 2, 3];
+print("Array len:", a.len);
+a.push(4);
+print("Array len after push:", a.len);
+print("Array pop:", a.pop());
+print("Array len after pop:", a.len);
+a.clear();
+print("Array len after clear:", a.len);
+
+let st = {1, 2, 3};
+print("Set len:", st.len);
+print("Set contains 2:", st.contains(2));
+st.add(4);
+print("Set len after add:", st.len);
+print("Set contains 4:", st.contains(4));
+st.remove(2);
+print("Set contains 2 after remove:", st.contains(2));
+st.clear();
+print("Set len after clear:", st.len);
