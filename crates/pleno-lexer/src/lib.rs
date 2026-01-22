@@ -68,6 +68,7 @@ pub enum TokenKind {
     Arrow,
     FatArrow,
     Pipe,
+    Pipeline,
     Eof,
 }
 
@@ -153,14 +154,11 @@ pub fn lex(source: &str) -> Result<Vec<Token>, LexError> {
                 } else if matches!(chars.peek(), Some((_, '>'))) {
                     let end = chars.next().map(|(idx, _)| idx + 1).unwrap_or(start + 2);
                     Token {
-                        kind: TokenKind::Pipe,
+                        kind: TokenKind::Pipeline,
                         span: Span::new(start, end),
                     }
                 } else {
-                    return Err(LexError {
-                        message: "Unexpected '|'".to_string(),
-                        span: Span::new(start, start + 1),
-                    });
+                    token_simple(TokenKind::Pipe, start)
                 }
             }
             '=' => {

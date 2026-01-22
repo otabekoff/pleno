@@ -66,8 +66,15 @@ pub enum Expr {
         inclusive: bool,
     },
     MapLiteral(Vec<(String, Expr)>),
+    NamedTupleLiteral(Vec<(String, Expr)>),
     ArrayLiteral(Vec<Expr>),
     TupleLiteral(Vec<Expr>),
+    Lambda {
+        params: Vec<Param>,
+        body: Box<Expr>,
+        return_ty: Option<String>,
+    },
+    Block(Vec<Stmt>),
     Underscore,
     Index {
         collection: Box<Expr>,
