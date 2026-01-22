@@ -1,6 +1,10 @@
-use pleno_bytecode::{Chunk, Opcode};
-use pleno_value::{Class, Object, Range, RuntimeError, Value, ValueKey};
+use pleno_bytecode::{Chunk, Opcode, ParamSpec};
+use pleno_value::{
+    Class, MethodInfo, MethodVisibility, Object, Range, RuntimeError, Value, ValueKey,
+};
+use std::cell::RefCell;
 use std::collections::HashMap;
+use std::fs;
 use std::rc::Rc;
 
 #[derive(Debug, Clone)]
@@ -11,12 +15,16 @@ pub struct CallFrame {
     pub return_reg: usize,
     pub return_override: Option<Value>,
     pub captures: Vec<Value>,
+    pub current_class: Option<Rc<String>>,
+    pub current_module: Option<Rc<String>>,
+    pub current_module_path: Option<Rc<String>>,
 }
 
 pub struct VM {
     registers: Vec<Value>,
     frames: Vec<CallFrame>,
     globals: HashMap<String, Value>,
+    modules: HashMap<String, Value>,
     functions: Vec<Function>,
 }
 
@@ -25,6 +33,9 @@ pub struct Function {
     pub name: Rc<String>,
     pub chunk: Chunk,
     pub arity: usize,
+    pub params: Vec<ParamSpec>,
+    pub module: Option<Rc<String>>,
+    pub module_path: Option<Rc<String>>,
 }
 
 impl VM {
@@ -36,6 +47,7 @@ impl VM {
             registers: vec![Value::Null; 256],
             frames: Vec::new(),
             globals,
+            modules: HashMap::new(),
             functions: Vec::new(),
         }
     }
@@ -45,6 +57,9 @@ impl VM {
             name: Rc::new("<script>".to_string()),
             chunk,
             arity: 0,
+            params: Vec::new(),
+            module: None,
+            module_path: None,
         };
         let func_index = self.functions.len();
         self.functions.push(function);
@@ -55,12 +70,18 @@ impl VM {
             return_reg: 0,
             return_override: None,
             captures: Vec::new(),
+            current_class: None,
+            current_module: None,
+            current_module_path: None,
         });
-        self.run()
+        self.run_until(0)
     }
 
-    fn run(&mut self) -> Result<Value, RuntimeError> {
+    fn run_until(&mut self, depth: usize) -> Result<Value, RuntimeError> {
         loop {
+            if self.frames.len() == depth {
+                return Ok(Value::Null);
+            }
             let frame = self.frames.last_mut().ok_or_else(|| RuntimeError::new("no frame"))?;
             let function = self
                 .functions
@@ -86,6 +107,9 @@ impl VM {
                     let value = function.chunk.constants[b].clone();
                     self.registers[base + a] = value;
                 }
+                Opcode::LoadMissing => {
+                    self.registers[base + a] = Value::Missing;
+                }
                 Opcode::LoadNull => {
                     self.registers[base + a] = Value::Null;
                 }
@@ -110,6 +134,13 @@ impl VM {
                         name: Rc::new("<fn>".to_string()),
                         chunk: proto.chunk.clone(),
                         arity: proto.arity as usize,
+                        params: proto.params.clone(),
+                        module: proto
+                            .chunk
+                            .module_name
+                            .as_ref()
+                            .map(|name| Rc::new(name.clone())),
+                        module_path: frame.current_module_path.as_ref().cloned(),
                     });
                     let captures = vec![Value::Null; c];
                     self.registers[base + a] = Value::Closure {
@@ -128,6 +159,13 @@ impl VM {
                         name: Rc::new("<fn>".to_string()),
                         chunk: proto.chunk.clone(),
                         arity: proto.arity as usize,
+                        params: proto.params.clone(),
+                        module: proto
+                            .chunk
+                            .module_name
+                            .as_ref()
+                            .map(|name| Rc::new(name.clone())),
+                        module_path: frame.current_module_path.as_ref().cloned(),
                     });
                     self.registers[base + a] = Value::Function(func_index);
                 }
@@ -337,12 +375,104 @@ impl VM {
                         _ => return Err(RuntimeError::new("property name must be string")),
                     };
                     let value = self.registers[base + a].clone();
+                    let current_class = frame.current_class.as_ref().cloned();
+                    let current_module = frame.current_module.as_ref().cloned();
                     match &self.registers[base + b] {
                         Value::Map(map) => {
                             map.borrow_mut().insert(name, value);
                         }
                         Value::Object(object) => {
+                            let class = object.borrow().class.clone();
+                            if let Some(class) = class.as_ref() {
+                                let setter_name = format!("set:{name}");
+                                if let Some(info) = resolve_method(class, &setter_name) {
+                                    if !can_access_method(
+                                        &info,
+                                        current_class.as_ref(),
+                                        current_module.as_ref(),
+                                        &self.globals,
+                                    ) {
+                                        return Err(RuntimeError::new("method access denied"));
+                                    }
+                                    self.call_function(
+                                        info.function,
+                                        Some(Rc::clone(object)),
+                                        &[value],
+                                        base + a,
+                                        None,
+                                        Vec::new(),
+                                        Some(Rc::clone(&info.owner)),
+                                    )?;
+                                    continue;
+                                }
+                                if let Some(visibility) = class.fields.get(&name) {
+                                    if !can_access_field(
+                                        visibility,
+                                        &class.name,
+                                        class.module.as_ref(),
+                                        current_class.as_ref(),
+                                        current_module.as_ref(),
+                                        &self.globals,
+                                    ) {
+                                        return Err(RuntimeError::new("field access denied"));
+                                    }
+                                }
+                            }
                             object.borrow_mut().fields.insert(name, value);
+                        }
+                        Value::Class(class) => {
+                            let setter_name = format!("set:{name}");
+                            if let Some(info) = resolve_static_method(class, &setter_name) {
+                                if !can_access_method(
+                                    &info,
+                                    current_class.as_ref(),
+                                    current_module.as_ref(),
+                                    &self.globals,
+                                ) {
+                                    return Err(RuntimeError::new("static method access denied"));
+                                }
+                                self.call_function(
+                                    info.function,
+                                    None,
+                                    &[value],
+                                    base + a,
+                                    None,
+                                    Vec::new(),
+                                    Some(Rc::clone(&info.owner)),
+                                )?;
+                                continue;
+                            }
+                            if let Some(visibility) = class.static_field_visibility.get(&name) {
+                                if !can_access_field(
+                                    visibility,
+                                    &class.name,
+                                    class.module.as_ref(),
+                                    current_class.as_ref(),
+                                    current_module.as_ref(),
+                                    &self.globals,
+                                ) {
+                                    return Err(RuntimeError::new("static field access denied"));
+                                }
+                            }
+                            let class_name = class.name.as_ref().to_string();
+                            let updated = Class {
+                                name: Rc::clone(&class.name),
+                                methods: class.methods.clone(),
+                                static_methods: class.static_methods.clone(),
+                                constructor: class.constructor,
+                                superclass: class.superclass.clone(),
+                                static_fields: {
+                                    let mut fields = class.static_fields.clone();
+                                    fields.insert(name, value);
+                                    fields
+                                },
+                                fields: class.fields.clone(),
+                                static_field_visibility: class.static_field_visibility.clone(),
+                                module: class.module.clone(),
+                            };
+                            let updated = Value::Class(Rc::new(updated));
+                            self.registers[base + b] = updated.clone();
+                            self.globals.insert(class_name, updated);
                         }
                         _ => return Err(RuntimeError::new("property set on non-map/object value")),
                     }
@@ -352,43 +482,132 @@ impl VM {
                         Value::String(value) => value.as_str().to_string(),
                         _ => return Err(RuntimeError::new("property name must be string")),
                     };
+                    let current_class = frame.current_class.as_ref().cloned();
                     let value = match &self.registers[base + b] {
                         Value::Map(map) => map
                             .borrow()
                             .get(&name)
                             .cloned()
                             .unwrap_or(Value::Null),
-                        Value::Object(object) => object
-                            .borrow()
-                            .fields
-                            .get(&name)
-                            .cloned()
-                            .or_else(|| {
-                                object
-                                    .borrow()
-                                    .class
-                                    .as_ref()
-                                    .and_then(|class| resolve_method(class, &name))
-                                    .map(|function| Value::BoundMethod {
+                        Value::Object(object) => {
+                            let class = object.borrow().class.clone();
+                            let field_value = object.borrow().fields.get(&name).cloned();
+                            if let Some(class) = class.as_ref() {
+                                let getter_name = format!("get:{name}");
+                                if let Some(info) = resolve_method(class, &getter_name) {
+                                    if !can_access_method(
+                                        &info,
+                                        current_class.as_ref(),
+                                        frame.current_module.as_ref(),
+                                        &self.globals,
+                                    ) {
+                                        return Err(RuntimeError::new("method access denied"));
+                                    }
+                                    self.call_function(
+                                        info.function,
+                                        Some(Rc::clone(object)),
+                                        &[],
+                                        base + a,
+                                        None,
+                                        Vec::new(),
+                                        Some(Rc::clone(&info.owner)),
+                                    )?;
+                                    continue;
+                                }
+                                if let Some(visibility) = class.fields.get(&name) {
+                                    if !can_access_field(
+                                        visibility,
+                                        &class.name,
+                                        class.module.as_ref(),
+                                        current_class.as_ref(),
+                                        frame.current_module.as_ref(),
+                                        &self.globals,
+                                    ) {
+                                        return Err(RuntimeError::new("field access denied"));
+                                    }
+                                    field_value.unwrap_or(Value::Null)
+                                } else if let Some(value) = field_value {
+                                    value
+                                } else if let Some(info) = resolve_method(class, &name) {
+                                    if !can_access_method(
+                                        &info,
+                                        current_class.as_ref(),
+                                        frame.current_module.as_ref(),
+                                        &self.globals,
+                                    ) {
+                                        return Err(RuntimeError::new("method access denied"));
+                                    }
+                                    Value::BoundMethod {
                                         receiver: Rc::clone(object),
-                                        function,
-                                    })
-                            })
-                            .unwrap_or(Value::Null),
-                        Value::Class(class) => class
-                            .static_methods
-                            .get(&name)
-                            .copied()
-                            .map(Value::Function)
-                            .or_else(|| {
+                                        function: info.function,
+                                        owner: Rc::clone(&info.owner),
+                                        visibility: info.visibility,
+                                    }
+                                } else {
+                                    Value::Null
+                                }
+                            } else {
+                                field_value.unwrap_or(Value::Null)
+                            }
+                        }
+                        Value::Class(class) => {
+                            let getter_name = format!("get:{name}");
+                            if let Some(info) = resolve_static_method(class, &getter_name) {
+                                if !can_access_method(
+                                    &info,
+                                    current_class.as_ref(),
+                                    frame.current_module.as_ref(),
+                                    &self.globals,
+                                ) {
+                                    return Err(RuntimeError::new("static method access denied"));
+                                }
+                                self.call_function(
+                                    info.function,
+                                    None,
+                                    &[],
+                                    base + a,
+                                    None,
+                                    Vec::new(),
+                                    Some(Rc::clone(&info.owner)),
+                                )?;
+                                continue;
+                            }
+                            if let Some(visibility) = class.static_field_visibility.get(&name) {
+                                if !can_access_field(
+                                    visibility,
+                                    &class.name,
+                                    class.module.as_ref(),
+                                    current_class.as_ref(),
+                                    frame.current_module.as_ref(),
+                                    &self.globals,
+                                ) {
+                                    return Err(RuntimeError::new("static field access denied"));
+                                }
                                 class
-                                    .superclass
-                                    .as_ref()
-                                    .and_then(|superclass| superclass.static_methods.get(&name))
-                                    .copied()
-                                    .map(Value::Function)
-                            })
-                            .unwrap_or(Value::Null),
+                                    .static_fields
+                                    .get(&name)
+                                    .cloned()
+                                    .unwrap_or(Value::Null)
+                            } else if let Some(value) = class.static_fields.get(&name).cloned() {
+                                value
+                            } else if let Some(info) = resolve_static_method(class, &name) {
+                                if !can_access_method(
+                                    &info,
+                                    current_class.as_ref(),
+                                    frame.current_module.as_ref(),
+                                    &self.globals,
+                                ) {
+                                    return Err(RuntimeError::new("static method access denied"));
+                                }
+                                Value::StaticMethod {
+                                    function: info.function,
+                                    owner: Rc::clone(&info.owner),
+                                    visibility: info.visibility,
+                                }
+                            } else {
+                                Value::Null
+                            }
+                        }
                         _ => return Err(RuntimeError::new("property access on non-object value")),
                     };
                     self.registers[base + a] = value;
@@ -409,11 +628,13 @@ impl VM {
                         .and_then(|class| class.superclass.as_ref())
                         .map(Rc::clone)
                         .ok_or_else(|| RuntimeError::new("superclass missing"))?;
-                    let handle = resolve_method(&superclass, &name)
+                    let info = resolve_method(&superclass, &name)
                         .ok_or_else(|| RuntimeError::new("unknown super method"))?;
                     self.registers[base + a] = Value::BoundMethod {
                         receiver,
-                        function: handle,
+                        function: info.function,
+                        owner: Rc::clone(&info.owner),
+                        visibility: info.visibility,
                     };
                 }
                 Opcode::GetIndex => {
@@ -539,7 +760,7 @@ impl VM {
                         .return_override
                         .unwrap_or_else(|| self.registers[base + a].clone());
                     self.registers.truncate(frame.base);
-                    if self.frames.is_empty() {
+                    if self.frames.len() == depth {
                         return Ok(result);
                     }
                     self.registers[frame.return_reg] = result;
@@ -565,25 +786,20 @@ impl VM {
                         Value::String(value) => value.as_str().to_string(),
                         _ => return Err(RuntimeError::new("class name must be string")),
                     };
+                    let module = frame.current_module.as_ref().map(Rc::clone);
                     let methods_map = match &self.registers[base + c] {
                         Value::Map(map) => map.borrow().clone(),
                         _ => return Err(RuntimeError::new("class methods must be map")),
                     };
                     let mut methods = HashMap::new();
                     let mut constructor = None;
+                    let owner = Rc::new(name.clone());
                     for (method_name, value) in methods_map {
-                        let handle = match value {
-                            Value::Function(handle) => handle,
-                            _ => {
-                                return Err(RuntimeError::new(
-                                    "class method must be a function",
-                                ))
-                            }
-                        };
+                        let info = parse_method_info(value, &owner, module.as_ref())?;
                         if method_name == "constructor" {
-                            constructor = Some(handle);
+                            constructor = Some(info.function);
                         } else {
-                            methods.insert(method_name, handle);
+                            methods.insert(method_name, info);
                         }
                     }
                     let class = Class {
@@ -592,6 +808,10 @@ impl VM {
                         static_methods: HashMap::new(),
                         constructor,
                         superclass: None,
+                        static_fields: HashMap::new(),
+                        fields: HashMap::new(),
+                        static_field_visibility: HashMap::new(),
+                        module: module.clone(),
                     };
                     self.registers[base + a] = Value::Class(Rc::new(class));
                 }
@@ -608,6 +828,10 @@ impl VM {
                                 static_methods: class.static_methods.clone(),
                                 constructor: class.constructor,
                                 superclass: Some(superclass),
+                                static_fields: class.static_fields.clone(),
+                                fields: class.fields.clone(),
+                                static_field_visibility: class.static_field_visibility.clone(),
+                                module: class.module.clone(),
                             };
                             self.registers[base + a] = Value::Class(Rc::new(class));
                         }
@@ -620,16 +844,13 @@ impl VM {
                         _ => return Err(RuntimeError::new("static methods must be map")),
                     };
                     let mut static_methods = HashMap::new();
+                    let (owner, module) = match &self.registers[base + a] {
+                        Value::Class(class) => (Rc::clone(&class.name), class.module.clone()),
+                        _ => return Err(RuntimeError::new("set static on non-class value")),
+                    };
                     for (method_name, value) in static_map {
-                        let handle = match value {
-                            Value::Function(handle) => handle,
-                            _ => {
-                                return Err(RuntimeError::new(
-                                    "static method must be a function",
-                                ))
-                            }
-                        };
-                        static_methods.insert(method_name, handle);
+                        let info = parse_method_info(value, &owner, module.as_ref())?;
+                        static_methods.insert(method_name, info);
                     }
                     match &mut self.registers[base + a] {
                         Value::Class(class) => {
@@ -639,10 +860,70 @@ impl VM {
                                 static_methods,
                                 constructor: class.constructor,
                                 superclass: class.superclass.clone(),
+                                static_fields: class.static_fields.clone(),
+                                fields: class.fields.clone(),
+                                static_field_visibility: class.static_field_visibility.clone(),
+                                module: class.module.clone(),
                             };
                             self.registers[base + a] = Value::Class(Rc::new(class));
                         }
                         _ => return Err(RuntimeError::new("set static on non-class value")),
+                    }
+                }
+                Opcode::SetFieldVisibility => {
+                    let name = match &function.chunk.constants[b] {
+                        Value::String(value) => value.as_str().to_string(),
+                        _ => return Err(RuntimeError::new("field name must be string")),
+                    };
+                    let visibility = visibility_from_code(instruction.c())?;
+                    match &mut self.registers[base + a] {
+                        Value::Class(class) => {
+                            let mut fields = class.fields.clone();
+                            fields.insert(name, visibility);
+                            let class = Class {
+                                name: Rc::clone(&class.name),
+                                methods: class.methods.clone(),
+                                static_methods: class.static_methods.clone(),
+                                constructor: class.constructor,
+                                superclass: class.superclass.clone(),
+                                static_fields: class.static_fields.clone(),
+                                fields,
+                                static_field_visibility: class.static_field_visibility.clone(),
+                                module: class.module.clone(),
+                            };
+                            self.registers[base + a] = Value::Class(Rc::new(class));
+                        }
+                        _ => return Err(RuntimeError::new("set field visibility on non-class value")),
+                    }
+                }
+                Opcode::SetStaticFieldVisibility => {
+                    let name = match &function.chunk.constants[b] {
+                        Value::String(value) => value.as_str().to_string(),
+                        _ => return Err(RuntimeError::new("field name must be string")),
+                    };
+                    let visibility = visibility_from_code(instruction.c())?;
+                    match &mut self.registers[base + a] {
+                        Value::Class(class) => {
+                            let mut fields = class.static_field_visibility.clone();
+                            fields.insert(name, visibility);
+                            let class = Class {
+                                name: Rc::clone(&class.name),
+                                methods: class.methods.clone(),
+                                static_methods: class.static_methods.clone(),
+                                constructor: class.constructor,
+                                superclass: class.superclass.clone(),
+                                static_fields: class.static_fields.clone(),
+                                fields: class.fields.clone(),
+                                static_field_visibility: fields,
+                                module: class.module.clone(),
+                            };
+                            self.registers[base + a] = Value::Class(Rc::new(class));
+                        }
+                        _ => {
+                            return Err(RuntimeError::new(
+                                "set static field visibility on non-class value",
+                            ))
+                        }
                     }
                 }
                 Opcode::Call => {
@@ -651,41 +932,35 @@ impl VM {
                         Value::Array(array) => array.borrow().clone(),
                         _ => return Err(RuntimeError::new("call expects args array")),
                     };
-                    match callee {
-                        Value::NativeFunction(func) => {
-                            let result = func(&args)?;
-                            self.registers[base + a] = result;
-                        }
-                        Value::Class(class) => {
-                            let object = Rc::new(std::cell::RefCell::new(Object {
-                                class: Some(Rc::clone(&class)),
-                                fields: HashMap::new(),
-                            }));
-                            if let Some(handle) = class.constructor {
-                                let override_value = Some(Value::Object(Rc::clone(&object)));
-                                self.call_function(
-                                    handle,
-                                    Some(object),
-                                    &args,
-                                    base + a,
-                                    override_value,
-                                    Vec::new(),
-                                )?;
-                            } else {
-                                self.registers[base + a] = Value::Object(object);
-                            }
-                        }
-                        Value::Function(handle) => {
-                            self.call_function(handle, None, &args, base + a, None, Vec::new())?;
-                        }
-                        Value::BoundMethod { receiver, function } => {
-                            self.call_function(function, Some(receiver), &args, base + a, None, Vec::new())?;
-                        }
-                        Value::Closure { function, captures } => {
-                            self.call_function(function, None, &args, base + a, None, captures)?;
-                        }
-                        _ => return Err(RuntimeError::new("call on non-callable value")),
+                    let named = HashMap::new();
+                    self.call_with_named(callee, args, named, base + a)?;
+                }
+                Opcode::CallNamed => {
+                    let callee = self.registers[base + b].clone();
+                    let wrapper = match &self.registers[base + c] {
+                        Value::Array(array) => array.borrow().clone(),
+                        _ => return Err(RuntimeError::new("call named expects args array")),
+                    };
+                    if wrapper.len() != 2 {
+                        return Err(RuntimeError::new("call named expects [positional, named]"));
                     }
+                    let positional = match &wrapper[0] {
+                        Value::Array(array) => array.borrow().clone(),
+                        _ => return Err(RuntimeError::new("call named positional must be array")),
+                    };
+                    let named = match &wrapper[1] {
+                        Value::Map(map) => map.borrow().clone(),
+                        _ => return Err(RuntimeError::new("call named named must be map")),
+                    };
+                    self.call_with_named(callee, positional, named, base + a)?;
+                }
+                Opcode::Import => {
+                    let path = match &function.chunk.constants[b] {
+                        Value::String(value) => value.as_str().to_string(),
+                        _ => return Err(RuntimeError::new("import path must be string")),
+                    };
+                    let module_value = self.execute_module(&path)?;
+                    self.registers[base + a] = module_value;
                 }
                 _ => {
                     return Err(RuntimeError::new("opcode not implemented"));
@@ -704,15 +979,18 @@ impl VM {
         return_reg: usize,
         return_override: Option<Value>,
         captures: Vec<Value>,
+        current_class: Option<Rc<String>>,
     ) -> Result<(), RuntimeError> {
         let function = self
             .functions
             .get(handle)
             .ok_or_else(|| RuntimeError::new("unknown function handle"))?
             .clone();
+        let current_module = function.module.clone();
+        let current_module_path = function.module_path.clone();
         let mut arg_offset = 0usize;
         let total_args = if receiver.is_some() { args.len() + 1 } else { args.len() };
-        if total_args != function.arity {
+        if total_args > function.arity {
             return Err(RuntimeError::new("argument count mismatch"));
         }
         let base = self.registers.len();
@@ -726,6 +1004,9 @@ impl VM {
         for (idx, arg) in args.iter().enumerate() {
             self.registers[base + idx + arg_offset] = arg.clone();
         }
+        for idx in (args.len() + arg_offset)..function.arity {
+            self.registers[base + idx] = Value::Missing;
+        }
         self.frames.push(CallFrame {
             function_index: handle,
             ip: 0,
@@ -733,9 +1014,269 @@ impl VM {
             return_reg,
             return_override,
             captures,
+            current_class,
+            current_module,
+            current_module_path,
         });
         Ok(())
     }
+
+    fn call_with_named(
+        &mut self,
+        callee: Value,
+        positional: Vec<Value>,
+        named: HashMap<String, Value>,
+        return_reg: usize,
+    ) -> Result<(), RuntimeError> {
+        match callee {
+            Value::NativeFunction(func) => {
+                if !named.is_empty() {
+                    return Err(RuntimeError::new("named args not supported for native functions"));
+                }
+                let result = func(&positional)?;
+                self.registers[return_reg] = result;
+                Ok(())
+            }
+            Value::Class(class) => {
+                let object = Rc::new(std::cell::RefCell::new(Object {
+                    class: Some(Rc::clone(&class)),
+                    fields: HashMap::new(),
+                }));
+                if let Some(handle) = class.constructor {
+                    let function = self
+                        .functions
+                        .get(handle)
+                        .ok_or_else(|| RuntimeError::new("unknown function handle"))?;
+                    let args = self.build_named_args(function, true, &positional, &named)?;
+                    let override_value = Some(Value::Object(Rc::clone(&object)));
+                    self.call_function(
+                        handle,
+                        Some(object),
+                        &args,
+                        return_reg,
+                        override_value,
+                        Vec::new(),
+                        Some(Rc::clone(&class.name)),
+                    )
+                } else if positional.is_empty() && named.is_empty() {
+                    self.registers[return_reg] = Value::Object(object);
+                    Ok(())
+                } else {
+                    Err(RuntimeError::new("constructor not defined for named args"))
+                }
+            }
+            Value::Function(handle) => {
+                let function = self
+                    .functions
+                    .get(handle)
+                    .ok_or_else(|| RuntimeError::new("unknown function handle"))?;
+                let args = self.build_named_args(function, false, &positional, &named)?;
+                self.call_function(handle, None, &args, return_reg, None, Vec::new(), None)
+            }
+            Value::BoundMethod {
+                receiver,
+                function,
+                owner,
+                ..
+            } => {
+                let function_info = self
+                    .functions
+                    .get(function)
+                    .ok_or_else(|| RuntimeError::new("unknown function handle"))?;
+                let args = self.build_named_args(function_info, true, &positional, &named)?;
+                self.call_function(
+                    function,
+                    Some(receiver),
+                    &args,
+                    return_reg,
+                    None,
+                    Vec::new(),
+                    Some(owner),
+                )
+            }
+            Value::StaticMethod {
+                function,
+                owner,
+                ..
+            } => {
+                let function_info = self
+                    .functions
+                    .get(function)
+                    .ok_or_else(|| RuntimeError::new("unknown function handle"))?;
+                let args = self.build_named_args(function_info, false, &positional, &named)?;
+                self.call_function(
+                    function,
+                    None,
+                    &args,
+                    return_reg,
+                    None,
+                    Vec::new(),
+                    Some(owner),
+                )
+            }
+            Value::Closure { function, captures } => {
+                let function_info = self
+                    .functions
+                    .get(function)
+                    .ok_or_else(|| RuntimeError::new("unknown function handle"))?;
+                let args = self.build_named_args(function_info, false, &positional, &named)?;
+                self.call_function(function, None, &args, return_reg, None, captures, None)
+            }
+            _ => Err(RuntimeError::new("call on non-callable value")),
+        }
+    }
+
+    fn build_named_args(
+        &self,
+        function: &Function,
+        has_receiver: bool,
+        positional: &[Value],
+        named: &HashMap<String, Value>,
+    ) -> Result<Vec<Value>, RuntimeError> {
+        let mut args = Vec::new();
+        let start = if has_receiver { 1 } else { 0 };
+        let params = function.params.get(start..).unwrap_or(&[]);
+        let mut pos_index = 0usize;
+        for (idx, param) in params.iter().enumerate() {
+            if param.is_variadic {
+                if idx + 1 != params.len() {
+                    return Err(RuntimeError::new("variadic parameter must be last"));
+                }
+                if named.contains_key(&param.name) {
+                    return Err(RuntimeError::new("variadic parameter cannot be named"));
+                }
+                let rest = positional[pos_index..].to_vec();
+                args.push(Value::Array(Rc::new(RefCell::new(rest))));
+                pos_index = positional.len();
+                continue;
+            }
+            if param.is_keyword_only && pos_index < positional.len() {
+                return Err(RuntimeError::new("keyword-only argument requires name"));
+            }
+            if pos_index < positional.len() {
+                if named.contains_key(&param.name) {
+                    return Err(RuntimeError::new("duplicate argument"));
+                }
+                args.push(positional[pos_index].clone());
+                pos_index += 1;
+                continue;
+            }
+            if let Some(value) = named.get(&param.name) {
+                args.push(value.clone());
+                continue;
+            }
+            if param.has_default {
+                args.push(Value::Missing);
+            } else {
+                return Err(RuntimeError::new("missing required argument"));
+            }
+        }
+        if pos_index < positional.len() {
+            return Err(RuntimeError::new("too many positional arguments"));
+        }
+        for key in named.keys() {
+            if !params.iter().any(|param| param.name == *key) {
+                return Err(RuntimeError::new("unknown named argument"));
+            }
+        }
+        Ok(args)
+    }
+
+    fn execute_module(&mut self, path: &str) -> Result<Value, RuntimeError> {
+        let base_dir = self
+            .frames
+            .last()
+            .and_then(|frame| frame.current_module_path.as_ref())
+            .map(|path| std::path::Path::new(path.as_ref()))
+            .and_then(|path| path.parent())
+            .map(|path| path.to_path_buf());
+        let resolved = resolve_module_path(path, base_dir)?;
+        let resolved_key = resolved.to_string_lossy().to_string();
+        if let Some(value) = self.modules.get(&resolved_key).cloned() {
+            return Ok(value);
+        }
+        let source = fs::read_to_string(&resolved)
+            .map_err(|err| RuntimeError::new(format!("failed to read module {resolved_key}: {err}")))?;
+        let tokens =
+            pleno_lexer::lex(&source).map_err(|err| RuntimeError::new(err.message))?;
+        let mut parser = pleno_parser::Parser::new(tokens);
+        let program =
+            parser.parse_program().map_err(|err| RuntimeError::new(err.message))?;
+        let mut compiler = pleno_compiler::Compiler::new();
+        let chunk = compiler
+            .compile_module(&program)
+            .map_err(|err| RuntimeError::new(err.message))?;
+        let module_name = chunk
+            .module_name
+            .clone()
+            .unwrap_or_else(|| resolved_key.clone());
+        let module_rc = Rc::new(module_name);
+        let function = Function {
+            name: Rc::new(resolved_key.clone()),
+            chunk,
+            arity: 0,
+            params: Vec::new(),
+            module: Some(Rc::clone(&module_rc)),
+            module_path: Some(Rc::new(resolved_key.clone())),
+        };
+        let func_index = self.functions.len();
+        self.functions.push(function);
+        let base = self.registers.len();
+        let register_count = self.functions[func_index].chunk.max_registers;
+        self.registers
+            .extend(std::iter::repeat(Value::Null).take(register_count));
+        let depth = self.frames.len();
+        self.frames.push(CallFrame {
+            function_index: func_index,
+            ip: 0,
+            base,
+            return_reg: 0,
+            return_override: None,
+            captures: Vec::new(),
+            current_class: None,
+            current_module: Some(Rc::clone(&module_rc)),
+            current_module_path: Some(Rc::new(resolved_key.clone())),
+        });
+        let result = self.run_until(depth)?;
+        self.registers.truncate(base);
+        self.modules.insert(resolved_key, result.clone());
+        Ok(result)
+    }
+}
+
+fn resolve_module_path(
+    path: &str,
+    base_dir: Option<std::path::PathBuf>,
+) -> Result<std::path::PathBuf, RuntimeError> {
+    let raw_path = std::path::Path::new(path);
+    if raw_path.is_absolute() {
+        return Ok(raw_path.to_path_buf());
+    }
+    let mut candidates = Vec::new();
+    let current_dir = std::env::current_dir().map_err(|err| {
+        RuntimeError::new(format!("failed to get current dir: {err}"))
+    })?;
+    if let Some(base) = base_dir.as_ref() {
+        candidates.push(base.join(raw_path));
+    }
+    candidates.push(current_dir.join(raw_path));
+    if raw_path.extension().is_none() {
+        if let Some(base) = base_dir.as_ref() {
+            candidates.push(base.join(format!("{path}.pln")));
+        }
+        candidates.push(current_dir.join(format!("{path}.pln")));
+    }
+    if !path.contains('/') && !path.contains('\\') {
+        candidates.push(current_dir.join("sources").join(format!("{path}.pln")));
+    }
+    for candidate in candidates {
+        if candidate.exists() {
+            return Ok(candidate);
+        }
+    }
+    Err(RuntimeError::new(format!(
+        "module not found: {path}"
+    )))
 }
 
 fn native_print(args: &[Value]) -> Result<Value, RuntimeError> {
@@ -754,9 +1295,9 @@ fn native_id(args: &[Value]) -> Result<Value, RuntimeError> {
     Ok(args.get(0).cloned().unwrap_or(Value::Null))
 }
 
-fn resolve_method(class: &Class, name: &str) -> Option<usize> {
-    if let Some(handle) = class.methods.get(name) {
-        return Some(*handle);
+fn resolve_method(class: &Class, name: &str) -> Option<MethodInfo> {
+    if let Some(info) = class.methods.get(name) {
+        return Some(info.clone());
     }
     class
         .superclass
@@ -764,9 +1305,135 @@ fn resolve_method(class: &Class, name: &str) -> Option<usize> {
         .and_then(|superclass| resolve_method(superclass, name))
 }
 
+fn resolve_static_method(class: &Class, name: &str) -> Option<MethodInfo> {
+    if let Some(info) = class.static_methods.get(name) {
+        return Some(info.clone());
+    }
+    class
+        .superclass
+        .as_ref()
+        .and_then(|superclass| resolve_static_method(superclass, name))
+}
+
+fn parse_method_info(
+    value: Value,
+    owner: &Rc<String>,
+    module: Option<&Rc<String>>,
+) -> Result<MethodInfo, RuntimeError> {
+    match value {
+        Value::Function(handle) => Ok(MethodInfo {
+            function: handle,
+            visibility: MethodVisibility::Public,
+            owner: Rc::clone(owner),
+            module: module.cloned(),
+        }),
+        Value::Array(array) => {
+            let items = array.borrow();
+            if items.len() != 2 {
+                return Err(RuntimeError::new("method metadata must have 2 items"));
+            }
+            let handle = match &items[0] {
+                Value::Function(handle) => *handle,
+                _ => return Err(RuntimeError::new("method entry must be function")),
+            };
+            let visibility = match &items[1] {
+                Value::String(name) if name.as_str() == "public" => MethodVisibility::Public,
+                Value::String(name) if name.as_str() == "private" => MethodVisibility::Private,
+                Value::String(name) if name.as_str() == "protected" => MethodVisibility::Protected,
+                Value::String(name) if name.as_str() == "internal" => MethodVisibility::Internal,
+                _ => return Err(RuntimeError::new("invalid method visibility")),
+            };
+            Ok(MethodInfo {
+                function: handle,
+                visibility,
+                owner: Rc::clone(owner),
+                module: module.cloned(),
+            })
+        }
+        _ => Err(RuntimeError::new("method entry must be function or metadata array")),
+    }
+}
+
+fn can_access_method(
+    method: &MethodInfo,
+    current_class: Option<&Rc<String>>,
+    current_module: Option<&Rc<String>>,
+    globals: &HashMap<String, Value>,
+) -> bool {
+    match method.visibility {
+        MethodVisibility::Public => true,
+        MethodVisibility::Private => {
+            current_class.map(|name| name.as_str() == method.owner.as_str()).unwrap_or(false)
+        }
+        MethodVisibility::Protected => current_class
+            .and_then(|name| is_subclass(name, method.owner.as_ref(), globals))
+            .unwrap_or(false),
+        MethodVisibility::Internal => method
+            .module
+            .as_ref()
+            .and_then(|module| current_module.map(|current| module.as_str() == current.as_str()))
+            .unwrap_or(false),
+    }
+}
+
+fn can_access_field(
+    visibility: &MethodVisibility,
+    owner: &Rc<String>,
+    owner_module: Option<&Rc<String>>,
+    current_class: Option<&Rc<String>>,
+    current_module: Option<&Rc<String>>,
+    globals: &HashMap<String, Value>,
+) -> bool {
+    match visibility {
+        MethodVisibility::Public => true,
+        MethodVisibility::Private => current_class
+            .map(|name| name.as_str() == owner.as_str())
+            .unwrap_or(false),
+        MethodVisibility::Protected => current_class
+            .and_then(|name| is_subclass(name, owner.as_ref(), globals))
+            .unwrap_or(false),
+        MethodVisibility::Internal => owner_module
+            .and_then(|module| current_module.map(|current| module.as_str() == current.as_str()))
+            .unwrap_or(false),
+    }
+}
+
+fn visibility_from_code(code: u8) -> Result<MethodVisibility, RuntimeError> {
+    match code {
+        0 => Ok(MethodVisibility::Public),
+        1 => Ok(MethodVisibility::Private),
+        2 => Ok(MethodVisibility::Protected),
+        3 => Ok(MethodVisibility::Internal),
+        _ => Err(RuntimeError::new("invalid visibility code")),
+    }
+}
+
+fn is_subclass(
+    class_name: &str,
+    owner_name: &str,
+    globals: &HashMap<String, Value>,
+) -> Option<bool> {
+    if class_name == owner_name {
+        return Some(true);
+    }
+    let class = globals.get(class_name).and_then(|value| match value {
+        Value::Class(class) => Some(Rc::clone(class)),
+        _ => None,
+    })?;
+    let mut current = class.superclass.as_ref().map(Rc::clone);
+    while let Some(next) = current {
+        if next.name.as_str() == owner_name {
+            return Some(true);
+        }
+        current = next.superclass.as_ref().map(Rc::clone);
+    }
+    Some(false)
+}
+
 fn is_truthy(value: &Value) -> bool {
     match value {
         Value::Null => false,
+        Value::Missing => false,
         Value::Bool(value) => *value,
         _ => true,
     }

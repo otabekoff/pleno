@@ -25,6 +25,12 @@ pub enum TokenKind {
     KeywordPublic,
     KeywordPrivate,
     KeywordProtected,
+    KeywordInternal,
+    KeywordImport,
+    KeywordFrom,
+    KeywordAs,
+    KeywordExport,
+    KeywordModule,
     KeywordClass,
     KeywordThis,
     KeywordSuper,
@@ -40,6 +46,7 @@ pub enum TokenKind {
     Dot,
     DotDot,
     DotDotEqual,
+    Ellipsis,
     Plus,
     Minus,
     Star,
@@ -91,7 +98,13 @@ pub fn lex(source: &str) -> Result<Vec<Token>, LexError> {
             '.' => {
                 if matches!(chars.peek(), Some((_, '.'))) {
                     chars.next();
-                    if matches!(chars.peek(), Some((_, '='))) {
+                    if matches!(chars.peek(), Some((_, '.'))) {
+                        let end = chars.next().map(|(idx, _)| idx + 1).unwrap_or(start + 3);
+                        Token {
+                            kind: TokenKind::Ellipsis,
+                            span: Span::new(start, end),
+                        }
+                    } else if matches!(chars.peek(), Some((_, '='))) {
                         let end = chars.next().map(|(idx, _)| idx + 1).unwrap_or(start + 2);
                         Token {
                             kind: TokenKind::DotDotEqual,
@@ -218,6 +231,12 @@ pub fn lex(source: &str) -> Result<Vec<Token>, LexError> {
                     "public" => TokenKind::KeywordPublic,
                     "private" => TokenKind::KeywordPrivate,
                     "protected" => TokenKind::KeywordProtected,
+                    "internal" => TokenKind::KeywordInternal,
+                    "import" => TokenKind::KeywordImport,
+                    "from" => TokenKind::KeywordFrom,
+                    "as" => TokenKind::KeywordAs,
+                    "export" => TokenKind::KeywordExport,
+                    "module" => TokenKind::KeywordModule,
                     "class" => TokenKind::KeywordClass,
                     "this" => TokenKind::KeywordThis,
                     "super" => TokenKind::KeywordSuper,

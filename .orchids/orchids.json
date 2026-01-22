@@ -1,0 +1,7 @@
+{
+  "projectId": "60104c34-ad5c-479b-933f-48f7362a80ad",
+  "createdAt": 1737549845000,
+  "startupCommands": [
+    "cargo run -p pleno-repl"
+  ]
+}

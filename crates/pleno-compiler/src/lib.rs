@@ -1,5 +1,5 @@
-use pleno_ast::{Expr, FunctionDecl, Literal, Program, Stmt};
-use pleno_bytecode::{Chunk, FunctionProto, Instruction, Opcode};
+use pleno_ast::{Expr, FunctionDecl, FunctionKind, Literal, Program, Stmt};
+use pleno_bytecode::{Chunk, FunctionProto, Instruction, Opcode, ParamSpec};
 use pleno_value::Value;
 use std::collections::HashMap;
 
@@ -26,6 +26,15 @@ pub struct Compiler {
     captures: HashMap<String, usize>,
     is_top_level: bool,
     current_super: Option<String>,
+    module_mode: bool,
+    module_exports: Vec<ExportItem>,
+    module_name: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+struct ExportItem {
+    local: String,
+    export: String,
 }
 
 impl Compiler {
@@ -40,10 +49,16 @@ impl Compiler {
             captures: HashMap::new(),
             is_top_level: true,
             current_super: None,
+            module_mode: false,
+            module_exports: Vec::new(),
+            module_name: None,
         }
     }
 
     pub fn compile(&mut self, program: &Program) -> Result<Chunk, CompileError> {
+        self.module_mode = false;
+        self.module_exports.clear();
+        self.module_name = None;
         for stmt in &program.statements {
             self.compile_stmt(stmt)?;
         }
@@ -57,11 +72,56 @@ impl Compiler {
         };
         self.emit(Opcode::Return, return_reg, 0, 0);
         self.chunk.max_registers = self.registers.max_used;
+        self.chunk.module_name = None;
+        Ok(self.chunk.clone())
+    }
+
+    pub fn compile_module(&mut self, program: &Program) -> Result<Chunk, CompileError> {
+        self.module_mode = true;
+        self.module_exports.clear();
+        self.module_name = None;
+        for stmt in &program.statements {
+            self.compile_stmt(stmt)?;
+        }
+        let exports_reg = self.registers.allocate()?;
+        self.emit(Opcode::NewMap, exports_reg, 0, 0);
+        for item in self.module_exports.clone() {
+            let export_name = item.export.clone();
+            let local_name = item.local.clone();
+            let export_idx = self.add_constant(Value::String(export_name.clone().into()));
+            let local_idx = self.add_constant(Value::String(local_name.clone().into()));
+            let mut temp_reg = None;
+            let value_reg = if let Some(local) = self.resolve_local(&local_name) {
+                local.reg
+            } else {
+                let reg = self.registers.allocate()?;
+                self.emit(Opcode::GetGlobal, reg, local_idx, 0);
+                temp_reg = Some(reg);
+                reg
+            };
+            self.emit(Opcode::SetProperty, value_reg, exports_reg, export_idx);
+            if let Some(reg) = temp_reg {
+                self.free_temp(reg);
+            }
+        }
+        self.emit(Opcode::Return, exports_reg, 0, 0);
+        self.chunk.max_registers = self.registers.max_used;
+        self.chunk.module_name = self.module_name.clone();
         Ok(self.chunk.clone())
     }
 
     fn compile_stmt(&mut self, stmt: &Stmt) -> Result<(), CompileError> {
         match stmt {
+            Stmt::Module { name } => {
+                if !self.module_mode {
+                    return Err(CompileError::new("module declaration only allowed in modules"));
+                }
+                if self.module_name.is_some() {
+                    return Err(CompileError::new("module already declared"));
+                }
+                self.module_name = Some(name.clone());
+                Ok(())
+            }
             Stmt::Expr(expr) => {
                 let reg = self.compile_expr(expr)?;
                 self.last_expr_register = Some(reg);
@@ -164,8 +224,67 @@ impl Compiler {
                 Ok(())
             }
             Stmt::For { name, iterable, body } => self.compile_for_stmt(name, iterable, body),
+            Stmt::Import { path, kind } => {
+                let module_reg = self.registers.allocate()?;
+                let path_idx = self.add_constant(Value::String(path.clone().into()));
+                self.emit(Opcode::Import, module_reg, path_idx, 0);
+                match kind {
+                    pleno_ast::ImportKind::Module { alias } => {
+                        if let Some(name) = alias {
+                            self.insert_local(name.clone(), module_reg, false);
+                        } else {
+                            self.free_temp(module_reg);
+                        }
+                    }
+                    pleno_ast::ImportKind::Star { alias } => {
+                        self.insert_local(alias.clone(), module_reg, false);
+                    }
+                    pleno_ast::ImportKind::Names(items) => {
+                        for item in items {
+                            let name_idx =
+                                self.add_constant(Value::String(item.name.clone().into()));
+                            let dest = self.registers.allocate()?;
+                            self.emit(Opcode::GetProperty, dest, module_reg, name_idx);
+                            let local_name = item.alias.clone().unwrap_or(item.name.clone());
+                            self.insert_local(local_name, dest, false);
+                        }
+                        self.free_temp(module_reg);
+                    }
+                }
+                Ok(())
+            }
+            Stmt::Export(stmt) => {
+                if !self.module_mode {
+                    return Err(CompileError::new("export is only allowed in modules"));
+                }
+                let export_name = match stmt.as_ref() {
+                    Stmt::Let { name, .. } => name.clone(),
+                    Stmt::Fn { name, .. } => name.clone(),
+                    Stmt::Class { name, .. } => name.clone(),
+                    _ => return Err(CompileError::new("invalid export statement")),
+                };
+                self.compile_stmt(stmt)?;
+                self.module_exports.push(ExportItem {
+                    local: export_name.clone(),
+                    export: export_name,
+                });
+                Ok(())
+            }
+            Stmt::ExportList(items) => {
+                if !self.module_mode {
+                    return Err(CompileError::new("export is only allowed in modules"));
+                }
+                for item in items {
+                    self.module_exports.push(ExportItem {
+                        local: item.name.clone(),
+                        export: item.alias.clone().unwrap_or(item.name.clone()),
+                    });
+                }
+                Ok(())
+            }
             Stmt::Class {
                 name,
+                fields,
                 methods,
                 superclass,
             } => {
@@ -181,17 +300,32 @@ impl Compiler {
                         true,
                         superclass.as_ref().cloned(),
                     )?;
+                    let method_name = match method.kind {
+                        FunctionKind::Method => method.name.clone(),
+                        FunctionKind::Getter => format!("get:{}", method.name),
+                        FunctionKind::Setter => format!("set:{}", method.name),
+                    };
+                    let meta_reg = self.registers.allocate()?;
+                    self.emit(Opcode::NewArray, meta_reg, 0, 0);
+                    self.emit(Opcode::ArrayAppend, meta_reg, func_reg, 0);
+                    let vis_name = visibility_name(method.visibility.as_ref());
+                    let vis_idx = self.add_constant(Value::String(std::rc::Rc::new(vis_name.to_string())));
+                    let vis_reg = self.registers.allocate()?;
+                    self.emit(Opcode::LoadConst, vis_reg, vis_idx, 0);
+                    self.emit(Opcode::ArrayAppend, meta_reg, vis_reg, 0);
+                    self.free_temp(vis_reg);
                     let name_idx =
-                        self.add_constant(Value::String(method.name.clone().into()));
+                        self.add_constant(Value::String(method_name.clone().into()));
                     let name_reg = self.registers.allocate()?;
                     self.emit(Opcode::LoadConst, name_reg, name_idx, 0);
                     if method.is_static {
-                        self.emit(Opcode::SetIndex, func_reg, static_reg, name_reg);
+                        self.emit(Opcode::SetIndex, meta_reg, static_reg, name_reg);
                     } else {
-                        self.emit(Opcode::SetIndex, func_reg, methods_reg, name_reg);
+                        self.emit(Opcode::SetIndex, meta_reg, methods_reg, name_reg);
                     }
                     self.free_temp(name_reg);
                     self.free_temp(func_reg);
+                    self.free_temp(meta_reg);
                 }
                 let class_reg = self.registers.allocate()?;
                 let name_idx = self.add_constant(Value::String(name.clone().into()));
@@ -204,6 +338,20 @@ impl Compiler {
                     self.emit(Opcode::GetGlobal, super_reg, super_idx, 0);
                     self.emit(Opcode::SetSuper, class_reg, super_reg, 0);
                     self.free_temp(super_reg);
+                }
+                for field in fields {
+                    let field_idx =
+                        self.add_constant(Value::String(field.name.clone().into()));
+                    let vis_code = visibility_code(field.visibility.as_ref());
+                    if field.is_static {
+                        let value_reg = self.registers.allocate()?;
+                        self.emit(Opcode::LoadNull, value_reg, 0, 0);
+                        self.emit(Opcode::SetProperty, value_reg, class_reg, field_idx);
+                        self.free_temp(value_reg);
+                        self.emit(Opcode::SetStaticFieldVisibility, class_reg, field_idx, vis_code);
+                    } else {
+                        self.emit(Opcode::SetFieldVisibility, class_reg, field_idx, vis_code);
+                    }
                 }
                 self.emit(Opcode::SetGlobal, class_reg, name_idx, 0);
                 self.free_temp(class_reg);
@@ -218,6 +366,8 @@ impl Compiler {
                     body: body.clone(),
                     is_static: false,
                     visibility: None,
+                    kind: FunctionKind::Method,
+                    annotations: Vec::new(),
                 };
                 let func_reg = self.compile_function(&decl, false, false, None)?;
                 if self.is_top_level {
@@ -436,18 +586,61 @@ impl Compiler {
             }
             Expr::Call { callee, args } => {
                 let callee_reg = self.compile_expr(callee)?;
-                let args_reg = self.registers.allocate()?;
-                self.emit(Opcode::NewArray, args_reg, 0, 0);
-                for arg in args {
-                    let arg_reg = self.compile_expr(arg)?;
-                    self.emit(Opcode::ArrayAppend, args_reg, arg_reg, 0);
-                    self.free_temp(arg_reg);
+                let has_named = args.iter().any(|arg| matches!(arg, pleno_ast::CallArg::Named(_, _)));
+                if has_named {
+                    let positional_reg = self.registers.allocate()?;
+                    self.emit(Opcode::NewArray, positional_reg, 0, 0);
+                    let named_reg = self.registers.allocate()?;
+                    self.emit(Opcode::NewMap, named_reg, 0, 0);
+                    let mut seen_named = std::collections::HashSet::new();
+                    for arg in args {
+                        match arg {
+                            pleno_ast::CallArg::Positional(expr) => {
+                                let arg_reg = self.compile_expr(expr)?;
+                                self.emit(Opcode::ArrayAppend, positional_reg, arg_reg, 0);
+                                self.free_temp(arg_reg);
+                            }
+                            pleno_ast::CallArg::Named(name, expr) => {
+                                if !seen_named.insert(name.clone()) {
+                                    return Err(CompileError::new("duplicate named argument"));
+                                }
+                                let arg_reg = self.compile_expr(expr)?;
+                                let name_idx = self.add_constant(Value::String(name.clone().into()));
+                                self.emit(Opcode::SetProperty, arg_reg, named_reg, name_idx);
+                                self.free_temp(arg_reg);
+                            }
+                        }
+                    }
+                    let wrapper_reg = self.registers.allocate()?;
+                    self.emit(Opcode::NewArray, wrapper_reg, 0, 0);
+                    self.emit(Opcode::ArrayAppend, wrapper_reg, positional_reg, 0);
+                    self.emit(Opcode::ArrayAppend, wrapper_reg, named_reg, 0);
+                    let dest = self.registers.allocate()?;
+                    self.emit(Opcode::CallNamed, dest, callee_reg, wrapper_reg);
+                    self.free_temp(positional_reg);
+                    self.free_temp(named_reg);
+                    self.free_temp(wrapper_reg);
+                    self.free_temp(callee_reg);
+                    Ok(dest)
+                } else {
+                    let args_reg = self.registers.allocate()?;
+                    self.emit(Opcode::NewArray, args_reg, 0, 0);
+                    for arg in args {
+                        let arg_reg = match arg {
+                            pleno_ast::CallArg::Positional(expr) => self.compile_expr(expr)?,
+                            pleno_ast::CallArg::Named(_, _) => {
+                                return Err(CompileError::new("named arguments require name"))
+                            }
+                        };
+                        self.emit(Opcode::ArrayAppend, args_reg, arg_reg, 0);
+                        self.free_temp(arg_reg);
+                    }
+                    let dest = self.registers.allocate()?;
+                    self.emit(Opcode::Call, dest, callee_reg, args_reg);
+                    self.free_temp(callee_reg);
+                    self.free_temp(args_reg);
+                    Ok(dest)
                 }
-                let dest = self.registers.allocate()?;
-                self.emit(Opcode::Call, dest, callee_reg, args_reg);
-                self.free_temp(callee_reg);
-                self.free_temp(args_reg);
-                Ok(dest)
             }
         }
     }
@@ -761,6 +954,7 @@ impl Compiler {
         let mut compiler = Compiler::new();
         compiler.is_top_level = false;
         compiler.locals = vec![HashMap::new()];
+        compiler.module_name = self.module_name.clone();
         compiler.captures = captures
             .iter()
             .enumerate()
@@ -771,10 +965,30 @@ impl Compiler {
         if is_method {
             params.push("this".to_string());
         }
-        params.extend(decl.params.iter().cloned());
+        params.extend(decl.params.iter().map(|param| param.name.clone()));
         for param in &params {
             let reg = compiler.registers.allocate()?;
             compiler.insert_local(param.clone(), reg, true);
+        }
+        for param in decl.params.iter() {
+            if let Some(default) = &param.default {
+                let param_reg = compiler
+                    .resolve_local(&param.name)
+                    .ok_or_else(|| CompileError::new("unknown parameter"))?
+                    .reg;
+                let missing_reg = compiler.registers.allocate()?;
+                compiler.emit(Opcode::LoadMissing, missing_reg, 0, 0);
+                let cond_reg = compiler.registers.allocate()?;
+                compiler.emit(Opcode::Eq, cond_reg, param_reg, missing_reg);
+                let skip_jump = compiler.emit_jump(Opcode::JumpIfNot, cond_reg);
+                compiler.free_temp(cond_reg);
+                compiler.free_temp(missing_reg);
+
+                let value_reg = compiler.compile_expr(default)?;
+                compiler.emit(Opcode::Move, param_reg, value_reg, 0);
+                compiler.free_temp(value_reg);
+                compiler.patch_jump(skip_jump)?;
+            }
         }
         compiler.compile_stmt(&decl.body)?;
         let return_reg = match compiler.last_expr_register {
@@ -787,11 +1001,39 @@ impl Compiler {
         };
         compiler.emit(Opcode::Return, return_reg, 0, 0);
         compiler.chunk.max_registers = compiler.registers.max_used.max(params.len());
+        compiler.chunk.module_name = self.module_name.clone();
         let func_index = self.chunk.functions.len();
         let arity = params.len() as u8;
+        let param_specs = params
+            .iter()
+            .map(|name| {
+                let (has_default, is_variadic, is_keyword_only) = if name == "this" {
+                    (false, false, false)
+                } else {
+                    decl.params
+                        .iter()
+                        .find(|param| param.name == *name)
+                        .map(|param| {
+                            (
+                                param.default.is_some(),
+                                param.is_variadic,
+                                param.is_keyword_only,
+                            )
+                        })
+                        .unwrap_or((false, false, false))
+                };
+                ParamSpec {
+                    name: name.clone(),
+                    has_default,
+                    is_variadic,
+                    is_keyword_only,
+                }
+            })
+            .collect();
         self.chunk.functions.push(FunctionProto {
             chunk: compiler.chunk,
             arity,
+            params: param_specs,
         });
         let dest = self.registers.allocate()?;
         if store_as_function {
@@ -812,14 +1054,19 @@ impl Compiler {
 
     fn analyze_captures(&self, decl: &FunctionDecl, is_method: bool) -> Vec<String> {
         let mut locals = HashMap::new();
-        for name in &decl.params {
-            locals.insert(name.clone(), ());
+        for param in &decl.params {
+            locals.insert(param.name.clone(), ());
         }
         if is_method {
             locals.insert("this".to_string(), ());
         }
         self.collect_locals(&decl.body, &mut locals);
         let mut used = HashMap::new();
+        for param in &decl.params {
+            if let Some(default) = &param.default {
+                self.collect_idents_expr(default, &mut used);
+            }
+        }
         self.collect_idents(&decl.body, &mut used);
         let mut captures = Vec::new();
         for name in used.keys() {
@@ -955,7 +1202,14 @@ impl Compiler {
             Expr::Call { callee, args } => {
                 self.collect_idents_expr(callee, used);
                 for arg in args {
-                    self.collect_idents_expr(arg, used);
+                    match arg {
+                        pleno_ast::CallArg::Positional(expr) => {
+                            self.collect_idents_expr(expr, used);
+                        }
+                        pleno_ast::CallArg::Named(_, expr) => {
+                            self.collect_idents_expr(expr, used);
+                        }
+                    }
                 }
             }
             _ => {}
@@ -969,6 +1223,7 @@ struct Local {
     mutable: bool,
 }
 
+#[derive(Clone)]
 struct LoopContext {
     break_jumps: Vec<usize>,
     continue_jumps: Vec<usize>,
@@ -1081,4 +1336,22 @@ fn encode_offset(offset: i16) -> (u8, u8) {
     let hi = ((offset >> 8) & 0xFF) as u8;
     let lo = (offset & 0xFF) as u8;
     (hi, lo)
+}
+
+fn visibility_name(visibility: Option<&pleno_ast::Visibility>) -> &'static str {
+    match visibility {
+        Some(pleno_ast::Visibility::Private) => "private",
+        Some(pleno_ast::Visibility::Protected) => "protected",
+        Some(pleno_ast::Visibility::Internal) => "internal",
+        _ => "public",
+    }
+}
+
+fn visibility_code(visibility: Option<&pleno_ast::Visibility>) -> u8 {
+    match visibility {
+        Some(pleno_ast::Visibility::Private) => 1,
+        Some(pleno_ast::Visibility::Protected) => 2,
+        Some(pleno_ast::Visibility::Internal) => 3,
+        _ => 0,
+    }
 }

@@ -22,17 +22,18 @@ This roadmap stages the implementation from core language to v1 features.
 
 ## Stage 3 - Functions (partial)
 
-- Completed: native/builtin calls; user-defined function declarations/calls; `return`; closures with capture
+- Completed: native/builtin calls; user-defined function declarations/calls; `return`; closures with capture; defaults/named args (including method/closure calls); variadics; keyword-only params
 - Partial: first-class functions (locals/returns supported)
-- Missing: defaults/named args
+- Missing: keyword-only defaults with namespacing, richer call semantics (decorators, partials)
 
 ## Stage 4 - Types (Gradual) (not started)
 
 - Not started: type annotations, primitive checking, optional/union types
 
-## Stage 5 - Modules + Imports (not started)
+## Stage 5 - Modules + Imports (partial)
 
-- Not started: module declarations, import syntax, resolver
+- Completed: `import` statement (module load/execute), module export map, module caching, module declarations, structured imports/exports (string paths), basic resolver for relative paths and `sources/`
+- Missing: package/registry integration, resolver for std/registry schemes
 
 ## Stage 6 - Data Structures (partial)
 
@@ -42,9 +43,9 @@ This roadmap stages the implementation from core language to v1 features.
 
 ## Stage 7 - OOP Core (partial)
 
-- Completed: class declarations with methods/constructors; instance fields via dot; `this`; `super` + inheritance; static methods
-- Partial: access modifiers (parsed, not enforced)
-- Missing: static fields, access control rules
+- Completed: class declarations with methods/constructors; instance fields via dot; `this`; `super` + inheritance; static methods; static fields
+- Partial: access modifiers enforced for methods and fields; accessors (get/set) supported
+- Missing: property/accessor modifiers beyond current model, interface/abstract enforcement
 
 ## Stage 8 - Advanced OOP (not started)
 

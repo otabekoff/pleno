@@ -148,6 +148,151 @@ fn evaluates_closure_capture() {
 }
 
 #[test]
+fn evaluates_default_args() {
+    let value = eval("fn add(a, b = 3) { return a + b; } add(2);");
+    assert_eq!(value, pleno_value::Value::Int(5));
+}
+
+#[test]
+fn evaluates_named_args() {
+    let value = eval("fn sum(a, b, c = 1) { return a + b + c; } sum(b = 2, a = 1);");
+    assert_eq!(value, pleno_value::Value::Int(4));
+}
+
+#[test]
+fn evaluates_named_args_on_method() {
+    let value = eval("class Calc { fn add(a, b = 1) { return a + b; } } let c = Calc(); c.add(b = 3, a = 2);");
+    assert_eq!(value, pleno_value::Value::Int(5));
+}
+
+#[test]
+fn evaluates_named_args_on_closure() {
+    let value = eval("fn make() { fn inner(a, b = 2) { return a + b; } return inner; } let f = make(); f(b = 3, a = 1);");
+    assert_eq!(value, pleno_value::Value::Int(4));
+}
+
+#[test]
+fn evaluates_static_field() {
+    let value = eval("class C { static fn make() { return 1; } } C.value = 9; C.value;");
+    assert_eq!(value, pleno_value::Value::Int(9));
+}
+
+#[test]
+fn denies_private_field_access() {
+    let result = eval_result("class A { private secret; fn set(v) { this.secret = v; } } let a = A(); a.set(3); a.secret;");
+    assert!(result.unwrap_err().contains("field access denied"));
+}
+
+#[test]
+fn allows_private_field_in_method() {
+    let value = eval("class A { private secret; fn set(v) { this.secret = v; } fn get() { return this.secret; } } let a = A(); a.set(4); a.get();");
+    assert_eq!(value, pleno_value::Value::Int(4));
+}
+
+#[test]
+fn denies_private_static_field_access() {
+    let result = eval_result("class A { private static secret; static fn set(v) { A.secret = v; } } A.set(3); A.secret;");
+    assert!(result.unwrap_err().contains("static field access denied"));
+}
+
+#[test]
+fn denies_private_method_access() {
+    let result = eval_result("class A { private fn secret() { return 1; } fn reveal() { return this.secret(); } } let a = A(); a.secret();");
+    assert!(result.unwrap_err().contains("access denied"));
+}
+
+#[test]
+fn allows_protected_method_in_subclass() {
+    let value = eval("class A { protected fn val() { return 1; } } class B extends A { fn get() { return this.val(); } } let b = B(); b.get();");
+    assert_eq!(value, pleno_value::Value::Int(1));
+}
+
+#[test]
+fn evaluates_import_module() {
+    let path = format!("{}/../../sources/module_simple.pln", env!("CARGO_MANIFEST_DIR"));
+    let source = format!("import Module from \"{}\"; Module.value;", path);
+    let value = eval(&source);
+    assert_eq!(value, pleno_value::Value::Int(42));
+}
+
+#[test]
+fn evaluates_structured_imports() {
+    let path = format!(
+        "{}/../../sources/module_structured.pln",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let source = format!(
+        "import {{ value, secret as hidden }} from \"{}\"; value + hidden;",
+        path
+    );
+    let value = eval(&source);
+    assert_eq!(value, pleno_value::Value::Int(49));
+}
+
+#[test]
+fn evaluates_module_namespace_import() {
+    let path = format!(
+        "{}/../../sources/module_structured.pln",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let source = format!("import * as Mod from \"{}\"; Mod.secret;", path);
+    let value = eval(&source);
+    assert_eq!(value, pleno_value::Value::Int(7));
+}
+
+#[test]
+fn denies_internal_field_outside_module() {
+    let path = format!(
+        "{}/../../sources/module_internal.pln",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let source = format!(
+        "import Mod from \"{}\"; let b = Mod.Box(); b.secret;",
+        path
+    );
+    let result = eval_result(&source);
+    assert!(result.unwrap_err().contains("field access denied"));
+}
+
+#[test]
+fn allows_internal_field_in_module_method() {
+    let path = format!(
+        "{}/../../sources/module_internal.pln",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let source = format!(
+        "import Mod from \"{}\"; let b = Mod.Box(); b.set(5); b.get();",
+        path
+    );
+    let value = eval(&source);
+    assert_eq!(value, pleno_value::Value::Int(5));
+}
+
+#[test]
+fn evaluates_getter_setter() {
+    let value = eval("class Counter { private value; get current() { return this.value; } set current(v) { this.value = v; } } let c = Counter(); c.current = 3; c.current;");
+    assert_eq!(value, pleno_value::Value::Int(3));
+}
+
+#[test]
+fn evaluates_variadic_args() {
+    let value = eval("fn sum(...nums) { let mut total = 0; for (n in nums) { total = total + n; } return total; } sum(1, 2, 3);");
+    assert_eq!(value, pleno_value::Value::Int(6));
+}
+
+#[test]
+fn evaluates_keyword_only_args() {
+    let value = eval("fn add(a, *, b) { return a + b; } add(2, b = 3);");
+    assert_eq!(value, pleno_value::Value::Int(5));
+}
+
+#[test]
+fn rejects_keyword_only_positional() {
+    let result = eval_result("fn add(a, *, b) { return a + b; } add(2, 3);");
+    assert!(result.unwrap_err().contains("keyword-only argument"));
+}
+
+#[test]
 fn evaluates_break_in_while() {
     let value = eval("let mut x = 0; while (true) { if (x == 3) { break; } x = x + 1; } x;");
     assert_eq!(value, pleno_value::Value::Int(3));

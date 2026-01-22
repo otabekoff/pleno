@@ -5,6 +5,7 @@ use pleno_value::Value;
 pub enum Opcode {
     Move,
     LoadConst,
+    LoadMissing,
     LoadNull,
     LoadTrue,
     LoadFalse,
@@ -29,6 +30,7 @@ pub enum Opcode {
     GetGlobal,
     SetGlobal,
     Call,
+    CallNamed,
     Return,
     Closure,
     FunctionRef,
@@ -53,6 +55,8 @@ pub enum Opcode {
     SetSuper,
     SetStatic,
     GetSuper,
+    SetFieldVisibility,
+    SetStaticFieldVisibility,
     NewObject,
     GetField,
     SetField,
@@ -100,6 +104,7 @@ pub struct Chunk {
     pub functions: Vec<FunctionProto>,
     pub lines: Vec<u32>,
     pub max_registers: usize,
+    pub module_name: Option<String>,
 }
 
 impl Chunk {
@@ -110,6 +115,7 @@ impl Chunk {
             functions: Vec::new(),
             lines: Vec::new(),
             max_registers: 0,
+            module_name: None,
         }
     }
 }
@@ -118,4 +124,13 @@ impl Chunk {
 pub struct FunctionProto {
     pub chunk: Chunk,
     pub arity: u8,
+    pub params: Vec<ParamSpec>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ParamSpec {
+    pub name: String,
+    pub has_default: bool,
+    pub is_variadic: bool,
+    pub is_keyword_only: bool,
 }

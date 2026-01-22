@@ -1,0 +1,5 @@
+module Structured;
+
+let hidden = 7;
+export let value = 42;
+export { hidden as secret };

@@ -7,6 +7,7 @@ pub type NativeFunction = fn(&[Value]) -> Result<Value, RuntimeError>;
 #[derive(Debug, Clone)]
 pub enum Value {
     Null,
+    Missing,
     Bool(bool),
     Int(i64),
     Float(f64),
@@ -17,6 +18,13 @@ pub enum Value {
     BoundMethod {
         receiver: Rc<RefCell<Object>>,
         function: usize,
+        owner: Rc<String>,
+        visibility: MethodVisibility,
+    },
+    StaticMethod {
+        function: usize,
+        owner: Rc<String>,
+        visibility: MethodVisibility,
     },
     Closure {
         function: usize,
@@ -52,16 +60,37 @@ pub struct Range {
 #[derive(Debug, Clone)]
 pub struct Class {
     pub name: Rc<String>,
-    pub methods: HashMap<String, usize>,
-    pub static_methods: HashMap<String, usize>,
+    pub methods: HashMap<String, MethodInfo>,
+    pub static_methods: HashMap<String, MethodInfo>,
     pub constructor: Option<usize>,
     pub superclass: Option<Rc<Class>>,
+    pub static_fields: HashMap<String, Value>,
+    pub fields: HashMap<String, MethodVisibility>,
+    pub static_field_visibility: HashMap<String, MethodVisibility>,
+    pub module: Option<Rc<String>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MethodVisibility {
+    Public,
+    Private,
+    Protected,
+    Internal,
+}
+
+#[derive(Debug, Clone)]
+pub struct MethodInfo {
+    pub function: usize,
+    pub visibility: MethodVisibility,
+    pub owner: Rc<String>,
+    pub module: Option<Rc<String>>,
 }
 
 impl PartialEq for Value {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
             (Value::Null, Value::Null) => true,
+            (Value::Missing, Value::Missing) => true,
             (Value::Bool(a), Value::Bool(b)) => a == b,
             (Value::Int(a), Value::Int(b)) => a == b,
             (Value::Float(a), Value::Float(b)) => a == b,
@@ -69,8 +98,11 @@ impl PartialEq for Value {
             (Value::Range(a), Value::Range(b)) => a == b,
             (Value::Class(a), Value::Class(b)) => Rc::ptr_eq(a, b),
             (Value::Function(a), Value::Function(b)) => a == b,
-            (Value::BoundMethod { receiver: a, function: fa }, Value::BoundMethod { receiver: b, function: fb }) => {
-                Rc::ptr_eq(a, b) && fa == fb
+            (Value::BoundMethod { receiver: a, function: fa, owner: oa, visibility: va }, Value::BoundMethod { receiver: b, function: fb, owner: ob, visibility: vb }) => {
+                Rc::ptr_eq(a, b) && fa == fb && oa == ob && va == vb
+            }
+            (Value::StaticMethod { function: fa, owner: oa, visibility: va }, Value::StaticMethod { function: fb, owner: ob, visibility: vb }) => {
+                fa == fb && oa == ob && va == vb
             }
             (Value::Closure { function: fa, captures: ca }, Value::Closure { function: fb, captures: cb }) => {
                 fa == fb && ca == cb
