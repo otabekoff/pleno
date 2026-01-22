@@ -2,6 +2,8 @@ use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
+pub type NativeFunction = fn(&[Value]) -> Result<Value, RuntimeError>;
+
 #[derive(Debug, Clone)]
 pub enum Value {
     Null,
@@ -10,6 +12,17 @@ pub enum Value {
     Float(f64),
     String(Rc<String>),
     Range(Range),
+    Class(Rc<Class>),
+    Function(usize),
+    BoundMethod {
+        receiver: Rc<RefCell<Object>>,
+        function: usize,
+    },
+    Closure {
+        function: usize,
+        captures: Vec<Value>,
+    },
+    NativeFunction(NativeFunction),
     Map(Rc<RefCell<HashMap<String, Value>>>),
     Array(Rc<RefCell<Vec<Value>>>),
     Set(Rc<RefCell<HashSet<ValueKey>>>),
@@ -36,6 +49,15 @@ pub struct Range {
     pub inclusive: bool,
 }
 
+#[derive(Debug, Clone)]
+pub struct Class {
+    pub name: Rc<String>,
+    pub methods: HashMap<String, usize>,
+    pub static_methods: HashMap<String, usize>,
+    pub constructor: Option<usize>,
+    pub superclass: Option<Rc<Class>>,
+}
+
 impl PartialEq for Value {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
@@ -45,6 +67,17 @@ impl PartialEq for Value {
             (Value::Float(a), Value::Float(b)) => a == b,
             (Value::String(a), Value::String(b)) => a == b,
             (Value::Range(a), Value::Range(b)) => a == b,
+            (Value::Class(a), Value::Class(b)) => Rc::ptr_eq(a, b),
+            (Value::Function(a), Value::Function(b)) => a == b,
+            (Value::BoundMethod { receiver: a, function: fa }, Value::BoundMethod { receiver: b, function: fb }) => {
+                Rc::ptr_eq(a, b) && fa == fb
+            }
+            (Value::Closure { function: fa, captures: ca }, Value::Closure { function: fb, captures: cb }) => {
+                fa == fb && ca == cb
+            }
+            (Value::NativeFunction(a), Value::NativeFunction(b)) => {
+                (*a as usize) == (*b as usize)
+            }
             (Value::Map(a), Value::Map(b)) => Rc::ptr_eq(a, b),
             (Value::Array(a), Value::Array(b)) => Rc::ptr_eq(a, b),
             (Value::Set(a), Value::Set(b)) => Rc::ptr_eq(a, b),
@@ -54,8 +87,9 @@ impl PartialEq for Value {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 pub struct Object {
+    pub class: Option<Rc<Class>>,
     pub fields: HashMap<String, Value>,
 }
 

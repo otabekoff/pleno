@@ -35,16 +35,35 @@ impl Parser {
             TokenKind::KeywordIf => self.parse_if_stmt(),
             TokenKind::KeywordWhile => self.parse_while_stmt(),
             TokenKind::KeywordFor => self.parse_for_stmt(),
+            TokenKind::KeywordClass => self.parse_class_stmt(),
             TokenKind::KeywordFn => self.parse_fn_stmt(),
             TokenKind::KeywordReturn => self.parse_return_stmt(),
             TokenKind::KeywordBreak => self.parse_break_stmt(),
             TokenKind::KeywordContinue => self.parse_continue_stmt(),
             TokenKind::LBrace => self.parse_block_stmt(),
             _ => {
-                if self.is_assignment() {
-                    return self.parse_assign_stmt();
-                }
                 let expr = self.parse_expr()?;
+                if self.matches(&TokenKind::Equal) {
+                    let value = self.parse_expr()?;
+                    self.expect(TokenKind::Semicolon, "Expected ';' after assignment")?;
+                    return match expr {
+                        Expr::Ident(name) => Ok(Stmt::Assign { name, value }),
+                        Expr::Property { object, name } => Ok(Stmt::AssignProperty {
+                            object: *object,
+                            name,
+                            value,
+                        }),
+                        Expr::Index { collection, index } => Ok(Stmt::AssignIndex {
+                            collection: *collection,
+                            index: *index,
+                            value,
+                        }),
+                        _ => Err(ParseError {
+                            message: "Invalid assignment target".to_string(),
+                            span: self.previous_span(),
+                        }),
+                    };
+                }
                 self.expect(TokenKind::Semicolon, "Expected ';' after expression")?;
                 Ok(Stmt::Expr(expr))
             }
@@ -168,41 +187,12 @@ impl Parser {
     }
 
     fn parse_fn_stmt(&mut self) -> Result<Stmt, ParseError> {
-        self.advance();
-        let name = match self.advance().kind.clone() {
-            TokenKind::Ident(name) => name,
-            other => {
-                return Err(ParseError {
-                    message: format!("Expected function name, found {other:?}"),
-                    span: self.previous_span(),
-                })
-            }
-        };
-        self.expect(TokenKind::LParen, "Expected '(' after function name")?;
-        let mut params = Vec::new();
-        if !matches!(self.peek_kind(), TokenKind::RParen) {
-            loop {
-                match self.advance().kind.clone() {
-                    TokenKind::Ident(name) => params.push(name),
-                    other => {
-                        return Err(ParseError {
-                            message: format!("Expected parameter name, found {other:?}"),
-                            span: self.previous_span(),
-                        })
-                    }
-                }
-                if self.matches(&TokenKind::Comma) {
-                    if matches!(self.peek_kind(), TokenKind::RParen) {
-                        break;
-                    }
-                    continue;
-                }
-                break;
-            }
-        }
-        self.expect(TokenKind::RParen, "Expected ')' after parameters")?;
-        let body = Box::new(self.parse_block_stmt()?);
-        Ok(Stmt::Fn { name, params, body })
+        let decl = self.parse_function_decl(false, None, None)?;
+        Ok(Stmt::Fn {
+            name: decl.name,
+            params: decl.params,
+            body: decl.body,
+        })
     }
 
     fn parse_return_stmt(&mut self) -> Result<Stmt, ParseError> {
@@ -245,6 +235,132 @@ impl Parser {
         self.expect(TokenKind::RParen, "Expected ')' after for loop")?;
         let body = Box::new(self.parse_stmt()?);
         Ok(Stmt::For { name, iterable, body })
+    }
+
+    fn parse_class_stmt(&mut self) -> Result<Stmt, ParseError> {
+        self.advance();
+        let name = match self.advance().kind.clone() {
+            TokenKind::Ident(value) => value,
+            other => {
+                return Err(ParseError {
+                    message: format!("Expected class name, found {other:?}"),
+                    span: self.previous_span(),
+                })
+            }
+        };
+        let superclass = if self.matches(&TokenKind::KeywordExtends) {
+            match self.advance().kind.clone() {
+                TokenKind::Ident(value) => Some(value),
+                other => {
+                    return Err(ParseError {
+                        message: format!("Expected superclass name, found {other:?}"),
+                        span: self.previous_span(),
+                    })
+                }
+            }
+        } else {
+            None
+        };
+        self.expect(TokenKind::LBrace, "Expected '{' after class name")?;
+        let mut methods = Vec::new();
+        while !self.is_at_end() && !matches!(self.peek_kind(), TokenKind::RBrace) {
+            let mut visibility = None;
+            let mut is_static = false;
+            loop {
+                match self.peek_kind() {
+                    TokenKind::KeywordPublic => {
+                        self.advance();
+                        visibility = Some(pleno_ast::Visibility::Public);
+                    }
+                    TokenKind::KeywordPrivate => {
+                        self.advance();
+                        visibility = Some(pleno_ast::Visibility::Private);
+                    }
+                    TokenKind::KeywordProtected => {
+                        self.advance();
+                        visibility = Some(pleno_ast::Visibility::Protected);
+                    }
+                    TokenKind::KeywordStatic => {
+                        self.advance();
+                        is_static = true;
+                    }
+                    _ => break,
+                }
+            }
+            if !matches!(self.peek_kind(), TokenKind::KeywordFn) {
+                return Err(ParseError {
+                    message: "Expected method declaration in class body".to_string(),
+                    span: self.peek().span,
+                });
+            }
+            methods.push(self.parse_function_decl(true, visibility, Some(is_static))?);
+        }
+        self.expect(TokenKind::RBrace, "Expected '}' after class body")?;
+        Ok(Stmt::Class {
+            name,
+            methods,
+            superclass,
+        })
+    }
+
+    fn parse_function_decl(
+        &mut self,
+        allow_modifiers: bool,
+        visibility: Option<pleno_ast::Visibility>,
+        is_static: Option<bool>,
+    ) -> Result<pleno_ast::FunctionDecl, ParseError> {
+        self.advance();
+        let name = match self.advance().kind.clone() {
+            TokenKind::Ident(name) => name,
+            other => {
+                return Err(ParseError {
+                    message: format!("Expected function name, found {other:?}"),
+                    span: self.previous_span(),
+                })
+            }
+        };
+        self.expect(TokenKind::LParen, "Expected '(' after function name")?;
+        let mut params = Vec::new();
+        if !matches!(self.peek_kind(), TokenKind::RParen) {
+            loop {
+                match self.advance().kind.clone() {
+                    TokenKind::Ident(name) => params.push(name),
+                    other => {
+                        return Err(ParseError {
+                            message: format!("Expected parameter name, found {other:?}"),
+                            span: self.previous_span(),
+                        })
+                    }
+                }
+                if self.matches(&TokenKind::Comma) {
+                    if matches!(self.peek_kind(), TokenKind::RParen) {
+                        break;
+                    }
+                    continue;
+                }
+                break;
+            }
+        }
+        self.expect(TokenKind::RParen, "Expected ')' after parameters")?;
+        let body = Box::new(self.parse_block_stmt()?);
+        let (visibility, is_static) = if allow_modifiers {
+            (visibility, is_static.unwrap_or(false))
+        } else {
+            if visibility.is_some() || is_static.unwrap_or(false) {
+                return Err(ParseError {
+                    message: "Function modifiers are only allowed in classes".to_string(),
+                    span: self.previous_span(),
+                });
+            }
+            (None, false)
+        };
+        Ok(pleno_ast::FunctionDecl {
+            name,
+            params,
+            body,
+            is_static,
+            visibility,
+        })
     }
 
     fn parse_block_stmt(&mut self) -> Result<Stmt, ParseError> {
@@ -455,6 +571,8 @@ impl Parser {
             TokenKind::Bool(value) => Expr::Literal(Literal::Bool(value)),
             TokenKind::Null => Expr::Literal(Literal::Null),
             TokenKind::Ident(name) => Expr::Ident(name),
+            TokenKind::KeywordThis => Expr::This,
+            TokenKind::KeywordSuper => Expr::Super,
             TokenKind::LBrace => {
                 if matches!(self.peek_kind(), TokenKind::RBrace) {
                     self.expect(TokenKind::RBrace, "Expected '}' after map literal")?;
@@ -616,31 +734,6 @@ impl Parser {
             i += 1;
         }
         Ok(true)
-    }
-
-    fn parse_assign_stmt(&mut self) -> Result<Stmt, ParseError> {
-        let name = match self.advance().kind.clone() {
-            TokenKind::Ident(name) => name,
-            other => {
-                return Err(ParseError {
-                    message: format!("Expected identifier in assignment, found {other:?}"),
-                    span: self.previous_span(),
-                })
-            }
-        };
-        self.expect(TokenKind::Equal, "Expected '=' in assignment")?;
-        let value = self.parse_expr()?;
-        self.expect(TokenKind::Semicolon, "Expected ';' after assignment")?;
-        Ok(Stmt::Assign { name, value })
-    }
-
-    fn is_assignment(&self) -> bool {
-        matches!(self.peek_kind(), TokenKind::Ident(_))
-            && matches!(self.peek_next_kind(), Some(TokenKind::Equal))
-    }
-
-    fn peek_next_kind(&self) -> Option<&TokenKind> {
-        self.tokens.get(self.index + 1).map(|token| &token.kind)
     }
 
     fn is_range_terminator(&self) -> bool {

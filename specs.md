@@ -699,6 +699,12 @@ range1.toArray();        // [0, 1, 2, ..., 9]
 for (i in 1..=5) {
     print(i);  // 1, 2, 3, 4, 5
 }
+
+// Unbounded ranges iterate until you break
+for (i in 5..) {
+    if (i > 10) { break; }
+    print(i);
+}
 ```
 
 ---

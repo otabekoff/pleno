@@ -94,6 +94,60 @@ fn evaluates_for_open_end_range_with_break() {
 }
 
 #[test]
+fn evaluates_class_instance_property() {
+    let value = eval("class Point {} let p = Point(); p.x = 4; p.x;");
+    assert_eq!(value, pleno_value::Value::Int(4));
+}
+
+#[test]
+fn evaluates_native_call() {
+    let value = eval("id(7);");
+    assert_eq!(value, pleno_value::Value::Int(7));
+}
+
+#[test]
+fn evaluates_index_assignment() {
+    let value = eval("let a = [1, 2]; a[0] = 5; a[0];");
+    assert_eq!(value, pleno_value::Value::Int(5));
+}
+
+#[test]
+fn evaluates_user_function_call() {
+    let value = eval("fn add(a, b) { return a + b; } add(2, 3);");
+    assert_eq!(value, pleno_value::Value::Int(5));
+}
+
+#[test]
+fn evaluates_method_with_this() {
+    let value = eval("class Counter { fn inc() { this.x = this.x + 1; } fn get() { return this.x; } } let c = Counter(); c.x = 0; c.inc(); c.get();");
+    assert_eq!(value, pleno_value::Value::Int(1));
+}
+
+#[test]
+fn evaluates_constructor() {
+    let value = eval("class Point { fn constructor(x, y) { this.x = x; this.y = y; } fn sum() { return this.x + this.y; } } let p = Point(2, 3); p.sum();");
+    assert_eq!(value, pleno_value::Value::Int(5));
+}
+
+#[test]
+fn evaluates_inheritance_and_super() {
+    let value = eval("class A { fn value() { return 1; } } class B extends A { fn value() { return super.value() + 1; } } let b = B(); b.value();");
+    assert_eq!(value, pleno_value::Value::Int(2));
+}
+
+#[test]
+fn evaluates_static_method() {
+    let value = eval("class Util { static fn val() { return 7; } } Util.val();");
+    assert_eq!(value, pleno_value::Value::Int(7));
+}
+
+#[test]
+fn evaluates_closure_capture() {
+    let value = eval("fn make(x) { fn inner(y) { return x + y; } return inner; } let f = make(2); f(3);");
+    assert_eq!(value, pleno_value::Value::Int(5));
+}
+
+#[test]
 fn evaluates_break_in_while() {
     let value = eval("let mut x = 0; while (true) { if (x == 3) { break; } x = x + 1; } x;");
     assert_eq!(value, pleno_value::Value::Int(3));

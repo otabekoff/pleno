@@ -10,106 +10,77 @@ This roadmap stages the implementation from core language to v1 features.
 
 ## Stage 1 - Core Syntax + Expressions (partial)
 
-- Tokens for literals, identifiers, operators
-- Operator precedence parsing (unary, binary)
-- Expression AST and spans
-- UTF-8 string model decision (Unicode scalars by default)
-- Logical operators (`&&`, `||`) parsing and bytecode emission
-- Reserved keywords added for `class`, `for`, `this`, `super`, `return` (parsing pending)
-- Dot token added for member access (parsing + map property access implemented)
-- Range tokens (`..`, `..=`) and parsing (compiler/VM for numeric ranges)
-- Prefix/suffix ranges parsed and compiled to Range values
-- Array literal tokens (`[ ]`) and parsing
+- Completed: tokens for literals/idents/operators; operator precedence; expression AST/spans; UTF-8 decision; `&&`/`||` parsing + bytecode
+- Partial: dot token + parsing (member access only for map/object fields); range parsing + Range values (iteration semantics handled in Stage 2)
+- Missing: full member access semantics (methods/classes), more literal types
 
 ## Stage 2 - Statements + Blocks (partial)
 
-- `let`, `const`, assignments (mutable enforcement)
-- Blocks `{ ... }` with scoped locals
-- `if/else`, `while`, `break`, `continue`
-- `for` loops over numeric ranges (including `..end` and `start..`), arrays, map keys, and sets
+- Completed: `let`/`const`/assignments; scoped blocks; `if/else`, `while`, `break`, `continue`
+- Partial: `for` loops over ranges/arrays/map keys/sets (unbounded `start..` requires `break`)
+- Missing: `for` over iterators/generators
 
-## Stage 3 - Functions (not started)
+## Stage 3 - Functions (partial)
 
-- Function declarations + calls
-- Parameters, defaults, named args
-- Return statements
+- Completed: native/builtin calls; user-defined function declarations/calls; `return`; closures with capture
+- Partial: first-class functions (locals/returns supported)
+- Missing: defaults/named args
 
 ## Stage 4 - Types (Gradual) (not started)
 
-- Type annotations on vars/params/returns
-- Basic type checking for primitives
-- Optional and union types (syntax + AST)
+- Not started: type annotations, primitive checking, optional/union types
 
 ## Stage 5 - Modules + Imports (not started)
 
-- Module declarations
-- `import` syntax + resolver
+- Not started: module declarations, import syntax, resolver
 
 ## Stage 6 - Data Structures (partial)
 
-- Map literals with string keys
-- Map property access via dot (maps only)
-- Array literals and indexing
-- Map indexing with string keys
-- Array iteration in `for` loops
-- Map key iteration in `for` loops
-- Set literals (initial)
-- Set membership via index
-- Set iteration in `for` loops
-- Object literal fields via map syntax (used for member access)
-- Arrays, maps, sets, tuples, ranges
-- Indexing and member access
+- Completed: map/array/set literals; array/map indexing; index assignment; array/map/set iteration; set membership
+- Partial: dot access only on map/object fields
+- Missing: tuples, richer collection APIs
 
-## Stage 7 - OOP Core (not started)
+## Stage 7 - OOP Core (partial)
 
-- Classes, fields, methods
-- `this`, constructors
-- Access modifiers
+- Completed: class declarations with methods/constructors; instance fields via dot; `this`; `super` + inheritance; static methods
+- Partial: access modifiers (parsed, not enforced)
+- Missing: static fields, access control rules
 
 ## Stage 8 - Advanced OOP (not started)
 
-- Inheritance, interfaces, abstract classes
-- Properties, static members
+- Not started: inheritance/interfaces/abstracts, properties/static members
 
 ## Stage 9 - Functional Features (not started)
 
-- Lambdas, closures
-- Pipeline operator
-- Pattern matching
+- Not started: lambdas/closures, pipeline operator, pattern matching
 
 ## Stage 10 - Error Handling (not started)
 
-- `try/catch/finally`
-- `Result` and `Option` syntax
+- Not started: try/catch/finally, Result/Option syntax
 
 ## Stage 11 - Async + Concurrency (not started)
 
-- `async`/`await`, promises
+- Not started: async/await, promises
 
 ## Stage 12 - Standard Library Stubs (not started)
 
-- String (UTF-8, normalization), math, collections, IO, JSON
+- Not started: stdlib stubs (string/math/collections/IO/JSON)
 
 ## Stage 13 - Tooling (partial)
 
-- Formatter, linter, docs stub
-- LSP server MVP (diagnostics, go-to-def)
+- Completed: LSP MVP (diagnostics, go-to-def)
+- Missing: formatter, linter, docs tooling
 
 ## Stage 14 - Runtime + VM (Register-Based) (partial)
 
-- Register-based bytecode format
-- Compiler (AST -> bytecode) for literals, unary/binary, if/while, assignments
-- VM execution engine for arithmetic/comparison/jumps
-- GC baseline (mark-sweep) (pending)
+- Completed: register bytecode format; compiler for literals/unary/binary/if/while/assignments; VM arithmetic/comparison/jumps
+- Partial: function call frames, class instances
+- Missing: GC baseline (mark-sweep), performance work
 
 ## Stage 14.1 - Core VM Crates (partial)
 
-- pleno-common (spans, interning, utilities) (spans only)
-- pleno-diagnostics (errors, labels, reporting) (basic diagnostic)
-- pleno-value (runtime values) (primitives, ranges, arrays, maps, sets)
-- pleno-bytecode (instruction set, chunk)
-- pleno-compiler (AST -> bytecode)
-- pleno-vm (executor)
+- Completed: pleno-bytecode, pleno-compiler, pleno-vm
+- Partial: pleno-common (spans only), pleno-diagnostics (basic), pleno-value (primitives/collections/functions/classes)
 
 ## Stage 15 - v1 Hardening
 
