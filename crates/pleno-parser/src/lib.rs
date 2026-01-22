@@ -1228,11 +1228,48 @@ impl Parser {
                 continue;
             }
             if self.matches(&TokenKind::LBracket) {
-                let index = self.parse_expr()?;
+                // Check if this is a slice: [start..end], [start..], [..end], [..]
+                if self.matches(&TokenKind::DotDot) || self.matches(&TokenKind::DotDotEqual) {
+                    // Slice: [..end] or [..=end]
+                    let _inclusive = self.previous().kind == TokenKind::DotDotEqual;
+                    let end = if self.is_range_terminator() {
+                        None
+                    } else {
+                        Some(Box::new(self.parse_expr()?))
+                    };
+                    self.expect(TokenKind::RBracket, "Expected ']' after slice")?;
+                    expr = Expr::Slice {
+                        collection: Box::new(expr),
+                        start: None,
+                        end,
+                    };
+                    continue;
+                }
+                
+                let start_expr = self.parse_expr()?;
+                
+                // Check for slice syntax: [start..end] or [start..]
+                if self.matches(&TokenKind::DotDot) || self.matches(&TokenKind::DotDotEqual) {
+                    let _inclusive = self.previous().kind == TokenKind::DotDotEqual;
+                    let end = if self.is_range_terminator() {
+                        None
+                    } else {
+                        Some(Box::new(self.parse_expr()?))
+                    };
+                    self.expect(TokenKind::RBracket, "Expected ']' after slice")?;
+                    expr = Expr::Slice {
+                        collection: Box::new(expr),
+                        start: Some(Box::new(start_expr)),
+                        end,
+                    };
+                    continue;
+                }
+                
+                // Regular index access
                 self.expect(TokenKind::RBracket, "Expected ']' after index")?;
                 expr = Expr::Index {
                     collection: Box::new(expr),
-                    index: Box::new(index),
+                    index: Box::new(start_expr),
                 };
                 continue;
             }

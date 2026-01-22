@@ -460,6 +460,12 @@ impl Compiler {
                         let const_idx = self.add_constant(Value::String(value.clone().into()));
                         self.emit(Opcode::LoadConst, reg, const_idx, 0)
                     }
+                    Literal::Char(value) => {
+                        // Represent Char as a single-character String
+                        let char_str = value.to_string();
+                        let const_idx = self.add_constant(Value::String(char_str.into()));
+                        self.emit(Opcode::LoadConst, reg, const_idx, 0)
+                    }
                 }
                 Ok(reg)
             }
@@ -482,6 +488,11 @@ impl Compiler {
                             pleno_ast::BinaryOp::LessEqual => Opcode::Le,
                             pleno_ast::BinaryOp::Greater => Opcode::Gt,
                             pleno_ast::BinaryOp::GreaterEqual => Opcode::Ge,
+                            pleno_ast::BinaryOp::NullCoalesce => {
+                                // For ?? operator: if left is null, use right, else use left
+                                // This requires a conditional jump, so we handle it specially
+                                return self.compile_null_coalesce(left, right);
+                            }
                             _ => return Err(CompileError::new("unsupported binary op")),
                         };
                         self.emit(opcode, dest, left_reg, right_reg);
@@ -542,6 +553,37 @@ impl Compiler {
                     self.free_temp(object_reg);
                     Ok(dest)
                 }
+            }
+            Expr::SafeProperty { object, name } => {
+                // Safe property access: obj?.prop returns null if obj is null
+                let object_reg = self.compile_expr(object)?;
+                let dest = self.registers.allocate()?;
+                let null_check_reg = self.registers.allocate()?;
+                self.emit(Opcode::LoadNull, null_check_reg, 0, 0);
+                let is_null_reg = self.registers.allocate()?;
+                self.emit(Opcode::Eq, is_null_reg, object_reg, null_check_reg);
+                self.free_temp(null_check_reg);
+                
+                // If object is null, jump to end and return null
+                let jump_to_end = self.emit_jump(Opcode::JumpIf, is_null_reg);
+                self.free_temp(is_null_reg);
+                
+                // Otherwise, get the property
+                let name_idx = self.add_constant(Value::String(name.clone().into()));
+                self.emit(Opcode::GetProperty, dest, object_reg, name_idx);
+                self.free_temp(object_reg);
+                
+                // Jump past the null case
+                let jump_past_null = self.emit_jump(Opcode::Jump, 0);
+                
+                // Null case: set dest to null
+                self.patch_jump(jump_to_end)?;
+                self.emit(Opcode::LoadNull, dest, 0, 0);
+                
+                // Patch the jump past null case
+                self.patch_jump(jump_past_null)?;
+                
+                Ok(dest)
             }
             Expr::Range {
                 start,
@@ -681,13 +723,56 @@ impl Compiler {
                 Err(CompileError::new("underscore is only allowed as a placeholder in calls"))
             }
             Expr::Index { collection, index } => {
-
                 let collection_reg = self.compile_expr(collection)?;
                 let index_reg = self.compile_expr(index)?;
                 let dest = self.registers.allocate()?;
                 self.emit(Opcode::GetIndex, dest, collection_reg, index_reg);
                 self.free_temp(collection_reg);
                 self.free_temp(index_reg);
+                Ok(dest)
+            }
+            Expr::Slice { collection, start, end } => {
+                // Compile as: collection.slice(start, end)
+                // This will use the builtin method
+                let collection_reg = self.compile_expr(collection)?;
+                let args_reg = self.registers.allocate()?;
+                self.emit(Opcode::NewArray, args_reg, 0, 0);
+                
+                // Add start argument (or null if missing)
+                if let Some(start_expr) = start {
+                    let start_reg = self.compile_expr(start_expr)?;
+                    self.emit(Opcode::ArrayAppend, args_reg, start_reg, 0);
+                    self.free_temp(start_reg);
+                } else {
+                    let null_reg = self.registers.allocate()?;
+                    self.emit(Opcode::LoadNull, null_reg, 0, 0);
+                    self.emit(Opcode::ArrayAppend, args_reg, null_reg, 0);
+                    self.free_temp(null_reg);
+                }
+                
+                // Add end argument (or null if missing)
+                if let Some(end_expr) = end {
+                    let end_reg = self.compile_expr(end_expr)?;
+                    self.emit(Opcode::ArrayAppend, args_reg, end_reg, 0);
+                    self.free_temp(end_reg);
+                } else {
+                    let null_reg = self.registers.allocate()?;
+                    self.emit(Opcode::LoadNull, null_reg, 0, 0);
+                    self.emit(Opcode::ArrayAppend, args_reg, null_reg, 0);
+                    self.free_temp(null_reg);
+                }
+                
+                // Get the slice method
+                let slice_name_idx = self.add_constant(Value::String("slice".to_string().into()));
+                let method_reg = self.registers.allocate()?;
+                self.emit(Opcode::GetProperty, method_reg, collection_reg, slice_name_idx);
+                
+                // Call the method
+                let dest = self.registers.allocate()?;
+                self.emit(Opcode::Call, dest, method_reg, args_reg);
+                self.free_temp(collection_reg);
+                self.free_temp(method_reg);
+                self.free_temp(args_reg);
                 Ok(dest)
             }
             Expr::Call { callee, args } => {
@@ -932,6 +1017,41 @@ impl Compiler {
         self.patch_jump(jump_left_true)?;
         self.emit(Opcode::LoadTrue, dest, 0, 0);
         self.patch_jump(jump_to_end)?;
+        Ok(dest)
+    }
+
+    fn compile_null_coalesce(&mut self, left: &Expr, right: &Expr) -> Result<u8, CompileError> {
+        // For ?? operator: if left is null, use right, else use left
+        let dest = self.registers.allocate()?;
+        let left_reg = self.compile_expr(left)?;
+        
+        // Check if left is null
+        let null_reg = self.registers.allocate()?;
+        self.emit(Opcode::LoadNull, null_reg, 0, 0);
+        let is_null_reg = self.registers.allocate()?;
+        self.emit(Opcode::Eq, is_null_reg, left_reg, null_reg);
+        self.free_temp(null_reg);
+        
+        // If left is null, jump to use right
+        let jump_to_right = self.emit_jump(Opcode::JumpIf, is_null_reg);
+        self.free_temp(is_null_reg);
+        
+        // Left is not null, use left
+        self.emit(Opcode::Move, dest, left_reg, 0);
+        self.free_temp(left_reg);
+        
+        // Jump past the right case
+        let jump_past_right = self.emit_jump(Opcode::Jump, 0);
+        
+        // Right case: left was null, use right
+        self.patch_jump(jump_to_right)?;
+        let right_reg = self.compile_expr(right)?;
+        self.emit(Opcode::Move, dest, right_reg, 0);
+        self.free_temp(right_reg);
+        
+        // Patch the jump past right case
+        self.patch_jump(jump_past_right)?;
+        
         Ok(dest)
     }
 
@@ -1531,6 +1651,15 @@ impl Compiler {
             Expr::Index { collection, index } => {
                 self.collect_idents_expr(collection, used);
                 self.collect_idents_expr(index, used);
+            }
+            Expr::Slice { collection, start, end } => {
+                self.collect_idents_expr(collection, used);
+                if let Some(start_expr) = start {
+                    self.collect_idents_expr(start_expr, used);
+                }
+                if let Some(end_expr) = end {
+                    self.collect_idents_expr(end_expr, used);
+                }
             }
             Expr::Call { callee, args } => {
                 self.collect_idents_expr(callee, used);

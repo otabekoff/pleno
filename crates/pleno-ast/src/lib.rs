@@ -86,6 +86,11 @@ pub enum Expr {
         collection: Box<Expr>,
         index: Box<Expr>,
     },
+    Slice {
+        collection: Box<Expr>,
+        start: Option<Box<Expr>>,
+        end: Option<Box<Expr>>,
+    },
     SetLiteral(Vec<Expr>),
     Call {
         callee: Box<Expr>,
