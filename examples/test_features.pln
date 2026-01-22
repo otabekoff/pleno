@@ -1,0 +1,70 @@
+// Test file for new features
+
+// Test Char literal
+let ch: Char = 'A';
+print("Char:", ch);
+
+// Test optional types
+let maybe: Int? = null;
+let value: Int? = 42;
+print("Optional null:", maybe);
+print("Optional value:", value);
+
+// Test union types
+let mixed: Int | String = 100;
+print("Union Int:", mixed);
+mixed = "hello";
+print("Union String:", mixed);
+
+// Test null coalescing
+let name: String? = null;
+let display = name ?? "Guest";
+print("Null coalescing:", display);
+
+// Test safe navigation
+let obj = { name: "Alice", age: 30 };
+let safe = obj?.name;
+print("Safe navigation:", safe);
+
+// Test array slicing
+let arr = [1, 2, 3, 4, 5];
+let slice1 = arr[1..4];
+print("Slice [1..4]:", slice1);
+let slice2 = arr[2..];
+print("Slice [2..]:", slice2);
+let slice3 = arr[..3];
+print("Slice [..3]:", slice3);
+
+// Test Result type
+let result = Ok(42);
+print("Result isOk:", result.isOk());
+let unwrapped = result.unwrap();
+print("Result unwrap:", unwrapped);
+
+let err_result = Err("error message");
+print("Err isErr:", err_result.isErr());
+let default = err_result.unwrapOr(0);
+print("Err unwrapOr:", default);
+
+// Test Option type
+let some = Some("value");
+print("Option isSome:", some.isSome());
+let none = None;
+print("Option isNone:", none.isNone());
+let opt_value = some.unwrapOr("default");
+print("Option unwrapOr:", opt_value);
+
+// Test string methods
+let str = "  Hello World  ";
+print("Trimmed:", str.trim());
+print("Upper:", str.trim().upper());
+print("Lower:", str.trim().lower());
+print("Contains 'World':", str.contains("World"));
+print("Starts with 'Hello':", str.trim().startsWith("Hello"));
+
+// Test array methods
+let numbers = [1, 2, 3, 4, 5];
+numbers.reverse();
+print("Reversed:", numbers);
+print("Contains 3:", numbers.contains(3));
+print("Index of 3:", numbers.indexOf(3));
