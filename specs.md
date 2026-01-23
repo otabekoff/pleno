@@ -125,6 +125,13 @@ fn processValue(val: Int | String) {
 }
 ```
 
+
+### 1.4 TypeOf Operator
+```pleno
+let x = 42;
+print(typeof(x));  // "Int"
+```
+
 ---
 
 ## 2. Control Flow ✅
@@ -833,7 +840,7 @@ fn processData(data: Any) {
 
 ---
 
-## 7. Error Handling
+## 7. Error Handling ✅
 
 ### 7.1 Try-Catch
 
@@ -927,7 +934,7 @@ user.isNone();              // Check if None
 
 ---
 
-## 8. Modules & Imports
+## 8. Modules & Imports ✅
 
 Current implementation supports:
 
@@ -1279,7 +1286,7 @@ class GameObject {
 
 ---
 
-## 13. Standard Library Highlights
+## 13. Standard Library Highlights ✅
 
 ### 13.1 String Operations
 

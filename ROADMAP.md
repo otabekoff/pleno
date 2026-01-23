@@ -6,11 +6,9 @@ This roadmap stages the remaining implementation work for v1.
 
 ## Stage 8 - Functional Features (partial)
 
-**Completed**: pipeline operator, basic pattern matching (identity/wildcard patterns), lambdas/closures (shorthand and anonymous fn expressions)
+**Completed**: pipeline operator, basic pattern matching (identity/wildcard patterns), lambdas/closures (shorthand and anonymous fn expressions), Tuple patterns in match expressions, Full pattern matching runtime verification
 
 **Remaining**:
-- Tuple patterns in match expressions ✅
-- Full pattern matching runtime verification ✅
 - Advanced pattern matching features
 
 ---
@@ -37,10 +35,9 @@ This roadmap stages the remaining implementation work for v1.
 
 ## Stage 11 - Tooling (partial)
 
-**Completed**: LSP MVP (diagnostics, go-to-def); basic formatter/linter CLI commands; type checker CLI command; optional types (`Int?`) and union types (`Int | String`) runtime type checking
+**Completed**: LSP MVP (diagnostics, go-to-def); basic formatter/linter CLI commands; type checker CLI command; optional types (`Int?`) and union types (`Int | String`) runtime type checking; Full formatter implementation in CLI
 
 **Remaining**:
-- Full formatter implementation in CLI ✅
 - Full linter implementation (comprehensive style rules, best practices, unused variable detection)
 - Docs tooling (generation, API docs)
 
