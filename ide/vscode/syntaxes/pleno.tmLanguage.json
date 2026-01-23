@@ -36,7 +36,7 @@
       "patterns": [
         {
           "name": "keyword.control.pleno",
-          "match": "\\b(let|const|mut|fn|return|if|else|for|while|match|class|interface|enum|import|export|async|await|try|catch|finally|throw|abstract|implements|extends|constructor|property|get|set|static|override|case|do|label|break|continue)\\b"
+          "match": "\\b(let|const|mut|fn|return|if|else|for|while|match|class|interface|enum|import|export|async|await|try|catch|finally|throw|abstract|implements|extends|constructor|property|get|set|static|override|case|do|label|break|continue|typeof)\\b"
         },
         {
           "name": "storage.modifier.pleno",
