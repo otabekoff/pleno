@@ -197,6 +197,12 @@ impl<'a> GcObject for VmRoots<'a> {
     }
 }
 
+impl Default for VM {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl VM {
     pub fn new() -> Self {
         let gc = pleno_value::gc::GCManager::new(1000);
@@ -396,7 +402,7 @@ impl VM {
 
         self.registers.clear();
         self.registers
-            .extend(std::iter::repeat(Value::Null).take(register_count));
+            .extend(std::iter::repeat_n(Value::Null, register_count));
 
         self.frames.push(CallFrame {
             function_index: func_index,
@@ -427,15 +433,13 @@ impl VM {
         let tasks: Vec<_> = self.pending_tasks.drain(..).collect();
         for task in tasks {
             // Update Promise map if it exists
-            if let Some(promise_val) = self.promises.remove(&task.promise_id) {
-                if let Value::Map(map) = promise_val {
-                    map.borrow_mut().insert(
-                        "variant".to_string(),
-                        Value::String(Rc::new("Resolved".to_string())),
-                    );
-                    map.borrow_mut()
-                        .insert("value".to_string(), task.value.clone());
-                }
+            if let Some(Value::Map(map)) = self.promises.remove(&task.promise_id) {
+                map.borrow_mut().insert(
+                    "variant".to_string(),
+                    Value::String(Rc::new("Resolved".to_string())),
+                );
+                map.borrow_mut()
+                    .insert("value".to_string(), task.value.clone());
             }
 
             if let Some(suspended) = self.suspended_frames.remove(&task.promise_id) {
@@ -583,14 +587,14 @@ impl VM {
                         Value::Closure { captures, .. } => captures,
                         _ => return Err(RuntimeError::new("capture on non-closure")),
                     };
-                    let idx = c as usize;
+                    let idx = c;
                     if idx >= closure.len() {
                         return Err(RuntimeError::new("capture index out of bounds"));
                     }
                     closure[idx] = value;
                 }
                 Opcode::LoadCapture => {
-                    let idx = b as usize;
+                    let idx = b;
                     if idx >= frame.captures.len() {
                         return Err(RuntimeError::new("capture index out of bounds"));
                     }
@@ -888,18 +892,18 @@ impl VM {
                         Value::String(s) => s.as_str(),
                         _ => return Err(RuntimeError::new("type name must be string")),
                     };
-                    let result = match (type_name, value) {
-                        ("Int", Value::Int(_)) => true,
-                        ("Float", Value::Float(_)) => true,
-                        ("Bool", Value::Bool(_)) => true,
-                        ("String", Value::String(_)) => true,
-                        ("Array", Value::Array(_)) => true,
-                        ("Map", Value::Map(_)) => true,
-                        ("Set", Value::Set(_)) => true,
-                        ("Object", Value::Object(_)) => true,
-                        ("Null", Value::Null) => true,
-                        _ => false,
-                    };
+                    let result = matches!(
+                        (type_name, value),
+                        ("Int", Value::Int(_))
+                            | ("Float", Value::Float(_))
+                            | ("Bool", Value::Bool(_))
+                            | ("String", Value::String(_))
+                            | ("Array", Value::Array(_))
+                            | ("Map", Value::Map(_))
+                            | ("Set", Value::Set(_))
+                            | ("Object", Value::Object(_))
+                            | ("Null", Value::Null)
+                    );
                     self.registers[base + a] = Value::Bool(result);
                 }
                 Opcode::TypeOf => {
@@ -1045,19 +1049,21 @@ impl VM {
                                 {
                                     // Result type with method
                                     drop(map_ref);
-                                    return Ok(Value::BoundNativeMethod {
+                                    self.registers[base + a] = Value::BoundNativeMethod {
                                         receiver: Box::new(Value::Map(map.clone())),
                                         function: resolve_builtin_method("Result", &name).unwrap(),
-                                    });
+                                    };
+                                    continue;
                                 } else if (variant.as_str() == "Some" || variant.as_str() == "None")
                                     && resolve_builtin_method("Option", &name).is_some()
                                 {
                                     // Option type with method
                                     drop(map_ref);
-                                    return Ok(Value::BoundNativeMethod {
+                                    self.registers[base + a] = Value::BoundNativeMethod {
                                         receiver: Box::new(Value::Map(map.clone())),
                                         function: resolve_builtin_method("Option", &name).unwrap(),
-                                    });
+                                    };
+                                    continue;
                                 }
                             }
                             drop(map_ref);
@@ -1395,15 +1401,15 @@ impl VM {
                         // Promise ID is the last argument
                         if function_arity > 0 {
                             let promise_id_idx = frame.base + function_arity - 1;
-                            if promise_id_idx < self.registers.len() {
-                                if let Value::Int(id) = self.registers[promise_id_idx] {
-                                    self.pending_tasks.push(AsyncTask {
-                                        promise_id: id as u64,
-                                        value: result.clone(),
-                                        is_async: true,
-                                        is_resolved: true,
-                                    });
-                                }
+                            if let Some(Value::Int(id)) = self.registers.get(promise_id_idx)
+                                && let Ok(id) = (*id).try_into()
+                            {
+                                self.pending_tasks.push(AsyncTask {
+                                    promise_id: id,
+                                    value: result.clone(),
+                                    is_async: true,
+                                    is_resolved: true,
+                                });
                             }
                         }
                     }
@@ -1760,6 +1766,7 @@ impl VM {
 }
 
 impl VM {
+    #[allow(clippy::too_many_arguments)]
     fn call_function(
         &mut self,
         handle: usize,
@@ -1869,7 +1876,7 @@ impl VM {
         let base = self.registers.len();
         let register_count = function.chunk.max_registers.max(function.arity);
         self.registers
-            .extend(std::iter::repeat(Value::Null).take(register_count));
+            .extend(std::iter::repeat_n(Value::Null, register_count));
 
         for (idx, arg) in processed_args.iter().enumerate() {
             if idx < register_count {
@@ -2141,7 +2148,7 @@ impl VM {
         let base = self.registers.len();
         let register_count = self.functions[func_index].chunk.max_registers;
         self.registers
-            .extend(std::iter::repeat(Value::Null).take(register_count));
+            .extend(std::iter::repeat_n(Value::Null, register_count));
         let depth = self.frames.len();
         self.frames.push(CallFrame {
             function_index: func_index,
@@ -2230,7 +2237,7 @@ fn resolve_module_path(
 
 fn native_os_exit(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
     let _gc = vm.get_gc();
-    let code = match args.get(0) {
+    let code = match args.first() {
         Some(Value::Int(code)) => *code as i32,
         _ => 0,
     };
@@ -2239,7 +2246,7 @@ fn native_os_exit(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, Runt
 
 fn native_os_getenv(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
     let _gc = vm.get_gc();
-    let name = match args.get(0) {
+    let name = match args.first() {
         Some(Value::String(s)) => s.as_str(),
         _ => return Err(RuntimeError::new("getenv expects string argument")),
     };
@@ -2284,7 +2291,7 @@ fn native_print(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, Runtim
 }
 
 fn native_id(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
-    Ok(args.get(0).cloned().unwrap_or(Value::Null))
+    Ok(args.first().cloned().unwrap_or(Value::Null))
 }
 
 fn resolve_method(class: &GcRc<Class>, name: &str) -> Option<MethodInfo> {
@@ -2890,8 +2897,8 @@ fn native_array_reduce(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value,
     } else {
         (items[0].clone(), 1)
     };
-    for i in start_idx..items.len() {
-        accumulator = vm.call(callback.clone(), vec![accumulator, items[i].clone()])?;
+    for item in items.iter().skip(start_idx) {
+        accumulator = vm.call(callback.clone(), vec![accumulator, item.clone()])?;
     }
     Ok(accumulator)
 }
@@ -3187,7 +3194,7 @@ fn native_option_is_none(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Valu
 // Math native functions
 fn native_math_abs(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
     let _gc = vm.get_gc();
-    match args.get(0) {
+    match args.first() {
         Some(Value::Int(n)) => Ok(Value::Int(n.abs())),
         Some(Value::Float(n)) => Ok(Value::Float(n.abs())),
         _ => Err(RuntimeError::new("abs() expects a number")),
@@ -3196,7 +3203,7 @@ fn native_math_abs(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, Run
 
 fn native_math_pow(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
     let _gc = vm.get_gc();
-    let base = match args.get(0) {
+    let base = match args.first() {
         Some(Value::Int(n)) => *n as f64,
         Some(Value::Float(n)) => *n,
         _ => return Err(RuntimeError::new("pow() base must be a number")),
@@ -3211,7 +3218,7 @@ fn native_math_pow(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, Run
 
 fn native_math_sqrt(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
     let _gc = vm.get_gc();
-    match args.get(0) {
+    match args.first() {
         Some(Value::Int(n)) => Ok(Value::Float((*n as f64).sqrt())),
         Some(Value::Float(n)) => Ok(Value::Float(n.sqrt())),
         _ => Err(RuntimeError::new("sqrt() expects a number")),
@@ -3227,7 +3234,7 @@ fn native_math_random(vm: &mut dyn VMProvider, _args: &[Value]) -> Result<Value,
 fn native_math_random_int(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
     let _gc = vm.get_gc();
     use rand::Rng;
-    let min = match args.get(0) {
+    let min = match args.first() {
         Some(Value::Int(n)) => *n,
         _ => return Err(RuntimeError::new("randomInt() min must be an integer")),
     };
@@ -3243,7 +3250,7 @@ fn native_math_random_int(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Val
 
 fn native_math_sin(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
     let _gc = vm.get_gc();
-    match args.get(0) {
+    match args.first() {
         Some(Value::Int(n)) => Ok(Value::Float((*n as f64).sin())),
         Some(Value::Float(n)) => Ok(Value::Float(n.sin())),
         _ => Err(RuntimeError::new("sin() expects a number")),
@@ -3252,7 +3259,7 @@ fn native_math_sin(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, Run
 
 fn native_math_cos(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
     let _gc = vm.get_gc();
-    match args.get(0) {
+    match args.first() {
         Some(Value::Int(n)) => Ok(Value::Float((*n as f64).cos())),
         Some(Value::Float(n)) => Ok(Value::Float(n.cos())),
         _ => Err(RuntimeError::new("cos() expects a number")),
@@ -3261,7 +3268,7 @@ fn native_math_cos(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, Run
 
 fn native_math_tan(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
     let _gc = vm.get_gc();
-    match args.get(0) {
+    match args.first() {
         Some(Value::Int(n)) => Ok(Value::Float((*n as f64).tan())),
         Some(Value::Float(n)) => Ok(Value::Float(n.tan())),
         _ => Err(RuntimeError::new("tan() expects a number")),
@@ -3270,7 +3277,7 @@ fn native_math_tan(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, Run
 
 fn native_math_log(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
     let _gc = vm.get_gc();
-    match args.get(0) {
+    match args.first() {
         Some(Value::Int(n)) => Ok(Value::Float((*n as f64).ln())),
         Some(Value::Float(n)) => Ok(Value::Float(n.ln())),
         _ => Err(RuntimeError::new("log() expects a number")),
@@ -3279,7 +3286,7 @@ fn native_math_log(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, Run
 
 fn native_math_exp(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
     let _gc = vm.get_gc();
-    match args.get(0) {
+    match args.first() {
         Some(Value::Int(n)) => Ok(Value::Float((*n as f64).exp())),
         Some(Value::Float(n)) => Ok(Value::Float(n.exp())),
         _ => Err(RuntimeError::new("exp() expects a number")),
@@ -3288,7 +3295,7 @@ fn native_math_exp(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, Run
 
 fn native_math_floor(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
     let _gc = vm.get_gc();
-    match args.get(0) {
+    match args.first() {
         Some(Value::Int(n)) => Ok(Value::Int(*n)),
         Some(Value::Float(n)) => Ok(Value::Int(n.floor() as i64)),
         _ => Err(RuntimeError::new("floor() expects a number")),
@@ -3297,7 +3304,7 @@ fn native_math_floor(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, R
 
 fn native_math_ceil(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
     let _gc = vm.get_gc();
-    match args.get(0) {
+    match args.first() {
         Some(Value::Int(n)) => Ok(Value::Int(*n)),
         Some(Value::Float(n)) => Ok(Value::Int(n.ceil() as i64)),
         _ => Err(RuntimeError::new("ceil() expects a number")),
@@ -3306,7 +3313,7 @@ fn native_math_ceil(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, Ru
 
 fn native_math_round(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
     let _gc = vm.get_gc();
-    match args.get(0) {
+    match args.first() {
         Some(Value::Int(n)) => Ok(Value::Int(*n)),
         Some(Value::Float(n)) => Ok(Value::Int(n.round() as i64)),
         _ => Err(RuntimeError::new("round() expects a number")),

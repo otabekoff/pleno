@@ -38,6 +38,12 @@ struct ExportItem {
     export: String,
 }
 
+impl Default for Compiler {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Compiler {
     pub fn new() -> Self {
         Self {
@@ -1431,7 +1437,7 @@ impl Compiler {
                 // Check if Array (Pleno uses Array for tuples)
                 let array_str_idx = self.add_constant(Value::String(Rc::new("Array".to_string())));
                 let array_str_reg = self.registers.allocate()?;
-                self.emit(Opcode::LoadConst, array_str_reg, array_str_idx as u8, 0);
+                self.emit(Opcode::LoadConst, array_str_reg, array_str_idx, 0);
                 let is_array_reg = self.registers.allocate()?;
                 self.emit(Opcode::Is, is_array_reg, value_reg, array_str_reg);
                 self.free_temp(array_str_reg);
@@ -1892,10 +1898,10 @@ impl Compiler {
     fn collect_idents(&self, stmt: &Stmt, used: &mut HashMap<String, ()>) {
         match stmt {
             Stmt::Expr(expr) => self.collect_idents_expr(expr, used),
-            Stmt::Let { value, .. } => {
-                if let Some(value) = value {
-                    self.collect_idents_expr(value, used);
-                }
+            Stmt::Let {
+                value: Some(value), ..
+            } => {
+                self.collect_idents_expr(value, used);
             }
             Stmt::Assign { name, value } => {
                 used.insert(name.clone(), ());
@@ -1934,10 +1940,8 @@ impl Compiler {
                 self.collect_idents(body, used);
             }
             Stmt::Fn { .. } => {}
-            Stmt::Return(expr) => {
-                if let Some(expr) = expr {
-                    self.collect_idents_expr(expr, used);
-                }
+            Stmt::Return(Some(expr)) => {
+                self.collect_idents_expr(expr, used);
             }
             Stmt::Block(items) => {
                 for item in items {
@@ -2103,8 +2107,8 @@ impl Compiler {
 
     fn parse_type_string(&self, ty_name: &str) -> (Vec<String>, bool) {
         // Check for optional type: Int?
-        if ty_name.ends_with('?') {
-            let base = ty_name[..ty_name.len() - 1].trim().to_string();
+        if let Some(stripped) = ty_name.strip_suffix('?') {
+            let base = stripped.trim().to_string();
             return (vec![base], true);
         }
 

@@ -312,7 +312,7 @@ impl GcObject for GcClass {
         }
 
         // Mark static fields
-        for (_, field_value) in &self.static_fields {
+        for field_value in self.static_fields.values() {
             mark_gc_value(field_value, gc);
         }
     }
@@ -340,7 +340,7 @@ impl GcObject for GcObjectWrapper {
         }
 
         // Mark field values
-        for (_, field_value) in &self.fields {
+        for field_value in self.fields.values() {
             mark_gc_value(field_value, gc);
         }
     }

@@ -7,6 +7,12 @@ pub struct Formatter {
     _max_line_length: usize,
 }
 
+impl Default for Formatter {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Formatter {
     pub fn new() -> Self {
         Self {
@@ -135,7 +141,7 @@ impl Formatter {
                 match then_branch.as_ref() {
                     Stmt::Block(_) => {
                         let then_formatted = self.format_statement(then_branch, indent_level);
-                        result.push_str(&then_formatted.trim_start());
+                        result.push_str(then_formatted.trim_start());
                     }
                     _ => {
                         result.push_str("{\n");
@@ -152,7 +158,7 @@ impl Formatter {
                     match else_stmt.as_ref() {
                         Stmt::Block(_) => {
                             let else_formatted = self.format_statement(else_stmt, indent_level);
-                            result.push_str(&else_formatted.trim_start());
+                            result.push_str(else_formatted.trim_start());
                         }
                         _ => {
                             result.push_str("{\n");
@@ -174,7 +180,7 @@ impl Formatter {
                 match body.as_ref() {
                     Stmt::Block(_) => {
                         let body_formatted = self.format_statement(body, indent_level);
-                        result.push_str(&body_formatted.trim_start());
+                        result.push_str(body_formatted.trim_start());
                     }
                     _ => {
                         result.push_str("{\n");
@@ -200,7 +206,7 @@ impl Formatter {
                 match body.as_ref() {
                     Stmt::Block(_) => {
                         let body_formatted = self.format_statement(body, indent_level);
-                        result.push_str(&body_formatted.trim_start());
+                        result.push_str(body_formatted.trim_start());
                     }
                     _ => {
                         result.push_str("{\n");
@@ -222,7 +228,7 @@ impl Formatter {
                 match try_branch.as_ref() {
                     Stmt::Block(_) => {
                         let try_formatted = self.format_statement(try_branch, indent_level);
-                        result.push_str(&try_formatted.trim_start());
+                        result.push_str(try_formatted.trim_start());
                     }
                     _ => {
                         result.push_str("{\n");
@@ -245,7 +251,7 @@ impl Formatter {
                     match catch.body.as_ref() {
                         Stmt::Block(_) => {
                             let catch_formatted = self.format_statement(&catch.body, indent_level);
-                            result.push_str(&catch_formatted.trim_start());
+                            result.push_str(catch_formatted.trim_start());
                         }
                         _ => {
                             result.push_str("{\n");
@@ -264,7 +270,7 @@ impl Formatter {
                     match finally.as_ref() {
                         Stmt::Block(_) => {
                             let finally_formatted = self.format_statement(finally, indent_level);
-                            result.push_str(&finally_formatted.trim_start());
+                            result.push_str(finally_formatted.trim_start());
                         }
                         _ => {
                             result.push_str("{\n");
@@ -419,7 +425,7 @@ impl Formatter {
                 match body.as_ref() {
                     Stmt::Block(_) => {
                         let body_formatted = self.format_statement(body, indent_level);
-                        result.push_str(&body_formatted.trim_start());
+                        result.push_str(body_formatted.trim_start());
                     }
                     _ => {
                         result.push_str("{\n");
@@ -613,11 +619,7 @@ impl Formatter {
                 };
 
                 // Use arrow syntax for lambdas
-                if params.len() == 1 {
-                    format!("({}) => {}", param_strs.join(", "), body_str)
-                } else {
-                    format!("({}) => {}", param_strs.join(", "), body_str)
-                }
+                format!("({}) => {}", param_strs.join(", "), body_str)
             }
             Expr::Block(statements) => {
                 let mut result = String::from("{ ");
@@ -705,7 +707,7 @@ impl Formatter {
                         self.format_expression(&arm.body, indent_level)
                     ));
                 }
-                result.push_str("}");
+                result.push('}');
                 result
             }
             Expr::Await { expr } => {
@@ -763,10 +765,10 @@ impl Formatter {
                 let items: Vec<String> = props
                     .iter()
                     .map(|(name, p)| {
-                        if let Pattern::Ident(ident_name) = p {
-                            if ident_name == name {
-                                return name.clone();
-                            }
+                        if let Pattern::Ident(ident_name) = p
+                            && ident_name == name
+                        {
+                            return name.clone();
                         }
                         format!("{}: {}", name, self.format_pattern(p))
                     })
@@ -820,7 +822,7 @@ impl Formatter {
         match func.body.as_ref() {
             Stmt::Block(_) => {
                 let body_formatted = self.format_statement(&func.body, indent_level);
-                result.push_str(&body_formatted.trim_start());
+                result.push_str(body_formatted.trim_start());
             }
             _ => {
                 result.push_str("{\n");

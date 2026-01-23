@@ -8,8 +8,7 @@ fn eval(source: &str) -> pleno_value::Value {
     let mut compiler = Compiler::new();
     let chunk = compiler.compile(&program).expect("compile failed");
     let mut vm = VM::new();
-    let value = vm.execute(chunk).expect("runtime failed");
-    value
+    vm.execute(chunk).expect("runtime failed")
 }
 
 fn eval_result(source: &str) -> Result<pleno_value::Value, String> {
@@ -240,7 +239,7 @@ fn test_math_random() {
     let value = eval(r#"Math.random();"#);
     match value {
         pleno_value::Value::Float(f) => {
-            assert!(f >= 0.0 && f <= 1.0);
+            assert!((0.0..=1.0).contains(&f));
         }
         _ => panic!("Expected float"),
     }

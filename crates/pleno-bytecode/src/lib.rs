@@ -117,6 +117,12 @@ pub struct Chunk {
     pub module_name: Option<String>,
 }
 
+impl Default for Chunk {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Chunk {
     pub fn new() -> Self {
         Self {

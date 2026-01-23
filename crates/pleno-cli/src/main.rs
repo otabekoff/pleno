@@ -17,11 +17,9 @@ fn main() {
     match command.as_str() {
         "-h" | "--help" => {
             print_help();
-            return;
         }
         "-v" | "--version" => {
             println!("pleno {}", env!("CARGO_PKG_VERSION"));
-            return;
         }
         "run" => {
             let path = args.next().unwrap_or_else(|| {
@@ -90,18 +88,10 @@ fn run_tests(path: &str) {
     }
 }
 
+#[derive(Default)]
 struct TestStats {
     passed: usize,
     failed: usize,
-}
-
-impl Default for TestStats {
-    fn default() -> Self {
-        Self {
-            passed: 0,
-            failed: 0,
-        }
-    }
 }
 
 fn run_tests_in_dir(dir: &PathBuf, stats: &mut TestStats) {
@@ -110,10 +100,8 @@ fn run_tests_in_dir(dir: &PathBuf, stats: &mut TestStats) {
             let path = entry.path();
             if path.is_dir() {
                 run_tests_in_dir(&path, stats);
-            } else if let Some(ext) = path.extension() {
-                if ext == "pln" {
-                    run_single_test(&path, stats);
-                }
+            } else if path.extension().is_some_and(|ext| ext == "pln") {
+                run_single_test(&path, stats);
             }
         }
     } else {
@@ -352,14 +340,12 @@ fn format_directory(dir: &PathBuf) {
         }
     };
 
-    for entry in entries {
-        if let Ok(entry) = entry {
-            let path = entry.path();
-            if path.is_dir() {
-                format_directory(&path);
-            } else if path.extension().map_or(false, |ext| ext == "pln") {
-                format_single_file(&path);
-            }
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            format_directory(&path);
+        } else if path.extension().is_some_and(|ext| ext == "pln") {
+            format_single_file(&path);
         }
     }
 }

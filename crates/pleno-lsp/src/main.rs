@@ -28,27 +28,26 @@ fn main() -> io::Result<()> {
                 write_message(&mut stdout, &response)?;
             }
             Some("textDocument/didOpen") => {
-                if let Some(params) = value.get("params") {
-                    if let Some(text_document) = params.get("textDocument") {
-                        let uri = text_document
-                            .get("uri")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("");
-                        let text = text_document
-                            .get("text")
-                            .and_then(|v| v.as_str())
-                            .unwrap_or("");
-                        let diagnostics = compute_diagnostics(text);
-                        let notification = json!({
-                            "jsonrpc": "2.0",
-                            "method": "textDocument/publishDiagnostics",
-                            "params": {
-                                "uri": uri,
-                                "diagnostics": diagnostics
-                            }
-                        });
-                        write_message(&mut stdout, &notification)?;
-                    }
+                if let Some(text_document) = value.get("params").and_then(|p| p.get("textDocument"))
+                {
+                    let uri = text_document
+                        .get("uri")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("");
+                    let text = text_document
+                        .get("text")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("");
+                    let diagnostics = compute_diagnostics(text);
+                    let notification = json!({
+                        "jsonrpc": "2.0",
+                        "method": "textDocument/publishDiagnostics",
+                        "params": {
+                            "uri": uri,
+                            "diagnostics": diagnostics
+                        }
+                    });
+                    write_message(&mut stdout, &notification)?;
                 }
             }
             _ => {
@@ -137,10 +136,10 @@ fn read_message<R: BufRead + Read>(reader: &mut R) -> io::Result<Option<String>>
         if line == "\r\n" {
             break;
         }
-        if let Some(value) = line.strip_prefix("Content-Length:") {
-            if let Ok(len) = value.trim().parse::<usize>() {
-                content_length = Some(len);
-            }
+        if let Some(value) = line.strip_prefix("Content-Length:")
+            && let Ok(len) = value.trim().parse::<usize>()
+        {
+            content_length = Some(len);
         }
     }
 
