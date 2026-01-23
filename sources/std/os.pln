@@ -1,0 +1,24 @@
+// OS standard library module
+// Operating system operations
+
+export class OS {
+    public static fn exit(code: Int): Void {
+        return __native_os_exit(code);
+    }
+
+    public static fn getEnv(name: String): String? {
+        return __native_os_getenv(name);
+    }
+
+    public static fn args(): Array<String> {
+        return __native_os_args();
+    }
+
+    public static fn cwd(): String {
+        return __native_os_cwd();
+    }
+
+    public static fn platform(): String {
+        return __native_os_platform();
+    }
+}

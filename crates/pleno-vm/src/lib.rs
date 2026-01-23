@@ -1,10 +1,9 @@
 use pleno_bytecode::{Chunk, Opcode, ParamSpec};
 use pleno_value::{
-    ArrayOpKind, Class, MethodInfo, MethodVisibility, NativeFunction, Object, Range, RuntimeError,
-    Value, ValueKey,
-    gc::{GcObject, GcRc},
+    Class, MethodInfo, MethodVisibility, NativeFunction, Object, Range, RuntimeError, Value,
+    ValueKey,
+    gc::{GcObject, GcRc, MarkAndSweepGC},
 };
-use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fs;
 use std::rc::Rc;
@@ -66,9 +65,67 @@ pub struct Function {
     pub is_async: bool,
 }
 
+impl GcObject for AsyncTask {
+    fn mark(&self, gc: &mut MarkAndSweepGC) {
+        self.value.mark(gc);
+    }
+}
+
+impl GcObject for SuspendedFrame {
+    fn mark(&self, gc: &mut MarkAndSweepGC) {
+        self.frame.mark(gc);
+    }
+}
+
+impl GcObject for CallFrame {
+    fn mark(&self, gc: &mut MarkAndSweepGC) {
+        if let Some(val) = &self.return_override {
+            val.mark(gc);
+        }
+        for capture in &self.captures {
+            capture.mark(gc);
+        }
+        if let Some(class) = &self.current_class {
+            gc.mark_object(&class.to_gc_object());
+        }
+    }
+}
+
+struct VmRoots<'a> {
+    registers: &'a [Value],
+    frames: &'a [CallFrame],
+    globals: &'a HashMap<String, Value>,
+    modules: &'a HashMap<String, Value>,
+    pending_tasks: &'a [AsyncTask],
+    suspended_frames: &'a HashMap<u64, SuspendedFrame>,
+}
+
+impl<'a> GcObject for VmRoots<'a> {
+    fn mark(&self, gc: &mut MarkAndSweepGC) {
+        for reg in self.registers {
+            reg.mark(gc);
+        }
+        for frame in self.frames {
+            frame.mark(gc);
+        }
+        for val in self.globals.values() {
+            val.mark(gc);
+        }
+        for val in self.modules.values() {
+            val.mark(gc);
+        }
+        for task in self.pending_tasks {
+            task.mark(gc);
+        }
+        for frame in self.suspended_frames.values() {
+            frame.mark(gc);
+        }
+    }
+}
+
 impl VM {
     pub fn new() -> Self {
-        let mut gc = pleno_value::gc::GCManager::new(1000);
+        let gc = pleno_value::gc::GCManager::new(1000);
         let mut globals = HashMap::new();
         globals.insert("print".to_string(), Value::NativeFunction(native_print));
         globals.insert("id".to_string(), Value::NativeFunction(native_id));
@@ -193,6 +250,28 @@ impl VM {
             Value::NativeFunction(native_directory_exists),
         );
 
+        // OS native functions
+        globals.insert(
+            "__native_os_exit".to_string(),
+            Value::NativeFunction(native_os_exit),
+        );
+        globals.insert(
+            "__native_os_getenv".to_string(),
+            Value::NativeFunction(native_os_getenv),
+        );
+        globals.insert(
+            "__native_os_args".to_string(),
+            Value::NativeFunction(native_os_args),
+        );
+        globals.insert(
+            "__native_os_cwd".to_string(),
+            Value::NativeFunction(native_os_cwd),
+        );
+        globals.insert(
+            "__native_os_platform".to_string(),
+            Value::NativeFunction(native_os_platform),
+        );
+
         Self {
             gc,
             registers: vec![Value::Null; 256],
@@ -253,7 +332,7 @@ impl VM {
         let tasks: Vec<_> = self.pending_tasks.drain(..).collect();
         for task in tasks {
             if let Some(suspended) = self.suspended_frames.remove(&task.promise_id) {
-                let mut frame = suspended.frame;
+                let frame = suspended.frame;
                 self.registers[frame.base + suspended.await_reg] = task.value;
                 self.frames.push(frame);
             }
@@ -263,6 +342,16 @@ impl VM {
 
     fn run_until(&mut self, depth: usize) -> Result<Value, RuntimeError> {
         loop {
+            let roots = VmRoots {
+                registers: &self.registers,
+                frames: &self.frames,
+                globals: &self.globals,
+                modules: &self.modules,
+                pending_tasks: &self.pending_tasks,
+                suspended_frames: &self.suspended_frames,
+            };
+            self.gc.maybe_collect(&[&roots]);
+
             if self.frames.len() == depth {
                 return Ok(Value::Null);
             }
@@ -701,6 +790,7 @@ impl VM {
                         Value::Set(_) => "Set",
                         Value::Object(_) => "Object",
                         Value::Null => "Null",
+                        Value::ArrayOp { .. } => "Array",
                         _ => "Unknown",
                     };
                     self.registers[base + a] = Value::String(Rc::new(type_name.to_string()));
@@ -1027,13 +1117,14 @@ impl VM {
                         Value::Object(object) => object.clone(),
                         _ => return Err(RuntimeError::new("super used on non-object value")),
                     };
-                    let superclass = receiver
-                        .borrow()
-                        .class
-                        .as_ref()
-                        .and_then(|class| class.borrow().superclass.as_ref())
-                        .map(|sc| sc.clone())
-                        .ok_or_else(|| RuntimeError::new("superclass missing"))?;
+                    let superclass = {
+                        let obj_borrow = receiver.borrow();
+                        obj_borrow
+                            .class
+                            .as_ref()
+                            .and_then(|class| class.borrow().superclass.clone())
+                            .ok_or_else(|| RuntimeError::new("superclass missing"))?
+                    };
                     let info = resolve_method(&superclass, &name)
                         .ok_or_else(|| RuntimeError::new("unknown super method"))?;
                     self.registers[base + a] = Value::BoundMethod {
@@ -1504,71 +1595,6 @@ impl VM {
                     self.unwind_to_handler(error_value)?;
                     continue;
                 }
-                Opcode::TypeOf => {
-                    let value = &self.registers[base + b];
-                    let type_name = match value {
-                        Value::Null => "Null",
-                        Value::Missing => "Missing",
-                        Value::Bool(_) => "Bool",
-                        Value::Int(_) => "Int",
-                        Value::Float(_) => "Float",
-                        Value::String(_) => "String",
-                        Value::Range(_) => "Range",
-                        Value::Class(_) => "Class",
-                        Value::Function(_) => "Function",
-                        Value::BoundMethod { .. } => "Function",
-                        Value::StaticMethod { .. } => "Function",
-                        Value::Closure { .. } => "Function",
-                        Value::NativeFunction(_) => "Function",
-                        Value::BoundNativeMethod { .. } => "Function",
-                        Value::Map(_) => "Map",
-                        Value::Array(_) => "Array",
-                        Value::Set(_) => "Set",
-                        Value::Object(_) => "Object",
-                        Value::Partial { .. } => "Function",
-                    };
-                    self.registers[base + a] = Value::String(Rc::new(type_name.to_string()));
-                }
-                Opcode::Is => {
-                    let value = &self.registers[base + b];
-                    let type_val = &self.registers[base + c];
-                    let result = match type_val {
-                        Value::String(s) => {
-                            let type_name = s.as_str();
-                            match (type_name, value) {
-                                ("Null", Value::Null) => true,
-                                ("Bool", Value::Bool(_)) => true,
-                                ("Int", Value::Int(_)) => true,
-                                ("Float", Value::Float(_)) => true,
-                                ("String", Value::String(_)) => true,
-                                ("Array", Value::Array(_)) => true,
-                                ("Map", Value::Map(_)) => true,
-                                ("Set", Value::Set(_)) => true,
-                                ("Object", Value::Object(_)) => true,
-                                ("Function", Value::Function(_)) => true,
-                                ("Function", Value::Closure { .. }) => true,
-                                ("Function", Value::NativeFunction(_)) => true,
-                                ("Function", Value::BoundNativeMethod { .. }) => true,
-                                ("Function", Value::BoundMethod { .. }) => true,
-                                ("Function", Value::StaticMethod { .. }) => true,
-                                ("Function", Value::Partial { .. }) => true,
-                                _ => false,
-                            }
-                        }
-                        Value::Class(target_class) => match value {
-                            Value::Object(obj) => {
-                                if let Some(class) = &obj.borrow().class {
-                                    is_subclass_of(class, target_class)
-                                } else {
-                                    false
-                                }
-                            }
-                            _ => false,
-                        },
-                        _ => false,
-                    };
-                    self.registers[base + a] = Value::Bool(result);
-                }
                 _ => {
                     return Err(RuntimeError::new("opcode not implemented"));
                 }
@@ -1717,7 +1743,7 @@ impl VM {
                     fields: HashMap::new(),
                 });
                 if let Some(handle) = class.borrow().constructor {
-                    let function = self
+                    let _function = self
                         .functions
                         .get(handle)
                         .ok_or_else(|| RuntimeError::new("unknown function handle"))?;
@@ -1743,7 +1769,7 @@ impl VM {
                 }
             }
             Value::Function(handle) => {
-                let function = self
+                let _function = self
                     .functions
                     .get(handle)
                     .ok_or_else(|| RuntimeError::new("unknown function handle"))?;
@@ -1765,7 +1791,7 @@ impl VM {
                 owner,
                 ..
             } => {
-                let function_info = self
+                let _function_info = self
                     .functions
                     .get(function)
                     .ok_or_else(|| RuntimeError::new("unknown function handle"))?;
@@ -2017,6 +2043,57 @@ fn resolve_module_path(
     Err(RuntimeError::new(format!("module not found: {path}")))
 }
 
+fn native_os_exit(
+    _gc: &mut pleno_value::gc::GCManager,
+    args: &[Value],
+) -> Result<Value, RuntimeError> {
+    let code = match args.get(0) {
+        Some(Value::Int(code)) => *code as i32,
+        _ => 0,
+    };
+    std::process::exit(code);
+}
+
+fn native_os_getenv(
+    _gc: &mut pleno_value::gc::GCManager,
+    args: &[Value],
+) -> Result<Value, RuntimeError> {
+    let name = match args.get(0) {
+        Some(Value::String(s)) => s.as_str(),
+        _ => return Err(RuntimeError::new("getenv expects string argument")),
+    };
+    match std::env::var(name) {
+        Ok(val) => Ok(Value::String(Rc::new(val))),
+        Err(_) => Ok(Value::Null),
+    }
+}
+
+fn native_os_args(
+    gc: &mut pleno_value::gc::GCManager,
+    _args: &[Value],
+) -> Result<Value, RuntimeError> {
+    let args: Vec<Value> = std::env::args()
+        .map(|arg| Value::String(Rc::new(arg)))
+        .collect();
+    Ok(Value::Array(gc.allocate(args)))
+}
+
+fn native_os_cwd(
+    _gc: &mut pleno_value::gc::GCManager,
+    _args: &[Value],
+) -> Result<Value, RuntimeError> {
+    let cwd = std::env::current_dir()
+        .map_err(|e| RuntimeError::new(format!("failed to get cwd: {}", e)))?;
+    Ok(Value::String(Rc::new(cwd.to_string_lossy().into_owned())))
+}
+
+fn native_os_platform(
+    _gc: &mut pleno_value::gc::GCManager,
+    _args: &[Value],
+) -> Result<Value, RuntimeError> {
+    Ok(Value::String(Rc::new(std::env::consts::OS.to_string())))
+}
+
 fn native_print(
     _gc: &mut pleno_value::gc::GCManager,
     args: &[Value],
@@ -2125,7 +2202,7 @@ fn can_access_field(
     owner_module: Option<&Rc<String>>,
     current_class: Option<&GcRc<Class>>,
     current_module: Option<&Rc<String>>,
-    globals: &HashMap<String, Value>,
+    _globals: &HashMap<String, Value>,
 ) -> bool {
     match visibility {
         MethodVisibility::Public => true,
@@ -2133,7 +2210,20 @@ fn can_access_field(
             .map(|c| c.borrow().name.as_str() == owner.as_str())
             .unwrap_or(false),
         MethodVisibility::Protected => current_class
-            .map(|c| is_subclass(c, owner.as_ref(), globals))
+            .map(|c| {
+                let class_name = c.borrow().name.to_string();
+                class_name == owner.as_str() || {
+                    // Check if current class is a subclass by walking the superclass chain
+                    let mut current = c.borrow().superclass.clone();
+                    while let Some(sc) = current {
+                        if sc.borrow().name.as_str() == owner.as_str() {
+                            return true;
+                        }
+                        current = sc.borrow().superclass.clone();
+                    }
+                    false
+                }
+            })
             .unwrap_or(false),
         MethodVisibility::Internal => owner_module
             .as_ref()

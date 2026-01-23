@@ -1,0 +1,28 @@
+async fn asyncTask(id) {
+    print("Starting task " + id);
+    // Simulate delay or work if possible?
+    // Since we don't have sleep, we just return
+    return "Result " + id;
+}
+
+async fn main() {
+    print("Main start");
+    let t1 = asyncTask(1);
+    let t2 = asyncTask(2);
+    
+    // We can't actually verify timing without sleep, but we verify syntax and execution flow
+    let r1 = await t1;
+    print("Got " + r1);
+    let r2 = await t2;
+    print("Got " + r2);
+    print("Main end");
+}
+
+let p = main();
+// If the VM supports top-level await or we need to wait for the promise p?
+// The VM `process_tasks` should handle it if main is async.
+// But `main` returns a Promise.
+// We might need to keep the VM running?
+// The test runner usually runs until everything is done?
+// VM.execute runs until frames are empty AND pending_tasks empty.
+// So it should work.

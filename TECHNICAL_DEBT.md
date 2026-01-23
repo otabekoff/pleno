@@ -6,14 +6,7 @@ This document tracks known technical debts and areas requiring improvement in Pl
 
 ## High Priority
 
-### Standard Library
-**Location:** `sources/std/`
 
-**Math Module** (`math.pln`): Some placeholder implementations remain
-
-**Effort:** Medium
-
----
 
 ### Memory Management
 **Location:** `crates/pleno-gc/`, `crates/pleno-vm/`
@@ -63,6 +56,7 @@ Missing:
 - Module blocks (`module Name { ... }`)
 - Comments in AST
 - Parentheses preservation
+- Array type syntax (`Type[]`) in function signatures (currently requires `Array<Type>`)
 
 **Effort:** High
 

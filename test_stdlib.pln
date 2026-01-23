@@ -1,0 +1,28 @@
+import "std:math";
+import "std:regex";
+import "std:json";
+import "std:io";
+
+print("--- Testing Math ---");
+print("Math.PI: " + Math.PI);
+
+print("--- Testing Regex ---");
+print("Regex value: " + Regex);
+
+let pattern = Regex("\\d+");
+
+print("--- Testing JSON ---");
+let obj = {
+    "name": "Pleno",
+    "version": 1
+};
+let jsonStr = JSON.stringify(obj);
+print("JSON stringify: " + jsonStr);
+let parsed = JSON.parse(jsonStr);
+print("JSON parse name: " + parsed["name"]);
+
+print("--- Testing IO ---");
+let testFile = "test_io.txt";
+File.write(testFile, "Hello IO");
+print("File exists: " + File.exists(testFile));
+print("File content: " + File.read(testFile));
