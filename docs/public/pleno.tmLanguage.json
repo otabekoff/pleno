@@ -1,0 +1,76 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "pleno",
+  "scopeName": "source.pleno",
+  "patterns": [
+    { "include": "#comments" },
+    { "include": "#strings" },
+    { "include": "#numbers" },
+    { "include": "#keywords" },
+    { "include": "#types" },
+    { "include": "#operators" },
+    { "include": "#constants" }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        { "name": "comment.line.documentation.pleno", "match": "///.*$" },
+        { "name": "comment.line.double-slash.pleno", "match": "//.*$" },
+        { "name": "comment.block.pleno", "begin": "/\\*", "end": "\\*/" }
+      ]
+    },
+    "strings": {
+      "patterns": [
+        { "name": "string.quoted.double.pleno", "begin": "\"", "end": "\"", "patterns": [
+          { "name": "constant.character.escape.pleno", "match": "\\\\." }
+        ] }
+      ]
+    },
+    "numbers": {
+      "patterns": [
+        { "name": "constant.numeric.float.pleno", "match": "\\b\\d+\\.\\d+\\b" },
+        { "name": "constant.numeric.integer.pleno", "match": "\\b\\d+\\b" }
+      ]
+    },
+    "keywords": {
+      "patterns": [
+        {
+          "name": "keyword.control.pleno",
+          "match": "\\b(let|const|mut|fn|return|if|else|for|while|match|class|interface|enum|import|export|async|await|try|catch|finally|throw|abstract|implements|extends|constructor|property|get|set|static|override|case|do|label|break|continue)\\b"
+        },
+        {
+          "name": "storage.modifier.pleno",
+          "match": "\\b(public|private|protected|internal|mut|const|static|abstract|override|deep|immutable)\\b"
+        },
+        {
+          "name": "keyword.operator.logical.pleno",
+          "match": "\\b(is|as|in)\\b"
+        }
+      ]
+    },
+    "types": {
+      "patterns": [
+        { "name": "storage.type.pleno", "match": "\\b(Int|Float|String|Bool|Char|Void|Any|Null|Map|Set|Promise|Result|Option)\\b" }
+      ]
+    },
+    "operators": {
+      "patterns": [
+        { "name": "keyword.operator.pipeline.pleno", "match": "\\|>" },
+        { "name": "keyword.operator.null-coalescing.pleno", "match": "\\?\\?" },
+        { "name": "keyword.operator.safe-navigation.pleno", "match": "\\?\\." },
+        { "name": "keyword.operator.arrow.pleno", "match": "=>" },
+        { "name": "keyword.operator.range.pleno", "match": "\\.\\.=?|\\.\\." },
+        { "name": "keyword.operator.comparison.pleno", "match": "==|!=|<=|>=|<|>" },
+        { "name": "keyword.operator.assignment.pleno", "match": "=" },
+        { "name": "keyword.operator.arithmetic.pleno", "match": "\\+|\\-|\\*|/|%" },
+        { "name": "keyword.operator.logical.pleno", "match": "&&|\\|\\||!" },
+        { "name": "keyword.operator.other.pleno", "match": "\\?|\\!|\\*" }
+      ]
+    },
+    "constants": {
+      "patterns": [
+        { "name": "constant.language.pleno", "match": "\\b(true|false|null|this|super)\\b" }
+      ]
+    }
+  }
+}

@@ -62,7 +62,7 @@ Each instruction is 4 bytes:
 - `SetGlobal` (Globals[Constants[B]] = R[A]) ✅
 
 #### Calls
-- `Call`    (R[A] = R[B](R[C]..R[C+N])) ✅
+- `Call (R[A] = R[B](R[C]...R[C+N]))` ✅
 - `Return`  (return R[A]) ✅
 - `Closure` (R[A] = closure(proto[B])) ✅
 
