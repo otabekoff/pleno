@@ -12,6 +12,7 @@ license = "MIT"
 pleno-ast = { path = "crates/pleno-ast" }
 pleno-lexer = { path = "crates/pleno-lexer" }
 pleno-parser = { path = "crates/pleno-parser" }
+pleno-formatter = { path = "crates/pleno-formatter" }
 pleno-runtime = { path = "crates/pleno-runtime" }
 pleno-lsp = { path = "crates/pleno-lsp" }
 pleno-repl = { path = "crates/pleno-repl" }
@@ -23,3 +24,7 @@ pleno-compiler = { path = "crates/pleno-compiler" }
 pleno-vm = { path = "crates/pleno-vm" }
 thiserror = "1"
 serde_json = "1"
+rustyline = "14"
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
+rand = "0.8"
+regex = "1"

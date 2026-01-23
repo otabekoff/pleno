@@ -1,3 +1,4 @@
+use pleno_ast::CommentKind;
 use pleno_ast::Span;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -39,8 +40,11 @@ pub enum TokenKind {
     KeywordFinally,
     KeywordMatch,
     KeywordCase,
+    KeywordNew,
     KeywordThis,
     KeywordSuper,
+    KeywordAsync,
+    KeywordAwait,
     LParen,
     RParen,
     LBrace,
@@ -77,6 +81,14 @@ pub enum TokenKind {
     Question,
     QuestionDot,
     NullCoalesce,
+    Percent,
+    Backtick,
+    Dollar,
+    Tilda,
+    Caret,
+    Hash,
+    Comment(String, CommentKind),
+    Ampersand,
     Eof,
 }
 
@@ -90,6 +102,12 @@ pub struct Token {
 pub struct LexError {
     pub message: String,
     pub span: Span,
+}
+
+impl LexError {
+    pub fn is_incomplete(&self) -> bool {
+        self.message.contains("Unterminated")
+    }
 }
 
 pub fn lex(source: &str) -> Result<Vec<Token>, LexError> {
@@ -150,7 +168,50 @@ pub fn lex(source: &str) -> Result<Vec<Token>, LexError> {
                 }
             }
             '*' => token_simple(TokenKind::Star, start),
-            '/' => token_simple(TokenKind::Slash, start),
+            '%' => token_simple(TokenKind::Percent, start),
+            '/' => {
+                if matches!(chars.peek(), Some((_, '/'))) {
+                    chars.next();
+                    let mut content = String::new();
+                    while let Some((_, next_ch)) = chars.peek() {
+                        if *next_ch == '\n' {
+                            break;
+                        }
+                        content.push(*next_ch);
+                        chars.next();
+                    }
+                    let end = chars.peek().map(|(idx, _)| *idx).unwrap_or(source.len());
+                    Token {
+                        kind: TokenKind::Comment(content, CommentKind::Line),
+                        span: Span::new(start, end),
+                    }
+                } else if matches!(chars.peek(), Some((_, '*'))) {
+                    chars.next();
+                    let mut content = String::new();
+                    let mut terminated = false;
+                    while let Some((_, next_ch)) = chars.next() {
+                        if next_ch == '*' && matches!(chars.peek(), Some((_, '/'))) {
+                            chars.next();
+                            terminated = true;
+                            break;
+                        }
+                        content.push(next_ch);
+                    }
+                    if !terminated {
+                        return Err(LexError {
+                            message: "Unterminated multi-line comment".to_string(),
+                            span: Span::new(start, start + 2),
+                        });
+                    }
+                    let end = chars.peek().map(|(idx, _)| *idx).unwrap_or(source.len());
+                    Token {
+                        kind: TokenKind::Comment(content, CommentKind::Block),
+                        span: Span::new(start, end),
+                    }
+                } else {
+                    token_simple(TokenKind::Slash, start)
+                }
+            }
             '@' => token_simple(TokenKind::At, start),
             '|' => {
                 if matches!(chars.peek(), Some((_, '|'))) {
@@ -169,6 +230,11 @@ pub fn lex(source: &str) -> Result<Vec<Token>, LexError> {
                     token_simple(TokenKind::Pipe, start)
                 }
             }
+            '`' => token_simple(TokenKind::Backtick, start),
+            '$' => token_simple(TokenKind::Dollar, start),
+            '~' => token_simple(TokenKind::Tilda, start),
+            '^' => token_simple(TokenKind::Caret, start),
+            '#' => token_simple(TokenKind::Hash, start),
             '&' => {
                 if matches!(chars.peek(), Some((_, '&'))) {
                     let end = chars.next().map(|(idx, _)| idx + 1).unwrap_or(start + 2);
@@ -177,7 +243,7 @@ pub fn lex(source: &str) -> Result<Vec<Token>, LexError> {
                         span: Span::new(start, end),
                     }
                 } else {
-                    token_simple(TokenKind::Ident("&".to_string()), start) // or a dedicated token if needed
+                    token_simple(TokenKind::Ampersand, start)
                 }
             }
             '=' => {
@@ -217,6 +283,17 @@ pub fn lex(source: &str) -> Result<Vec<Token>, LexError> {
                     }
                 } else {
                     token_simple(TokenKind::Greater, start)
+                }
+            }
+            '!' => {
+                if matches!(chars.peek(), Some((_, '='))) {
+                    let end = chars.next().map(|(idx, _)| idx + 1).unwrap_or(start + 2);
+                    Token {
+                        kind: TokenKind::BangEqual,
+                        span: Span::new(start, end),
+                    }
+                } else {
+                    token_simple(TokenKind::Bang, start)
                 }
             }
             '?' => {
@@ -290,8 +367,11 @@ pub fn lex(source: &str) -> Result<Vec<Token>, LexError> {
                     "finally" => TokenKind::KeywordFinally,
                     "match" => TokenKind::KeywordMatch,
                     "case" => TokenKind::KeywordCase,
+                    "new" => TokenKind::KeywordNew,
                     "this" => TokenKind::KeywordThis,
                     "super" => TokenKind::KeywordSuper,
+                    "async" => TokenKind::KeywordAsync,
+                    "await" => TokenKind::KeywordAwait,
                     "true" => TokenKind::Bool(true),
                     "false" => TokenKind::Bool(false),
                     "null" => TokenKind::Null,
@@ -307,7 +387,7 @@ pub fn lex(source: &str) -> Result<Vec<Token>, LexError> {
                 return Err(LexError {
                     message: format!("Unexpected character: {ch}"),
                     span: Span::new(start, start + ch.len_utf8()),
-                })
+                });
             }
         };
 
@@ -400,7 +480,7 @@ fn lex_char(
             });
         }
     };
-    
+
     match chars.next() {
         Some((end, '\'')) => Ok((ch, end + 1)),
         Some((_, other)) => Err(LexError {

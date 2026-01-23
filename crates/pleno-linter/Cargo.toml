@@ -1,0 +1,10 @@
+[package]
+name = "pleno-linter"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[dependencies]
+pleno-ast = { workspace = true }
+pleno-lexer = { workspace = true }
+pleno-parser = { workspace = true }

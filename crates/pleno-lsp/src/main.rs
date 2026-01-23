@@ -1,4 +1,4 @@
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::io::{self, BufRead, Read, Write};
 
 fn main() -> io::Result<()> {
@@ -30,8 +30,14 @@ fn main() -> io::Result<()> {
             Some("textDocument/didOpen") => {
                 if let Some(params) = value.get("params") {
                     if let Some(text_document) = params.get("textDocument") {
-                        let uri = text_document.get("uri").and_then(|v| v.as_str()).unwrap_or("");
-                        let text = text_document.get("text").and_then(|v| v.as_str()).unwrap_or("");
+                        let uri = text_document
+                            .get("uri")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("");
+                        let text = text_document
+                            .get("text")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("");
                         let diagnostics = compute_diagnostics(text);
                         let notification = json!({
                             "jsonrpc": "2.0",

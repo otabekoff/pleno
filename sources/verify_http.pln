@@ -1,0 +1,59 @@
+import { Http } from "std:http";
+
+fn main() {
+    print("Verifying Http module...");
+    
+    // Test GET
+    let get_url = "https://httpbin.org/get";
+    print("Testing GET " + get_url + "...");
+    let get_resp = Http.get(get_url);
+    print("GET Response received.");
+    // print("GET Response: " + get_resp); 
+
+    if (get_resp.contains("https://httpbin.org/get")) {
+        print("GET Verification: SUCCESS");
+        print("Response length: " + get_resp.length());
+    } else {
+        print("GET Verification: FAILURE - response content mismatch");
+        print(get_resp);
+    }
+
+    // Test POST
+    let post_url = "https://httpbin.org/post";
+    let post_body = "{\"test\": \"pleno\"}";
+    print("Testing POST " + post_url + "...");
+    let post_resp = Http.post(post_url, post_body);
+    if (post_resp.contains("pleno")) {
+        print("POST Verification: SUCCESS");
+    } else {
+        print("POST Verification: FAILURE");
+        print(post_resp);
+    }
+
+    // Test PUT
+    let put_url = "https://httpbin.org/put";
+    let put_body = "{\"updated\": \"true\"}";
+    print("Testing PUT " + put_url + "...");
+    let put_resp = Http.put(put_url, put_body);
+    if (put_resp.contains("updated")) {
+        print("PUT Verification: SUCCESS");
+    } else {
+        print("PUT Verification: FAILURE");
+        print(put_resp);
+    }
+
+    // Test DELETE
+    let delete_url = "https://httpbin.org/delete";
+    print("Testing DELETE " + delete_url + "...");
+    let delete_resp = Http.delete(delete_url);
+    if (delete_resp.contains("https://httpbin.org/delete")) {
+        print("DELETE Verification: SUCCESS");
+    } else {
+        print("DELETE Verification: FAILURE");
+        print(delete_resp);
+    }
+
+    print("Http module verification complete.");
+}
+
+main();

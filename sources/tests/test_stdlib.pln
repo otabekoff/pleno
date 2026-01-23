@@ -1,0 +1,45 @@
+import json from "std:json";
+import io from "std:io";
+
+print("--- Testing JSON ---");
+let data = {
+    "name": "Pleno",
+    "version": 1,
+    "features": ["pattern matching", "closures", "async"],
+    "meta": {
+        "ok": true,
+        "null_val": null
+    }
+};
+
+let json_str = json.JSON.stringify(data);
+print("Stringified:");
+print(json_str);
+
+let parsed = json.JSON.parse(json_str);
+print("Parsed version:");
+print(parsed["name"]);
+print(parsed["version"]);
+print(parsed["features"][0]);
+print(parsed["meta"]["ok"]);
+
+print("--- Testing I/O ---");
+let test_file = "test_io.txt";
+let content = "Hello from Pleno I/O!";
+
+io.File.write(test_file, content);
+if (io.File.exists(test_file)) {
+    print("File written successfully.");
+    let read_content = io.File.read(test_file);
+    print("Read content: " + read_content);
+} else {
+    print("File write failed.");
+}
+
+let test_dir = "test_dir";
+io.Directory.create(test_dir);
+if (io.Directory.exists(test_dir)) {
+    print("Directory created successfully.");
+} else {
+    print("Directory creation failed.");
+}

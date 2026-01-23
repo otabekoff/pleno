@@ -1,0 +1,1 @@
+async fn test() { print("test"); } fn main() { print("Testing async..."); } main();

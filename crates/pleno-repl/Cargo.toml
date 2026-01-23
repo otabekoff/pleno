@@ -7,3 +7,7 @@ license.workspace = true
 [dependencies]
 pleno-lexer = { workspace = true }
 pleno-parser = { workspace = true }
+pleno-compiler = { workspace = true }
+pleno-vm = { workspace = true }
+pleno-value = { workspace = true }
+rustyline = { workspace = true }

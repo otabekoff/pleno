@@ -1,0 +1,16 @@
+import { Http } from "std:http";
+
+fn main() {
+    print("Debug script started.");
+    
+    print("Http object:");
+    print(Http);
+    
+    print("Calling Http.get directly");
+    let url = "https://httpbin.org/get";
+    let res = Http.get(url); 
+    print("Result received (type should be string).");
+    print(res);
+}
+
+main();

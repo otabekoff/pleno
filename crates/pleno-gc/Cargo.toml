@@ -1,0 +1,8 @@
+[package]
+name = "pleno-gc"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[dependencies]
+pleno-value = { workspace = true }

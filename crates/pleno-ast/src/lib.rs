@@ -11,6 +11,19 @@ impl Span {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub enum CommentKind {
+    Line,
+    Block,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Comment {
+    pub span: Span,
+    pub content: String,
+    pub kind: CommentKind,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub enum Literal {
     Int(i64),
     Float(f64),
@@ -40,6 +53,7 @@ pub enum BinaryOp {
     LessEqual,
     Greater,
     GreaterEqual,
+    Modulo,
     NullCoalesce,
 }
 
@@ -71,7 +85,7 @@ pub enum Expr {
         end: Option<Box<Expr>>,
         inclusive: bool,
     },
-    MapLiteral(Vec<(String, Expr)>),
+    MapLiteral(Vec<MapItem>),
     NamedTupleLiteral(Vec<(String, Expr)>),
     ArrayLiteral(Vec<Expr>),
     TupleLiteral(Vec<Expr>),
@@ -104,11 +118,28 @@ pub enum Expr {
         expr: Box<Expr>,
         arms: Vec<MatchArm>,
     },
+    Await {
+        expr: Box<Expr>,
+    },
+    Ternary {
+        condition: Box<Expr>,
+        then_branch: Box<Expr>,
+        else_branch: Box<Expr>,
+    },
+    Spread(Box<Expr>),
+    Paren(Box<Expr>),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum MapItem {
+    Entry(String, Expr),
+    Spread(Expr),
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct MatchArm {
     pub pattern: Pattern,
+    pub guard: Option<Expr>,
     pub body: Expr,
 }
 
@@ -117,7 +148,12 @@ pub enum Pattern {
     Literal(Literal),
     Ident(String),
     Tuple(Vec<Pattern>),
+    Rest(Option<String>),
     Underscore,
+    Variant(String, Vec<Pattern>),
+    Object(Vec<(String, Pattern)>),
+    Type(String, Option<String>),
+    Or(Vec<Pattern>),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -172,12 +208,14 @@ pub enum Stmt {
         methods: Vec<FunctionDecl>,
         superclass: Option<String>,
         annotations: Vec<Annotation>,
+        nested_classes: Vec<Stmt>,
     },
     Fn {
         name: String,
         params: Vec<Param>,
         body: Box<Stmt>,
         annotations: Vec<Annotation>,
+        is_async: bool,
     },
     Try {
         try_branch: Box<Stmt>,
@@ -202,11 +240,15 @@ pub struct CatchBlock {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Program {
     pub statements: Vec<Stmt>,
+    pub comments: Vec<Comment>,
 }
 
 impl Program {
-    pub fn new(statements: Vec<Stmt>) -> Self {
-        Self { statements }
+    pub fn new(statements: Vec<Stmt>, comments: Vec<Comment>) -> Self {
+        Self {
+            statements,
+            comments,
+        }
     }
 }
 
@@ -220,6 +262,7 @@ pub struct FunctionDecl {
     pub visibility: Option<Visibility>,
     pub kind: FunctionKind,
     pub annotations: Vec<Annotation>,
+    pub is_async: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -234,7 +277,10 @@ pub struct Param {
 #[derive(Debug, Clone, PartialEq)]
 pub struct FieldDecl {
     pub name: String,
+    pub ty: Option<String>,
+    pub default: Option<Expr>,
     pub is_static: bool,
+    pub is_const: bool,
     pub visibility: Option<Visibility>,
     pub annotations: Vec<Annotation>,
 }

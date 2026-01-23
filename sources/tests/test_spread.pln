@@ -1,0 +1,11 @@
+let a1 = [1, 2];
+let a2 = [3, ..a1, 4];
+print(a2); // Expect: [3, 1, 2, 4]
+
+let s1 = {1, 2};
+let s2 = {3, ..s1, 4};
+print(s2); // Expect: {1, 2, 3, 4} (order may vary)
+
+let m1 = {"a": 1};
+let m2 = {"b": 2, ..m1};
+print(m2); // Expect: {"b": 2, "a": 1}

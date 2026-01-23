@@ -1,22 +1,20 @@
 // HTTP standard library module
 // HTTP client operations
 
-export fn HttpGet(url: String): Promise<String> {
-    // TODO: Implement HTTP GET
-    return Promise.resolve("");
-}
+export class Http {
+    public static fn get(url) {
+        return __native_http_get(url);
+    }
 
-export fn HttpPost(url: String, body: String, headers: Map<String, String> = {}): Promise<String> {
-    // TODO: Implement HTTP POST
-    return Promise.resolve("");
-}
+    public static fn post(url, body) {
+        return __native_http_post(url, body);
+    }
 
-export fn HttpPut(url: String, body: String, headers: Map<String, String> = {}): Promise<String> {
-    // TODO: Implement HTTP PUT
-    return Promise.resolve("");
-}
+    public static fn put(url, body) {
+        return __native_http_put(url, body);
+    }
 
-export fn HttpDelete(url: String, headers: Map<String, String> = {}): Promise<String> {
-    // TODO: Implement HTTP DELETE
-    return Promise.resolve("");
+    public static fn delete(url) {
+        return __native_http_delete(url);
+    }
 }

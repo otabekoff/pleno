@@ -1,12 +1,26 @@
 use pleno_bytecode::{Chunk, Opcode, ParamSpec};
 use pleno_value::{
-    Class, MethodInfo, MethodVisibility, NativeFunction, Object, Range, RuntimeError, Value,
-    ValueKey,
+    ArrayOpKind, Class, MethodInfo, MethodVisibility, NativeFunction, Object, Range, RuntimeError,
+    Value, ValueKey,
+    gc::{GcObject, GcRc},
 };
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fs;
 use std::rc::Rc;
+
+#[derive(Debug, Clone)]
+pub struct AsyncTask {
+    pub promise_id: u64,
+    pub value: Value,
+    pub is_resolved: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct SuspendedFrame {
+    pub frame: CallFrame,
+    pub await_reg: usize,
+}
 
 #[derive(Debug, Clone)]
 pub struct ExceptionHandler {
@@ -23,18 +37,22 @@ pub struct CallFrame {
     pub return_reg: usize,
     pub return_override: Option<Value>,
     pub captures: Vec<Value>,
-    pub current_class: Option<Rc<String>>,
+    pub current_class: Option<GcRc<Class>>,
     pub current_module: Option<Rc<String>>,
     pub current_module_path: Option<Rc<String>>,
     pub exception_handlers: Vec<ExceptionHandler>,
 }
 
 pub struct VM {
+    pub gc: pleno_value::gc::GCManager,
     registers: Vec<Value>,
     frames: Vec<CallFrame>,
     globals: HashMap<String, Value>,
     modules: HashMap<String, Value>,
     functions: Vec<Function>,
+    pub pending_tasks: Vec<AsyncTask>,
+    pub suspended_frames: HashMap<u64, SuspendedFrame>,
+    pub next_promise_id: u64,
 }
 
 #[derive(Debug, Clone)]
@@ -49,6 +67,7 @@ pub struct Function {
 
 impl VM {
     pub fn new() -> Self {
+        let mut gc = pleno_value::gc::GCManager::new(1000);
         let mut globals = HashMap::new();
         globals.insert("print".to_string(), Value::NativeFunction(native_print));
         globals.insert("id".to_string(), Value::NativeFunction(native_id));
@@ -56,18 +75,29 @@ impl VM {
         globals.insert("Ok".to_string(), Value::NativeFunction(native_result_ok));
         globals.insert("Err".to_string(), Value::NativeFunction(native_result_err));
         // Option type constructors
-        globals.insert("Some".to_string(), Value::NativeFunction(native_option_some));
-        globals.insert("None".to_string(), Value::NativeFunction(native_option_none));
+        globals.insert(
+            "Some".to_string(),
+            Value::NativeFunction(native_option_some),
+        );
+        globals.insert(
+            "None".to_string(),
+            Value::NativeFunction(native_option_none),
+        );
         Self {
+            gc,
             registers: vec![Value::Null; 256],
             frames: Vec::new(),
             globals,
             modules: HashMap::new(),
             functions: Vec::new(),
+            pending_tasks: Vec::new(),
+            suspended_frames: HashMap::new(),
+            next_promise_id: 1,
         }
     }
 
     pub fn execute(&mut self, chunk: Chunk) -> Result<Value, RuntimeError> {
+        let register_count = chunk.max_registers;
         let function = Function {
             name: Rc::new("<script>".to_string()),
             chunk,
@@ -75,9 +105,15 @@ impl VM {
             params: Vec::new(),
             module: None,
             module_path: None,
+            is_async: false,
         };
         let func_index = self.functions.len();
         self.functions.push(function);
+
+        self.registers.clear();
+        self.registers
+            .extend(std::iter::repeat(Value::Null).take(register_count));
+
         self.frames.push(CallFrame {
             function_index: func_index,
             ip: 0,
@@ -90,7 +126,29 @@ impl VM {
             current_module_path: None,
             exception_handlers: Vec::new(),
         });
-        self.run_until(0)
+
+        let mut last_result = Value::Null;
+        while !self.frames.is_empty() || !self.pending_tasks.is_empty() {
+            if !self.frames.is_empty() {
+                last_result = self.run_until(0)?;
+            }
+            if !self.pending_tasks.is_empty() {
+                self.process_tasks()?;
+            }
+        }
+        Ok(last_result)
+    }
+
+    fn process_tasks(&mut self) -> Result<(), RuntimeError> {
+        let tasks: Vec<_> = self.pending_tasks.drain(..).collect();
+        for task in tasks {
+            if let Some(suspended) = self.suspended_frames.remove(&task.promise_id) {
+                let mut frame = suspended.frame;
+                self.registers[frame.base + suspended.await_reg] = task.value;
+                self.frames.push(frame);
+            }
+        }
+        Ok(())
     }
 
     fn run_until(&mut self, depth: usize) -> Result<Value, RuntimeError> {
@@ -98,7 +156,10 @@ impl VM {
             if self.frames.len() == depth {
                 return Ok(Value::Null);
             }
-            let frame = self.frames.last_mut().ok_or_else(|| RuntimeError::new("no frame"))?;
+            let frame = self
+                .frames
+                .last_mut()
+                .ok_or_else(|| RuntimeError::new("no frame"))?;
             let function = self
                 .functions
                 .get(frame.function_index)
@@ -223,12 +284,10 @@ impl VM {
                     });
                 }
                 Opcode::NewMap => {
-                    self.registers[base + a] =
-                        Value::Map(Rc::new(std::cell::RefCell::new(HashMap::new())));
+                    self.registers[base + a] = Value::Map(self.gc.allocate(HashMap::new()));
                 }
                 Opcode::NewArray => {
-                    self.registers[base + a] =
-                        Value::Array(Rc::new(std::cell::RefCell::new(Vec::new())));
+                    self.registers[base + a] = Value::Array(self.gc.allocate(Vec::new()));
                 }
                 Opcode::ArrayAppend => {
                     let value = self.registers[base + b].clone();
@@ -240,9 +299,8 @@ impl VM {
                     }
                 }
                 Opcode::NewSet => {
-                    self.registers[base + a] = Value::Set(Rc::new(std::cell::RefCell::new(
-                        std::collections::HashSet::new(),
-                    )));
+                    self.registers[base + a] =
+                        Value::Set(self.gc.allocate(std::collections::HashSet::new()));
                 }
                 Opcode::SetAdd => {
                     let value = self.registers[base + b].clone();
@@ -287,15 +345,13 @@ impl VM {
                             .collect::<Vec<_>>(),
                         _ => return Err(RuntimeError::new("set values on non-set value")),
                     };
-                    self.registers[base + a] = Value::Array(Rc::new(std::cell::RefCell::new(values)));
+                    self.registers[base + a] = Value::Array(self.gc.allocate(values));
                 }
                 Opcode::NewObject => {
-                    self.registers[base + a] = Value::Object(Rc::new(std::cell::RefCell::new(
-                        Object {
-                            class: None,
-                            fields: HashMap::new(),
-                        },
-                    )));
+                    self.registers[base + a] = Value::Object(self.gc.allocate(Object {
+                        class: None,
+                        fields: HashMap::new(),
+                    }));
                 }
                 Opcode::SetField => {
                     let name = match &function.chunk.constants[c] {
@@ -343,7 +399,7 @@ impl VM {
                             .collect::<Vec<_>>(),
                         _ => return Err(RuntimeError::new("map keys on non-map value")),
                     };
-                    self.registers[base + a] = Value::Array(Rc::new(std::cell::RefCell::new(keys)));
+                    self.registers[base + a] = Value::Array(self.gc.allocate(keys));
                 }
                 Opcode::IterValues => {
                     let value = match &self.registers[base + b] {
@@ -399,10 +455,10 @@ impl VM {
                                 .borrow()
                                 .iter()
                                 .map(|(key, val)| {
-                                    Value::Array(Rc::new(std::cell::RefCell::new(vec![
+                                    Value::Array(self.gc.allocate(vec![
                                         Value::String(Rc::new(key.clone())),
                                         val.clone(),
-                                    ])))
+                                    ]))
                                 })
                                 .collect::<Vec<_>>();
                             Value::Array(Rc::new(std::cell::RefCell::new(entries)))
@@ -417,7 +473,9 @@ impl VM {
                                         ValueKey::Null => Value::Null,
                                         ValueKey::Bool(v) => Value::Bool(*v),
                                         ValueKey::Int(v) => Value::Int(*v),
-                                        ValueKey::Float(bits) => Value::Float(f64::from_bits(*bits)),
+                                        ValueKey::Float(bits) => {
+                                            Value::Float(f64::from_bits(*bits))
+                                        }
                                         ValueKey::String(v) => Value::String(Rc::clone(v)),
                                     };
                                     Value::Array(Rc::new(std::cell::RefCell::new(vec![
@@ -560,8 +618,9 @@ impl VM {
                             // Check if this is a Result or Option type first
                             let map_ref = map.borrow();
                             if let Some(Value::String(variant)) = map_ref.get("variant") {
-                                if (variant.as_str() == "Ok" || variant.as_str() == "Err") 
-                                    && resolve_builtin_method("Result", &name).is_some() {
+                                if (variant.as_str() == "Ok" || variant.as_str() == "Err")
+                                    && resolve_builtin_method("Result", &name).is_some()
+                                {
                                     // Result type with method
                                     drop(map_ref);
                                     return Ok(Value::BoundNativeMethod {
@@ -569,7 +628,8 @@ impl VM {
                                         function: resolve_builtin_method("Result", &name).unwrap(),
                                     });
                                 } else if (variant.as_str() == "Some" || variant.as_str() == "None")
-                                    && resolve_builtin_method("Option", &name).is_some() {
+                                    && resolve_builtin_method("Option", &name).is_some()
+                                {
                                     // Option type with method
                                     drop(map_ref);
                                     return Ok(Value::BoundNativeMethod {
@@ -580,10 +640,7 @@ impl VM {
                             }
                             drop(map_ref);
                             // Regular map access
-                            map.borrow()
-                                .get(&name)
-                                .cloned()
-                                .unwrap_or(Value::Null)
+                            map.borrow().get(&name).cloned().unwrap_or(Value::Null)
                         }
                         Value::Object(object) => {
                             let class = object.borrow().class.clone();
@@ -777,15 +834,13 @@ impl VM {
                     let value = match (collection, index) {
                         (Value::Array(array), Value::Int(idx)) => {
                             let idx = idx as usize;
-                            array
-                                .borrow()
-                                .get(idx)
-                                .cloned()
-                                .unwrap_or(Value::Null)
+                            array.borrow().get(idx).cloned().unwrap_or(Value::Null)
                         }
-                        (Value::Map(map), Value::String(key)) => {
-                            map.borrow().get(key.as_str()).cloned().unwrap_or(Value::Null)
-                        }
+                        (Value::Map(map), Value::String(key)) => map
+                            .borrow()
+                            .get(key.as_str())
+                            .cloned()
+                            .unwrap_or(Value::Null),
                         (Value::Set(set), value) => {
                             let key = ValueKey::try_from_value(&value)
                                 .ok_or_else(|| RuntimeError::new("unsupported set element type"))?;
@@ -845,14 +900,12 @@ impl VM {
                 Opcode::And => {
                     let left = self.registers[base + b].clone();
                     let right = self.registers[base + c].clone();
-                    self.registers[base + a] =
-                        Value::Bool(is_truthy(&left) && is_truthy(&right));
+                    self.registers[base + a] = Value::Bool(is_truthy(&left) && is_truthy(&right));
                 }
                 Opcode::Or => {
                     let left = self.registers[base + b].clone();
                     let right = self.registers[base + c].clone();
-                    self.registers[base + a] =
-                        Value::Bool(is_truthy(&left) || is_truthy(&right));
+                    self.registers[base + a] = Value::Bool(is_truthy(&left) || is_truthy(&right));
                 }
                 Opcode::Eq => {
                     let left = self.registers[base + b].clone();
@@ -889,7 +942,10 @@ impl VM {
                     }
                 }
                 Opcode::Return => {
-                    let frame = self.frames.pop().ok_or_else(|| RuntimeError::new("no frame"))?;
+                    let frame = self
+                        .frames
+                        .pop()
+                        .ok_or_else(|| RuntimeError::new("no frame"))?;
                     let result = frame
                         .return_override
                         .unwrap_or_else(|| self.registers[base + a].clone());
@@ -1027,7 +1083,11 @@ impl VM {
                             };
                             self.registers[base + a] = Value::Class(Rc::new(class));
                         }
-                        _ => return Err(RuntimeError::new("set field visibility on non-class value")),
+                        _ => {
+                            return Err(RuntimeError::new(
+                                "set field visibility on non-class value",
+                            ));
+                        }
                     }
                 }
                 Opcode::SetStaticFieldVisibility => {
@@ -1056,7 +1116,7 @@ impl VM {
                         _ => {
                             return Err(RuntimeError::new(
                                 "set static field visibility on non-class value",
-                            ))
+                            ));
                         }
                     }
                 }
@@ -1096,7 +1156,16 @@ impl VM {
                             )?;
                         }
                         Value::Function(handle) => {
-                            self.call_function(handle, None, &args, base + a, None, Vec::new(), None, false)?;
+                            self.call_function(
+                                handle,
+                                None,
+                                &args,
+                                base + a,
+                                None,
+                                Vec::new(),
+                                None,
+                                false,
+                            )?;
                         }
                         Value::Closure { function, captures } => {
                             self.call_function(
@@ -1193,9 +1262,7 @@ impl VM {
                     };
                     match callee {
                         Value::Partial { .. } => {
-                            return Err(RuntimeError::new(
-                                "partial named calls not supported yet",
-                            ));
+                            return Err(RuntimeError::new("partial named calls not supported yet"));
                         }
                         _ => {
                             self.call_with_named(callee, positional, named, base + a)?;
@@ -1306,18 +1373,16 @@ impl VM {
                                 _ => false,
                             }
                         }
-                        Value::Class(target_class) => {
-                            match value {
-                                Value::Object(obj) => {
-                                    if let Some(class) = &obj.borrow().class {
-                                        is_subclass_of(class, target_class)
-                                    } else {
-                                        false
-                                    }
+                        Value::Class(target_class) => match value {
+                            Value::Object(obj) => {
+                                if let Some(class) = &obj.borrow().class {
+                                    is_subclass_of(class, target_class)
+                                } else {
+                                    false
                                 }
-                                _ => false,
                             }
-                        }
+                            _ => false,
+                        },
                         _ => false,
                     };
                     self.registers[base + a] = Value::Bool(result);
@@ -1334,12 +1399,12 @@ impl VM {
     fn call_function(
         &mut self,
         handle: usize,
-        receiver: Option<Rc<std::cell::RefCell<Object>>>,
+        receiver: Option<GcRc<Object>>,
         args: &[Value],
         return_reg: usize,
         return_override: Option<Value>,
         captures: Vec<Value>,
-        current_class: Option<Rc<String>>,
+        current_class: Option<GcRc<Class>>,
         args_already_processed: bool,
     ) -> Result<(), RuntimeError> {
         let function = self
@@ -1349,7 +1414,7 @@ impl VM {
             .clone();
         let current_module = function.module.clone();
         let current_module_path = function.module_path.clone();
-        
+
         let processed_args = if args_already_processed {
             args.to_vec()
         } else {
@@ -1359,23 +1424,27 @@ impl VM {
             }
             final_args.extend(args.iter().cloned());
 
-            let has_variadic = function.params.last().map(|p| p.is_variadic).unwrap_or(false);
-            
+            let has_variadic = function
+                .params
+                .last()
+                .map(|p| p.is_variadic)
+                .unwrap_or(false);
+
             if !has_variadic && final_args.len() > function.arity {
                 return Err(RuntimeError::new("argument count mismatch"));
             }
 
             let mut processed = Vec::new();
             let mut arg_idx = 0;
-            
+
             for param in function.params.iter() {
                 if param.is_variadic {
                     let rest = final_args[arg_idx..].to_vec();
-                    processed.push(Value::Array(Rc::new(RefCell::new(rest))));
+                    processed.push(Value::Array(self.gc.allocate(rest)));
                     arg_idx = final_args.len();
                     break;
                 }
-                
+
                 if param.is_keyword_only {
                     if arg_idx < final_args.len() {
                         return Err(RuntimeError::new("keyword-only argument requires name"));
@@ -1408,13 +1477,13 @@ impl VM {
         let register_count = function.chunk.max_registers.max(function.arity);
         self.registers
             .extend(std::iter::repeat(Value::Null).take(register_count));
-        
+
         for (idx, arg) in processed_args.iter().enumerate() {
             if idx < register_count {
                 self.registers[base + idx] = arg.clone();
             }
         }
-        
+
         self.frames.push(CallFrame {
             function_index: handle,
             ip: 0,
@@ -1440,7 +1509,9 @@ impl VM {
         match callee {
             Value::NativeFunction(func) => {
                 if !named.is_empty() {
-                    return Err(RuntimeError::new("named args not supported for native functions"));
+                    return Err(RuntimeError::new(
+                        "named args not supported for native functions",
+                    ));
                 }
                 let result = func(&positional)?;
                 self.registers[return_reg] = result;
@@ -1448,7 +1519,9 @@ impl VM {
             }
             Value::BoundNativeMethod { receiver, function } => {
                 if !named.is_empty() {
-                    return Err(RuntimeError::new("named args not supported for native functions"));
+                    return Err(RuntimeError::new(
+                        "named args not supported for native functions",
+                    ));
                 }
                 let mut merged_args = vec![*receiver];
                 merged_args.extend(positional);
@@ -1493,7 +1566,16 @@ impl VM {
                     .get(handle)
                     .ok_or_else(|| RuntimeError::new("unknown function handle"))?;
                 let args = self.build_named_args(function, false, &positional, &named)?;
-                self.call_function(handle, None, &args, return_reg, None, Vec::new(), None, true)
+                self.call_function(
+                    handle,
+                    None,
+                    &args,
+                    return_reg,
+                    None,
+                    Vec::new(),
+                    None,
+                    true,
+                )
             }
             Value::BoundMethod {
                 receiver,
@@ -1520,9 +1602,7 @@ impl VM {
                 )
             }
             Value::StaticMethod {
-                function,
-                owner,
-                ..
+                function, owner, ..
             } => {
                 let function_info = self
                     .functions
@@ -1546,7 +1626,9 @@ impl VM {
                     .get(function)
                     .ok_or_else(|| RuntimeError::new("unknown function handle"))?;
                 let args = self.build_named_args(function_info, false, &positional, &named)?;
-                self.call_function(function, None, &args, return_reg, None, captures, None, true)
+                self.call_function(
+                    function, None, &args, return_reg, None, captures, None, true,
+                )
             }
             _ => Err(RuntimeError::new("call on non-callable value")),
         }
@@ -1618,7 +1700,10 @@ impl VM {
             }
             self.registers.truncate(frame.base);
         }
-        Err(RuntimeError::new(format!("uncaught exception: {}", error_value)))
+        Err(RuntimeError::new(format!(
+            "uncaught exception: {}",
+            error_value
+        )))
     }
 
     fn execute_module(&mut self, path: &str) -> Result<Value, RuntimeError> {
@@ -1634,13 +1719,14 @@ impl VM {
         if let Some(value) = self.modules.get(&resolved_key).cloned() {
             return Ok(value);
         }
-        let source = fs::read_to_string(&resolved)
-            .map_err(|err| RuntimeError::new(format!("failed to read module {resolved_key}: {err}")))?;
-        let tokens =
-            pleno_lexer::lex(&source).map_err(|err| RuntimeError::new(err.message))?;
+        let source = fs::read_to_string(&resolved).map_err(|err| {
+            RuntimeError::new(format!("failed to read module {resolved_key}: {err}"))
+        })?;
+        let tokens = pleno_lexer::lex(&source).map_err(|err| RuntimeError::new(err.message))?;
         let mut parser = pleno_parser::Parser::new(tokens);
-        let program =
-            parser.parse_program().map_err(|err| RuntimeError::new(err.message))?;
+        let program = parser
+            .parse_program()
+            .map_err(|err| RuntimeError::new(err.message))?;
         let mut compiler = pleno_compiler::Compiler::new();
         let chunk = compiler
             .compile_module(&program)
@@ -1689,10 +1775,11 @@ fn resolve_module_path(
     base_dir: Option<std::path::PathBuf>,
 ) -> Result<std::path::PathBuf, RuntimeError> {
     if let Some(name) = path.strip_prefix("std:") {
-        let current_dir = std::env::current_dir().map_err(|err| {
-            RuntimeError::new(format!("failed to get current dir: {err}"))
-        })?;
-        let std_path = current_dir.join("sources/std").join(format!("{}.pln", name));
+        let current_dir = std::env::current_dir()
+            .map_err(|err| RuntimeError::new(format!("failed to get current dir: {err}")))?;
+        let std_path = current_dir
+            .join("sources/std")
+            .join(format!("{}.pln", name));
         if std_path.exists() {
             return Ok(std_path);
         }
@@ -1700,14 +1787,18 @@ fn resolve_module_path(
     }
 
     if let Some(name) = path.strip_prefix("registry:") {
-        let current_dir = std::env::current_dir().map_err(|err| {
-            RuntimeError::new(format!("failed to get current dir: {err}"))
-        })?;
-        let pkg_path = current_dir.join("sources/packages").join(format!("{}.pln", name));
+        let current_dir = std::env::current_dir()
+            .map_err(|err| RuntimeError::new(format!("failed to get current dir: {err}")))?;
+        let pkg_path = current_dir
+            .join("sources/packages")
+            .join(format!("{}.pln", name));
         if pkg_path.exists() {
             return Ok(pkg_path);
         }
-        let pkg_index = current_dir.join("sources/packages").join(name).join("index.pln");
+        let pkg_index = current_dir
+            .join("sources/packages")
+            .join(name)
+            .join("index.pln");
         if pkg_index.exists() {
             return Ok(pkg_index);
         }
@@ -1722,9 +1813,8 @@ fn resolve_module_path(
         return Ok(raw_path.to_path_buf());
     }
     let mut candidates = Vec::new();
-    let current_dir = std::env::current_dir().map_err(|err| {
-        RuntimeError::new(format!("failed to get current dir: {err}"))
-    })?;
+    let current_dir = std::env::current_dir()
+        .map_err(|err| RuntimeError::new(format!("failed to get current dir: {err}")))?;
     if let Some(base) = base_dir.as_ref() {
         candidates.push(base.join(raw_path));
     }
@@ -1743,12 +1833,13 @@ fn resolve_module_path(
             return Ok(candidate);
         }
     }
-    Err(RuntimeError::new(format!(
-        "module not found: {path}"
-    )))
+    Err(RuntimeError::new(format!("module not found: {path}")))
 }
 
-fn native_print(args: &[Value]) -> Result<Value, RuntimeError> {
+fn native_print(
+    _gc: &mut pleno_value::gc::GCManager,
+    args: &[Value],
+) -> Result<Value, RuntimeError> {
     let mut out = String::new();
     for (idx, value) in args.iter().enumerate() {
         if idx > 0 {
@@ -1760,7 +1851,7 @@ fn native_print(args: &[Value]) -> Result<Value, RuntimeError> {
     Ok(Value::Null)
 }
 
-fn native_id(args: &[Value]) -> Result<Value, RuntimeError> {
+fn native_id(_gc: &mut pleno_value::gc::GCManager, args: &[Value]) -> Result<Value, RuntimeError> {
     Ok(args.get(0).cloned().unwrap_or(Value::Null))
 }
 
@@ -1819,23 +1910,25 @@ fn parse_method_info(
                 module: module.cloned(),
             })
         }
-        _ => Err(RuntimeError::new("method entry must be function or metadata array")),
+        _ => Err(RuntimeError::new(
+            "method entry must be function or metadata array",
+        )),
     }
 }
 
 fn can_access_method(
     method: &MethodInfo,
-    current_class: Option<&Rc<String>>,
+    current_class: Option<&GcRc<Class>>,
     current_module: Option<&Rc<String>>,
     globals: &HashMap<String, Value>,
 ) -> bool {
     match method.visibility {
         MethodVisibility::Public => true,
-        MethodVisibility::Private => {
-            current_class.map(|name| name.as_str() == method.owner.as_str()).unwrap_or(false)
-        }
+        MethodVisibility::Private => current_class
+            .map(|c| c.borrow().name.as_str() == method.owner.as_str())
+            .unwrap_or(false),
         MethodVisibility::Protected => current_class
-            .and_then(|name| is_subclass(name, method.owner.as_ref(), globals))
+            .map(|c| is_subclass(c, method.owner.as_ref(), globals))
             .unwrap_or(false),
         MethodVisibility::Internal => method
             .module
@@ -2055,7 +2148,10 @@ fn resolve_builtin_method(ty: &str, name: &str) -> Option<NativeFunction> {
     }
 }
 
-fn native_string_upper(args: &[Value]) -> Result<Value, RuntimeError> {
+fn native_string_upper(
+    _gc: &mut pleno_value::gc::GCManager,
+    args: &[Value],
+) -> Result<Value, RuntimeError> {
     let s = match &args[0] {
         Value::String(s) => s,
         _ => return Err(RuntimeError::new("expected string")),
@@ -2063,7 +2159,10 @@ fn native_string_upper(args: &[Value]) -> Result<Value, RuntimeError> {
     Ok(Value::String(Rc::new(s.to_uppercase())))
 }
 
-fn native_string_lower(args: &[Value]) -> Result<Value, RuntimeError> {
+fn native_string_lower(
+    _gc: &mut pleno_value::gc::GCManager,
+    args: &[Value],
+) -> Result<Value, RuntimeError> {
     let s = match &args[0] {
         Value::String(s) => s,
         _ => return Err(RuntimeError::new("expected string")),
@@ -2071,7 +2170,10 @@ fn native_string_lower(args: &[Value]) -> Result<Value, RuntimeError> {
     Ok(Value::String(Rc::new(s.to_lowercase())))
 }
 
-fn native_string_trim(args: &[Value]) -> Result<Value, RuntimeError> {
+fn native_string_trim(
+    _gc: &mut pleno_value::gc::GCManager,
+    args: &[Value],
+) -> Result<Value, RuntimeError> {
     let s = match &args[0] {
         Value::String(s) => s,
         _ => return Err(RuntimeError::new("expected string")),
@@ -2079,7 +2181,10 @@ fn native_string_trim(args: &[Value]) -> Result<Value, RuntimeError> {
     Ok(Value::String(Rc::new(s.trim().to_string())))
 }
 
-fn native_string_split(args: &[Value]) -> Result<Value, RuntimeError> {
+fn native_string_split(
+    gc: &mut pleno_value::gc::GCManager,
+    args: &[Value],
+) -> Result<Value, RuntimeError> {
     let s = match &args[0] {
         Value::String(s) => s,
         _ => return Err(RuntimeError::new("expected string")),
@@ -2091,13 +2196,17 @@ fn native_string_split(args: &[Value]) -> Result<Value, RuntimeError> {
         Value::String(sep) => sep.as_str(),
         _ => return Err(RuntimeError::new("split() separator must be string")),
     };
-    let parts: Vec<Value> = s.split(separator)
+    let parts: Vec<Value> = s
+        .split(separator)
         .map(|part| Value::String(Rc::new(part.to_string())))
         .collect();
-    Ok(Value::Array(Rc::new(RefCell::new(parts))))
+    Ok(Value::Array(gc.allocate(parts)))
 }
 
-fn native_string_contains(args: &[Value]) -> Result<Value, RuntimeError> {
+fn native_string_contains(
+    _gc: &mut pleno_value::gc::GCManager,
+    args: &[Value],
+) -> Result<Value, RuntimeError> {
     let s = match &args[0] {
         Value::String(s) => s,
         _ => return Err(RuntimeError::new("expected string")),
@@ -2112,7 +2221,10 @@ fn native_string_contains(args: &[Value]) -> Result<Value, RuntimeError> {
     Ok(Value::Bool(s.contains(substr)))
 }
 
-fn native_string_starts_with(args: &[Value]) -> Result<Value, RuntimeError> {
+fn native_string_starts_with(
+    _gc: &mut pleno_value::gc::GCManager,
+    args: &[Value],
+) -> Result<Value, RuntimeError> {
     let s = match &args[0] {
         Value::String(s) => s,
         _ => return Err(RuntimeError::new("expected string")),
@@ -2127,7 +2239,10 @@ fn native_string_starts_with(args: &[Value]) -> Result<Value, RuntimeError> {
     Ok(Value::Bool(s.starts_with(prefix)))
 }
 
-fn native_string_ends_with(args: &[Value]) -> Result<Value, RuntimeError> {
+fn native_string_ends_with(
+    _gc: &mut pleno_value::gc::GCManager,
+    args: &[Value],
+) -> Result<Value, RuntimeError> {
     let s = match &args[0] {
         Value::String(s) => s,
         _ => return Err(RuntimeError::new("expected string")),
@@ -2142,13 +2257,18 @@ fn native_string_ends_with(args: &[Value]) -> Result<Value, RuntimeError> {
     Ok(Value::Bool(s.ends_with(suffix)))
 }
 
-fn native_string_replace(args: &[Value]) -> Result<Value, RuntimeError> {
+fn native_string_replace(
+    _gc: &mut pleno_value::gc::GCManager,
+    args: &[Value],
+) -> Result<Value, RuntimeError> {
     let s = match &args[0] {
         Value::String(s) => s,
         _ => return Err(RuntimeError::new("expected string")),
     };
     if args.len() < 3 {
-        return Err(RuntimeError::new("replace() expects 2 arguments (old, new)"));
+        return Err(RuntimeError::new(
+            "replace() expects 2 arguments (old, new)",
+        ));
     }
     let old_str = match &args[1] {
         Value::String(old) => old.as_str(),
@@ -2161,7 +2281,10 @@ fn native_string_replace(args: &[Value]) -> Result<Value, RuntimeError> {
     Ok(Value::String(Rc::new(s.replace(old_str, new_str))))
 }
 
-fn native_array_push(args: &[Value]) -> Result<Value, RuntimeError> {
+fn native_array_push(
+    _gc: &mut pleno_value::gc::GCManager,
+    args: &[Value],
+) -> Result<Value, RuntimeError> {
     let arr = match &args[0] {
         Value::Array(arr) => arr,
         _ => return Err(RuntimeError::new("expected array")),
@@ -2174,7 +2297,10 @@ fn native_array_push(args: &[Value]) -> Result<Value, RuntimeError> {
     Ok(Value::Null)
 }
 
-fn native_array_pop(args: &[Value]) -> Result<Value, RuntimeError> {
+fn native_array_pop(
+    _gc: &mut pleno_value::gc::GCManager,
+    args: &[Value],
+) -> Result<Value, RuntimeError> {
     let arr = match &args[0] {
         Value::Array(arr) => arr,
         _ => return Err(RuntimeError::new("expected array")),
@@ -2182,7 +2308,10 @@ fn native_array_pop(args: &[Value]) -> Result<Value, RuntimeError> {
     Ok(arr.borrow_mut().pop().unwrap_or(Value::Null))
 }
 
-fn native_array_clear(args: &[Value]) -> Result<Value, RuntimeError> {
+fn native_array_clear(
+    _gc: &mut pleno_value::gc::GCManager,
+    args: &[Value],
+) -> Result<Value, RuntimeError> {
     let arr = match &args[0] {
         Value::Array(arr) => arr,
         _ => return Err(RuntimeError::new("expected array")),
@@ -2191,7 +2320,10 @@ fn native_array_clear(args: &[Value]) -> Result<Value, RuntimeError> {
     Ok(Value::Null)
 }
 
-fn native_set_add(args: &[Value]) -> Result<Value, RuntimeError> {
+fn native_set_add(
+    _gc: &mut pleno_value::gc::GCManager,
+    args: &[Value],
+) -> Result<Value, RuntimeError> {
     let set = match &args[0] {
         Value::Set(set) => set,
         _ => return Err(RuntimeError::new("expected set")),
@@ -2205,7 +2337,10 @@ fn native_set_add(args: &[Value]) -> Result<Value, RuntimeError> {
     Ok(Value::Null)
 }
 
-fn native_set_remove(args: &[Value]) -> Result<Value, RuntimeError> {
+fn native_set_remove(
+    _gc: &mut pleno_value::gc::GCManager,
+    args: &[Value],
+) -> Result<Value, RuntimeError> {
     let set = match &args[0] {
         Value::Set(set) => set,
         _ => return Err(RuntimeError::new("expected set")),
@@ -2219,7 +2354,10 @@ fn native_set_remove(args: &[Value]) -> Result<Value, RuntimeError> {
     Ok(Value::Null)
 }
 
-fn native_set_clear(args: &[Value]) -> Result<Value, RuntimeError> {
+fn native_set_clear(
+    _gc: &mut pleno_value::gc::GCManager,
+    args: &[Value],
+) -> Result<Value, RuntimeError> {
     let set = match &args[0] {
         Value::Set(set) => set,
         _ => return Err(RuntimeError::new("expected set")),
@@ -2228,7 +2366,10 @@ fn native_set_clear(args: &[Value]) -> Result<Value, RuntimeError> {
     Ok(Value::Null)
 }
 
-fn native_set_contains(args: &[Value]) -> Result<Value, RuntimeError> {
+fn native_set_contains(
+    _gc: &mut pleno_value::gc::GCManager,
+    args: &[Value],
+) -> Result<Value, RuntimeError> {
     let set = match &args[0] {
         Value::Set(set) => set,
         _ => return Err(RuntimeError::new("expected set")),
@@ -2241,14 +2382,17 @@ fn native_set_contains(args: &[Value]) -> Result<Value, RuntimeError> {
     Ok(Value::Bool(set.borrow().contains(&key)))
 }
 
-fn native_array_slice(args: &[Value]) -> Result<Value, RuntimeError> {
+fn native_array_slice(
+    gc: &mut pleno_value::gc::GCManager,
+    args: &[Value],
+) -> Result<Value, RuntimeError> {
     let arr = match &args[0] {
         Value::Array(arr) => arr,
         _ => return Err(RuntimeError::new("expected array")),
     };
     let array = arr.borrow();
     let len = array.len();
-    
+
     // Parse start and end from args
     let start = match args.get(1) {
         Some(Value::Int(i)) => *i as usize,
@@ -2260,32 +2404,50 @@ fn native_array_slice(args: &[Value]) -> Result<Value, RuntimeError> {
         Some(Value::Null) => len,
         _ => len,
     };
-    
+
     // Handle negative indices
     let start = if start > len { len } else { start };
     let end = if end > len { len } else { end };
-    
+
     // Create new array with slice
     let slice: Vec<Value> = array[start..end].to_vec();
-    Ok(Value::Array(Rc::new(RefCell::new(slice))))
+    Ok(Value::Array(gc.allocate(slice)))
 }
 
-fn native_array_map(_args: &[Value]) -> Result<Value, RuntimeError> {
+fn native_array_map(
+    _gc: &mut pleno_value::gc::GCManager,
+    _args: &[Value],
+) -> Result<Value, RuntimeError> {
     // TODO: Implement map() - requires calling function for each element
-    Err(RuntimeError::new("map() is not fully implemented yet - requires function calling in native code"))
+    Err(RuntimeError::new(
+        "map() is not fully implemented yet - requires function calling in native code",
+    ))
 }
 
-fn native_array_filter(_args: &[Value]) -> Result<Value, RuntimeError> {
+fn native_array_filter(
+    _gc: &mut pleno_value::gc::GCManager,
+    _args: &[Value],
+) -> Result<Value, RuntimeError> {
     // TODO: Implement filter() - requires calling function for each element
-    Err(RuntimeError::new("filter() is not fully implemented yet - requires function calling in native code"))
+    Err(RuntimeError::new(
+        "filter() is not fully implemented yet - requires function calling in native code",
+    ))
 }
 
-fn native_array_reduce(_args: &[Value]) -> Result<Value, RuntimeError> {
+fn native_array_reduce(
+    _gc: &mut pleno_value::gc::GCManager,
+    _args: &[Value],
+) -> Result<Value, RuntimeError> {
     // TODO: Implement reduce() - requires calling function for each element
-    Err(RuntimeError::new("reduce() is not fully implemented yet - requires function calling in native code"))
+    Err(RuntimeError::new(
+        "reduce() is not fully implemented yet - requires function calling in native code",
+    ))
 }
 
-fn native_array_reverse(args: &[Value]) -> Result<Value, RuntimeError> {
+fn native_array_reverse(
+    _gc: &mut pleno_value::gc::GCManager,
+    args: &[Value],
+) -> Result<Value, RuntimeError> {
     let arr = match &args[0] {
         Value::Array(arr) => arr,
         _ => return Err(RuntimeError::new("expected array")),
@@ -2295,7 +2457,10 @@ fn native_array_reverse(args: &[Value]) -> Result<Value, RuntimeError> {
     Ok(Value::Null)
 }
 
-fn native_array_contains(args: &[Value]) -> Result<Value, RuntimeError> {
+fn native_array_contains(
+    _gc: &mut pleno_value::gc::GCManager,
+    args: &[Value],
+) -> Result<Value, RuntimeError> {
     let arr = match &args[0] {
         Value::Array(arr) => arr,
         _ => return Err(RuntimeError::new("expected array")),
@@ -2308,7 +2473,10 @@ fn native_array_contains(args: &[Value]) -> Result<Value, RuntimeError> {
     Ok(Value::Bool(array.contains(search_value)))
 }
 
-fn native_array_index_of(args: &[Value]) -> Result<Value, RuntimeError> {
+fn native_array_index_of(
+    _gc: &mut pleno_value::gc::GCManager,
+    args: &[Value],
+) -> Result<Value, RuntimeError> {
     let arr = match &args[0] {
         Value::Array(arr) => arr,
         _ => return Err(RuntimeError::new("expected array")),
@@ -2327,58 +2495,63 @@ fn native_array_index_of(args: &[Value]) -> Result<Value, RuntimeError> {
 }
 
 // Result type constructors and methods
-fn native_result_ok(args: &[Value]) -> Result<Value, RuntimeError> {
+fn native_result_ok(
+    gc: &mut pleno_value::gc::GCManager,
+    args: &[Value],
+) -> Result<Value, RuntimeError> {
     if args.is_empty() {
         return Err(RuntimeError::new("Ok() requires 1 argument"));
     }
     // Create a map representing Result::Ok(value)
-    let result = Rc::new(RefCell::new(HashMap::new()));
-    result.borrow_mut().insert("variant".to_string(), Value::String("Ok".to_string().into()));
-    result.borrow_mut().insert("value".to_string(), args[0].clone());
-    Ok(Value::Map(result))
+    Ok(Value::Map(gc.allocate(result)))
 }
 
-fn native_result_err(args: &[Value]) -> Result<Value, RuntimeError> {
+fn native_result_err(
+    gc: &mut pleno_value::gc::GCManager,
+    args: &[Value],
+) -> Result<Value, RuntimeError> {
     if args.is_empty() {
         return Err(RuntimeError::new("Err() requires 1 argument"));
     }
     // Create a map representing Result::Err(error)
-    let result = Rc::new(RefCell::new(HashMap::new()));
-    result.borrow_mut().insert("variant".to_string(), Value::String("Err".to_string().into()));
-    result.borrow_mut().insert("value".to_string(), args[0].clone());
-    Ok(Value::Map(result))
+    Ok(Value::Map(gc.allocate(result)))
 }
 
 // Option type constructors
-fn native_option_some(args: &[Value]) -> Result<Value, RuntimeError> {
+fn native_option_some(
+    gc: &mut pleno_value::gc::GCManager,
+    args: &[Value],
+) -> Result<Value, RuntimeError> {
     if args.is_empty() {
         return Err(RuntimeError::new("Some() requires 1 argument"));
     }
     // Create a map representing Option::Some(value)
-    let option = Rc::new(RefCell::new(HashMap::new()));
-    option.borrow_mut().insert("variant".to_string(), Value::String("Some".to_string().into()));
-    option.borrow_mut().insert("value".to_string(), args[0].clone());
-    Ok(Value::Map(option))
+    Ok(Value::Map(gc.allocate(option)))
 }
 
-fn native_option_none(_args: &[Value]) -> Result<Value, RuntimeError> {
+fn native_option_none(
+    gc: &mut pleno_value::gc::GCManager,
+    _args: &[Value],
+) -> Result<Value, RuntimeError> {
     // Create a map representing Option::None
-    let option = Rc::new(RefCell::new(HashMap::new()));
-    option.borrow_mut().insert("variant".to_string(), Value::String("None".to_string().into()));
-    Ok(Value::Map(option))
+    Ok(Value::Map(gc.allocate(option)))
 }
 
 // Result methods
-fn native_result_unwrap(args: &[Value]) -> Result<Value, RuntimeError> {
+fn native_result_unwrap(
+    _gc: &mut pleno_value::gc::GCManager,
+    args: &[Value],
+) -> Result<Value, RuntimeError> {
     let result = match &args[0] {
         Value::Map(map) => map,
         _ => return Err(RuntimeError::new("unwrap() called on non-Result value")),
     };
     let map_ref = result.borrow();
     match map_ref.get("variant") {
-        Some(Value::String(variant)) if variant.as_str() == "Ok" => {
-            map_ref.get("value").cloned().ok_or_else(|| RuntimeError::new("Result::Ok missing value"))
-        }
+        Some(Value::String(variant)) if variant.as_str() == "Ok" => map_ref
+            .get("value")
+            .cloned()
+            .ok_or_else(|| RuntimeError::new("Result::Ok missing value")),
         Some(Value::String(variant)) if variant.as_str() == "Err" => {
             Err(RuntimeError::new("called unwrap() on Result::Err"))
         }
@@ -2386,7 +2559,10 @@ fn native_result_unwrap(args: &[Value]) -> Result<Value, RuntimeError> {
     }
 }
 
-fn native_result_unwrap_or(args: &[Value]) -> Result<Value, RuntimeError> {
+fn native_result_unwrap_or(
+    _gc: &mut pleno_value::gc::GCManager,
+    args: &[Value],
+) -> Result<Value, RuntimeError> {
     if args.len() < 2 {
         return Err(RuntimeError::new("unwrapOr() requires a default value"));
     }
@@ -2396,14 +2572,18 @@ fn native_result_unwrap_or(args: &[Value]) -> Result<Value, RuntimeError> {
     };
     let map_ref = result.borrow();
     match map_ref.get("variant") {
-        Some(Value::String(variant)) if variant.as_str() == "Ok" => {
-            Ok(map_ref.get("value").cloned().unwrap_or_else(|| args[1].clone()))
-        }
+        Some(Value::String(variant)) if variant.as_str() == "Ok" => Ok(map_ref
+            .get("value")
+            .cloned()
+            .unwrap_or_else(|| args[1].clone())),
         _ => Ok(args[1].clone()), // Return default for Err
     }
 }
 
-fn native_result_expect(args: &[Value]) -> Result<Value, RuntimeError> {
+fn native_result_expect(
+    _gc: &mut pleno_value::gc::GCManager,
+    args: &[Value],
+) -> Result<Value, RuntimeError> {
     if args.len() < 2 {
         return Err(RuntimeError::new("expect() requires a message"));
     }
@@ -2432,7 +2612,10 @@ fn native_result_expect(args: &[Value]) -> Result<Value, RuntimeError> {
     }
 }
 
-fn native_result_is_ok(args: &[Value]) -> Result<Value, RuntimeError> {
+fn native_result_is_ok(
+    _gc: &mut pleno_value::gc::GCManager,
+    args: &[Value],
+) -> Result<Value, RuntimeError> {
     let result = match &args[0] {
         Value::Map(map) => map,
         _ => return Err(RuntimeError::new("isOk() called on non-Result value")),
@@ -2444,7 +2627,10 @@ fn native_result_is_ok(args: &[Value]) -> Result<Value, RuntimeError> {
     }
 }
 
-fn native_result_is_err(args: &[Value]) -> Result<Value, RuntimeError> {
+fn native_result_is_err(
+    _gc: &mut pleno_value::gc::GCManager,
+    args: &[Value],
+) -> Result<Value, RuntimeError> {
     let result = match &args[0] {
         Value::Map(map) => map,
         _ => return Err(RuntimeError::new("isErr() called on non-Result value")),
@@ -2457,16 +2643,20 @@ fn native_result_is_err(args: &[Value]) -> Result<Value, RuntimeError> {
 }
 
 // Option methods
-fn native_option_unwrap(args: &[Value]) -> Result<Value, RuntimeError> {
+fn native_option_unwrap(
+    _gc: &mut pleno_value::gc::GCManager,
+    args: &[Value],
+) -> Result<Value, RuntimeError> {
     let option = match &args[0] {
         Value::Map(map) => map,
         _ => return Err(RuntimeError::new("unwrap() called on non-Option value")),
     };
     let map_ref = option.borrow();
     match map_ref.get("variant") {
-        Some(Value::String(variant)) if variant.as_str() == "Some" => {
-            map_ref.get("value").cloned().ok_or_else(|| RuntimeError::new("Option::Some missing value"))
-        }
+        Some(Value::String(variant)) if variant.as_str() == "Some" => map_ref
+            .get("value")
+            .cloned()
+            .ok_or_else(|| RuntimeError::new("Option::Some missing value")),
         Some(Value::String(variant)) if variant.as_str() == "None" => {
             Err(RuntimeError::new("called unwrap() on Option::None"))
         }
@@ -2474,7 +2664,10 @@ fn native_option_unwrap(args: &[Value]) -> Result<Value, RuntimeError> {
     }
 }
 
-fn native_option_unwrap_or(args: &[Value]) -> Result<Value, RuntimeError> {
+fn native_option_unwrap_or(
+    _gc: &mut pleno_value::gc::GCManager,
+    args: &[Value],
+) -> Result<Value, RuntimeError> {
     if args.len() < 2 {
         return Err(RuntimeError::new("unwrapOr() requires a default value"));
     }
@@ -2484,14 +2677,18 @@ fn native_option_unwrap_or(args: &[Value]) -> Result<Value, RuntimeError> {
     };
     let map_ref = option.borrow();
     match map_ref.get("variant") {
-        Some(Value::String(variant)) if variant.as_str() == "Some" => {
-            Ok(map_ref.get("value").cloned().unwrap_or_else(|| args[1].clone()))
-        }
+        Some(Value::String(variant)) if variant.as_str() == "Some" => Ok(map_ref
+            .get("value")
+            .cloned()
+            .unwrap_or_else(|| args[1].clone())),
         _ => Ok(args[1].clone()), // Return default for None
     }
 }
 
-fn native_option_expect(args: &[Value]) -> Result<Value, RuntimeError> {
+fn native_option_expect(
+    _gc: &mut pleno_value::gc::GCManager,
+    args: &[Value],
+) -> Result<Value, RuntimeError> {
     if args.len() < 2 {
         return Err(RuntimeError::new("expect() requires a message"));
     }
@@ -2520,7 +2717,10 @@ fn native_option_expect(args: &[Value]) -> Result<Value, RuntimeError> {
     }
 }
 
-fn native_option_is_some(args: &[Value]) -> Result<Value, RuntimeError> {
+fn native_option_is_some(
+    _gc: &mut pleno_value::gc::GCManager,
+    args: &[Value],
+) -> Result<Value, RuntimeError> {
     let option = match &args[0] {
         Value::Map(map) => map,
         _ => return Err(RuntimeError::new("isSome() called on non-Option value")),
@@ -2532,7 +2732,10 @@ fn native_option_is_some(args: &[Value]) -> Result<Value, RuntimeError> {
     }
 }
 
-fn native_option_is_none(args: &[Value]) -> Result<Value, RuntimeError> {
+fn native_option_is_none(
+    _gc: &mut pleno_value::gc::GCManager,
+    args: &[Value],
+) -> Result<Value, RuntimeError> {
     let option = match &args[0] {
         Value::Map(map) => map,
         _ => return Err(RuntimeError::new("isNone() called on non-Option value")),

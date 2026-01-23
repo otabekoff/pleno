@@ -1,0 +1,6 @@
+fn test_modulo() {
+    println(10 % 3);
+    println(10 % 5);
+    println(7 % 4);
+}
+test_modulo();

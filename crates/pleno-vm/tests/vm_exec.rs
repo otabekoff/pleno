@@ -89,7 +89,8 @@ fn evaluates_for_open_start_range() {
 
 #[test]
 fn evaluates_for_open_end_range_with_break() {
-    let value = eval("let mut sum = 0; for (i in 1..) { if (i > 3) { break; } sum = sum + i; } sum;");
+    let value =
+        eval("let mut sum = 0; for (i in 1..) { if (i > 3) { break; } sum = sum + i; } sum;");
     assert_eq!(value, pleno_value::Value::Int(6));
 }
 
@@ -119,19 +120,25 @@ fn evaluates_user_function_call() {
 
 #[test]
 fn evaluates_method_with_this() {
-    let value = eval("class Counter { fn inc() { this.x = this.x + 1; } fn get() { return this.x; } } let c = Counter(); c.x = 0; c.inc(); c.get();");
+    let value = eval(
+        "class Counter { fn inc() { this.x = this.x + 1; } fn get() { return this.x; } } let c = Counter(); c.x = 0; c.inc(); c.get();",
+    );
     assert_eq!(value, pleno_value::Value::Int(1));
 }
 
 #[test]
 fn evaluates_constructor() {
-    let value = eval("class Point { fn constructor(x, y) { this.x = x; this.y = y; } fn sum() { return this.x + this.y; } } let p = Point(2, 3); p.sum();");
+    let value = eval(
+        "class Point { fn constructor(x, y) { this.x = x; this.y = y; } fn sum() { return this.x + this.y; } } let p = Point(2, 3); p.sum();",
+    );
     assert_eq!(value, pleno_value::Value::Int(5));
 }
 
 #[test]
 fn evaluates_inheritance_and_super() {
-    let value = eval("class A { fn value() { return 1; } } class B extends A { fn value() { return super.value() + 1; } } let b = B(); b.value();");
+    let value = eval(
+        "class A { fn value() { return 1; } } class B extends A { fn value() { return super.value() + 1; } } let b = B(); b.value();",
+    );
     assert_eq!(value, pleno_value::Value::Int(2));
 }
 
@@ -143,7 +150,8 @@ fn evaluates_static_method() {
 
 #[test]
 fn evaluates_closure_capture() {
-    let value = eval("fn make(x) { fn inner(y) { return x + y; } return inner; } let f = make(2); f(3);");
+    let value =
+        eval("fn make(x) { fn inner(y) { return x + y; } return inner; } let f = make(2); f(3);");
     assert_eq!(value, pleno_value::Value::Int(5));
 }
 
@@ -161,13 +169,17 @@ fn evaluates_named_args() {
 
 #[test]
 fn evaluates_named_args_on_method() {
-    let value = eval("class Calc { fn add(a, b = 1) { return a + b; } } let c = Calc(); c.add(b = 3, a = 2);");
+    let value = eval(
+        "class Calc { fn add(a, b = 1) { return a + b; } } let c = Calc(); c.add(b = 3, a = 2);",
+    );
     assert_eq!(value, pleno_value::Value::Int(5));
 }
 
 #[test]
 fn evaluates_named_args_on_closure() {
-    let value = eval("fn make() { fn inner(a, b = 2) { return a + b; } return inner; } let f = make(); f(b = 3, a = 1);");
+    let value = eval(
+        "fn make() { fn inner(a, b = 2) { return a + b; } return inner; } let f = make(); f(b = 3, a = 1);",
+    );
     assert_eq!(value, pleno_value::Value::Int(4));
 }
 
@@ -179,37 +191,50 @@ fn evaluates_static_field() {
 
 #[test]
 fn denies_private_field_access() {
-    let result = eval_result("class A { private secret; fn set(v) { this.secret = v; } } let a = A(); a.set(3); a.secret;");
+    let result = eval_result(
+        "class A { private secret; fn set(v) { this.secret = v; } } let a = A(); a.set(3); a.secret;",
+    );
     assert!(result.unwrap_err().contains("field access denied"));
 }
 
 #[test]
 fn allows_private_field_in_method() {
-    let value = eval("class A { private secret; fn set(v) { this.secret = v; } fn get() { return this.secret; } } let a = A(); a.set(4); a.get();");
+    let value = eval(
+        "class A { private secret; fn set(v) { this.secret = v; } fn get() { return this.secret; } } let a = A(); a.set(4); a.get();",
+    );
     assert_eq!(value, pleno_value::Value::Int(4));
 }
 
 #[test]
 fn denies_private_static_field_access() {
-    let result = eval_result("class A { private static secret; static fn set(v) { A.secret = v; } } A.set(3); A.secret;");
+    let result = eval_result(
+        "class A { private static secret; static fn set(v) { A.secret = v; } } A.set(3); A.secret;",
+    );
     assert!(result.unwrap_err().contains("static field access denied"));
 }
 
 #[test]
 fn denies_private_method_access() {
-    let result = eval_result("class A { private fn secret() { return 1; } fn reveal() { return this.secret(); } } let a = A(); a.secret();");
+    let result = eval_result(
+        "class A { private fn secret() { return 1; } fn reveal() { return this.secret(); } } let a = A(); a.secret();",
+    );
     assert!(result.unwrap_err().contains("access denied"));
 }
 
 #[test]
 fn allows_protected_method_in_subclass() {
-    let value = eval("class A { protected fn val() { return 1; } } class B extends A { fn get() { return this.val(); } } let b = B(); b.get();");
+    let value = eval(
+        "class A { protected fn val() { return 1; } } class B extends A { fn get() { return this.val(); } } let b = B(); b.get();",
+    );
     assert_eq!(value, pleno_value::Value::Int(1));
 }
 
 #[test]
 fn evaluates_import_module() {
-    let path = format!("{}/../../sources/module_simple.pln", env!("CARGO_MANIFEST_DIR"));
+    let path = format!(
+        "{}/../../sources/module_simple.pln",
+        env!("CARGO_MANIFEST_DIR")
+    );
     let source = format!("import Module from \"{}\"; Module.value;", path);
     let value = eval(&source);
     assert_eq!(value, pleno_value::Value::Int(42));
@@ -246,10 +271,7 @@ fn denies_internal_field_outside_module() {
         "{}/../../sources/module_internal.pln",
         env!("CARGO_MANIFEST_DIR")
     );
-    let source = format!(
-        "import Mod from \"{}\"; let b = Mod.Box(); b.secret;",
-        path
-    );
+    let source = format!("import Mod from \"{}\"; let b = Mod.Box(); b.secret;", path);
     let result = eval_result(&source);
     assert!(result.unwrap_err().contains("field access denied"));
 }
@@ -270,13 +292,17 @@ fn allows_internal_field_in_module_method() {
 
 #[test]
 fn evaluates_getter_setter() {
-    let value = eval("class Counter { private value; get current() { return this.value; } set current(v) { this.value = v; } } let c = Counter(); c.current = 3; c.current;");
+    let value = eval(
+        "class Counter { private value; get current() { return this.value; } set current(v) { this.value = v; } } let c = Counter(); c.current = 3; c.current;",
+    );
     assert_eq!(value, pleno_value::Value::Int(3));
 }
 
 #[test]
 fn evaluates_variadic_args() {
-    let value = eval("fn sum(...nums) { let mut total = 0; for (n in nums) { total = total + n; } return total; } sum(1, 2, 3);");
+    let value = eval(
+        "fn sum(...nums) { let mut total = 0; for (n in nums) { total = total + n; } return total; } sum(1, 2, 3);",
+    );
     assert_eq!(value, pleno_value::Value::Int(6));
 }
 
@@ -300,7 +326,8 @@ fn evaluates_break_in_while() {
 
 #[test]
 fn evaluates_continue_in_for() {
-    let value = eval("let mut sum = 0; for (i in 0..5) { if (i == 2) { continue; } sum = sum + i; } sum;");
+    let value =
+        eval("let mut sum = 0; for (i in 0..5) { if (i == 2) { continue; } sum = sum + i; } sum;");
     assert_eq!(value, pleno_value::Value::Int(8));
 }
 
@@ -312,7 +339,9 @@ fn evaluates_for_array() {
 
 #[test]
 fn evaluates_for_map_keys() {
-    let value = eval("let mut count = 0; let m = {\"a\": 1, \"b\": 2}; for (k in m) { count = count + 1; } count;");
+    let value = eval(
+        "let mut count = 0; let m = {\"a\": 1, \"b\": 2}; for (k in m) { count = count + 1; } count;",
+    );
     assert_eq!(value, pleno_value::Value::Int(2));
 }
 

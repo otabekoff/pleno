@@ -73,6 +73,12 @@ pub enum Opcode {
     AddInt,
     SubInt,
     Partial,
+    AsyncFunction,
+    Await,
+    ArraySpread,
+    MapSpread,
+    SetSpread,
+    Slice,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -129,6 +135,7 @@ pub struct FunctionProto {
     pub chunk: Chunk,
     pub arity: u8,
     pub params: Vec<ParamSpec>,
+    pub is_async: bool,
 }
 
 #[derive(Debug, Clone)]

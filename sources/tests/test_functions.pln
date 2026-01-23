@@ -1,0 +1,33 @@
+print("--- Testing Functions ---");
+
+// Test Recursion
+print("Testing Recursion (Factorial)");
+fn factorial(n) {
+    if (n <= 1) { return 1; }
+    return n * factorial(n - 1);
+}
+print(factorial(5)); // Should be 120
+
+// Test Closures
+print("Testing Closures");
+fn makeAdder(x) {
+    return fn(y) {
+        return x + y;
+    };
+}
+let add5 = makeAdder(5);
+print(add5(10)); // Should be 15
+print(add5(20)); // Should be 25
+
+let add10 = makeAdder(10);
+print(add10(10)); // Should be 20
+
+// Test Higher Order Functions
+print("Testing Higher Order Function");
+fn apply(f, x) {
+    return f(x);
+}
+fn square(x) { return x * x; }
+print(apply(square, 4)); // Should be 16
+
+print("Function Tests Complete");

@@ -1,0 +1,13 @@
+// Simple test for async/await functionality
+async fn testAsyncFunction(): Promise<Int> {
+    return 42;
+}
+
+fn main() {
+    print("Testing async functionality...");
+    // We'll just test that the syntax compiles for now
+    // Full async runtime support would require more implementation
+    print("Syntax compiled successfully!");
+}
+
+main();

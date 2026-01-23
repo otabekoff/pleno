@@ -1,4 +1,4 @@
-use pleno_ast::{Expr, Literal, Program, Span, Stmt};
+use pleno_ast::{Comment, Expr, Literal, Program, Span, Stmt};
 use pleno_lexer::{Token, TokenKind};
 
 #[derive(Debug, Clone, PartialEq)]
@@ -9,12 +9,32 @@ pub struct ParseError {
 
 pub struct Parser {
     tokens: Vec<Token>,
+    comments: Vec<Comment>,
     index: usize,
 }
 
 impl Parser {
-    pub fn new(tokens: Vec<Token>) -> Self {
-        Self { tokens, index: 0 }
+    pub fn new(raw_tokens: Vec<Token>) -> Self {
+        let mut tokens = Vec::new();
+        let mut comments = Vec::new();
+
+        for token in raw_tokens {
+            if let TokenKind::Comment(content, kind) = token.kind {
+                comments.push(Comment {
+                    span: token.span,
+                    content,
+                    kind,
+                });
+            } else {
+                tokens.push(token);
+            }
+        }
+
+        Self {
+            tokens,
+            comments,
+            index: 0,
+        }
     }
 
     pub fn parse_program(&mut self) -> Result<Program, ParseError> {
@@ -25,7 +45,7 @@ impl Parser {
             }
             statements.push(self.parse_stmt()?);
         }
-        Ok(Program::new(statements))
+        Ok(Program::new(statements, self.comments.clone()))
     }
 
     fn parse_stmt(&mut self) -> Result<Stmt, ParseError> {
@@ -42,6 +62,31 @@ impl Parser {
             TokenKind::KeywordImport => self.parse_import_stmt(),
             TokenKind::KeywordExport => self.parse_export_stmt(annotations),
             TokenKind::KeywordClass => self.parse_class_stmt(annotations),
+            TokenKind::KeywordAsync => {
+                if matches!(self.peek_n_kind(1), Some(TokenKind::KeywordFn)) {
+                    self.advance(); // consume 'async'
+                    let decl = self.parse_function_decl(
+                        pleno_ast::FunctionKind::Method,
+                        false,
+                        None,
+                        None,
+                        annotations,
+                        true, // is_async
+                    )?;
+                    Ok(Stmt::Fn {
+                        name: decl.name,
+                        params: decl.params,
+                        body: decl.body,
+                        annotations: decl.annotations,
+                        is_async: true,
+                    })
+                } else {
+                    return Err(ParseError {
+                        message: "Expected 'fn' after 'async'".to_string(),
+                        span: self.previous_span(),
+                    });
+                }
+            }
             TokenKind::KeywordFn => {
                 let decl = self.parse_function_decl(
                     pleno_ast::FunctionKind::Method,
@@ -49,12 +94,14 @@ impl Parser {
                     None,
                     None,
                     annotations,
+                    false, // is_async
                 )?;
                 Ok(Stmt::Fn {
                     name: decl.name,
                     params: decl.params,
                     body: decl.body,
                     annotations: decl.annotations,
+                    is_async: false,
                 })
             }
             TokenKind::KeywordReturn => self.parse_return_stmt(),
@@ -91,8 +138,16 @@ impl Parser {
                         }),
                     };
                 }
-                self.expect(TokenKind::Semicolon, "Expected ';' after expression")?;
-                Ok(Stmt::Expr(expr))
+                if self.matches(&TokenKind::Semicolon)
+                    || matches!(self.peek_kind(), TokenKind::RBrace | TokenKind::Eof)
+                {
+                    Ok(Stmt::Expr(expr))
+                } else {
+                    Err(ParseError {
+                        message: "Expected ';' after expression".to_string(),
+                        span: self.previous_span(),
+                    })
+                }
             }
         }
     }
@@ -110,7 +165,7 @@ impl Parser {
                 return Err(ParseError {
                     message: format!("Expected identifier after 'let', found {other:?}"),
                     span: self.previous_span(),
-                })
+                });
             }
         };
         let ty = if self.matches(&TokenKind::Colon) {
@@ -147,7 +202,7 @@ impl Parser {
                 return Err(ParseError {
                     message: format!("Expected identifier after 'const', found {other:?}"),
                     span: self.previous_span(),
-                })
+                });
             }
         };
         let ty = if self.matches(&TokenKind::Colon) {
@@ -196,10 +251,13 @@ impl Parser {
                 return Err(ParseError {
                     message: format!("Expected module name, found {other:?}"),
                     span: self.previous_span(),
-                })
+                });
             }
         };
-        self.expect(TokenKind::Semicolon, "Expected ';' after module declaration")?;
+        self.expect(
+            TokenKind::Semicolon,
+            "Expected ';' after module declaration",
+        )?;
         Ok(Stmt::Module { name })
     }
 
@@ -212,19 +270,24 @@ impl Parser {
         Ok(Stmt::While { condition, body })
     }
 
-    fn parse_fn_stmt(&mut self, annotations: Vec<pleno_ast::Annotation>) -> Result<Stmt, ParseError> {
+    fn parse_fn_stmt(
+        &mut self,
+        annotations: Vec<pleno_ast::Annotation>,
+    ) -> Result<Stmt, ParseError> {
         let decl = self.parse_function_decl(
             pleno_ast::FunctionKind::Method,
             false,
             None,
             None,
             annotations,
+            false,
         )?;
         Ok(Stmt::Fn {
             name: decl.name,
             params: decl.params,
             body: decl.body,
             annotations: decl.annotations,
+            is_async: false,
         })
     }
 
@@ -262,7 +325,7 @@ impl Parser {
                     return Err(ParseError {
                         message: format!("Expected identifier in for loop, found {other:?}"),
                         span: self.previous_span(),
-                    })
+                    });
                 }
             };
             names.push(name);
@@ -293,7 +356,7 @@ impl Parser {
                     return Err(ParseError {
                         message: format!("Expected identifier in catch, found {other:?}"),
                         span: self.previous_span(),
-                    })
+                    });
                 }
             };
             let ty = if self.matches(&TokenKind::Colon) {
@@ -303,7 +366,7 @@ impl Parser {
                         return Err(ParseError {
                             message: format!("Expected type name in catch, found {other:?}"),
                             span: self.previous_span(),
-                        })
+                        });
                     }
                 }
             } else {
@@ -351,7 +414,7 @@ impl Parser {
                             return Err(ParseError {
                                 message: format!("Expected import name, found {other:?}"),
                                 span: self.previous_span(),
-                            })
+                            });
                         }
                     };
                     let alias = if self.matches(&TokenKind::KeywordAs) {
@@ -363,7 +426,7 @@ impl Parser {
                                         "Expected alias name after 'as', found {other:?}"
                                     ),
                                     span: self.previous_span(),
-                                })
+                                });
                             }
                         }
                     } else {
@@ -387,7 +450,7 @@ impl Parser {
                             return Err(ParseError {
                                 message: format!("Expected alias after 'as', found {other:?}"),
                                 span: self.previous_span(),
-                            })
+                            });
                         }
                     }
                 } else {
@@ -415,14 +478,17 @@ impl Parser {
                 return Err(ParseError {
                     message: format!("Expected string literal path, found {other:?}"),
                     span: self.previous_span(),
-                })
+                });
             }
         };
         self.expect(TokenKind::Semicolon, "Expected ';' after import")?;
         Ok(Stmt::Import { path, kind })
     }
 
-    fn parse_export_stmt(&mut self, annotations: Vec<pleno_ast::Annotation>) -> Result<Stmt, ParseError> {
+    fn parse_export_stmt(
+        &mut self,
+        annotations: Vec<pleno_ast::Annotation>,
+    ) -> Result<Stmt, ParseError> {
         self.advance();
         if self.matches(&TokenKind::LBrace) {
             if !annotations.is_empty() {
@@ -439,7 +505,7 @@ impl Parser {
                         return Err(ParseError {
                             message: format!("Expected export name, found {other:?}"),
                             span: self.previous_span(),
-                        })
+                        });
                     }
                 };
                 let alias = if self.matches(&TokenKind::KeywordAs) {
@@ -447,11 +513,9 @@ impl Parser {
                         TokenKind::Ident(value) => Some(value),
                         other => {
                             return Err(ParseError {
-                                message: format!(
-                                    "Expected alias name after 'as', found {other:?}"
-                                ),
+                                message: format!("Expected alias name after 'as', found {other:?}"),
                                 span: self.previous_span(),
-                            })
+                            });
                         }
                     }
                 } else {
@@ -475,13 +539,16 @@ impl Parser {
                 return Err(ParseError {
                     message: format!("Expected declaration after export, found {other:?}"),
                     span: self.peek().span,
-                })
+                });
             }
         };
         Ok(Stmt::Export(Box::new(stmt)))
     }
 
-    fn parse_class_stmt(&mut self, annotations: Vec<pleno_ast::Annotation>) -> Result<Stmt, ParseError> {
+    fn parse_class_stmt(
+        &mut self,
+        annotations: Vec<pleno_ast::Annotation>,
+    ) -> Result<Stmt, ParseError> {
         self.advance();
         let name = match self.advance().kind.clone() {
             TokenKind::Ident(value) => value,
@@ -489,7 +556,7 @@ impl Parser {
                 return Err(ParseError {
                     message: format!("Expected class name, found {other:?}"),
                     span: self.previous_span(),
-                })
+                });
             }
         };
         let superclass = if self.matches(&TokenKind::KeywordExtends) {
@@ -499,7 +566,7 @@ impl Parser {
                     return Err(ParseError {
                         message: format!("Expected superclass name, found {other:?}"),
                         span: self.previous_span(),
-                    })
+                    });
                 }
             }
         } else {
@@ -508,10 +575,12 @@ impl Parser {
         self.expect(TokenKind::LBrace, "Expected '{' after class name")?;
         let mut fields = Vec::new();
         let mut methods = Vec::new();
+        let mut nested_classes = Vec::new();
         while !self.is_at_end() && !matches!(self.peek_kind(), TokenKind::RBrace) {
             let member_annotations = self.parse_annotations()?;
             let mut visibility = None;
             let mut is_static = false;
+            let mut is_const = false;
             loop {
                 match self.peek_kind() {
                     TokenKind::KeywordPublic => {
@@ -530,9 +599,17 @@ impl Parser {
                         self.advance();
                         visibility = Some(pleno_ast::Visibility::Internal);
                     }
+                    TokenKind::Hash => {
+                        self.advance();
+                        visibility = Some(pleno_ast::Visibility::Private);
+                    }
                     TokenKind::KeywordStatic => {
                         self.advance();
                         is_static = true;
+                    }
+                    TokenKind::KeywordConst => {
+                        self.advance();
+                        is_const = true;
                     }
                     _ => break,
                 }
@@ -544,10 +621,16 @@ impl Parser {
                     visibility,
                     Some(is_static),
                     member_annotations,
+                    false,
                 )?);
                 continue;
             }
-            if is_accessor(self.peek_kind(), self.peek_n_kind(1), self.peek_n_kind(2), "get") {
+            if is_accessor(
+                self.peek_kind(),
+                self.peek_n_kind(1),
+                self.peek_n_kind(2),
+                "get",
+            ) {
                 methods.push(self.parse_accessor_decl(
                     pleno_ast::FunctionKind::Getter,
                     visibility,
@@ -556,13 +639,44 @@ impl Parser {
                 )?);
                 continue;
             }
-            if is_accessor(self.peek_kind(), self.peek_n_kind(1), self.peek_n_kind(2), "set") {
+            if is_accessor(
+                self.peek_kind(),
+                self.peek_n_kind(1),
+                self.peek_n_kind(2),
+                "set",
+            ) {
                 methods.push(self.parse_accessor_decl(
                     pleno_ast::FunctionKind::Setter,
                     visibility,
                     is_static,
                     member_annotations,
                 )?);
+                continue;
+            }
+            if matches!(self.peek_kind(), TokenKind::KeywordClass) {
+                nested_classes.push(self.parse_class_stmt(member_annotations)?);
+                continue;
+            }
+            if matches!(self.peek_kind(), TokenKind::Ident(name) if name == "constructor") {
+                let name = match self.advance().kind.clone() {
+                    TokenKind::Ident(n) => n,
+                    _ => unreachable!(),
+                };
+                self.expect(TokenKind::LParen, "Expected '(' after constructor")?;
+                let params = self.parse_param_list()?;
+                self.expect(TokenKind::RParen, "Expected ')' after parameters")?;
+                let body = Box::new(self.parse_block_stmt()?);
+                methods.push(pleno_ast::FunctionDecl {
+                    name,
+                    params,
+                    return_ty: None,
+                    body,
+                    is_static: false,
+                    visibility: visibility.or(Some(pleno_ast::Visibility::Public)),
+                    kind: pleno_ast::FunctionKind::Method,
+                    annotations: member_annotations,
+                    is_async: false,
+                });
                 continue;
             }
             let name = match self.advance().kind.clone() {
@@ -574,10 +688,26 @@ impl Parser {
                     });
                 }
             };
+
+            let ty = if self.matches(&TokenKind::Colon) {
+                Some(self.parse_type()?)
+            } else {
+                None
+            };
+
+            let default = if self.matches(&TokenKind::Equal) {
+                Some(self.parse_expr()?)
+            } else {
+                None
+            };
+
             self.expect(TokenKind::Semicolon, "Expected ';' after field declaration")?;
             fields.push(pleno_ast::FieldDecl {
                 name,
+                ty,
+                default,
                 is_static,
+                is_const,
                 visibility,
                 annotations: member_annotations,
             });
@@ -589,6 +719,7 @@ impl Parser {
             methods,
             superclass,
             annotations,
+            nested_classes,
         })
     }
 
@@ -599,10 +730,12 @@ impl Parser {
         visibility: Option<pleno_ast::Visibility>,
         is_static: Option<bool>,
         annotations: Vec<pleno_ast::Annotation>,
+        is_async: bool,
     ) -> Result<pleno_ast::FunctionDecl, ParseError> {
         self.advance();
         let name = match self.advance().kind.clone() {
             TokenKind::Ident(name) => name,
+            TokenKind::KeywordMatch => "match".to_string(),
             other => {
                 return Err(ParseError {
                     message: format!("Expected function name, found {other:?}"),
@@ -613,7 +746,7 @@ impl Parser {
         self.expect(TokenKind::LParen, "Expected '(' after function name")?;
         let params = self.parse_param_list()?;
         self.expect(TokenKind::RParen, "Expected ')' after parameters")?;
-        let return_ty = if self.matches(&TokenKind::Arrow) {
+        let return_ty = if self.matches(&TokenKind::Colon) {
             Some(self.parse_type()?)
         } else {
             None
@@ -639,6 +772,7 @@ impl Parser {
             visibility,
             kind,
             annotations,
+            is_async,
         })
     }
 
@@ -687,6 +821,7 @@ impl Parser {
             visibility,
             kind,
             annotations,
+            is_async: false,
         })
     }
 
@@ -764,7 +899,7 @@ impl Parser {
                     return Err(ParseError {
                         message: format!("Expected parameter name, found {other:?}"),
                         span: self.previous_span(),
-                    })
+                    });
                 }
             };
             let ty = if self.matches(&TokenKind::Colon) {
@@ -774,7 +909,7 @@ impl Parser {
                         return Err(ParseError {
                             message: format!("Expected type name after ':', found {other:?}"),
                             span: self.previous_span(),
-                        })
+                        });
                     }
                 }
             } else {
@@ -811,6 +946,40 @@ impl Parser {
         Ok(params)
     }
 
+    fn parse_lambda_params_in_parens(&mut self) -> Result<Vec<pleno_ast::Param>, ParseError> {
+        let mut params = Vec::new();
+        if self.matches(&TokenKind::RParen) {
+            return Ok(params);
+        }
+        loop {
+            let name = match self.advance().kind.clone() {
+                TokenKind::Ident(name) => name,
+                TokenKind::Underscore => "_".to_string(),
+                other => {
+                    return Err(ParseError {
+                        message: format!("Expected parameter name in lambda, found {other:?}"),
+                        span: self.previous_span(),
+                    });
+                }
+            };
+            params.push(pleno_ast::Param {
+                name,
+                ty: None,
+                default: None,
+                is_variadic: false,
+                is_keyword_only: false,
+            });
+            if !self.matches(&TokenKind::Comma) {
+                break;
+            }
+            if matches!(self.peek_kind(), TokenKind::RParen) {
+                break;
+            }
+        }
+        self.expect(TokenKind::RParen, "Expected ')' after lambda parameters")?;
+        Ok(params)
+    }
+
     fn parse_block_stmt(&mut self) -> Result<Stmt, ParseError> {
         self.expect(TokenKind::LBrace, "Expected '{' to start block")?;
         let mut statements = Vec::new();
@@ -822,7 +991,24 @@ impl Parser {
     }
 
     fn parse_expr(&mut self) -> Result<Expr, ParseError> {
-        self.parse_pipeline()
+        self.parse_ternary()
+    }
+
+    fn parse_ternary(&mut self) -> Result<Expr, ParseError> {
+        let expr = self.parse_pipeline()?;
+
+        if self.matches(&TokenKind::Question) {
+            let then_branch = self.parse_expr()?;
+            self.expect(TokenKind::Colon, "Expected ':' in ternary operator")?;
+            let else_branch = self.parse_expr()?;
+            return Ok(Expr::Ternary {
+                condition: Box::new(expr),
+                then_branch: Box::new(then_branch),
+                else_branch: Box::new(else_branch),
+            });
+        }
+
+        Ok(expr)
     }
 
     fn parse_pipeline(&mut self) -> Result<Expr, ParseError> {
@@ -1003,6 +1189,8 @@ impl Parser {
                 Some(pleno_ast::BinaryOp::Multiply)
             } else if self.matches(&TokenKind::Slash) {
                 Some(pleno_ast::BinaryOp::Divide)
+            } else if self.matches(&TokenKind::Percent) {
+                Some(pleno_ast::BinaryOp::Modulo)
             } else {
                 None
             };
@@ -1043,6 +1231,7 @@ impl Parser {
         loop {
             let name = match self.advance().kind.clone() {
                 TokenKind::Ident(name) => name,
+                TokenKind::Underscore => "_".to_string(),
                 other => {
                     return Err(ParseError {
                         message: format!("Expected parameter name in lambda, found {other:?}"),
@@ -1065,29 +1254,78 @@ impl Parser {
     }
 
     fn parse_primary(&mut self) -> Result<Expr, ParseError> {
+        let expr = self.parse_atom()?;
+        self.parse_postfix_loop(expr, true)
+    }
+
+    fn parse_atom(&mut self) -> Result<Expr, ParseError> {
         let token = self.advance();
-        let mut expr = match token.kind.clone() {
-            TokenKind::Int(value) => Expr::Literal(Literal::Int(value)),
-            TokenKind::Float(value) => Expr::Literal(Literal::Float(value)),
-            TokenKind::String(value) => Expr::Literal(Literal::String(value)),
-            TokenKind::Char(value) => Expr::Literal(Literal::Char(value)),
-            TokenKind::Bool(value) => Expr::Literal(Literal::Bool(value)),
-            TokenKind::Null => Expr::Literal(Literal::Null),
-            TokenKind::Ident(name) => Expr::Ident(name),
-            TokenKind::Underscore => Expr::Underscore,
-            TokenKind::KeywordMatch => self.parse_match_expr()?,
-            TokenKind::KeywordThis => Expr::This,
-            TokenKind::KeywordSuper => Expr::Super,
+        match token.kind.clone() {
+            TokenKind::Int(value) => Ok(Expr::Literal(Literal::Int(value))),
+            TokenKind::Float(value) => Ok(Expr::Literal(Literal::Float(value))),
+            TokenKind::String(value) => Ok(Expr::Literal(Literal::String(value))),
+            TokenKind::Char(value) => Ok(Expr::Literal(Literal::Char(value))),
+            TokenKind::Bool(value) => Ok(Expr::Literal(Literal::Bool(value))),
+            TokenKind::Null => Ok(Expr::Literal(Literal::Null)),
+            TokenKind::Ident(name) => Ok(Expr::Ident(name)),
+            TokenKind::Underscore => Ok(Expr::Underscore),
+            TokenKind::KeywordMatch => self.parse_match_expr(),
+            TokenKind::KeywordNew => {
+                let atom = self.parse_atom()?;
+                let callee = self.parse_postfix_loop(atom, false)?;
+
+                let args = if self.matches(&TokenKind::LParen) {
+                    let mut args = Vec::new();
+                    if !matches!(self.peek_kind(), TokenKind::RParen) {
+                        loop {
+                            args.push(self.parse_expr()?);
+                            if !self.matches(&TokenKind::Comma) {
+                                break;
+                            }
+                        }
+                    }
+                    self.expect(
+                        TokenKind::RParen,
+                        "Expected ')' after constructor arguments",
+                    )?;
+                    args
+                } else {
+                    Vec::new()
+                };
+
+                Ok(Expr::Call {
+                    callee: Box::new(callee),
+                    args: args
+                        .into_iter()
+                        .map(pleno_ast::CallArg::Positional)
+                        .collect(),
+                })
+            }
+            TokenKind::KeywordThis => Ok(Expr::This),
+            TokenKind::KeywordSuper => Ok(Expr::Super),
+            TokenKind::KeywordAwait => {
+                let expr = Box::new(self.parse_unary()?);
+                Ok(Expr::Await { expr })
+            }
             TokenKind::Pipe => {
                 let params = self.parse_lambda_params()?;
                 self.expect(TokenKind::Pipe, "Expected '|' after lambda parameters")?;
                 self.expect(TokenKind::FatArrow, "Expected '=>' after lambda parameters")?;
-                let body = self.parse_expr()?;
-                Expr::Lambda {
+                let body = if matches!(self.peek_kind(), TokenKind::LBrace) {
+                    let block = self.parse_block_stmt()?;
+                    if let Stmt::Block(stmts) = block {
+                        Expr::Block(stmts)
+                    } else {
+                        unreachable!()
+                    }
+                } else {
+                    self.parse_expr()?
+                };
+                Ok(Expr::Lambda {
                     params,
                     body: Box::new(body),
                     return_ty: None,
-                }
+                })
             }
             TokenKind::KeywordFn => {
                 self.expect(TokenKind::LParen, "Expected '(' after 'fn'")?;
@@ -1108,27 +1346,33 @@ impl Parser {
                         unreachable!()
                     }
                 };
-                Expr::Lambda {
+                Ok(Expr::Lambda {
                     params,
                     body,
                     return_ty,
-                }
+                })
             }
             TokenKind::LBrace => {
                 if matches!(self.peek_kind(), TokenKind::RBrace) {
                     self.expect(TokenKind::RBrace, "Expected '}' after map literal")?;
-                    Expr::MapLiteral(Vec::new())
+                    Ok(Expr::MapLiteral(Vec::new()))
                 } else if self.lookahead_is_set_literal()? {
-                    self.parse_set_literal()?
+                    self.parse_set_literal()
                 } else {
-                    self.parse_map_literal()?
+                    self.parse_map_literal()
                 }
             }
             TokenKind::LBracket => {
                 let mut items = Vec::new();
                 if !matches!(self.peek_kind(), TokenKind::RBracket) {
                     loop {
-                        let value = self.parse_expr()?;
+                        let value = if self.matches(&TokenKind::DotDot)
+                            || self.matches(&TokenKind::Ellipsis)
+                        {
+                            Expr::Spread(Box::new(self.parse_expr()?))
+                        } else {
+                            self.parse_expr()?
+                        };
                         items.push(value);
                         if self.matches(&TokenKind::Comma) {
                             if matches!(self.peek_kind(), TokenKind::RBracket) {
@@ -1140,12 +1384,30 @@ impl Parser {
                     }
                 }
                 self.expect(TokenKind::RBracket, "Expected ']' after array literal")?;
-                Expr::ArrayLiteral(items)
+                Ok(Expr::ArrayLiteral(items))
             }
             TokenKind::LParen => {
-                if matches!(self.peek_kind(), TokenKind::RParen) {
+                if self.lookahead_is_arrow_lambda() {
+                    let params = self.parse_lambda_params_in_parens()?;
+                    self.expect(TokenKind::FatArrow, "Expected '=>' after lambda parameters")?;
+                    let body = if matches!(self.peek_kind(), TokenKind::LBrace) {
+                        let block = self.parse_block_stmt()?;
+                        if let Stmt::Block(stmts) = block {
+                            Expr::Block(stmts)
+                        } else {
+                            unreachable!()
+                        }
+                    } else {
+                        self.parse_expr()?
+                    };
+                    Ok(Expr::Lambda {
+                        params,
+                        body: Box::new(body),
+                        return_ty: None,
+                    })
+                } else if matches!(self.peek_kind(), TokenKind::RParen) {
                     self.advance();
-                    Expr::TupleLiteral(Vec::new())
+                    Ok(Expr::TupleLiteral(Vec::new()))
                 } else if matches!(self.peek_kind(), TokenKind::Ident(_))
                     && matches!(self.peek_next_kind(), Some(TokenKind::Colon))
                 {
@@ -1166,7 +1428,7 @@ impl Parser {
                         }
                     }
                     self.expect(TokenKind::RParen, "Expected ')' after named tuple")?;
-                    Expr::NamedTupleLiteral(entries)
+                    Ok(Expr::NamedTupleLiteral(entries))
                 } else {
                     let first = self.parse_expr()?;
                     if self.matches(&TokenKind::Comma) {
@@ -1178,28 +1440,59 @@ impl Parser {
                             }
                         }
                         self.expect(TokenKind::RParen, "Expected ')' after tuple")?;
-                        Expr::TupleLiteral(items)
+                        Ok(Expr::TupleLiteral(items))
                     } else {
                         self.expect(TokenKind::RParen, "Expected ')' after expression")?;
-                        first
+                        Ok(Expr::Paren(Box::new(first)))
                     }
                 }
             }
-            other => {
-                return Err(ParseError {
-                    message: format!("Unexpected token in expression: {other:?}"),
-                    span: token.span,
-                })
-            }
-        };
+            other => Err(ParseError {
+                message: format!("Unexpected token in expression: {other:?}"),
+                span: token.span,
+            }),
+        }
+    }
+
+    fn parse_postfix_loop(&mut self, mut expr: Expr, allow_call: bool) -> Result<Expr, ParseError> {
         loop {
             if self.matches(&TokenKind::Dot) {
+                // Support .#name for private access
+                if self.matches(&TokenKind::Hash) {
+                    let name = match self.advance().kind.clone() {
+                        TokenKind::Ident(name) => name,
+                        other => {
+                            return Err(ParseError {
+                                message: format!("Expected identifier after '.#', found {other:?}"),
+                                span: self.previous_span(),
+                            });
+                        }
+                    };
+                    // Treat public 'name' and private '#name' as using same string key?
+                    // Currently we store private fields with name "secret" but visibility Private.
+                    // Accessing .#secret should map to accessing property "secret" but may trigger visibility check?
+                    // Or we could store it as "#secret" to distinguish?
+                    // Given existing confusion, let's use the name directly for now, assuming "secret" matches declared "secret".
+                    // But wait, if I use .#secret, I want to access the private field.
+                    // If proper privacy is implemented, accessing "secret" is checked.
+                    // BUT .# syntax is specifically to *allow* access to private fields or denote them.
+                    // Let's assume for now it accesses property "secret".
+                    expr = Expr::Property {
+                        object: Box::new(expr),
+                        name,
+                    };
+                    continue;
+                }
+
                 let name = match self.advance().kind.clone() {
                     TokenKind::Ident(name) => name,
+                    TokenKind::KeywordMatch => "match".to_string(),
                     TokenKind::Int(val) => val.to_string(),
                     other => {
                         return Err(ParseError {
-                            message: format!("Expected identifier or index after '.', found {other:?}"),
+                            message: format!(
+                                "Expected identifier or index after '.', found {other:?}"
+                            ),
                             span: self.previous_span(),
                         });
                     }
@@ -1216,7 +1509,9 @@ impl Parser {
                     TokenKind::Int(val) => val.to_string(),
                     other => {
                         return Err(ParseError {
-                            message: format!("Expected identifier or index after '?.', found {other:?}"),
+                            message: format!(
+                                "Expected identifier or index after '?.', found {other:?}"
+                            ),
                             span: self.previous_span(),
                         });
                     }
@@ -1245,9 +1540,9 @@ impl Parser {
                     };
                     continue;
                 }
-                
+
                 let start_expr = self.parse_expr()?;
-                
+
                 // Check for slice syntax: [start..end] or [start..]
                 if self.matches(&TokenKind::DotDot) || self.matches(&TokenKind::DotDotEqual) {
                     let _inclusive = self.previous().kind == TokenKind::DotDotEqual;
@@ -1264,7 +1559,7 @@ impl Parser {
                     };
                     continue;
                 }
-                
+
                 // Regular index access
                 self.expect(TokenKind::RBracket, "Expected ']' after index")?;
                 expr = Expr::Index {
@@ -1273,7 +1568,7 @@ impl Parser {
                 };
                 continue;
             }
-            if self.matches(&TokenKind::LParen) {
+            if allow_call && self.matches(&TokenKind::LParen) {
                 let mut args = Vec::new();
                 if !matches!(self.peek_kind(), TokenKind::RParen) {
                     loop {
@@ -1319,20 +1614,25 @@ impl Parser {
         let mut entries = Vec::new();
         if !matches!(self.peek_kind(), TokenKind::RBrace) {
             loop {
-                let key = match self.advance().kind.clone() {
-                    TokenKind::String(value) => value,
-                    other => {
-                        return Err(ParseError {
-                            message: format!(
-                                "Expected string literal key in map, found {other:?}"
-                            ),
-                            span: self.previous_span(),
-                        })
-                    }
-                };
-                self.expect(TokenKind::Colon, "Expected ':' after map key")?;
-                let value = self.parse_expr()?;
-                entries.push((key, value));
+                if self.matches(&TokenKind::DotDot) || self.matches(&TokenKind::Ellipsis) {
+                    let value = self.parse_expr()?;
+                    entries.push(pleno_ast::MapItem::Spread(value));
+                } else {
+                    let key = match self.advance().kind.clone() {
+                        TokenKind::String(value) => value,
+                        other => {
+                            return Err(ParseError {
+                                message: format!(
+                                    "Expected string literal key in map, found {other:?}"
+                                ),
+                                span: self.previous_span(),
+                            });
+                        }
+                    };
+                    self.expect(TokenKind::Colon, "Expected ':' after map key")?;
+                    let value = self.parse_expr()?;
+                    entries.push(pleno_ast::MapItem::Entry(key, value));
+                }
                 if self.matches(&TokenKind::Comma) {
                     if matches!(self.peek_kind(), TokenKind::RBrace) {
                         break;
@@ -1350,7 +1650,12 @@ impl Parser {
         let mut entries = Vec::new();
         if !matches!(self.peek_kind(), TokenKind::RBrace) {
             loop {
-                let value = self.parse_expr()?;
+                let value =
+                    if self.matches(&TokenKind::DotDot) || self.matches(&TokenKind::Ellipsis) {
+                        Expr::Spread(Box::new(self.parse_expr()?))
+                    } else {
+                        self.parse_expr()?
+                    };
                 entries.push(value);
                 if self.matches(&TokenKind::Comma) {
                     if matches!(self.peek_kind(), TokenKind::RBrace) {
@@ -1390,12 +1695,44 @@ impl Parser {
         self.expect(TokenKind::LBrace, "Expected '{' after match expression")?;
         let mut arms = Vec::new();
         while !matches!(self.peek_kind(), TokenKind::RBrace) {
-            let pattern = self.parse_pattern()?;
+            self.expect(TokenKind::KeywordCase, "Expected 'case' before pattern")?;
+
+            // Multiple patterns separated by comma
+            let mut patterns = Vec::new();
+            loop {
+                patterns.push(self.parse_pattern()?);
+                if !self.matches(&TokenKind::Comma) {
+                    break;
+                }
+                // Check if next is FatArrow or if, in which case the comma was trailing
+                if matches!(self.peek_kind(), TokenKind::FatArrow | TokenKind::KeywordIf) {
+                    break;
+                }
+            }
+
+            let pattern = if patterns.len() > 1 {
+                pleno_ast::Pattern::Or(patterns)
+            } else {
+                patterns.remove(0)
+            };
+
+            // Optional guard: if <expr>
+            let guard = if self.matches(&TokenKind::KeywordIf) {
+                Some(self.parse_expr()?)
+            } else {
+                None
+            };
+
             self.expect(TokenKind::FatArrow, "Expected '=>' after pattern")?;
             let body = self.parse_expr()?;
-            arms.push(pleno_ast::MatchArm { pattern, body });
+            arms.push(pleno_ast::MatchArm {
+                pattern,
+                guard,
+                body,
+            });
+
             if !self.matches(&TokenKind::Comma) {
-                break;
+                // Comma between arms is optional but encouraged
             }
         }
         self.expect(TokenKind::RBrace, "Expected '}' after match arms")?;
@@ -1406,7 +1743,70 @@ impl Parser {
         let token = self.advance();
         match token.kind.clone() {
             TokenKind::Underscore => Ok(pleno_ast::Pattern::Underscore),
-            TokenKind::Ident(name) => Ok(pleno_ast::Pattern::Ident(name)),
+            TokenKind::Ident(name) => {
+                // Variant: name(...)
+                if self.matches(&TokenKind::LParen) {
+                    let mut patterns = Vec::new();
+                    if !matches!(self.peek_kind(), TokenKind::RParen) {
+                        loop {
+                            patterns.push(self.parse_pattern()?);
+                            if !self.matches(&TokenKind::Comma) {
+                                break;
+                            }
+                        }
+                    }
+                    self.expect(TokenKind::RParen, "Expected ')' after variant pattern")?;
+                    return Ok(pleno_ast::Pattern::Variant(name, patterns));
+                }
+
+                // Type pattern: Type ident or Type _
+                if matches!(
+                    self.peek_kind(),
+                    TokenKind::Ident(_) | TokenKind::Underscore
+                ) {
+                    let binding = match &self.advance().kind {
+                        TokenKind::Ident(b) => Some(b.clone()),
+                        TokenKind::Underscore => None,
+                        _ => unreachable!(),
+                    };
+                    return Ok(pleno_ast::Pattern::Type(name, binding));
+                }
+
+                Ok(pleno_ast::Pattern::Ident(name))
+            }
+            TokenKind::LBrace => {
+                let mut patterns = Vec::new();
+                if !matches!(self.peek_kind(), TokenKind::RBrace) {
+                    loop {
+                        let field_name = match &self.advance().kind {
+                            TokenKind::Ident(name) => name.clone(),
+                            other => {
+                                return Err(ParseError {
+                                    message: format!(
+                                        "Expected field name in object pattern, found {other:?}"
+                                    ),
+                                    span: self.previous_span(),
+                                });
+                            }
+                        };
+
+                        let pattern = if self.matches(&TokenKind::Colon) {
+                            self.parse_pattern()?
+                        } else {
+                            // Shorthand: { x } is { x: x }
+                            pleno_ast::Pattern::Ident(field_name.clone())
+                        };
+
+                        patterns.push((field_name, pattern));
+
+                        if !self.matches(&TokenKind::Comma) {
+                            break;
+                        }
+                    }
+                }
+                self.expect(TokenKind::RBrace, "Expected '}' after object pattern")?;
+                Ok(pleno_ast::Pattern::Object(patterns))
+            }
             TokenKind::LParen => {
                 let mut items = Vec::new();
                 if !matches!(self.peek_kind(), TokenKind::RParen) {
@@ -1424,10 +1824,25 @@ impl Parser {
                 Ok(pleno_ast::Pattern::Tuple(items))
             }
             TokenKind::Int(val) => Ok(pleno_ast::Pattern::Literal(pleno_ast::Literal::Int(val))),
-            TokenKind::Float(val) => Ok(pleno_ast::Pattern::Literal(pleno_ast::Literal::Float(val))),
-            TokenKind::String(val) => Ok(pleno_ast::Pattern::Literal(pleno_ast::Literal::String(val))),
+            TokenKind::Float(val) => {
+                Ok(pleno_ast::Pattern::Literal(pleno_ast::Literal::Float(val)))
+            }
+            TokenKind::String(val) => {
+                Ok(pleno_ast::Pattern::Literal(pleno_ast::Literal::String(val)))
+            }
             TokenKind::Bool(val) => Ok(pleno_ast::Pattern::Literal(pleno_ast::Literal::Bool(val))),
             TokenKind::Null => Ok(pleno_ast::Pattern::Literal(pleno_ast::Literal::Null)),
+            TokenKind::DotDot | TokenKind::Ellipsis => {
+                let name = if matches!(self.peek_kind(), TokenKind::Ident(_)) {
+                    match &self.advance().kind {
+                        TokenKind::Ident(name) => Some(name.clone()),
+                        _ => unreachable!(),
+                    }
+                } else {
+                    None
+                };
+                Ok(pleno_ast::Pattern::Rest(name))
+            }
             other => Err(ParseError {
                 message: format!("Expected pattern, found {other:?}"),
                 span: self.previous_span(),
@@ -1478,7 +1893,31 @@ impl Parser {
     }
 
     fn peek_n_kind(&self, offset: usize) -> Option<&TokenKind> {
-        self.tokens.get(self.index + offset).map(|token| &token.kind)
+        self.tokens
+            .get(self.index + offset)
+            .map(|token| &token.kind)
+    }
+
+    fn lookahead_is_arrow_lambda(&self) -> bool {
+        let mut depth = 1;
+        let mut idx = self.index;
+        while let Some(token) = self.tokens.get(idx) {
+            match &token.kind {
+                TokenKind::LParen => depth += 1,
+                TokenKind::RParen => {
+                    depth -= 1;
+                    if depth == 0 {
+                        return matches!(
+                            self.tokens.get(idx + 1).map(|token| &token.kind),
+                            Some(TokenKind::FatArrow)
+                        );
+                    }
+                }
+                _ => {}
+            }
+            idx += 1;
+        }
+        false
     }
 
     fn advance(&mut self) -> &Token {
@@ -1504,7 +1943,7 @@ impl Parser {
         // Parse union types: Int | String | Float
         let mut types = Vec::new();
         loop {
-            let base_type = match self.advance().kind.clone() {
+            let mut type_str = match self.advance().kind.clone() {
                 TokenKind::Ident(name) => name,
                 other => {
                     return Err(ParseError {
@@ -1513,28 +1952,38 @@ impl Parser {
                     });
                 }
             };
-            
+
+            // Check for generic: Promise<Int>
+            if self.matches(&TokenKind::Less) {
+                type_str.push('<');
+                loop {
+                    type_str.push_str(&self.parse_type()?);
+                    if self.matches(&TokenKind::Comma) {
+                        type_str.push_str(", ");
+                        continue;
+                    }
+                    break;
+                }
+                self.expect(
+                    TokenKind::Greater,
+                    "Expected '>' after generic type arguments",
+                )?;
+                type_str.push('>');
+            }
+
             // Check for optional: Int?
-            let optional = if self.matches(&TokenKind::Question) {
-                true
-            } else {
-                false
-            };
-            
-            let type_str = if optional {
-                format!("{}?", base_type)
-            } else {
-                base_type
-            };
-            
+            if self.matches(&TokenKind::Question) {
+                type_str.push('?');
+            }
+
             types.push(type_str);
-            
+
             // Check for union: |
             if !self.matches(&TokenKind::Pipe) {
                 break;
             }
         }
-        
+
         if types.len() == 1 {
             Ok(types.into_iter().next().unwrap())
         } else {

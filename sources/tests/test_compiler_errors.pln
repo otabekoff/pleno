@@ -1,0 +1,10 @@
+
+// EXPECT_COMPILE_ERROR
+// This file is used to verify that the compiler correctly handles errors
+// instead of panicking.
+
+// Test 1: Break outside of loop
+break; 
+
+// Test 2: Continue outside of loop
+continue;
