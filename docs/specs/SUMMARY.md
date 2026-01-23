@@ -1,6 +1,6 @@
 # Summary
 
-- [Introduction](./chapter_1.md)
+- [Introduction](./index.md)
 - [Bytecode VM](./bytecode_vm.md)
 - [Distribution](./distribution.md)
 - [Releasing](./release.md)
