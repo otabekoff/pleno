@@ -1,3 +1,4 @@
+use chrono::{DateTime as ChronoDateTime, TimeZone, Utc};
 use pleno_bytecode::{Chunk, Opcode, ParamSpec};
 use pleno_value::{
     Class, MethodInfo, MethodVisibility, NativeFunction, Object, Range, RuntimeError, VMProvider,
@@ -417,6 +418,20 @@ impl VM {
             Value::NativeFunction(native_os_platform),
         );
         globals.insert("OS".to_string(), Value::Map(gc.allocate(os_map)));
+
+        // Time native functions
+        globals.insert(
+            "__native_datetime_now".to_string(),
+            Value::NativeFunction(native_datetime_now),
+        );
+        globals.insert(
+            "__native_datetime_format".to_string(),
+            Value::NativeFunction(native_datetime_format),
+        );
+        globals.insert(
+            "__native_datetime_parse".to_string(),
+            Value::NativeFunction(native_datetime_parse),
+        );
 
         Self {
             gc,
@@ -3716,4 +3731,41 @@ fn native_directory_exists(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Va
     };
     let p = std::path::Path::new(path);
     Ok(Value::Bool(p.exists() && p.is_dir()))
+}
+
+// Time native functions
+fn native_datetime_now(_vm: &mut dyn VMProvider, _args: &[Value]) -> Result<Value, RuntimeError> {
+    Ok(Value::Int(Utc::now().timestamp()))
+}
+
+fn native_datetime_format(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    let timestamp = match args.first() {
+        Some(Value::Int(t)) => *t,
+        _ => return Err(RuntimeError::new("format() expects integer timestamp")),
+    };
+    let fmt = match args.get(1) {
+        Some(Value::String(s)) => s.as_str(),
+        _ => return Err(RuntimeError::new("format() expects format string")),
+    };
+
+    let dt = Utc
+        .timestamp_opt(timestamp, 0)
+        .single()
+        .ok_or_else(|| RuntimeError::new("invalid timestamp"))?;
+    Ok(Value::String(Rc::new(dt.format(fmt).to_string())))
+}
+
+fn native_datetime_parse(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    let date_str = match args.first() {
+        Some(Value::String(s)) => s.as_str(),
+        _ => return Err(RuntimeError::new("parse() expects date string")),
+    };
+    let fmt = match args.get(1) {
+        Some(Value::String(s)) => s.as_str(),
+        _ => return Err(RuntimeError::new("parse() expects format string")),
+    };
+
+    let dt = ChronoDateTime::parse_from_str(date_str, fmt)
+        .map_err(|e| RuntimeError::new(format!("date parse error: {}", e)))?;
+    Ok(Value::Int(dt.with_timezone(&Utc).timestamp()))
 }

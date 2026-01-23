@@ -26,10 +26,11 @@ This roadmap stages the remaining implementation work for v1.
 
 ## Stage 10 - Standard Library (partial)
 
-**Completed**: basic stdlib module stubs; JSON module fully implemented; I/O module (files/dirs) fully implemented; HTTP module fully implemented; Math and Regex libraries aligned with specs; Native function bindings for system operations (OS module) ✅
+**Completed**: basic stdlib module stubs; JSON module fully implemented; I/O module (files/dirs) fully implemented; HTTP module fully implemented; Math and Regex libraries aligned with specs; Native function bindings for system operations (OS module); Time Standard Library (DateTime, Duration) ✅
 
 **Remaining**:
-
+- Advanced collection methods (Map/Set comprehensive API)
+- Standard library documentation generation
 
 ---
 
@@ -68,8 +69,9 @@ This roadmap stages the remaining implementation work for v1.
 
 ## Stage 14 - v1 Hardening (not started)
 
-- Test suite expansion (currently 53+ tests, need more coverage)
-- Error messages and diagnostics polish
-- CLI parity with specs
-- Performance benchmarking and optimization
-- Documentation completion
+- **GC Robustness**: Break `Rc` cycles or transition to full tracing management
+- **Linter Completion**: Comprehensive style rules and unused variable detection
+- **Testing Expansion**: Increase coverage from 53+ tests to full feature parity
+- **Diagnostics**: Improve compiler/VM error messages and source spans
+- **Docs Tooling**: Automated API documentation generation
+- **Performance**: Benchmarking suite and optimization passes

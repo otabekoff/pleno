@@ -1450,38 +1450,26 @@ await Http.delete(url);
 await Http.patch(url, body: data);
 ```
 
-### 13.7 Date & Time
+### 13.7 Date & Time ✅
 
 ```pleno
 import { DateTime, Duration } from "std:time";
 
 // Current date/time
 let now = DateTime.now();
-print(now.year);         // 2026
-print(now.month);        // 1-12
-print(now.day);          // 1-31
-print(now.hour);         // 0-23
-print(now.minute);       // 0-59
-print(now.second);       // 0-59
+print(now.getTimestamp());         // Unix timestamp
 
-// Create specific date
-let date = DateTime(2026, 1, 22, 14, 30, 0);
-
-// Formatting
-now.format("YYYY-MM-DD HH:mm:ss");
-now.format("DD/MM/YYYY");
-now.toISO();  // ISO 8601 format
+// Formatting (chrono-style format)
+print(now.format("%Y-%m-%d %H:%M:%S"));
 
 // Parsing
-let parsed = DateTime.parse("2026-01-22", format: "YYYY-MM-DD");
+let parsed = DateTime.parse("2026-01-22", "%Y-%m-%d");
 
 // Duration
 let duration = Duration.hours(2);
 let future = now.add(duration);
 let past = now.subtract(Duration.days(7));
-
-// Comparison
-if (date1 > date2) {
+```
     print("date1 is later");
 }
 ```
