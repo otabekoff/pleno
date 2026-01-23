@@ -282,7 +282,7 @@ fn run_file(path: &str) {
 
     let mut vm = pleno_vm::VM::new();
     match vm.execute(chunk) {
-        Ok(value) => println!("{value:?}"),
+        Ok(_) => {}
         Err(err) => {
             eprintln!("Runtime error: {}", err.message);
             process::exit(1);

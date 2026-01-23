@@ -4,7 +4,13 @@ use gc::{GcObject, GcRc, MarkAndSweepGC};
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
-pub type NativeFunction = fn(gc: &mut gc::GCManager, args: &[Value]) -> Result<Value, RuntimeError>;
+pub trait VMProvider {
+    fn call(&mut self, callee: Value, args: Vec<Value>) -> Result<Value, RuntimeError>;
+    fn get_gc(&mut self) -> &mut gc::GCManager;
+}
+
+pub type NativeFunction =
+    fn(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError>;
 
 #[derive(Debug, Clone)]
 pub enum Value {
