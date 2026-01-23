@@ -17,3 +17,10 @@ cargo run -p pleno-cli -- run sources/test_array_methods.pln
 cargo build -p pleno-repl
 
 cargo run -p pleno-cli -- sources/test_stdlib.pln
+
+
+Automated Tests
+cargo run -p pleno-cli -- run test_async.pln
+cargo run -p pleno-cli -- run test_gc.pln (to test memory pressure)
+cargo run -p pleno-cli -- run test_stdlib.pln
+

@@ -29,10 +29,10 @@ This roadmap stages the remaining implementation work for v1.
 
 ## Stage 10 - Standard Library (partial)
 
-**Completed**: basic stdlib module stubs; JSON module fully implemented; I/O module (files/dirs) fully implemented; HTTP module fully implemented; Math and Regex libraries aligned with specs ✅
+**Completed**: basic stdlib module stubs; JSON module fully implemented; I/O module (files/dirs) fully implemented; HTTP module fully implemented; Math and Regex libraries aligned with specs; Native function bindings for system operations (OS module) ✅
 
 **Remaining**:
-- Native function bindings for system operations (other than I/O and HTTP)
+
 
 ---
 
