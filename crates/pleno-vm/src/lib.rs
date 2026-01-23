@@ -1,11 +1,12 @@
 use pleno_bytecode::{Chunk, Opcode, ParamSpec};
 use pleno_value::{
-    Class, MethodInfo, MethodVisibility, NativeFunction, Object, Range, RuntimeError, Value,
-    ValueKey,
+    Class, MethodInfo, MethodVisibility, NativeFunction, Object, Range, RuntimeError, VMProvider,
+    Value, ValueKey,
     gc::{GcObject, GcRc, MarkAndSweepGC},
 };
 use std::collections::HashMap;
 use std::fs;
+use std::io::Write;
 use std::rc::Rc;
 
 #[derive(Debug, Clone)]
@@ -52,6 +53,7 @@ pub struct VM {
     functions: Vec<Function>,
     pub pending_tasks: Vec<AsyncTask>,
     pub suspended_frames: HashMap<u64, SuspendedFrame>,
+    pub promises: HashMap<u64, Value>,
     pub next_promise_id: u64,
 }
 
@@ -64,6 +66,73 @@ pub struct Function {
     pub module: Option<Rc<String>>,
     pub module_path: Option<Rc<String>>,
     pub is_async: bool,
+}
+
+impl VMProvider for VM {
+    fn call(&mut self, callee: Value, args: Vec<Value>) -> Result<Value, RuntimeError> {
+        let return_reg = self.registers.len();
+        self.registers.push(Value::Null); // Placeholder for return value
+
+        match callee {
+            Value::Function(handle) => {
+                self.call_function(
+                    handle,
+                    None,
+                    &args,
+                    return_reg,
+                    None,
+                    Vec::new(),
+                    None,
+                    false,
+                )?;
+            }
+            Value::Closure { function, captures } => {
+                self.call_function(
+                    function, None, &args, return_reg, None, captures, None, false,
+                )?;
+            }
+            Value::BoundMethod {
+                receiver,
+                function,
+                owner,
+                ..
+            } => {
+                self.call_function(
+                    function,
+                    Some(receiver),
+                    &args,
+                    return_reg,
+                    None,
+                    Vec::new(),
+                    Some(owner),
+                    false,
+                )?;
+            }
+            Value::NativeFunction(f) => {
+                return f(self, &args);
+            }
+            Value::BoundNativeMethod { receiver, function } => {
+                let mut final_args = vec![*receiver.clone()];
+                final_args.extend(args);
+                return function(self, &final_args);
+            }
+            _ => return Err(RuntimeError::new("value is not callable")),
+        }
+
+        // Execute until the callee frame returns
+        let depth = self.frames.len() - 1;
+        let result = self.run_until(depth)?;
+
+        // The result of run_until(depth) is the last value returned?
+        // Actually run_until returns the final result if depth is 0,
+        // but if it's a nested call, we might need to be careful.
+        // Let's check run_until implementation.
+        Ok(result)
+    }
+
+    fn get_gc(&mut self) -> &mut pleno_value::gc::GCManager {
+        &mut self.gc
+    }
 }
 
 impl GcObject for AsyncTask {
@@ -99,6 +168,7 @@ struct VmRoots<'a> {
     modules: &'a HashMap<String, Value>,
     pending_tasks: &'a [AsyncTask],
     suspended_frames: &'a HashMap<u64, SuspendedFrame>,
+    promises: &'a HashMap<u64, Value>,
 }
 
 impl<'a> GcObject for VmRoots<'a> {
@@ -117,6 +187,9 @@ impl<'a> GcObject for VmRoots<'a> {
         }
         for task in self.pending_tasks {
             task.mark(gc);
+        }
+        for promise in self.promises.values() {
+            promise.mark(gc);
         }
         for frame in self.suspended_frames.values() {
             frame.mark(gc);
@@ -302,6 +375,7 @@ impl VM {
             functions: Vec::new(),
             pending_tasks: Vec::new(),
             suspended_frames: HashMap::new(),
+            promises: HashMap::new(),
             next_promise_id: 1,
         }
     }
@@ -352,6 +426,18 @@ impl VM {
     fn process_tasks(&mut self) -> Result<(), RuntimeError> {
         let tasks: Vec<_> = self.pending_tasks.drain(..).collect();
         for task in tasks {
+            // Update Promise map if it exists
+            if let Some(promise_val) = self.promises.remove(&task.promise_id) {
+                if let Value::Map(map) = promise_val {
+                    map.borrow_mut().insert(
+                        "variant".to_string(),
+                        Value::String(Rc::new("Resolved".to_string())),
+                    );
+                    map.borrow_mut()
+                        .insert("value".to_string(), task.value.clone());
+                }
+            }
+
             if let Some(suspended) = self.suspended_frames.remove(&task.promise_id) {
                 let frame = suspended.frame;
                 self.registers[frame.base + suspended.await_reg] = task.value;
@@ -370,6 +456,7 @@ impl VM {
                 modules: &self.modules,
                 pending_tasks: &self.pending_tasks,
                 suspended_frames: &self.suspended_frames,
+                promises: &self.promises,
             };
             self.gc.maybe_collect(&[&roots]);
 
@@ -755,6 +842,7 @@ impl VM {
                 }
                 Opcode::Await => {
                     let value = self.registers[base + b].clone();
+                    // println!("Opcode::Await on value: {:?}", value);
                     match value {
                         Value::Map(map) => {
                             let variant = map.borrow().get("variant").cloned();
@@ -768,9 +856,6 @@ impl VM {
                                             _ => None,
                                         })
                                         .unwrap_or(self.next_promise_id);
-                                    if id == self.next_promise_id {
-                                        self.next_promise_id += 1;
-                                    }
 
                                     let frame = self.frames.pop().unwrap();
                                     self.suspended_frames.insert(
@@ -787,10 +872,14 @@ impl VM {
                                         map.borrow().get("value").cloned().unwrap_or(Value::Null);
                                     self.registers[base + a] = val;
                                 }
-                                _ => self.registers[base + a] = Value::Map(map),
+                                _ => {
+                                    self.registers[base + a] = Value::Map(map);
+                                }
                             }
                         }
-                        _ => self.registers[base + a] = value,
+                        _ => {
+                            self.registers[base + a] = value;
+                        }
                     }
                 }
                 Opcode::Is => {
@@ -1230,6 +1319,11 @@ impl VM {
                     let right = self.registers[base + c].clone();
                     self.registers[base + a] = div_values(left, right)?;
                 }
+                Opcode::Mod => {
+                    let left = self.registers[base + b].clone();
+                    let right = self.registers[base + c].clone();
+                    self.registers[base + a] = mod_values(left, right)?;
+                }
                 Opcode::Neg => {
                     let value = self.registers[base + b].clone();
                     self.registers[base + a] = neg_value(value)?;
@@ -1298,16 +1392,18 @@ impl VM {
                         .unwrap_or_else(|| self.registers[base + a].clone());
 
                     if function_is_async {
-                        // Promise ID is expected at base + arity
-                        let promise_id_idx = frame.base + function_arity;
-                        if promise_id_idx < self.registers.len() {
-                            if let Value::Int(id) = self.registers[promise_id_idx] {
-                                self.pending_tasks.push(AsyncTask {
-                                    promise_id: id as u64,
-                                    value: result.clone(),
-                                    is_async: true,
-                                    is_resolved: true,
-                                });
+                        // Promise ID is the last argument
+                        if function_arity > 0 {
+                            let promise_id_idx = frame.base + function_arity - 1;
+                            if promise_id_idx < self.registers.len() {
+                                if let Value::Int(id) = self.registers[promise_id_idx] {
+                                    self.pending_tasks.push(AsyncTask {
+                                        promise_id: id as u64,
+                                        value: result.clone(),
+                                        is_async: true,
+                                        is_resolved: true,
+                                    });
+                                }
                             }
                         }
                     }
@@ -1513,13 +1609,13 @@ impl VM {
                             )?;
                         }
                         Value::NativeFunction(func) => {
-                            let result = func(&mut self.gc, &args)?;
+                            let result = func(self, &args)?;
                             self.registers[base + a] = result;
                         }
                         Value::BoundNativeMethod { receiver, function } => {
                             let mut merged_args = vec![*receiver];
                             merged_args.extend(args);
-                            let result = function(&mut self.gc, &merged_args)?;
+                            let result = function(self, &merged_args)?;
                             self.registers[base + a] = result;
                         }
                         Value::BoundMethod {
@@ -1724,6 +1820,7 @@ impl VM {
                 );
                 promise_map.insert("value".to_string(), Value::Null);
                 let promise = Value::Map(self.gc.allocate(promise_map));
+                self.promises.insert(promise_id, promise.clone());
 
                 // Set return register to Promise immediately
                 self.registers[return_reg] = promise;
@@ -1809,7 +1906,7 @@ impl VM {
                         "named args not supported for native functions",
                     ));
                 }
-                let result = func(&mut self.gc, &positional)?;
+                let result = func(self, &positional)?;
                 self.registers[return_reg] = result;
                 Ok(())
             }
@@ -1821,7 +1918,7 @@ impl VM {
                 }
                 let mut merged_args = vec![*receiver];
                 merged_args.extend(positional);
-                let result = function(&mut self.gc, &merged_args)?;
+                let result = function(self, &merged_args)?;
                 self.registers[return_reg] = result;
                 Ok(())
             }
@@ -2131,10 +2228,8 @@ fn resolve_module_path(
     Err(RuntimeError::new(format!("module not found: {path}")))
 }
 
-fn native_os_exit(
-    _gc: &mut pleno_value::gc::GCManager,
-    args: &[Value],
-) -> Result<Value, RuntimeError> {
+fn native_os_exit(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    let _gc = vm.get_gc();
     let code = match args.get(0) {
         Some(Value::Int(code)) => *code as i32,
         _ => 0,
@@ -2142,10 +2237,8 @@ fn native_os_exit(
     std::process::exit(code);
 }
 
-fn native_os_getenv(
-    _gc: &mut pleno_value::gc::GCManager,
-    args: &[Value],
-) -> Result<Value, RuntimeError> {
+fn native_os_getenv(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    let _gc = vm.get_gc();
     let name = match args.get(0) {
         Some(Value::String(s)) => s.as_str(),
         _ => return Err(RuntimeError::new("getenv expects string argument")),
@@ -2156,36 +2249,28 @@ fn native_os_getenv(
     }
 }
 
-fn native_os_args(
-    gc: &mut pleno_value::gc::GCManager,
-    _args: &[Value],
-) -> Result<Value, RuntimeError> {
+fn native_os_args(vm: &mut dyn VMProvider, _args: &[Value]) -> Result<Value, RuntimeError> {
+    let gc = vm.get_gc();
     let args: Vec<Value> = std::env::args()
         .map(|arg| Value::String(Rc::new(arg)))
         .collect();
     Ok(Value::Array(gc.allocate(args)))
 }
 
-fn native_os_cwd(
-    _gc: &mut pleno_value::gc::GCManager,
-    _args: &[Value],
-) -> Result<Value, RuntimeError> {
+fn native_os_cwd(vm: &mut dyn VMProvider, _args: &[Value]) -> Result<Value, RuntimeError> {
+    let _gc = vm.get_gc();
     let cwd = std::env::current_dir()
         .map_err(|e| RuntimeError::new(format!("failed to get cwd: {}", e)))?;
     Ok(Value::String(Rc::new(cwd.to_string_lossy().into_owned())))
 }
 
-fn native_os_platform(
-    _gc: &mut pleno_value::gc::GCManager,
-    _args: &[Value],
-) -> Result<Value, RuntimeError> {
+fn native_os_platform(vm: &mut dyn VMProvider, _args: &[Value]) -> Result<Value, RuntimeError> {
+    let _gc = vm.get_gc();
     Ok(Value::String(Rc::new(std::env::consts::OS.to_string())))
 }
 
-fn native_print(
-    _gc: &mut pleno_value::gc::GCManager,
-    args: &[Value],
-) -> Result<Value, RuntimeError> {
+fn native_print(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    let _gc = vm.get_gc();
     let mut out = String::new();
     for (idx, value) in args.iter().enumerate() {
         if idx > 0 {
@@ -2194,10 +2279,11 @@ fn native_print(
         out.push_str(&format!("{}", value));
     }
     println!("{out}");
+    let _ = std::io::stdout().flush();
     Ok(Value::Null)
 }
 
-fn native_id(_gc: &mut pleno_value::gc::GCManager, args: &[Value]) -> Result<Value, RuntimeError> {
+fn native_id(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
     Ok(args.get(0).cloned().unwrap_or(Value::Null))
 }
 
@@ -2405,6 +2491,18 @@ fn div_values(a: Value, b: Value) -> Result<Value, RuntimeError> {
     }
 }
 
+fn mod_values(a: Value, b: Value) -> Result<Value, RuntimeError> {
+    match (a, b) {
+        (Value::Int(_), Value::Int(0)) => Err(RuntimeError::new("modulo by zero")),
+        (Value::Float(_), Value::Float(0.0)) => Err(RuntimeError::new("modulo by zero")),
+        (Value::Int(a), Value::Int(b)) => Ok(Value::Int(a % b)),
+        (Value::Float(a), Value::Float(b)) => Ok(Value::Float(a % b)),
+        (Value::Int(a), Value::Float(b)) => Ok(Value::Float(a as f64 % b)),
+        (Value::Float(a), Value::Int(b)) => Ok(Value::Float(a % b as f64)),
+        _ => Err(RuntimeError::new("invalid operands for %")),
+    }
+}
+
 fn neg_value(value: Value) -> Result<Value, RuntimeError> {
     match value {
         Value::Int(value) => Ok(Value::Int(-value)),
@@ -2494,10 +2592,8 @@ fn resolve_builtin_method(ty: &str, name: &str) -> Option<NativeFunction> {
     }
 }
 
-fn native_string_upper(
-    _gc: &mut pleno_value::gc::GCManager,
-    args: &[Value],
-) -> Result<Value, RuntimeError> {
+fn native_string_upper(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    let _gc = vm.get_gc();
     let s = match &args[0] {
         Value::String(s) => s,
         _ => return Err(RuntimeError::new("expected string")),
@@ -2505,10 +2601,8 @@ fn native_string_upper(
     Ok(Value::String(Rc::new(s.to_uppercase())))
 }
 
-fn native_string_lower(
-    _gc: &mut pleno_value::gc::GCManager,
-    args: &[Value],
-) -> Result<Value, RuntimeError> {
+fn native_string_lower(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    let _gc = vm.get_gc();
     let s = match &args[0] {
         Value::String(s) => s,
         _ => return Err(RuntimeError::new("expected string")),
@@ -2516,10 +2610,8 @@ fn native_string_lower(
     Ok(Value::String(Rc::new(s.to_lowercase())))
 }
 
-fn native_string_trim(
-    _gc: &mut pleno_value::gc::GCManager,
-    args: &[Value],
-) -> Result<Value, RuntimeError> {
+fn native_string_trim(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    let _gc = vm.get_gc();
     let s = match &args[0] {
         Value::String(s) => s,
         _ => return Err(RuntimeError::new("expected string")),
@@ -2527,10 +2619,8 @@ fn native_string_trim(
     Ok(Value::String(Rc::new(s.trim().to_string())))
 }
 
-fn native_string_split(
-    gc: &mut pleno_value::gc::GCManager,
-    args: &[Value],
-) -> Result<Value, RuntimeError> {
+fn native_string_split(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    let gc = vm.get_gc();
     let s = match &args[0] {
         Value::String(s) => s,
         _ => return Err(RuntimeError::new("expected string")),
@@ -2549,10 +2639,8 @@ fn native_string_split(
     Ok(Value::Array(gc.allocate(parts)))
 }
 
-fn native_string_contains(
-    _gc: &mut pleno_value::gc::GCManager,
-    args: &[Value],
-) -> Result<Value, RuntimeError> {
+fn native_string_contains(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    let _gc = vm.get_gc();
     let s = match &args[0] {
         Value::String(s) => s,
         _ => return Err(RuntimeError::new("expected string")),
@@ -2568,9 +2656,10 @@ fn native_string_contains(
 }
 
 fn native_string_starts_with(
-    _gc: &mut pleno_value::gc::GCManager,
+    vm: &mut dyn VMProvider,
     args: &[Value],
 ) -> Result<Value, RuntimeError> {
+    let _gc = vm.get_gc();
     let s = match &args[0] {
         Value::String(s) => s,
         _ => return Err(RuntimeError::new("expected string")),
@@ -2585,10 +2674,8 @@ fn native_string_starts_with(
     Ok(Value::Bool(s.starts_with(prefix)))
 }
 
-fn native_string_ends_with(
-    _gc: &mut pleno_value::gc::GCManager,
-    args: &[Value],
-) -> Result<Value, RuntimeError> {
+fn native_string_ends_with(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    let _gc = vm.get_gc();
     let s = match &args[0] {
         Value::String(s) => s,
         _ => return Err(RuntimeError::new("expected string")),
@@ -2603,10 +2690,8 @@ fn native_string_ends_with(
     Ok(Value::Bool(s.ends_with(suffix)))
 }
 
-fn native_string_replace(
-    _gc: &mut pleno_value::gc::GCManager,
-    args: &[Value],
-) -> Result<Value, RuntimeError> {
+fn native_string_replace(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    let _gc = vm.get_gc();
     let s = match &args[0] {
         Value::String(s) => s,
         _ => return Err(RuntimeError::new("expected string")),
@@ -2627,10 +2712,8 @@ fn native_string_replace(
     Ok(Value::String(Rc::new(s.replace(old_str, new_str))))
 }
 
-fn native_array_push(
-    _gc: &mut pleno_value::gc::GCManager,
-    args: &[Value],
-) -> Result<Value, RuntimeError> {
+fn native_array_push(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    let _gc = vm.get_gc();
     let arr = match &args[0] {
         Value::Array(arr) => arr,
         _ => return Err(RuntimeError::new("expected array")),
@@ -2643,10 +2726,8 @@ fn native_array_push(
     Ok(Value::Null)
 }
 
-fn native_array_pop(
-    _gc: &mut pleno_value::gc::GCManager,
-    args: &[Value],
-) -> Result<Value, RuntimeError> {
+fn native_array_pop(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    let _gc = vm.get_gc();
     let arr = match &args[0] {
         Value::Array(arr) => arr,
         _ => return Err(RuntimeError::new("expected array")),
@@ -2654,10 +2735,8 @@ fn native_array_pop(
     Ok(arr.borrow_mut().pop().unwrap_or(Value::Null))
 }
 
-fn native_array_clear(
-    _gc: &mut pleno_value::gc::GCManager,
-    args: &[Value],
-) -> Result<Value, RuntimeError> {
+fn native_array_clear(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    let _gc = vm.get_gc();
     let arr = match &args[0] {
         Value::Array(arr) => arr,
         _ => return Err(RuntimeError::new("expected array")),
@@ -2666,10 +2745,8 @@ fn native_array_clear(
     Ok(Value::Null)
 }
 
-fn native_set_add(
-    _gc: &mut pleno_value::gc::GCManager,
-    args: &[Value],
-) -> Result<Value, RuntimeError> {
+fn native_set_add(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    let _gc = vm.get_gc();
     let set = match &args[0] {
         Value::Set(set) => set,
         _ => return Err(RuntimeError::new("expected set")),
@@ -2683,10 +2760,8 @@ fn native_set_add(
     Ok(Value::Null)
 }
 
-fn native_set_remove(
-    _gc: &mut pleno_value::gc::GCManager,
-    args: &[Value],
-) -> Result<Value, RuntimeError> {
+fn native_set_remove(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    let _gc = vm.get_gc();
     let set = match &args[0] {
         Value::Set(set) => set,
         _ => return Err(RuntimeError::new("expected set")),
@@ -2700,10 +2775,8 @@ fn native_set_remove(
     Ok(Value::Null)
 }
 
-fn native_set_clear(
-    _gc: &mut pleno_value::gc::GCManager,
-    args: &[Value],
-) -> Result<Value, RuntimeError> {
+fn native_set_clear(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    let _gc = vm.get_gc();
     let set = match &args[0] {
         Value::Set(set) => set,
         _ => return Err(RuntimeError::new("expected set")),
@@ -2712,10 +2785,8 @@ fn native_set_clear(
     Ok(Value::Null)
 }
 
-fn native_set_contains(
-    _gc: &mut pleno_value::gc::GCManager,
-    args: &[Value],
-) -> Result<Value, RuntimeError> {
+fn native_set_contains(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    let _gc = vm.get_gc();
     let set = match &args[0] {
         Value::Set(set) => set,
         _ => return Err(RuntimeError::new("expected set")),
@@ -2728,10 +2799,8 @@ fn native_set_contains(
     Ok(Value::Bool(set.borrow().contains(&key)))
 }
 
-fn native_array_slice(
-    gc: &mut pleno_value::gc::GCManager,
-    args: &[Value],
-) -> Result<Value, RuntimeError> {
+fn native_array_slice(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    let gc = vm.get_gc();
     let arr = match &args[0] {
         Value::Array(arr) => arr,
         _ => return Err(RuntimeError::new("expected array")),
@@ -2739,61 +2808,96 @@ fn native_array_slice(
     let array = arr.borrow();
     let len = array.len();
 
-    // Parse start and end from args
     let start = match args.get(1) {
         Some(Value::Int(i)) => *i as usize,
-        Some(Value::Null) => 0,
+        Some(Value::Null) | None => 0,
         _ => 0,
     };
     let end = match args.get(2) {
         Some(Value::Int(i)) => *i as usize,
-        Some(Value::Null) => len,
+        Some(Value::Null) | None => len,
         _ => len,
     };
 
-    // Handle negative indices
-    let start = if start > len { len } else { start };
-    let end = if end > len { len } else { end };
+    let start = start.min(len);
+    let end = end.min(len);
 
-    // Create new array with slice
     let slice: Vec<Value> = array[start..end].to_vec();
     Ok(Value::Array(gc.allocate(slice)))
 }
 
-fn native_array_map(
-    _gc: &mut pleno_value::gc::GCManager,
-    _args: &[Value],
-) -> Result<Value, RuntimeError> {
-    // TODO: Implement map() - requires calling function for each element
-    Err(RuntimeError::new(
-        "map() is not fully implemented yet - requires function calling in native code",
-    ))
+fn native_array_map(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    let arr = match &args[0] {
+        Value::Array(arr) => arr.clone(),
+        _ => return Err(RuntimeError::new("expected array")),
+    };
+    if args.len() < 2 {
+        return Err(RuntimeError::new("map() expects 1 argument (callback)"));
+    }
+    let callback = args[1].clone();
+    let items = arr.borrow().clone();
+    let mut results = Vec::with_capacity(items.len());
+    for item in items {
+        let res = vm.call(callback.clone(), vec![item])?;
+        results.push(res);
+    }
+    Ok(Value::Array(vm.get_gc().allocate(results)))
 }
 
-fn native_array_filter(
-    _gc: &mut pleno_value::gc::GCManager,
-    _args: &[Value],
-) -> Result<Value, RuntimeError> {
-    // TODO: Implement filter() - requires calling function for each element
-    Err(RuntimeError::new(
-        "filter() is not fully implemented yet - requires function calling in native code",
-    ))
+fn native_array_filter(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    let arr = match &args[0] {
+        Value::Array(arr) => arr.clone(),
+        _ => return Err(RuntimeError::new("expected array")),
+    };
+    if args.len() < 2 {
+        return Err(RuntimeError::new("filter() expects 1 argument (callback)"));
+    }
+    let callback = args[1].clone();
+    let items = arr.borrow().clone();
+    let mut results = Vec::new();
+    for item in items {
+        let res = vm.call(callback.clone(), vec![item.clone()])?;
+        if is_truthy(&res) {
+            results.push(item);
+        }
+    }
+    Ok(Value::Array(vm.get_gc().allocate(results)))
 }
 
-fn native_array_reduce(
-    _gc: &mut pleno_value::gc::GCManager,
-    _args: &[Value],
-) -> Result<Value, RuntimeError> {
-    // TODO: Implement reduce() - requires calling function for each element
-    Err(RuntimeError::new(
-        "reduce() is not fully implemented yet - requires function calling in native code",
-    ))
+fn native_array_reduce(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    let arr = match &args[0] {
+        Value::Array(arr) => arr.clone(),
+        _ => return Err(RuntimeError::new("expected array")),
+    };
+    if args.len() < 2 {
+        return Err(RuntimeError::new(
+            "reduce() expects at least 1 argument (callback)",
+        ));
+    }
+    let callback = args[1].clone();
+    let items = arr.borrow().clone();
+    if items.is_empty() {
+        if args.len() >= 3 {
+            return Ok(args[2].clone());
+        } else {
+            return Err(RuntimeError::new(
+                "reduce() of empty array with no initial value",
+            ));
+        }
+    }
+    let (mut accumulator, start_idx) = if args.len() >= 3 {
+        (args[2].clone(), 0)
+    } else {
+        (items[0].clone(), 1)
+    };
+    for i in start_idx..items.len() {
+        accumulator = vm.call(callback.clone(), vec![accumulator, items[i].clone()])?;
+    }
+    Ok(accumulator)
 }
 
-fn native_array_reverse(
-    _gc: &mut pleno_value::gc::GCManager,
-    args: &[Value],
-) -> Result<Value, RuntimeError> {
+fn native_array_reverse(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    let _gc = vm.get_gc();
     let arr = match &args[0] {
         Value::Array(arr) => arr,
         _ => return Err(RuntimeError::new("expected array")),
@@ -2803,10 +2907,8 @@ fn native_array_reverse(
     Ok(Value::Null)
 }
 
-fn native_array_contains(
-    _gc: &mut pleno_value::gc::GCManager,
-    args: &[Value],
-) -> Result<Value, RuntimeError> {
+fn native_array_contains(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    let _gc = vm.get_gc();
     let arr = match &args[0] {
         Value::Array(arr) => arr,
         _ => return Err(RuntimeError::new("expected array")),
@@ -2819,10 +2921,8 @@ fn native_array_contains(
     Ok(Value::Bool(array.contains(search_value)))
 }
 
-fn native_array_index_of(
-    _gc: &mut pleno_value::gc::GCManager,
-    args: &[Value],
-) -> Result<Value, RuntimeError> {
+fn native_array_index_of(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    let _gc = vm.get_gc();
     let arr = match &args[0] {
         Value::Array(arr) => arr,
         _ => return Err(RuntimeError::new("expected array")),
@@ -2841,10 +2941,8 @@ fn native_array_index_of(
 }
 
 // Result type constructors and methods
-fn native_result_ok(
-    gc: &mut pleno_value::gc::GCManager,
-    args: &[Value],
-) -> Result<Value, RuntimeError> {
+fn native_result_ok(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    let gc = vm.get_gc();
     if args.is_empty() {
         return Err(RuntimeError::new("Ok() requires 1 argument"));
     }
@@ -2857,10 +2955,8 @@ fn native_result_ok(
     Ok(Value::Map(gc.allocate(result)))
 }
 
-fn native_result_err(
-    gc: &mut pleno_value::gc::GCManager,
-    args: &[Value],
-) -> Result<Value, RuntimeError> {
+fn native_result_err(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    let gc = vm.get_gc();
     if args.is_empty() {
         return Err(RuntimeError::new("Err() requires 1 argument"));
     }
@@ -2874,10 +2970,8 @@ fn native_result_err(
 }
 
 // Option type constructors
-fn native_option_some(
-    gc: &mut pleno_value::gc::GCManager,
-    args: &[Value],
-) -> Result<Value, RuntimeError> {
+fn native_option_some(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    let gc = vm.get_gc();
     if args.is_empty() {
         return Err(RuntimeError::new("Some() requires 1 argument"));
     }
@@ -2890,10 +2984,8 @@ fn native_option_some(
     Ok(Value::Map(gc.allocate(option)))
 }
 
-fn native_option_none(
-    gc: &mut pleno_value::gc::GCManager,
-    _args: &[Value],
-) -> Result<Value, RuntimeError> {
+fn native_option_none(vm: &mut dyn VMProvider, _args: &[Value]) -> Result<Value, RuntimeError> {
+    let gc = vm.get_gc();
     let mut option = HashMap::new();
     option.insert(
         "variant".to_string(),
@@ -2903,10 +2995,8 @@ fn native_option_none(
 }
 
 // Result methods
-fn native_result_unwrap(
-    _gc: &mut pleno_value::gc::GCManager,
-    args: &[Value],
-) -> Result<Value, RuntimeError> {
+fn native_result_unwrap(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    let _gc = vm.get_gc();
     let result = match &args[0] {
         Value::Map(map) => map,
         _ => return Err(RuntimeError::new("unwrap() called on non-Result value")),
@@ -2924,10 +3014,8 @@ fn native_result_unwrap(
     }
 }
 
-fn native_result_unwrap_or(
-    _gc: &mut pleno_value::gc::GCManager,
-    args: &[Value],
-) -> Result<Value, RuntimeError> {
+fn native_result_unwrap_or(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    let _gc = vm.get_gc();
     if args.len() < 2 {
         return Err(RuntimeError::new("unwrapOr() requires a default value"));
     }
@@ -2945,10 +3033,8 @@ fn native_result_unwrap_or(
     }
 }
 
-fn native_result_expect(
-    _gc: &mut pleno_value::gc::GCManager,
-    args: &[Value],
-) -> Result<Value, RuntimeError> {
+fn native_result_expect(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    let _gc = vm.get_gc();
     if args.len() < 2 {
         return Err(RuntimeError::new("expect() requires a message"));
     }
@@ -2977,10 +3063,8 @@ fn native_result_expect(
     }
 }
 
-fn native_result_is_ok(
-    _gc: &mut pleno_value::gc::GCManager,
-    args: &[Value],
-) -> Result<Value, RuntimeError> {
+fn native_result_is_ok(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    let _gc = vm.get_gc();
     let result = match &args[0] {
         Value::Map(map) => map,
         _ => return Err(RuntimeError::new("isOk() called on non-Result value")),
@@ -2992,10 +3076,8 @@ fn native_result_is_ok(
     }
 }
 
-fn native_result_is_err(
-    _gc: &mut pleno_value::gc::GCManager,
-    args: &[Value],
-) -> Result<Value, RuntimeError> {
+fn native_result_is_err(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    let _gc = vm.get_gc();
     let result = match &args[0] {
         Value::Map(map) => map,
         _ => return Err(RuntimeError::new("isErr() called on non-Result value")),
@@ -3008,10 +3090,8 @@ fn native_result_is_err(
 }
 
 // Option methods
-fn native_option_unwrap(
-    _gc: &mut pleno_value::gc::GCManager,
-    args: &[Value],
-) -> Result<Value, RuntimeError> {
+fn native_option_unwrap(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    let _gc = vm.get_gc();
     let option = match &args[0] {
         Value::Map(map) => map,
         _ => return Err(RuntimeError::new("unwrap() called on non-Option value")),
@@ -3029,10 +3109,8 @@ fn native_option_unwrap(
     }
 }
 
-fn native_option_unwrap_or(
-    _gc: &mut pleno_value::gc::GCManager,
-    args: &[Value],
-) -> Result<Value, RuntimeError> {
+fn native_option_unwrap_or(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    let _gc = vm.get_gc();
     if args.len() < 2 {
         return Err(RuntimeError::new("unwrapOr() requires a default value"));
     }
@@ -3050,10 +3128,8 @@ fn native_option_unwrap_or(
     }
 }
 
-fn native_option_expect(
-    _gc: &mut pleno_value::gc::GCManager,
-    args: &[Value],
-) -> Result<Value, RuntimeError> {
+fn native_option_expect(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    let _gc = vm.get_gc();
     if args.len() < 2 {
         return Err(RuntimeError::new("expect() requires a message"));
     }
@@ -3082,10 +3158,8 @@ fn native_option_expect(
     }
 }
 
-fn native_option_is_some(
-    _gc: &mut pleno_value::gc::GCManager,
-    args: &[Value],
-) -> Result<Value, RuntimeError> {
+fn native_option_is_some(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    let _gc = vm.get_gc();
     let option = match &args[0] {
         Value::Map(map) => map,
         _ => return Err(RuntimeError::new("isSome() called on non-Option value")),
@@ -3097,10 +3171,8 @@ fn native_option_is_some(
     }
 }
 
-fn native_option_is_none(
-    _gc: &mut pleno_value::gc::GCManager,
-    args: &[Value],
-) -> Result<Value, RuntimeError> {
+fn native_option_is_none(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    let _gc = vm.get_gc();
     let option = match &args[0] {
         Value::Map(map) => map,
         _ => return Err(RuntimeError::new("isNone() called on non-Option value")),
@@ -3113,10 +3185,8 @@ fn native_option_is_none(
 }
 
 // Math native functions
-fn native_math_abs(
-    _gc: &mut pleno_value::gc::GCManager,
-    args: &[Value],
-) -> Result<Value, RuntimeError> {
+fn native_math_abs(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    let _gc = vm.get_gc();
     match args.get(0) {
         Some(Value::Int(n)) => Ok(Value::Int(n.abs())),
         Some(Value::Float(n)) => Ok(Value::Float(n.abs())),
@@ -3124,10 +3194,8 @@ fn native_math_abs(
     }
 }
 
-fn native_math_pow(
-    _gc: &mut pleno_value::gc::GCManager,
-    args: &[Value],
-) -> Result<Value, RuntimeError> {
+fn native_math_pow(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    let _gc = vm.get_gc();
     let base = match args.get(0) {
         Some(Value::Int(n)) => *n as f64,
         Some(Value::Float(n)) => *n,
@@ -3141,10 +3209,8 @@ fn native_math_pow(
     Ok(Value::Float(base.powf(exp)))
 }
 
-fn native_math_sqrt(
-    _gc: &mut pleno_value::gc::GCManager,
-    args: &[Value],
-) -> Result<Value, RuntimeError> {
+fn native_math_sqrt(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    let _gc = vm.get_gc();
     match args.get(0) {
         Some(Value::Int(n)) => Ok(Value::Float((*n as f64).sqrt())),
         Some(Value::Float(n)) => Ok(Value::Float(n.sqrt())),
@@ -3152,18 +3218,14 @@ fn native_math_sqrt(
     }
 }
 
-fn native_math_random(
-    _gc: &mut pleno_value::gc::GCManager,
-    _args: &[Value],
-) -> Result<Value, RuntimeError> {
+fn native_math_random(vm: &mut dyn VMProvider, _args: &[Value]) -> Result<Value, RuntimeError> {
+    let _gc = vm.get_gc();
     use rand::Rng;
     Ok(Value::Float(rand::thread_rng().r#gen()))
 }
 
-fn native_math_random_int(
-    _gc: &mut pleno_value::gc::GCManager,
-    args: &[Value],
-) -> Result<Value, RuntimeError> {
+fn native_math_random_int(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    let _gc = vm.get_gc();
     use rand::Rng;
     let min = match args.get(0) {
         Some(Value::Int(n)) => *n,
@@ -3179,10 +3241,8 @@ fn native_math_random_int(
     Ok(Value::Int(rand::thread_rng().gen_range(min..max)))
 }
 
-fn native_math_sin(
-    _gc: &mut pleno_value::gc::GCManager,
-    args: &[Value],
-) -> Result<Value, RuntimeError> {
+fn native_math_sin(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    let _gc = vm.get_gc();
     match args.get(0) {
         Some(Value::Int(n)) => Ok(Value::Float((*n as f64).sin())),
         Some(Value::Float(n)) => Ok(Value::Float(n.sin())),
@@ -3190,10 +3250,8 @@ fn native_math_sin(
     }
 }
 
-fn native_math_cos(
-    _gc: &mut pleno_value::gc::GCManager,
-    args: &[Value],
-) -> Result<Value, RuntimeError> {
+fn native_math_cos(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    let _gc = vm.get_gc();
     match args.get(0) {
         Some(Value::Int(n)) => Ok(Value::Float((*n as f64).cos())),
         Some(Value::Float(n)) => Ok(Value::Float(n.cos())),
@@ -3201,10 +3259,8 @@ fn native_math_cos(
     }
 }
 
-fn native_math_tan(
-    _gc: &mut pleno_value::gc::GCManager,
-    args: &[Value],
-) -> Result<Value, RuntimeError> {
+fn native_math_tan(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    let _gc = vm.get_gc();
     match args.get(0) {
         Some(Value::Int(n)) => Ok(Value::Float((*n as f64).tan())),
         Some(Value::Float(n)) => Ok(Value::Float(n.tan())),
@@ -3212,10 +3268,8 @@ fn native_math_tan(
     }
 }
 
-fn native_math_log(
-    _gc: &mut pleno_value::gc::GCManager,
-    args: &[Value],
-) -> Result<Value, RuntimeError> {
+fn native_math_log(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    let _gc = vm.get_gc();
     match args.get(0) {
         Some(Value::Int(n)) => Ok(Value::Float((*n as f64).ln())),
         Some(Value::Float(n)) => Ok(Value::Float(n.ln())),
@@ -3223,10 +3277,8 @@ fn native_math_log(
     }
 }
 
-fn native_math_exp(
-    _gc: &mut pleno_value::gc::GCManager,
-    args: &[Value],
-) -> Result<Value, RuntimeError> {
+fn native_math_exp(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    let _gc = vm.get_gc();
     match args.get(0) {
         Some(Value::Int(n)) => Ok(Value::Float((*n as f64).exp())),
         Some(Value::Float(n)) => Ok(Value::Float(n.exp())),
@@ -3234,10 +3286,8 @@ fn native_math_exp(
     }
 }
 
-fn native_math_floor(
-    _gc: &mut pleno_value::gc::GCManager,
-    args: &[Value],
-) -> Result<Value, RuntimeError> {
+fn native_math_floor(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    let _gc = vm.get_gc();
     match args.get(0) {
         Some(Value::Int(n)) => Ok(Value::Int(*n)),
         Some(Value::Float(n)) => Ok(Value::Int(n.floor() as i64)),
@@ -3245,10 +3295,8 @@ fn native_math_floor(
     }
 }
 
-fn native_math_ceil(
-    _gc: &mut pleno_value::gc::GCManager,
-    args: &[Value],
-) -> Result<Value, RuntimeError> {
+fn native_math_ceil(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    let _gc = vm.get_gc();
     match args.get(0) {
         Some(Value::Int(n)) => Ok(Value::Int(*n)),
         Some(Value::Float(n)) => Ok(Value::Int(n.ceil() as i64)),
@@ -3256,10 +3304,8 @@ fn native_math_ceil(
     }
 }
 
-fn native_math_round(
-    _gc: &mut pleno_value::gc::GCManager,
-    args: &[Value],
-) -> Result<Value, RuntimeError> {
+fn native_math_round(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    let _gc = vm.get_gc();
     match args.get(0) {
         Some(Value::Int(n)) => Ok(Value::Int(*n)),
         Some(Value::Float(n)) => Ok(Value::Int(n.round() as i64)),
@@ -3268,10 +3314,8 @@ fn native_math_round(
 }
 
 // Regex native functions
-fn native_regex_is_match(
-    _gc: &mut pleno_value::gc::GCManager,
-    args: &[Value],
-) -> Result<Value, RuntimeError> {
+fn native_regex_is_match(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    let _gc = vm.get_gc();
     if args.len() < 2 {
         return Err(RuntimeError::new("isMatch() requires pattern and text"));
     }
@@ -3289,10 +3333,8 @@ fn native_regex_is_match(
     Ok(Value::Bool(re.is_match(text)))
 }
 
-fn native_regex_match(
-    gc: &mut pleno_value::gc::GCManager,
-    args: &[Value],
-) -> Result<Value, RuntimeError> {
+fn native_regex_match(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    let gc = vm.get_gc();
     if args.len() < 2 {
         return Err(RuntimeError::new("match() requires pattern and text"));
     }
@@ -3322,10 +3364,8 @@ fn native_regex_match(
     }
 }
 
-fn native_regex_find_all(
-    gc: &mut pleno_value::gc::GCManager,
-    args: &[Value],
-) -> Result<Value, RuntimeError> {
+fn native_regex_find_all(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    let gc = vm.get_gc();
     if args.len() < 2 {
         return Err(RuntimeError::new("findAll() requires pattern and text"));
     }
@@ -3355,10 +3395,8 @@ fn native_regex_find_all(
     Ok(Value::Array(gc.allocate(matches)))
 }
 
-fn native_regex_replace(
-    _gc: &mut pleno_value::gc::GCManager,
-    args: &[Value],
-) -> Result<Value, RuntimeError> {
+fn native_regex_replace(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    let _gc = vm.get_gc();
     if args.len() < 3 {
         return Err(RuntimeError::new(
             "replace() requires pattern, text, and replacement",
@@ -3435,10 +3473,8 @@ fn json_to_value(json: serde_json::Value, gc: &mut pleno_value::gc::GCManager) -
     }
 }
 
-fn native_json_parse(
-    gc: &mut pleno_value::gc::GCManager,
-    args: &[Value],
-) -> Result<Value, RuntimeError> {
+fn native_json_parse(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    let gc = vm.get_gc();
     if args.is_empty() {
         return Err(RuntimeError::new("JSON.parse() requires string argument"));
     }
@@ -3453,10 +3489,8 @@ fn native_json_parse(
     Ok(json_to_value(json_val, gc))
 }
 
-fn native_json_stringify(
-    _gc: &mut pleno_value::gc::GCManager,
-    args: &[Value],
-) -> Result<Value, RuntimeError> {
+fn native_json_stringify(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    let _gc = vm.get_gc();
     if args.is_empty() {
         return Err(RuntimeError::new(
             "JSON.stringify() requires value argument",
@@ -3469,9 +3503,10 @@ fn native_json_stringify(
 }
 
 fn native_json_stringify_pretty(
-    _gc: &mut pleno_value::gc::GCManager,
+    vm: &mut dyn VMProvider,
     args: &[Value],
 ) -> Result<Value, RuntimeError> {
+    let _gc = vm.get_gc();
     if args.is_empty() {
         return Err(RuntimeError::new(
             "JSON.stringify() requires value argument",
@@ -3484,10 +3519,8 @@ fn native_json_stringify_pretty(
 }
 
 // I/O native functions
-fn native_file_read(
-    _gc: &mut pleno_value::gc::GCManager,
-    args: &[Value],
-) -> Result<Value, RuntimeError> {
+fn native_file_read(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    let _gc = vm.get_gc();
     if args.is_empty() {
         return Err(RuntimeError::new("read() requires path"));
     }
@@ -3500,10 +3533,8 @@ fn native_file_read(
     Ok(Value::String(Rc::new(content)))
 }
 
-fn native_file_write(
-    _gc: &mut pleno_value::gc::GCManager,
-    args: &[Value],
-) -> Result<Value, RuntimeError> {
+fn native_file_write(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    let _gc = vm.get_gc();
     if args.len() < 2 {
         return Err(RuntimeError::new("write() requires path and content"));
     }
@@ -3520,10 +3551,8 @@ fn native_file_write(
     Ok(Value::Null)
 }
 
-fn native_file_exists(
-    _gc: &mut pleno_value::gc::GCManager,
-    args: &[Value],
-) -> Result<Value, RuntimeError> {
+fn native_file_exists(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    let _gc = vm.get_gc();
     if args.is_empty() {
         return Err(RuntimeError::new("exists() requires path"));
     }
@@ -3534,10 +3563,8 @@ fn native_file_exists(
     Ok(Value::Bool(std::path::Path::new(path).exists()))
 }
 
-fn native_directory_create(
-    _gc: &mut pleno_value::gc::GCManager,
-    args: &[Value],
-) -> Result<Value, RuntimeError> {
+fn native_directory_create(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    let _gc = vm.get_gc();
     if args.is_empty() {
         return Err(RuntimeError::new("create() requires path"));
     }
@@ -3550,10 +3577,8 @@ fn native_directory_create(
     Ok(Value::Null)
 }
 
-fn native_directory_exists(
-    _gc: &mut pleno_value::gc::GCManager,
-    args: &[Value],
-) -> Result<Value, RuntimeError> {
+fn native_directory_exists(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    let _gc = vm.get_gc();
     if args.is_empty() {
         return Err(RuntimeError::new("exists() requires path"));
     }

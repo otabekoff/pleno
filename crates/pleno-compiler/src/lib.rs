@@ -1632,6 +1632,9 @@ impl Compiler {
             params.push("this".to_string());
         }
         params.extend(decl.params.iter().map(|param| param.name.clone()));
+        if decl.is_async {
+            params.push("__promise_id".to_string());
+        }
         for param in &params {
             let reg = compiler.registers.allocate()?;
             let ty = if param == "this" {
