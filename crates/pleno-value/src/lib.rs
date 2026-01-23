@@ -20,12 +20,12 @@ pub enum Value {
     BoundMethod {
         receiver: GcRc<Object>,
         function: usize,
-        owner: Rc<String>,
+        owner: GcRc<Class>,
         visibility: MethodVisibility,
     },
     StaticMethod {
         function: usize,
-        owner: Rc<String>,
+        owner: GcRc<Class>,
         visibility: MethodVisibility,
     },
     Closure {
@@ -182,7 +182,7 @@ pub enum MethodVisibility {
 pub struct MethodInfo {
     pub function: usize,
     pub visibility: MethodVisibility,
-    pub owner: Rc<String>,
+    pub owner: GcRc<Class>,
     pub module: Option<Rc<String>>,
 }
 
@@ -301,8 +301,10 @@ impl std::fmt::Display for Value {
             }
             Value::Class(c) => write!(f, "<class {}>", c.borrow().name),
             Value::Function(_) => write!(f, "<fn>"),
-            Value::BoundMethod { owner, .. } => write!(f, "<method of {}>", owner),
-            Value::StaticMethod { owner, .. } => write!(f, "<static method of {}>", owner),
+            Value::BoundMethod { owner, .. } => write!(f, "<method of {}>", owner.borrow().name),
+            Value::StaticMethod { owner, .. } => {
+                write!(f, "<static method of {}>", owner.borrow().name)
+            }
             Value::Closure { .. } => write!(f, "<closure>"),
             Value::NativeFunction(_) => write!(f, "<native fn>"),
             Value::BoundNativeMethod { .. } => write!(f, "<native method>"),
