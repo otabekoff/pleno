@@ -44,7 +44,15 @@ export class Regex {
     }
 
     public fn findAll(text: String): Array {
-        return __native_regex_find_all(this.pattern, text);
+        let rawMatches = __native_regex_find_all(this.pattern, text);
+        if (rawMatches == null) {
+            return [];
+        }
+        let matches = [];
+        for (groups in rawMatches) {
+            matches.push(Match(groups));
+        }
+        return matches;
     }
 
     public static fn isMatch(pattern, text): Bool {

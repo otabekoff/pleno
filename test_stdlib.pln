@@ -10,12 +10,18 @@ print("--- Testing Regex ---");
 print("Regex value: " + Regex);
 
 let pattern = Regex("\\d+");
+print("Match digits '123': " + pattern.test("123"));
+print("Match digits 'abc': " + pattern.test("abc"));
+let found = pattern.findAll("a12b34c");
+print("Find all 'a12b34c': " + found[0].group(0) + ", " + found[1].group(0));
+print("Replace: " + pattern.replace("a12b34c", "X"));
 
 print("--- Testing JSON ---");
 let obj = {
     "name": "Pleno",
     "version": 1
 };
+
 let jsonStr = JSON.stringify(obj);
 print("JSON stringify: " + jsonStr);
 let parsed = JSON.parse(jsonStr);

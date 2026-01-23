@@ -12,6 +12,7 @@ use std::rc::Rc;
 pub struct AsyncTask {
     pub promise_id: u64,
     pub value: Value,
+    pub is_async: bool,
     pub is_resolved: bool,
 }
 
@@ -251,6 +252,26 @@ impl VM {
         );
 
         // OS native functions
+        globals.insert(
+            "__native_os_exit".to_string(),
+            Value::NativeFunction(native_os_exit),
+        );
+        globals.insert(
+            "__native_os_getenv".to_string(),
+            Value::NativeFunction(native_os_getenv),
+        );
+        globals.insert(
+            "__native_os_args".to_string(),
+            Value::NativeFunction(native_os_args),
+        );
+        globals.insert(
+            "__native_os_cwd".to_string(),
+            Value::NativeFunction(native_os_cwd),
+        );
+        globals.insert(
+            "__native_os_platform".to_string(),
+            Value::NativeFunction(native_os_platform),
+        );
         globals.insert(
             "__native_os_exit".to_string(),
             Value::NativeFunction(native_os_exit),
@@ -601,6 +622,20 @@ impl VM {
                             .get(&name)
                             .cloned()
                             .unwrap_or(Value::Null),
+                        Value::Array(array) => {
+                            if name == "length" {
+                                Value::Int(array.borrow().len() as i64)
+                            } else {
+                                return Err(RuntimeError::new("unknown array field"));
+                            }
+                        }
+                        Value::String(s) => {
+                            if name == "length" {
+                                Value::Int(s.len() as i64)
+                            } else {
+                                return Err(RuntimeError::new("unknown string field"));
+                            }
+                        }
                         _ => return Err(RuntimeError::new("field access on non-object value")),
                     };
                     self.registers[base + a] = value;
@@ -1081,7 +1116,7 @@ impl VM {
                             }
                         }
                         Value::Array(array) => {
-                            if name == "len" {
+                            if name == "len" || name == "length" {
                                 Value::Int(array.borrow().len() as i64)
                             } else if let Some(func) = resolve_builtin_method("Array", &name) {
                                 Value::BoundNativeMethod {
@@ -1093,7 +1128,7 @@ impl VM {
                             }
                         }
                         Value::String(s) => {
-                            if name == "len" {
+                            if name == "len" || name == "length" {
                                 Value::Int(s.len() as i64)
                             } else if let Some(func) = resolve_builtin_method("String", &name) {
                                 Value::BoundNativeMethod {
@@ -1252,14 +1287,39 @@ impl VM {
                         .frames
                         .pop()
                         .ok_or_else(|| RuntimeError::new("no frame"))?;
+
+                    // We need to look up the function to check if it is async
+                    let function_is_async = self.functions[frame.function_index].is_async;
+                    let function_arity = self.functions[frame.function_index].arity;
+
                     let result = frame
                         .return_override
+                        .clone()
                         .unwrap_or_else(|| self.registers[base + a].clone());
+
+                    if function_is_async {
+                        // Promise ID is expected at base + arity
+                        let promise_id_idx = frame.base + function_arity;
+                        if promise_id_idx < self.registers.len() {
+                            if let Value::Int(id) = self.registers[promise_id_idx] {
+                                self.pending_tasks.push(AsyncTask {
+                                    promise_id: id as u64,
+                                    value: result.clone(),
+                                    is_async: true,
+                                    is_resolved: true,
+                                });
+                            }
+                        }
+                    }
+
                     self.registers.truncate(frame.base);
                     if self.frames.len() == depth {
                         return Ok(result);
                     }
-                    self.registers[frame.return_reg] = result;
+
+                    if !function_is_async {
+                        self.registers[frame.return_reg] = result;
+                    }
                 }
                 Opcode::GetGlobal => {
                     let name = match &function.chunk.constants[b] {
@@ -1645,6 +1705,30 @@ impl VM {
             let mut processed = Vec::new();
             let mut arg_idx = 0;
 
+            if function.is_async {
+                // Generate promise ID
+                let promise_id = self.next_promise_id;
+                self.next_promise_id += 1;
+
+                // Inject promise ID as last argument
+                // Note: The compiler should have added an extra parameter to function.params
+                // So when we iterate function.params, the last one will consume this value.
+                final_args.push(Value::Int(promise_id as i64));
+
+                // Create Promise object
+                let mut promise_map = HashMap::new();
+                promise_map.insert("id".to_string(), Value::Int(promise_id as i64));
+                promise_map.insert(
+                    "variant".to_string(),
+                    Value::String(Rc::new("Pending".to_string())),
+                );
+                promise_map.insert("value".to_string(), Value::Null);
+                let promise = Value::Map(self.gc.allocate(promise_map));
+
+                // Set return register to Promise immediately
+                self.registers[return_reg] = promise;
+            }
+
             for param in function.params.iter() {
                 if param.is_variadic {
                     let rest = final_args[arg_idx..].to_vec();
@@ -1676,8 +1760,12 @@ impl VM {
             }
 
             if arg_idx < final_args.len() {
+                // Return arg_idx and len for debug
+                // return Err(RuntimeError::new(format!("too many positional arguments: {} > {}", arg_idx, final_args.len())));
                 return Err(RuntimeError::new("too many positional arguments"));
             }
+            // println!("Calling function. is_async: {}, arity: {}, params: {}", function.is_async, function.arity, function.params.len());
+
             processed
         };
 
@@ -3182,98 +3270,297 @@ fn native_math_round(
 // Regex native functions
 fn native_regex_is_match(
     _gc: &mut pleno_value::gc::GCManager,
-    _args: &[Value],
+    args: &[Value],
 ) -> Result<Value, RuntimeError> {
-    // Stub
-    Ok(Value::Bool(false))
+    if args.len() < 2 {
+        return Err(RuntimeError::new("isMatch() requires pattern and text"));
+    }
+    let pattern = match &args[0] {
+        Value::String(s) => s.as_str(),
+        _ => return Err(RuntimeError::new("pattern must be string")),
+    };
+    let text = match &args[1] {
+        Value::String(s) => s.as_str(),
+        _ => return Err(RuntimeError::new("text must be string")),
+    };
+
+    let re = regex::Regex::new(pattern)
+        .map_err(|e| RuntimeError::new(format!("invalid regex: {}", e)))?;
+    Ok(Value::Bool(re.is_match(text)))
 }
 
 fn native_regex_match(
-    _gc: &mut pleno_value::gc::GCManager,
-    _args: &[Value],
+    gc: &mut pleno_value::gc::GCManager,
+    args: &[Value],
 ) -> Result<Value, RuntimeError> {
-    // Stub
-    Ok(Value::Null)
+    if args.len() < 2 {
+        return Err(RuntimeError::new("match() requires pattern and text"));
+    }
+    let pattern = match &args[0] {
+        Value::String(s) => s.as_str(),
+        _ => return Err(RuntimeError::new("pattern must be string")),
+    };
+    let text = match &args[1] {
+        Value::String(s) => s.as_str(),
+        _ => return Err(RuntimeError::new("text must be string")),
+    };
+
+    let re = regex::Regex::new(pattern)
+        .map_err(|e| RuntimeError::new(format!("invalid regex: {}", e)))?;
+    match re.captures(text) {
+        Some(caps) => {
+            let mut groups = Vec::new();
+            for i in 0..caps.len() {
+                match caps.get(i) {
+                    Some(m) => groups.push(Value::String(Rc::new(m.as_str().to_string()))),
+                    None => groups.push(Value::Null),
+                }
+            }
+            Ok(Value::Array(gc.allocate(groups)))
+        }
+        None => Ok(Value::Null),
+    }
 }
 
 fn native_regex_find_all(
-    _gc: &mut pleno_value::gc::GCManager,
-    _args: &[Value],
+    gc: &mut pleno_value::gc::GCManager,
+    args: &[Value],
 ) -> Result<Value, RuntimeError> {
-    // Stub
-    Ok(Value::Null)
+    if args.len() < 2 {
+        return Err(RuntimeError::new("findAll() requires pattern and text"));
+    }
+    let pattern = match &args[0] {
+        Value::String(s) => s.as_str(),
+        _ => return Err(RuntimeError::new("pattern must be string")),
+    };
+    let text = match &args[1] {
+        Value::String(s) => s.as_str(),
+        _ => return Err(RuntimeError::new("text must be string")),
+    };
+
+    let re = regex::Regex::new(pattern)
+        .map_err(|e| RuntimeError::new(format!("invalid regex: {}", e)))?;
+    let mut matches = Vec::new();
+
+    for caps in re.captures_iter(text) {
+        let mut groups = Vec::new();
+        for i in 0..caps.len() {
+            match caps.get(i) {
+                Some(m) => groups.push(Value::String(Rc::new(m.as_str().to_string()))),
+                None => groups.push(Value::Null),
+            }
+        }
+        matches.push(Value::Array(gc.allocate(groups)));
+    }
+    Ok(Value::Array(gc.allocate(matches)))
 }
 
 fn native_regex_replace(
     _gc: &mut pleno_value::gc::GCManager,
-    _args: &[Value],
+    args: &[Value],
 ) -> Result<Value, RuntimeError> {
-    // Stub
-    Ok(Value::Null)
+    if args.len() < 3 {
+        return Err(RuntimeError::new(
+            "replace() requires pattern, text, and replacement",
+        ));
+    }
+    let pattern = match &args[0] {
+        Value::String(s) => s.as_str(),
+        _ => return Err(RuntimeError::new("pattern must be string")),
+    };
+    let text = match &args[1] {
+        Value::String(s) => s.as_str(),
+        _ => return Err(RuntimeError::new("text must be string")),
+    };
+    let replacement = match &args[2] {
+        Value::String(s) => s.as_str(),
+        _ => return Err(RuntimeError::new("replacement must be string")),
+    };
+
+    let re = regex::Regex::new(pattern)
+        .map_err(|e| RuntimeError::new(format!("invalid regex: {}", e)))?;
+    let result = re.replace_all(text, replacement);
+    Ok(Value::String(Rc::new(result.to_string())))
 }
 
 // JSON native functions
+fn value_to_json(value: &Value) -> Result<serde_json::Value, RuntimeError> {
+    match value {
+        Value::Null => Ok(serde_json::Value::Null),
+        Value::Bool(b) => Ok(serde_json::Value::Bool(*b)),
+        Value::Int(i) => Ok(serde_json::json!(i)),
+        Value::Float(f) => Ok(serde_json::json!(f)),
+        Value::String(s) => Ok(serde_json::Value::String(s.as_str().to_string())),
+        Value::Array(arr) => {
+            let mut vec = Vec::new();
+            for item in arr.borrow().iter() {
+                vec.push(value_to_json(item)?);
+            }
+            Ok(serde_json::Value::Array(vec))
+        }
+        Value::Map(map) => {
+            let mut obj = serde_json::Map::new();
+            for (k, v) in map.borrow().iter() {
+                obj.insert(k.clone(), value_to_json(v)?);
+            }
+            Ok(serde_json::Value::Object(obj))
+        }
+        _ => Err(RuntimeError::new("unsupported type for JSON serialization")),
+    }
+}
+
+fn json_to_value(json: serde_json::Value, gc: &mut pleno_value::gc::GCManager) -> Value {
+    match json {
+        serde_json::Value::Null => Value::Null,
+        serde_json::Value::Bool(b) => Value::Bool(b),
+        serde_json::Value::Number(n) => {
+            if n.is_i64() {
+                Value::Int(n.as_i64().unwrap())
+            } else {
+                Value::Float(n.as_f64().unwrap_or(0.0))
+            }
+        }
+        serde_json::Value::String(s) => Value::String(Rc::new(s)),
+        serde_json::Value::Array(arr) => {
+            let items: Vec<Value> = arr.into_iter().map(|v| json_to_value(v, gc)).collect();
+            Value::Array(gc.allocate(items))
+        }
+        serde_json::Value::Object(obj) => {
+            let mut map = HashMap::new();
+            for (k, v) in obj {
+                map.insert(k, json_to_value(v, gc));
+            }
+            Value::Map(gc.allocate(map))
+        }
+    }
+}
+
 fn native_json_parse(
-    _gc: &mut pleno_value::gc::GCManager,
-    _args: &[Value],
+    gc: &mut pleno_value::gc::GCManager,
+    args: &[Value],
 ) -> Result<Value, RuntimeError> {
-    // Stub
-    Ok(Value::Null)
+    if args.is_empty() {
+        return Err(RuntimeError::new("JSON.parse() requires string argument"));
+    }
+    let json_str = match &args[0] {
+        Value::String(s) => s.as_str(),
+        _ => return Err(RuntimeError::new("JSON.parse() expects string")),
+    };
+
+    let json_val: serde_json::Value = serde_json::from_str(json_str)
+        .map_err(|e| RuntimeError::new(format!("JSON parse error: {}", e)))?;
+
+    Ok(json_to_value(json_val, gc))
 }
 
 fn native_json_stringify(
     _gc: &mut pleno_value::gc::GCManager,
-    _args: &[Value],
+    args: &[Value],
 ) -> Result<Value, RuntimeError> {
-    // Stub
-    Ok(Value::String(Rc::new("null".to_string())))
+    if args.is_empty() {
+        return Err(RuntimeError::new(
+            "JSON.stringify() requires value argument",
+        ));
+    }
+    let json_val = value_to_json(&args[0])?;
+    let s = serde_json::to_string(&json_val)
+        .map_err(|e| RuntimeError::new(format!("JSON stringify error: {}", e)))?;
+    Ok(Value::String(Rc::new(s)))
 }
 
 fn native_json_stringify_pretty(
     _gc: &mut pleno_value::gc::GCManager,
-    _args: &[Value],
+    args: &[Value],
 ) -> Result<Value, RuntimeError> {
-    // Stub
-    Ok(Value::String(Rc::new("null".to_string())))
+    if args.is_empty() {
+        return Err(RuntimeError::new(
+            "JSON.stringify() requires value argument",
+        ));
+    }
+    let json_val = value_to_json(&args[0])?;
+    let s = serde_json::to_string_pretty(&json_val)
+        .map_err(|e| RuntimeError::new(format!("JSON stringify error: {}", e)))?;
+    Ok(Value::String(Rc::new(s)))
 }
 
 // I/O native functions
 fn native_file_read(
     _gc: &mut pleno_value::gc::GCManager,
-    _args: &[Value],
+    args: &[Value],
 ) -> Result<Value, RuntimeError> {
-    // Stub
-    Ok(Value::Null)
+    if args.is_empty() {
+        return Err(RuntimeError::new("read() requires path"));
+    }
+    let path = match &args[0] {
+        Value::String(s) => s.as_str(),
+        _ => return Err(RuntimeError::new("path must be string")),
+    };
+    let content = fs::read_to_string(path)
+        .map_err(|e| RuntimeError::new(format!("failed to read file: {}", e)))?;
+    Ok(Value::String(Rc::new(content)))
 }
 
 fn native_file_write(
     _gc: &mut pleno_value::gc::GCManager,
-    _args: &[Value],
+    args: &[Value],
 ) -> Result<Value, RuntimeError> {
-    // Stub
+    if args.len() < 2 {
+        return Err(RuntimeError::new("write() requires path and content"));
+    }
+    let path = match &args[0] {
+        Value::String(s) => s.as_str(),
+        _ => return Err(RuntimeError::new("path must be string")),
+    };
+    let content = match &args[1] {
+        Value::String(s) => s.as_str(),
+        _ => return Err(RuntimeError::new("content must be string")),
+    };
+    fs::write(path, content)
+        .map_err(|e| RuntimeError::new(format!("failed to write file: {}", e)))?;
     Ok(Value::Null)
 }
 
 fn native_file_exists(
     _gc: &mut pleno_value::gc::GCManager,
-    _args: &[Value],
+    args: &[Value],
 ) -> Result<Value, RuntimeError> {
-    // Stub
-    Ok(Value::Bool(false))
+    if args.is_empty() {
+        return Err(RuntimeError::new("exists() requires path"));
+    }
+    let path = match &args[0] {
+        Value::String(s) => s.as_str(),
+        _ => return Err(RuntimeError::new("path must be string")),
+    };
+    Ok(Value::Bool(std::path::Path::new(path).exists()))
 }
 
 fn native_directory_create(
     _gc: &mut pleno_value::gc::GCManager,
-    _args: &[Value],
+    args: &[Value],
 ) -> Result<Value, RuntimeError> {
-    // Stub
+    if args.is_empty() {
+        return Err(RuntimeError::new("create() requires path"));
+    }
+    let path = match &args[0] {
+        Value::String(s) => s.as_str(),
+        _ => return Err(RuntimeError::new("path must be string")),
+    };
+    std::fs::create_dir_all(path)
+        .map_err(|e| RuntimeError::new(format!("failed to create directory: {}", e)))?;
     Ok(Value::Null)
 }
 
 fn native_directory_exists(
     _gc: &mut pleno_value::gc::GCManager,
-    _args: &[Value],
+    args: &[Value],
 ) -> Result<Value, RuntimeError> {
-    // Stub
-    Ok(Value::Bool(false))
+    if args.is_empty() {
+        return Err(RuntimeError::new("exists() requires path"));
+    }
+    let path = match &args[0] {
+        Value::String(s) => s.as_str(),
+        _ => return Err(RuntimeError::new("path must be string")),
+    };
+    let p = std::path::Path::new(path);
+    Ok(Value::Bool(p.exists() && p.is_dir()))
 }
