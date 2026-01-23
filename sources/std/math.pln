@@ -1,35 +1,85 @@
 // Math standard library module
 // Mathematical operations and constants
 
-export const PI: Float = 3.141592653589793;
-export const E: Float = 2.718281828459045;
+export class Math {
+    public static const PI: Float = 3.141592653589793;
+    public static const E: Float = 2.718281828459045;
 
-export fn MathAbs(x: Float): Float {
-    // TODO: Implement absolute value
-    return if (x < 0) -x else x;
-}
+    public static fn abs(x): Float {
+        return __native_math_abs(x);
+    }
 
-export fn MathMax(...values: Float[]): Float {
-    // TODO: Implement max
-    return 0.0;
-}
+    public static fn max(...values): Float {
+        if (values.length == 0) {
+            return 0.0;
+        }
+        let mut max = values[0];
+        for (val in values) {
+            if (val > max) {
+                max = val;
+            }
+        }
+        return max;
+    }
 
-export fn MathMin(...values: Float[]): Float {
-    // TODO: Implement min
-    return 0.0;
-}
+    public static fn min(...values): Float {
+        if (values.length == 0) {
+            return 0.0;
+        }
+        let mut min = values[0];
+        for (val in values) {
+            if (val < min) {
+                min = val;
+            }
+        }
+        return min;
+    }
 
-export fn MathPow(base: Float, exponent: Float): Float {
-    // TODO: Implement power
-    return 0.0;
-}
+    public static fn pow(base, exponent): Float {
+        return __native_math_pow(base, exponent);
+    }
 
-export fn MathSqrt(x: Float): Float {
-    // TODO: Implement square root
-    return 0.0;
-}
+    public static fn sqrt(x): Float {
+        return __native_math_sqrt(x);
+    }
 
-export fn MathRandom(): Float {
-    // TODO: Implement random
-    return 0.0;
+    public static fn random(): Float {
+        return __native_math_random();
+    }
+
+    public static fn sin(x): Float {
+        return __native_math_sin(x);
+    }
+
+    public static fn cos(x): Float {
+        return __native_math_cos(x);
+    }
+
+    public static fn tan(x): Float {
+        return __native_math_tan(x);
+    }
+
+    public static fn log(x): Float {
+        return __native_math_log(x);
+    }
+
+    public static fn exp(x): Float {
+        return __native_math_exp(x);
+    }
+
+    public static fn floor(x): Int {
+        return __native_math_floor(x);
+    }
+
+    public static fn ceil(x): Int {
+        return __native_math_ceil(x);
+    }
+
+    public static fn round(x): Int {
+        return __native_math_round(x);
+    }
+
+    public static fn randomInt(min, max): Int {
+        return __native_math_random_int(min, max);
+    }
 }

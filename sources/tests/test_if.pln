@@ -1,0 +1,13 @@
+fn test_if(item) {
+    if(item.active){
+        let result=item.calc();
+        if(result>0){
+            return result;
+        }
+    }
+    return 0;
+}
+
+let my_item = {"active": true, "calc": fn() => 42};
+println(test_if(my_item));
+

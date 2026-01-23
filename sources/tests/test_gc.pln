@@ -1,0 +1,20 @@
+print("--- Testing GC Stress ---");
+
+class TestObject {
+    fn init(id) {
+        this.id = id;
+        this.data = id;
+    }
+}
+
+let mut count = 0;
+while (count < 10000) {
+    let obj = TestObject(count);
+    if (count % 1000 == 0) {
+        print("Allocated objects...");
+        print(count);
+    }
+    count = count + 1;
+}
+
+print("GC Stress Test Complete.");

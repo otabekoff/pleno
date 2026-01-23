@@ -1,27 +1,26 @@
 // I/O standard library module
 // File and directory operations
 
-// File operations
-export fn FileRead(path: String): String {
-    // TODO: Implement file reading
-    return "";
+export class File {
+    public static fn read(path: String): String {
+        return __native_file_read(path);
+    }
+
+    public static fn write(path: String, content: String): Void {
+        return __native_file_write(path, content);
+    }
+
+    public static fn exists(path: String): Bool {
+        return __native_file_exists(path);
+    }
 }
 
-export fn FileWrite(path: String, content: String): Void {
-    // TODO: Implement file writing
-}
+export class Directory {
+    public static fn create(path: String): Void {
+        return __native_directory_create(path);
+    }
 
-export fn FileExists(path: String): Bool {
-    // TODO: Implement file existence check
-    return false;
-}
-
-// Directory operations
-export fn DirectoryCreate(path: String): Void {
-    // TODO: Implement directory creation
-}
-
-export fn DirectoryExists(path: String): Bool {
-    // TODO: Implement directory existence check
-    return false;
+    public static fn exists(path: String): Bool {
+        return __native_directory_exists(path);
+    }
 }

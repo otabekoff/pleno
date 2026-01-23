@@ -10,5 +10,9 @@ pleno-value = { workspace = true }
 pleno-lexer = { workspace = true }
 pleno-parser = { workspace = true }
 pleno-compiler = { workspace = true }
+serde_json = { workspace = true }
+reqwest = { workspace = true }
+rand = { workspace = true }
+regex = { workspace = true }
 
 [dev-dependencies]

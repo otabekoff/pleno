@@ -1,0 +1,30 @@
+import http from "std:http";
+import math from "std:math";
+import regex from "std:regex";
+
+print("--- Testing Math ---");
+print("Math.PI: " + math.Math.PI);
+print("Math.abs(-5): " + math.Math.abs(-5));
+print("Math.pow(2, 3): " + math.Math.pow(2, 3));
+print("Math.sqrt(16): " + math.Math.sqrt(16));
+print("Math.random(): " + math.Math.random());
+print("Math.sin(0): " + math.Math.sin(0));
+print("Math.floor(3.7): " + math.Math.floor(3.7));
+print("Math.ceil(3.2): " + math.Math.ceil(3.2));
+print("Math.round(3.5): " + math.Math.round(3.5));
+
+print("--- Testing Regex ---");
+let pattern = "^[a-z]+$";
+let text = "hello";
+print("Regex.match('" + pattern + "', '" + text + "'): " + regex.Regex.isMatch(pattern, text));
+print("Regex.match('" + pattern + "', '123'): " + regex.Regex.isMatch(pattern, "123"));
+
+let replaced = regex.Regex.replace("[0-9]", "item 123", "X");
+print("Regex.replace('[0-9]', 'item 123', 'X'): " + replaced);
+
+print("--- Testing HTTP ---");
+// We'll test with a public API
+let url = "https://catfact.ninja/fact";
+print("Fetching from: " + url);
+let fact = http.Http.get(url);
+print("Received fact: " + fact);

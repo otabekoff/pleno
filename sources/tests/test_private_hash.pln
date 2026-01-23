@@ -1,0 +1,17 @@
+
+// Test Private Members (#)
+
+class MyClass {
+    #secret;
+
+    fn init() {
+        this.#secret = "I am private";
+    }
+
+    fn getSecret() {
+        return this.#secret;
+    }
+}
+
+let obj = new MyClass();
+println(obj.getSecret()); // Expected: "I am private"

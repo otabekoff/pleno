@@ -1,17 +1,16 @@
 // JSON standard library module
 // JSON parsing and stringification
 
-export fn JSONParse(json: String): Any {
-    // TODO: Implement JSON parsing
-    return null;
-}
+export class JSON {
+    public static fn parse(json: String): Any {
+        return __native_json_parse(json);
+    }
 
-export fn JSONStringify(value: Any): String {
-    // TODO: Implement JSON stringification
-    return "";
-}
+    public static fn stringify(value: Any): String {
+        return __native_json_stringify(value);
+    }
 
-export fn JSONStringifyPretty(value: Any, indent: Int = 2): String {
-    // TODO: Implement pretty JSON stringification
-    return "";
+    public static fn stringifyPretty(value: Any, indent: Int = 2): String {
+        return __native_json_stringify_pretty(value);
+    }
 }

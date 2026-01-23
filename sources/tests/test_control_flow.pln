@@ -1,0 +1,44 @@
+print("--- Testing Control Flow ---");
+
+// Test If/Else
+let a = 10;
+if (a > 5) {
+    print("If check passed");
+} else {
+    print("If check failed");
+}
+
+if (a < 5) {
+    print("Else check failed");
+} else {
+    print("Else check passed");
+}
+
+// Test While Loop
+print("Testing While Loop");
+let mut i = 0;
+while (i < 3) {
+    print(i);
+    i = i + 1;
+}
+
+// Test For-In Loop
+print("Testing For-In Loop");
+let list = [0, 1, 2];
+for (j in list) {
+    print(j);
+}
+
+// Nested Control Flow
+print("Testing Nested Flow");
+let mut x = 0;
+while (x < 2) {
+    let mut y = 0;
+    while (y < 2) {
+        print(x + y);
+        y = y + 1;
+    }
+    x = x + 1;
+}
+
+print("Control Flow Tests Complete");

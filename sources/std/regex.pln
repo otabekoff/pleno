@@ -1,0 +1,53 @@
+// Regex standard library module
+// Regular expression operations
+
+export class Match {
+    private groups: Array;
+
+    constructor(groups: Array) {
+        this.groups = groups;
+    }
+
+    public fn group(index: Int): String {
+        if (index < 0 || index >= this.groups.length) {
+            return null;
+        }
+        return this.groups[index];
+    }
+
+    public fn length(): Int {
+        return this.groups.length;
+    }
+}
+
+export class Regex {
+    private pattern: String;
+
+    constructor(pattern: String) {
+        this.pattern = pattern;
+    }
+
+    public fn test(text: String): Bool {
+        return __native_regex_is_match(this.pattern, text);
+    }
+
+    public fn match(text: String): Match {
+        let groups = __native_regex_match(this.pattern, text);
+        if (groups == null) {
+            return null;
+        }
+        return Match(groups);
+    }
+
+    public fn replace(text: String, replacement: String): String {
+        return __native_regex_replace(this.pattern, text, replacement);
+    }
+
+    public fn findAll(text: String): Array {
+        return __native_regex_find_all(this.pattern, text);
+    }
+
+    public static fn isMatch(pattern, text): Bool {
+        return __native_regex_is_match(pattern, text);
+    }
+}

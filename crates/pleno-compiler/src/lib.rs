@@ -1,7 +1,8 @@
-use pleno_ast::{Expr, FunctionDecl, FunctionKind, Literal, Pattern, Program, Stmt};
+use pleno_ast::{Expr, FunctionDecl, FunctionKind, Literal, MapItem, Pattern, Program, Stmt};
 use pleno_bytecode::{Chunk, FunctionProto, Instruction, Opcode, ParamSpec};
 use pleno_value::Value;
 use std::collections::HashMap;
+use std::rc::Rc;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct CompileError {
@@ -114,7 +115,9 @@ impl Compiler {
         match stmt {
             Stmt::Module { name } => {
                 if !self.module_mode {
-                    return Err(CompileError::new("module declaration only allowed in modules"));
+                    return Err(CompileError::new(
+                        "module declaration only allowed in modules",
+                    ));
                 }
                 if self.module_name.is_some() {
                     return Err(CompileError::new("module already declared"));
@@ -147,14 +150,14 @@ impl Compiler {
                     let reg = self.registers.allocate()?;
                     self.emit(Opcode::LoadNull, reg, 0, 0);
                     // For now, Null is only allowed if no type or if we add optional types later
-                    // but many primitives don't allow Null. 
+                    // but many primitives don't allow Null.
                     // Keeping it simple: if typed, Null must match the type (it won't for Int etc)
                     if let Some(ty_name) = ty {
                         self.emit_type_check(reg, ty_name)?;
                     }
                     reg
                 };
-                self.insert_local(name.clone(), reg, *mutable, ty.clone());
+                self.insert_local(name.clone(), reg, *mutable, ty.clone())?;
                 Ok(())
             }
             Stmt::Assign { name, value } => {
@@ -172,7 +175,11 @@ impl Compiler {
                 self.free_temp(value_reg);
                 Ok(())
             }
-            Stmt::AssignProperty { object, name, value } => {
+            Stmt::AssignProperty {
+                object,
+                name,
+                value,
+            } => {
                 let object_reg = self.compile_expr(object)?;
                 let value_reg = self.compile_expr(value)?;
                 let name_idx = self.add_constant(Value::String(name.clone().into()));
@@ -229,14 +236,20 @@ impl Compiler {
                 self.free_temp(cond_reg);
                 self.push_loop(Some(loop_start));
                 self.compile_stmt(body)?;
-                let loop_ctx = self.pop_loop().expect("loop stack underflow");
+                let loop_ctx = self
+                    .pop_loop()
+                    .ok_or_else(|| CompileError::new("loop stack underflow"))?;
                 self.emit_loop(loop_start)?;
                 self.patch_jump(jump_to_end)?;
                 let loop_end = self.chunk.code.len();
                 self.patch_loop_jumps(loop_ctx, loop_end)?;
                 Ok(())
             }
-            Stmt::For { names, iterable, body } => self.compile_for_stmt(names, iterable, body),
+            Stmt::For {
+                names,
+                iterable,
+                body,
+            } => self.compile_for_stmt(names, iterable, body),
             Stmt::Try {
                 try_branch,
                 catch_branches,
@@ -255,13 +268,13 @@ impl Compiler {
                 match kind {
                     pleno_ast::ImportKind::Module { alias } => {
                         if let Some(name) = alias {
-                            self.insert_local(name.clone(), module_reg, false, None);
+                            self.insert_local(name.clone(), module_reg, false, None)?;
                         } else {
                             self.free_temp(module_reg);
                         }
                     }
                     pleno_ast::ImportKind::Star { alias } => {
-                        self.insert_local(alias.clone(), module_reg, false, None);
+                        self.insert_local(alias.clone(), module_reg, false, None)?;
                     }
                     pleno_ast::ImportKind::Names(items) => {
                         for item in items {
@@ -270,7 +283,7 @@ impl Compiler {
                             let dest = self.registers.allocate()?;
                             self.emit(Opcode::GetProperty, dest, module_reg, name_idx);
                             let local_name = item.alias.clone().unwrap_or(item.name.clone());
-                            self.insert_local(local_name, dest, false, None);
+                            self.insert_local(local_name, dest, false, None)?;
                         }
                         self.free_temp(module_reg);
                     }
@@ -306,82 +319,23 @@ impl Compiler {
                 }
                 Ok(())
             }
-            Stmt::Class {
-                name,
-                fields,
-                methods,
-                superclass,
-                annotations: _,
-            } => {
-                let methods_reg = self.registers.allocate()?;
-                self.emit(Opcode::NewMap, methods_reg, 0, 0);
-                let static_reg = self.registers.allocate()?;
-                self.emit(Opcode::NewMap, static_reg, 0, 0);
-                for method in methods {
-                    let is_method = !method.is_static;
-                    let func_reg = self.compile_function(
-                        method,
-                        is_method,
-                        true,
-                        superclass.as_ref().cloned(),
-                    )?;
-                    let method_name = match method.kind {
-                        FunctionKind::Method => method.name.clone(),
-                        FunctionKind::Getter => format!("get:{}", method.name),
-                        FunctionKind::Setter => format!("set:{}", method.name),
-                    };
-                    let meta_reg = self.registers.allocate()?;
-                    self.emit(Opcode::NewArray, meta_reg, 0, 0);
-                    self.emit(Opcode::ArrayAppend, meta_reg, func_reg, 0);
-                    let vis_name = visibility_name(method.visibility.as_ref());
-                    let vis_idx = self.add_constant(Value::String(std::rc::Rc::new(vis_name.to_string())));
-                    let vis_reg = self.registers.allocate()?;
-                    self.emit(Opcode::LoadConst, vis_reg, vis_idx, 0);
-                    self.emit(Opcode::ArrayAppend, meta_reg, vis_reg, 0);
-                    self.free_temp(vis_reg);
-                    let name_idx =
-                        self.add_constant(Value::String(method_name.clone().into()));
-                    let name_reg = self.registers.allocate()?;
-                    self.emit(Opcode::LoadConst, name_reg, name_idx, 0);
-                    if method.is_static {
-                        self.emit(Opcode::SetIndex, meta_reg, static_reg, name_reg);
-                    } else {
-                        self.emit(Opcode::SetIndex, meta_reg, methods_reg, name_reg);
+            Stmt::Class { name, .. } => {
+                let class_reg = self.compile_class_declaration(stmt)?;
+                if self.is_top_level {
+                    let name_idx = self.add_constant(Value::String(name.clone().into()));
+                    self.emit(Opcode::SetGlobal, class_reg, name_idx, 0);
+                    self.free_temp(class_reg);
+                } else {
+                    if self
+                        .locals
+                        .last()
+                        .map(|scope| scope.contains_key(name))
+                        .unwrap_or(false)
+                    {
+                        return Err(CompileError::new("class name already defined in scope"));
                     }
-                    self.free_temp(name_reg);
-                    self.free_temp(func_reg);
-                    self.free_temp(meta_reg);
+                    self.insert_local(name.clone(), class_reg, false, None)?;
                 }
-                let class_reg = self.registers.allocate()?;
-                let name_idx = self.add_constant(Value::String(name.clone().into()));
-                self.emit(Opcode::DefineClass, class_reg, name_idx, methods_reg);
-                self.emit(Opcode::SetStatic, class_reg, static_reg, 0);
-                if let Some(superclass) = superclass {
-                    let super_reg = self.registers.allocate()?;
-                    let super_idx =
-                        self.add_constant(Value::String(superclass.clone().into()));
-                    self.emit(Opcode::GetGlobal, super_reg, super_idx, 0);
-                    self.emit(Opcode::SetSuper, class_reg, super_reg, 0);
-                    self.free_temp(super_reg);
-                }
-                for field in fields {
-                    let field_idx =
-                        self.add_constant(Value::String(field.name.clone().into()));
-                    let vis_code = visibility_code(field.visibility.as_ref());
-                    if field.is_static {
-                        let value_reg = self.registers.allocate()?;
-                        self.emit(Opcode::LoadNull, value_reg, 0, 0);
-                        self.emit(Opcode::SetProperty, value_reg, class_reg, field_idx);
-                        self.free_temp(value_reg);
-                        self.emit(Opcode::SetStaticFieldVisibility, class_reg, field_idx, vis_code);
-                    } else {
-                        self.emit(Opcode::SetFieldVisibility, class_reg, field_idx, vis_code);
-                    }
-                }
-                self.emit(Opcode::SetGlobal, class_reg, name_idx, 0);
-                self.free_temp(class_reg);
-                self.free_temp(methods_reg);
-                self.free_temp(static_reg);
                 Ok(())
             }
             Stmt::Fn {
@@ -389,6 +343,7 @@ impl Compiler {
                 params,
                 body,
                 annotations,
+                is_async,
             } => {
                 let decl = FunctionDecl {
                     name: name.clone(),
@@ -399,10 +354,15 @@ impl Compiler {
                     visibility: None,
                     kind: FunctionKind::Method,
                     annotations: annotations.clone(),
+                    is_async: *is_async,
                 };
                 let func_reg = self.compile_function(&decl, false, false, None)?;
                 if self.is_top_level {
                     let name_idx = self.add_constant(Value::String(name.clone().into()));
+                    if *is_async {
+                        // Emit async function opcode for async functions
+                        self.emit(Opcode::AsyncFunction, func_reg, 0, 0);
+                    }
                     self.emit(Opcode::SetGlobal, func_reg, name_idx, 0);
                     self.free_temp(func_reg);
                 } else {
@@ -412,11 +372,9 @@ impl Compiler {
                         .map(|scope| scope.contains_key(name))
                         .unwrap_or(false)
                     {
-                        return Err(CompileError::new(
-                            "function name already defined in scope",
-                        ));
+                        return Err(CompileError::new("function name already defined in scope"));
                     }
-                    self.insert_local(name.clone(), func_reg, false, None);
+                    self.insert_local(name.clone(), func_reg, false, None)?;
                 }
                 Ok(())
             }
@@ -488,6 +446,7 @@ impl Compiler {
                             pleno_ast::BinaryOp::LessEqual => Opcode::Le,
                             pleno_ast::BinaryOp::Greater => Opcode::Gt,
                             pleno_ast::BinaryOp::GreaterEqual => Opcode::Ge,
+                            pleno_ast::BinaryOp::Modulo => Opcode::Mod,
                             pleno_ast::BinaryOp::NullCoalesce => {
                                 // For ?? operator: if left is null, use right, else use left
                                 // This requires a conditional jump, so we handle it specially
@@ -563,26 +522,50 @@ impl Compiler {
                 let is_null_reg = self.registers.allocate()?;
                 self.emit(Opcode::Eq, is_null_reg, object_reg, null_check_reg);
                 self.free_temp(null_check_reg);
-                
+
                 // If object is null, jump to end and return null
                 let jump_to_end = self.emit_jump(Opcode::JumpIf, is_null_reg);
                 self.free_temp(is_null_reg);
-                
+
                 // Otherwise, get the property
                 let name_idx = self.add_constant(Value::String(name.clone().into()));
                 self.emit(Opcode::GetProperty, dest, object_reg, name_idx);
                 self.free_temp(object_reg);
-                
+
                 // Jump past the null case
                 let jump_past_null = self.emit_jump(Opcode::Jump, 0);
-                
+
                 // Null case: set dest to null
                 self.patch_jump(jump_to_end)?;
                 self.emit(Opcode::LoadNull, dest, 0, 0);
-                
+
                 // Patch the jump past null case
                 self.patch_jump(jump_past_null)?;
-                
+
+                Ok(dest)
+            }
+            Expr::Ternary {
+                condition,
+                then_branch,
+                else_branch,
+            } => {
+                let cond_reg = self.compile_expr(condition)?;
+                let jump_to_else = self.emit_jump(Opcode::JumpIfNot, cond_reg);
+                self.free_temp(cond_reg);
+
+                let dest = self.registers.allocate()?;
+                let then_reg = self.compile_expr(then_branch)?;
+                self.emit(Opcode::Move, dest, then_reg, 0);
+                self.free_temp(then_reg);
+
+                let jump_to_end = self.emit_jump(Opcode::Jump, 0);
+
+                self.patch_jump(jump_to_else)?;
+                let else_reg = self.compile_expr(else_branch)?;
+                self.emit(Opcode::Move, dest, else_reg, 0);
+                self.free_temp(else_reg);
+
+                self.patch_jump(jump_to_end)?;
                 Ok(dest)
             }
             Expr::Range {
@@ -620,11 +603,20 @@ impl Compiler {
             Expr::MapLiteral(entries) => {
                 let dest = self.registers.allocate()?;
                 self.emit(Opcode::NewMap, dest, 0, 0);
-                for (key, value_expr) in entries {
-                    let value_reg = self.compile_expr(value_expr)?;
-                    let key_idx = self.add_constant(Value::String(key.clone().into()));
-                    self.emit(Opcode::SetProperty, value_reg, dest, key_idx);
-                    self.free_temp(value_reg);
+                for item in entries {
+                    match item {
+                        MapItem::Entry(key, value_expr) => {
+                            let value_reg = self.compile_expr(value_expr)?;
+                            let key_idx = self.add_constant(Value::String(key.clone().into()));
+                            self.emit(Opcode::SetProperty, value_reg, dest, key_idx);
+                            self.free_temp(value_reg);
+                        }
+                        MapItem::Spread(expr) => {
+                            let val_reg = self.compile_expr(expr)?;
+                            self.emit(Opcode::MapSpread, dest, val_reg, 0);
+                            self.free_temp(val_reg);
+                        }
+                    }
                 }
                 Ok(dest)
             }
@@ -643,9 +635,18 @@ impl Compiler {
                 let dest = self.registers.allocate()?;
                 self.emit(Opcode::NewArray, dest, 0, 0);
                 for item in items {
-                    let value_reg = self.compile_expr(item)?;
-                    self.emit(Opcode::ArrayAppend, dest, value_reg, 0);
-                    self.free_temp(value_reg);
+                    match item {
+                        Expr::Spread(inner) => {
+                            let val_reg = self.compile_expr(inner)?;
+                            self.emit(Opcode::ArraySpread, dest, val_reg, 0);
+                            self.free_temp(val_reg);
+                        }
+                        _ => {
+                            let value_reg = self.compile_expr(item)?;
+                            self.emit(Opcode::ArrayAppend, dest, value_reg, 0);
+                            self.free_temp(value_reg);
+                        }
+                    }
                 }
                 Ok(dest)
             }
@@ -677,6 +678,7 @@ impl Compiler {
                     visibility: None,
                     kind: FunctionKind::Method,
                     annotations: Vec::new(),
+                    is_async: false,
                 };
                 self.compile_function(&decl, false, false, None)
             }
@@ -700,9 +702,18 @@ impl Compiler {
                 let dest = self.registers.allocate()?;
                 self.emit(Opcode::NewSet, dest, 0, 0);
                 for item in items {
-                    let value_reg = self.compile_expr(item)?;
-                    self.emit(Opcode::SetAdd, dest, value_reg, 0);
-                    self.free_temp(value_reg);
+                    match item {
+                        Expr::Spread(inner) => {
+                            let val_reg = self.compile_expr(inner)?;
+                            self.emit(Opcode::SetSpread, dest, val_reg, 0);
+                            self.free_temp(val_reg);
+                        }
+                        _ => {
+                            let value_reg = self.compile_expr(item)?;
+                            self.emit(Opcode::SetAdd, dest, value_reg, 0);
+                            self.free_temp(value_reg);
+                        }
+                    }
                 }
                 Ok(dest)
             }
@@ -719,9 +730,9 @@ impl Compiler {
                 self.free_temp(args_reg);
                 Ok(dest)
             }
-            Expr::Underscore => {
-                Err(CompileError::new("underscore is only allowed as a placeholder in calls"))
-            }
+            Expr::Underscore => Err(CompileError::new(
+                "underscore is only allowed as a placeholder in calls",
+            )),
             Expr::Index { collection, index } => {
                 let collection_reg = self.compile_expr(collection)?;
                 let index_reg = self.compile_expr(index)?;
@@ -731,13 +742,17 @@ impl Compiler {
                 self.free_temp(index_reg);
                 Ok(dest)
             }
-            Expr::Slice { collection, start, end } => {
+            Expr::Slice {
+                collection,
+                start,
+                end,
+            } => {
                 // Compile as: collection.slice(start, end)
                 // This will use the builtin method
                 let collection_reg = self.compile_expr(collection)?;
                 let args_reg = self.registers.allocate()?;
                 self.emit(Opcode::NewArray, args_reg, 0, 0);
-                
+
                 // Add start argument (or null if missing)
                 if let Some(start_expr) = start {
                     let start_reg = self.compile_expr(start_expr)?;
@@ -749,7 +764,7 @@ impl Compiler {
                     self.emit(Opcode::ArrayAppend, args_reg, null_reg, 0);
                     self.free_temp(null_reg);
                 }
-                
+
                 // Add end argument (or null if missing)
                 if let Some(end_expr) = end {
                     let end_reg = self.compile_expr(end_expr)?;
@@ -761,12 +776,17 @@ impl Compiler {
                     self.emit(Opcode::ArrayAppend, args_reg, null_reg, 0);
                     self.free_temp(null_reg);
                 }
-                
+
                 // Get the slice method
                 let slice_name_idx = self.add_constant(Value::String("slice".to_string().into()));
                 let method_reg = self.registers.allocate()?;
-                self.emit(Opcode::GetProperty, method_reg, collection_reg, slice_name_idx);
-                
+                self.emit(
+                    Opcode::GetProperty,
+                    method_reg,
+                    collection_reg,
+                    slice_name_idx,
+                );
+
                 // Call the method
                 let dest = self.registers.allocate()?;
                 self.emit(Opcode::Call, dest, method_reg, args_reg);
@@ -775,11 +795,15 @@ impl Compiler {
                 self.free_temp(args_reg);
                 Ok(dest)
             }
+            Expr::Paren(inner) => self.compile_expr(inner),
+            Expr::Spread(_) => Err(CompileError::new(
+                "spread operator only allowed in collection literals",
+            )),
             Expr::Call { callee, args } => {
                 let callee_reg = self.compile_expr(callee)?;
-                let has_placeholder =
-                    args.iter()
-                        .any(|arg| matches!(arg, pleno_ast::CallArg::Placeholder));
+                let has_placeholder = args
+                    .iter()
+                    .any(|arg| matches!(arg, pleno_ast::CallArg::Placeholder));
                 let has_named = args
                     .iter()
                     .any(|arg| matches!(arg, pleno_ast::CallArg::Named(_, _)));
@@ -832,7 +856,8 @@ impl Compiler {
                                     return Err(CompileError::new("duplicate named argument"));
                                 }
                                 let arg_reg = self.compile_expr(expr)?;
-                                let name_idx = self.add_constant(Value::String(name.clone().into()));
+                                let name_idx =
+                                    self.add_constant(Value::String(name.clone().into()));
                                 self.emit(Opcode::SetProperty, arg_reg, named_reg, name_idx);
                                 self.free_temp(arg_reg);
                             }
@@ -857,7 +882,7 @@ impl Compiler {
                         let arg_reg = match arg {
                             pleno_ast::CallArg::Positional(expr) => self.compile_expr(expr)?,
                             pleno_ast::CallArg::Named(_, _) => {
-                                return Err(CompileError::new("named arguments require name"))
+                                return Err(CompileError::new("named arguments require name"));
                             }
                             pleno_ast::CallArg::Placeholder => unreachable!(),
                         };
@@ -877,28 +902,16 @@ impl Compiler {
                 let mut end_jumps = Vec::new();
 
                 for arm in arms {
-                    let mut next_arm_jump = None;
-                    match &arm.pattern {
-                        Pattern::Literal(lit) => {
-                            let lit_reg = self.compile_expr(&Expr::Literal(lit.clone()))?;
-                            let eq_reg = self.registers.allocate()?;
-                            self.emit(Opcode::Eq, eq_reg, value_reg, lit_reg);
-                            self.free_temp(lit_reg);
-                            next_arm_jump = Some(self.emit_jump(Opcode::JumpIfNot, eq_reg));
-                            self.free_temp(eq_reg);
-                        }
-                        Pattern::Ident(name) => {
-                            // Identity match: always matches and binds
-                            let reg = self.registers.allocate()?;
-                            self.emit(Opcode::Move, reg, value_reg, 0);
-                            self.insert_local(name.clone(), reg, false, None);
-                        }
-                        Pattern::Underscore => {
-                            // Wildcard match: always matches
-                        }
-                        Pattern::Tuple(_) => {
-                            return Err(CompileError::new("tuple patterns not supported yet in match"));
-                        }
+                    self.locals.push(HashMap::new());
+                    let mut fail_jumps = Vec::new();
+
+                    self.compile_pattern(&arm.pattern, value_reg, &mut fail_jumps)?;
+
+                    // Check guard if present
+                    if let Some(guard) = &arm.guard {
+                        let guard_reg = self.compile_expr(guard)?;
+                        fail_jumps.push(self.emit_jump(Opcode::JumpIfNot, guard_reg));
+                        self.free_temp(guard_reg);
                     }
 
                     let body_reg = self.compile_expr(&arm.body)?;
@@ -908,12 +921,16 @@ impl Compiler {
                     let jump = self.emit_jump(Opcode::Jump, 0);
                     end_jumps.push(jump);
 
-                    if let Some(jump) = next_arm_jump {
-                        self.patch_jump(jump)?;
+                    for f_jump in fail_jumps {
+                        self.patch_jump(f_jump)?;
                     }
 
-                    // If it was a wildcard or identity match, we don't need to check further arms
-                    if matches!(arm.pattern, Pattern::Underscore | Pattern::Ident(_)) {
+                    self.locals.pop();
+
+                    // If it was a wildcard or identity match without a guard, we don't need to check further arms
+                    if arm.guard.is_none()
+                        && matches!(arm.pattern, Pattern::Underscore | Pattern::Ident(_))
+                    {
                         break;
                     }
                 }
@@ -923,6 +940,13 @@ impl Compiler {
                 }
 
                 self.free_temp(value_reg);
+                Ok(dest)
+            }
+            Expr::Await { expr } => {
+                let expr_reg = self.compile_expr(expr)?;
+                let dest = self.registers.allocate()?;
+                self.emit(Opcode::Await, dest, expr_reg, 0);
+                self.free_temp(expr_reg);
                 Ok(dest)
             }
         }
@@ -959,8 +983,7 @@ impl Compiler {
         let offset = i16::try_from(offset).map_err(|_| CompileError::new("jump too large"))?;
         let (b, c) = encode_offset(offset);
         let instruction = self.chunk.code[jump_index];
-        self.chunk.code[jump_index] =
-            Instruction::new(instruction.opcode(), instruction.a(), b, c);
+        self.chunk.code[jump_index] = Instruction::new(instruction.opcode(), instruction.a(), b, c);
         Ok(())
     }
 
@@ -971,8 +994,7 @@ impl Compiler {
         let offset = i16::try_from(offset).map_err(|_| CompileError::new("jump too large"))?;
         let (b, c) = encode_offset(offset);
         let instruction = self.chunk.code[jump_index];
-        self.chunk.code[jump_index] =
-            Instruction::new(instruction.opcode(), instruction.a(), b, c);
+        self.chunk.code[jump_index] = Instruction::new(instruction.opcode(), instruction.a(), b, c);
         Ok(())
     }
 
@@ -1024,34 +1046,34 @@ impl Compiler {
         // For ?? operator: if left is null, use right, else use left
         let dest = self.registers.allocate()?;
         let left_reg = self.compile_expr(left)?;
-        
+
         // Check if left is null
         let null_reg = self.registers.allocate()?;
         self.emit(Opcode::LoadNull, null_reg, 0, 0);
         let is_null_reg = self.registers.allocate()?;
         self.emit(Opcode::Eq, is_null_reg, left_reg, null_reg);
         self.free_temp(null_reg);
-        
+
         // If left is null, jump to use right
         let jump_to_right = self.emit_jump(Opcode::JumpIf, is_null_reg);
         self.free_temp(is_null_reg);
-        
+
         // Left is not null, use left
         self.emit(Opcode::Move, dest, left_reg, 0);
         self.free_temp(left_reg);
-        
+
         // Jump past the right case
         let jump_past_right = self.emit_jump(Opcode::Jump, 0);
-        
+
         // Right case: left was null, use right
         self.patch_jump(jump_to_right)?;
         let right_reg = self.compile_expr(right)?;
         self.emit(Opcode::Move, dest, right_reg, 0);
         self.free_temp(right_reg);
-        
+
         // Patch the jump past right case
         self.patch_jump(jump_past_right)?;
-        
+
         Ok(dest)
     }
 
@@ -1065,7 +1087,7 @@ impl Compiler {
         // Reserve the register so it's not reused as a temp
         let error_name = format!("$try_error_{}", self.loop_counter);
         self.loop_counter += 1;
-        self.insert_local(error_name.clone(), error_reg, false, None);
+        self.insert_local(error_name.clone(), error_reg, false, None)?;
 
         let push_handler_idx = self.chunk.code.len();
         self.emit(Opcode::PushHandler, error_reg, 0, 0);
@@ -1088,29 +1110,29 @@ impl Compiler {
                 // Try to resolve as global or treat as primitive name
                 let name_idx = self.add_constant(Value::String(ty_name.clone().into()));
                 self.emit(Opcode::GetGlobal, type_reg, name_idx, 0);
-                
+
                 // If GetGlobal returned Null, it might be a primitive name
                 let is_null_reg = self.registers.allocate()?;
                 self.emit(Opcode::LoadNull, is_null_reg, 0, 0);
                 self.emit(Opcode::Eq, is_null_reg, type_reg, is_null_reg);
                 let skip_primitive_load = self.emit_jump(Opcode::JumpIfNot, is_null_reg);
-                
+
                 // Load primitive name as string
                 self.emit(Opcode::LoadConst, type_reg, name_idx, 0);
-                
+
                 self.patch_jump(skip_primitive_load)?;
                 self.free_temp(is_null_reg);
 
                 let is_match_reg = self.registers.allocate()?;
                 self.emit(Opcode::Is, is_match_reg, error_reg, type_reg);
                 next_catch_jump = Some(self.emit_jump(Opcode::JumpIfNot, is_match_reg));
-                
+
                 self.free_temp(type_reg);
                 self.free_temp(is_match_reg);
             }
 
             self.locals.push(HashMap::new());
-            self.insert_local(catch.name.clone(), error_reg, false, catch.ty.clone());
+            self.insert_local(catch.name.clone(), error_reg, false, catch.ty.clone())?;
             self.compile_stmt(&catch.body)?;
             self.pop_scope();
 
@@ -1127,9 +1149,9 @@ impl Compiler {
             // Re-throw if none of the catch blocks matched
             self.emit(Opcode::Throw, error_reg, 0, 0);
         } else if finally_branch.is_none() {
-             // This case should be caught by parser (at least one catch or finally)
-             // but just in case, re-throw.
-             self.emit(Opcode::Throw, error_reg, 0, 0);
+            // This case should be caught by parser (at least one catch or finally)
+            // but just in case, re-throw.
+            self.emit(Opcode::Throw, error_reg, 0, 0);
         }
 
         for jump in end_jumps {
@@ -1224,12 +1246,12 @@ impl Compiler {
     ) -> Result<(), CompileError> {
         self.locals.push(HashMap::new());
         let start_reg = self.compile_expr(start)?;
-        self.insert_local(name.to_string(), start_reg, true, None);
+        self.insert_local(name.to_string(), start_reg, true, None)?;
 
         let end_reg = self.compile_expr(end)?;
         let end_name = format!("$for_end_{}", self.loop_counter);
         self.loop_counter += 1;
-        self.insert_local(end_name, end_reg, false, None);
+        self.insert_local(end_name, end_reg, false, None)?;
 
         let loop_start = self.chunk.code.len();
         let cond_reg = self.registers.allocate()?;
@@ -1256,7 +1278,9 @@ impl Compiler {
         self.emit_loop(loop_start)?;
         self.patch_jump(jump_to_end)?;
         let loop_end = self.chunk.code.len();
-        let loop_ctx = self.pop_loop().expect("loop stack underflow");
+        let loop_ctx = self
+            .pop_loop()
+            .ok_or_else(|| CompileError::new("loop stack underflow"))?;
         self.patch_loop_jumps(loop_ctx, loop_end)?;
         self.pop_scope();
         Ok(())
@@ -1270,7 +1294,7 @@ impl Compiler {
     ) -> Result<(), CompileError> {
         self.locals.push(HashMap::new());
         let start_reg = self.compile_expr(start)?;
-        self.insert_local(name.to_string(), start_reg, true, None);
+        self.insert_local(name.to_string(), start_reg, true, None)?;
 
         let loop_start = self.chunk.code.len();
         self.push_loop(None);
@@ -1290,7 +1314,9 @@ impl Compiler {
 
         self.emit_loop(loop_start)?;
         let loop_end = self.chunk.code.len();
-        let loop_ctx = self.pop_loop().expect("loop stack underflow");
+        let loop_ctx = self
+            .pop_loop()
+            .ok_or_else(|| CompileError::new("loop stack underflow"))?;
         self.patch_loop_jumps(loop_ctx, loop_end)?;
         self.pop_scope();
         Ok(())
@@ -1314,13 +1340,13 @@ impl Compiler {
         self.free_temp(source_reg);
         let collection_name = format!("$for_collection_{}", self.loop_counter);
         self.loop_counter += 1;
-        self.insert_local(collection_name, collection_reg, false, None);
+        self.insert_local(collection_name, collection_reg, false, None)?;
 
         let index_reg = self.registers.allocate()?;
         self.emit(Opcode::LoadInt, index_reg, 0, 0);
         let index_name = format!("$for_index_{}", self.loop_counter);
         self.loop_counter += 1;
-        self.insert_local(index_name, index_reg, true, None);
+        self.insert_local(index_name, index_reg, true, None)?;
 
         let loop_start = self.chunk.code.len();
         let len_reg = self.registers.allocate()?;
@@ -1335,19 +1361,19 @@ impl Compiler {
         self.emit(Opcode::GetIndex, item_reg, collection_reg, index_reg);
 
         if names.len() == 1 {
-            self.insert_local(names[0].clone(), item_reg, true, None);
+            self.insert_local(names[0].clone(), item_reg, true, None)?;
         } else {
             let key_reg = self.registers.allocate()?;
             let zero_reg = self.registers.allocate()?;
             self.emit(Opcode::LoadInt, zero_reg, 0, 0);
             self.emit(Opcode::GetIndex, key_reg, item_reg, zero_reg);
-            self.insert_local(names[0].clone(), key_reg, true, None);
+            self.insert_local(names[0].clone(), key_reg, true, None)?;
 
             let val_reg = self.registers.allocate()?;
             let one_reg = self.registers.allocate()?;
             self.emit(Opcode::LoadInt, one_reg, 1, 0);
             self.emit(Opcode::GetIndex, val_reg, item_reg, one_reg);
-            self.insert_local(names[1].clone(), val_reg, true, None);
+            self.insert_local(names[1].clone(), val_reg, true, None)?;
 
             self.free_temp(zero_reg);
             self.free_temp(one_reg);
@@ -1372,9 +1398,209 @@ impl Compiler {
         self.emit_loop(loop_start)?;
         self.patch_jump(jump_to_end)?;
         let loop_end = self.chunk.code.len();
-        let loop_ctx = self.pop_loop().expect("loop stack underflow");
+        let loop_ctx = self
+            .pop_loop()
+            .ok_or_else(|| CompileError::new("loop stack underflow"))?;
         self.patch_loop_jumps(loop_ctx, loop_end)?;
         self.pop_scope();
+        Ok(())
+    }
+
+    fn compile_pattern(
+        &mut self,
+        pattern: &Pattern,
+        value_reg: u8,
+        fail_jumps: &mut Vec<usize>,
+    ) -> Result<(), CompileError> {
+        match pattern {
+            Pattern::Literal(lit) => {
+                let lit_reg = self.compile_expr(&Expr::Literal(lit.clone()))?;
+                let eq_reg = self.registers.allocate()?;
+                self.emit(Opcode::Eq, eq_reg, value_reg, lit_reg);
+                self.free_temp(lit_reg);
+                fail_jumps.push(self.emit_jump(Opcode::JumpIfNot, eq_reg));
+                self.free_temp(eq_reg);
+            }
+            Pattern::Ident(name) => {
+                let reg = self.registers.allocate()?;
+                self.emit(Opcode::Move, reg, value_reg, 0);
+                self.insert_local(name.clone(), reg, false, None)?;
+            }
+            Pattern::Underscore => {}
+            Pattern::Tuple(patterns) => {
+                // Check if Array (Pleno uses Array for tuples)
+                let array_str_idx = self.add_constant(Value::String(Rc::new("Array".to_string())));
+                let array_str_reg = self.registers.allocate()?;
+                self.emit(Opcode::LoadConst, array_str_reg, array_str_idx as u8, 0);
+                let is_array_reg = self.registers.allocate()?;
+                self.emit(Opcode::Is, is_array_reg, value_reg, array_str_reg);
+                self.free_temp(array_str_reg);
+                fail_jumps.push(self.emit_jump(Opcode::JumpIfNot, is_array_reg));
+                self.free_temp(is_array_reg);
+
+                // Check length
+                let len_reg = self.registers.allocate()?;
+                self.emit(Opcode::ArrayLen, len_reg, value_reg, 0);
+
+                let has_rest = patterns.iter().any(|p| matches!(p, Pattern::Rest(_)));
+                if has_rest {
+                    let min_len = patterns.len().saturating_sub(1);
+                    let min_len_reg = self.registers.allocate()?;
+                    self.emit(Opcode::LoadInt, min_len_reg, min_len as u8, 0);
+                    let ge_reg = self.registers.allocate()?;
+                    self.emit(Opcode::Ge, ge_reg, len_reg, min_len_reg);
+                    self.free_temp(min_len_reg);
+                    fail_jumps.push(self.emit_jump(Opcode::JumpIfNot, ge_reg));
+                    self.free_temp(ge_reg);
+                } else {
+                    let expected_len = patterns.len();
+                    let expected_len_reg = self.registers.allocate()?;
+                    self.emit(Opcode::LoadInt, expected_len_reg, expected_len as u8, 0);
+                    let eq_reg = self.registers.allocate()?;
+                    self.emit(Opcode::Eq, eq_reg, len_reg, expected_len_reg);
+                    self.free_temp(expected_len_reg);
+                    fail_jumps.push(self.emit_jump(Opcode::JumpIfNot, eq_reg));
+                    self.free_temp(eq_reg);
+                }
+                self.free_temp(len_reg);
+
+                // Match elements
+                for (i, p) in patterns.iter().enumerate() {
+                    if let Pattern::Rest(name) = p {
+                        let start_reg = self.registers.allocate()?;
+                        self.emit(Opcode::LoadInt, start_reg, i as u8, 0);
+                        let rest_reg = self.registers.allocate()?;
+                        self.emit(Opcode::Slice, rest_reg, value_reg, start_reg);
+                        self.free_temp(start_reg);
+                        if let Some(name_str) = name {
+                            self.insert_local(name_str.clone(), rest_reg, false, None)?;
+                        } else {
+                            self.free_temp(rest_reg);
+                        }
+                        break;
+                    } else {
+                        let idx_reg = self.registers.allocate()?;
+                        self.emit(Opcode::LoadInt, idx_reg, i as u8, 0);
+                        let sub_val_reg = self.registers.allocate()?;
+                        self.emit(Opcode::GetIndex, sub_val_reg, value_reg, idx_reg);
+                        self.free_temp(idx_reg);
+                        self.compile_pattern(p, sub_val_reg, fail_jumps)?;
+                        self.free_temp(sub_val_reg);
+                    }
+                }
+            }
+            Pattern::Variant(name, patterns) => {
+                // Check if it's a map first
+                let map_str_idx = self.add_constant(Value::String(Rc::new("Map".to_string())));
+                let map_str_reg = self.registers.allocate()?;
+                self.emit(Opcode::LoadConst, map_str_reg, map_str_idx, 0);
+                let is_map_reg = self.registers.allocate()?;
+                self.emit(Opcode::Is, is_map_reg, value_reg, map_str_reg);
+                self.free_temp(map_str_reg);
+                fail_jumps.push(self.emit_jump(Opcode::JumpIfNot, is_map_reg));
+                self.free_temp(is_map_reg);
+
+                // Check if it's a map with property "variant" == name
+                let variant_name_idx =
+                    self.add_constant(Value::String(Rc::new("variant".to_string())));
+                let variant_reg = self.registers.allocate()?;
+                self.emit(
+                    Opcode::GetProperty,
+                    variant_reg,
+                    value_reg,
+                    variant_name_idx,
+                );
+
+                let expected_name_idx = self.add_constant(Value::String(Rc::new(name.clone())));
+                let expected_reg = self.registers.allocate()?;
+                self.emit(Opcode::LoadConst, expected_reg, expected_name_idx, 0);
+
+                let eq_reg = self.registers.allocate()?;
+                self.emit(Opcode::Eq, eq_reg, variant_reg, expected_reg);
+                self.free_temp(variant_reg);
+                self.free_temp(expected_reg);
+                fail_jumps.push(self.emit_jump(Opcode::JumpIfNot, eq_reg));
+                self.free_temp(eq_reg);
+
+                // For now, assume single argument variant stores value in "value"
+                if patterns.len() == 1 {
+                    let val_name_idx =
+                        self.add_constant(Value::String(Rc::new("value".to_string())));
+                    let val_reg = self.registers.allocate()?;
+                    self.emit(Opcode::GetProperty, val_reg, value_reg, val_name_idx);
+                    self.compile_pattern(&patterns[0], val_reg, fail_jumps)?;
+                    self.free_temp(val_reg);
+                } else if !patterns.is_empty() {
+                    return Err(CompileError::new(
+                        "Multi-argument variant patterns not yet supported",
+                    ));
+                }
+            }
+            Pattern::Object(props) => {
+                // Check if it's a map first
+                let map_str_idx = self.add_constant(Value::String(Rc::new("Map".to_string())));
+                let map_str_reg = self.registers.allocate()?;
+                self.emit(Opcode::LoadConst, map_str_reg, map_str_idx, 0);
+                let is_map_reg = self.registers.allocate()?;
+                self.emit(Opcode::Is, is_map_reg, value_reg, map_str_reg);
+                self.free_temp(map_str_reg);
+                fail_jumps.push(self.emit_jump(Opcode::JumpIfNot, is_map_reg));
+                self.free_temp(is_map_reg);
+
+                for (name, p) in props {
+                    let name_idx = self.add_constant(Value::String(Rc::new(name.clone())));
+                    let prop_reg = self.registers.allocate()?;
+                    self.emit(Opcode::GetProperty, prop_reg, value_reg, name_idx);
+                    self.compile_pattern(p, prop_reg, fail_jumps)?;
+                    self.free_temp(prop_reg);
+                }
+            }
+            Pattern::Type(name, binding) => {
+                let type_name_idx = self.add_constant(Value::String(Rc::new(name.clone())));
+                let type_name_reg = self.registers.allocate()?;
+                self.emit(Opcode::LoadConst, type_name_reg, type_name_idx, 0);
+
+                let is_type_reg = self.registers.allocate()?;
+                self.emit(Opcode::Is, is_type_reg, value_reg, type_name_reg);
+                self.free_temp(type_name_reg);
+                fail_jumps.push(self.emit_jump(Opcode::JumpIfNot, is_type_reg));
+                self.free_temp(is_type_reg);
+
+                if let Some(b) = binding {
+                    let reg = self.registers.allocate()?;
+                    self.emit(Opcode::Move, reg, value_reg, 0);
+                    self.insert_local(b.clone(), reg, false, Some(name.clone()))?;
+                }
+            }
+            Pattern::Or(patterns) => {
+                let mut success_jumps = Vec::new();
+                for p in patterns {
+                    let mut p_fail_jumps = Vec::new();
+                    self.compile_pattern(p, value_reg, &mut p_fail_jumps)?;
+
+                    // If this pattern matched, it's a success for the whole Or pattern
+                    success_jumps.push(self.emit_jump(Opcode::Jump, 0));
+
+                    for f in p_fail_jumps {
+                        self.patch_jump(f)?;
+                    }
+                }
+
+                if !patterns.is_empty() {
+                    // Fail if none matched
+                    fail_jumps.push(self.emit_jump(Opcode::Jump, 0));
+                }
+
+                for s in success_jumps {
+                    self.patch_jump(s)?;
+                }
+            }
+            Pattern::Rest(_) => {
+                return Err(CompileError::new(
+                    "Rest pattern not inside a tuple or array",
+                ));
+            }
+        }
         Ok(())
     }
 
@@ -1416,7 +1642,7 @@ impl Compiler {
                     .find(|p| p.name == *param)
                     .and_then(|p| p.ty.clone())
             };
-            compiler.insert_local(param.clone(), reg, true, ty);
+            compiler.insert_local(param.clone(), reg, true, ty)?;
         }
         for param in decl.params.iter() {
             if let Some(default) = &param.default {
@@ -1482,6 +1708,7 @@ impl Compiler {
             chunk: compiler.chunk,
             arity,
             params: param_specs,
+            is_async: decl.is_async,
         });
         let dest = self.registers.allocate()?;
         if store_as_function {
@@ -1523,6 +1750,106 @@ impl Compiler {
             }
         }
         captures
+    }
+
+    fn compile_class_declaration(&mut self, stmt: &Stmt) -> Result<u8, CompileError> {
+        let (name, fields, methods, superclass, nested_classes) = match stmt {
+            Stmt::Class {
+                name,
+                fields,
+                methods,
+                superclass,
+                nested_classes,
+                annotations: _,
+            } => (name, fields, methods, superclass, nested_classes),
+            _ => return Err(CompileError::new("expected class statement")),
+        };
+
+        let methods_reg = self.registers.allocate()?;
+        self.emit(Opcode::NewMap, methods_reg, 0, 0);
+        let static_reg = self.registers.allocate()?;
+        self.emit(Opcode::NewMap, static_reg, 0, 0);
+        for method in methods {
+            let is_method = !method.is_static;
+            let func_reg =
+                self.compile_function(method, is_method, true, superclass.as_ref().cloned())?;
+            let method_name = match method.kind {
+                FunctionKind::Method => method.name.clone(),
+                FunctionKind::Getter => format!("get:{}", method.name),
+                FunctionKind::Setter => format!("set:{}", method.name),
+            };
+            let meta_reg = self.registers.allocate()?;
+            self.emit(Opcode::NewArray, meta_reg, 0, 0);
+            self.emit(Opcode::ArrayAppend, meta_reg, func_reg, 0);
+            let vis_name = visibility_name(method.visibility.as_ref());
+            let vis_idx = self.add_constant(Value::String(std::rc::Rc::new(vis_name.to_string())));
+            let vis_reg = self.registers.allocate()?;
+            self.emit(Opcode::LoadConst, vis_reg, vis_idx, 0);
+            self.emit(Opcode::ArrayAppend, meta_reg, vis_reg, 0);
+            self.free_temp(vis_reg);
+            let name_idx = self.add_constant(Value::String(method_name.clone().into()));
+            let name_reg = self.registers.allocate()?;
+            self.emit(Opcode::LoadConst, name_reg, name_idx, 0);
+            if method.is_static {
+                self.emit(Opcode::SetIndex, meta_reg, static_reg, name_reg);
+            } else {
+                self.emit(Opcode::SetIndex, meta_reg, methods_reg, name_reg);
+            }
+            self.free_temp(name_reg);
+            self.free_temp(func_reg);
+            self.free_temp(meta_reg);
+        }
+        let class_reg = self.registers.allocate()?;
+        let name_idx = self.add_constant(Value::String(name.clone().into()));
+        self.emit(Opcode::DefineClass, class_reg, name_idx, methods_reg);
+        self.emit(Opcode::SetStatic, class_reg, static_reg, 0);
+        if let Some(superclass) = superclass {
+            let super_reg = self.registers.allocate()?;
+            let super_idx = self.add_constant(Value::String(superclass.clone().into()));
+            self.emit(Opcode::GetGlobal, super_reg, super_idx, 0);
+            self.emit(Opcode::SetSuper, class_reg, super_reg, 0);
+            self.free_temp(super_reg);
+        }
+        for field in fields {
+            let field_idx = self.add_constant(Value::String(field.name.clone().into()));
+            let vis_code = visibility_code(field.visibility.as_ref());
+            if field.is_static {
+                let value_reg = if let Some(default) = &field.default {
+                    self.compile_expr(default)?
+                } else {
+                    let reg = self.registers.allocate()?;
+                    self.emit(Opcode::LoadNull, reg, 0, 0);
+                    reg
+                };
+                self.emit(Opcode::SetProperty, value_reg, class_reg, field_idx);
+                self.free_temp(value_reg);
+                self.emit(
+                    Opcode::SetStaticFieldVisibility,
+                    class_reg,
+                    field_idx,
+                    vis_code,
+                );
+            } else {
+                self.emit(Opcode::SetFieldVisibility, class_reg, field_idx, vis_code);
+            }
+        }
+        for nested in nested_classes {
+            if let Stmt::Class {
+                name: nested_name, ..
+            } = nested
+            {
+                // Recursively compile nested class
+                let nested_reg = self.compile_class_declaration(nested)?;
+                let nested_name_idx = self.add_constant(Value::String(nested_name.clone().into()));
+
+                // Set as static property on the outer class
+                self.emit(Opcode::SetProperty, nested_reg, class_reg, nested_name_idx);
+                self.free_temp(nested_reg);
+            }
+        }
+        self.free_temp(methods_reg);
+        self.free_temp(static_reg);
+        Ok(class_reg)
     }
 
     fn collect_locals(&self, stmt: &Stmt, locals: &mut HashMap<String, ()>) {
@@ -1639,8 +1966,13 @@ impl Compiler {
                 }
             }
             Expr::MapLiteral(items) => {
-                for (_, value) in items {
-                    self.collect_idents_expr(value, used);
+                for item in items {
+                    match item {
+                        pleno_ast::MapItem::Entry(_, value) => {
+                            self.collect_idents_expr(value, used)
+                        }
+                        pleno_ast::MapItem::Spread(expr) => self.collect_idents_expr(expr, used),
+                    }
                 }
             }
             Expr::ArrayLiteral(items) | Expr::SetLiteral(items) => {
@@ -1652,7 +1984,11 @@ impl Compiler {
                 self.collect_idents_expr(collection, used);
                 self.collect_idents_expr(index, used);
             }
-            Expr::Slice { collection, start, end } => {
+            Expr::Slice {
+                collection,
+                start,
+                end,
+            } => {
                 self.collect_idents_expr(collection, used);
                 if let Some(start_expr) = start {
                     self.collect_idents_expr(start_expr, used);
@@ -1733,24 +2069,93 @@ impl Compiler {
     }
 
     fn emit_type_check(&mut self, reg: u8, ty_name: &str) -> Result<(), CompileError> {
-        let type_reg = self.registers.allocate()?;
-        let name_idx = self.add_constant(Value::String(ty_name.to_string().into()));
-        self.emit(Opcode::GetGlobal, type_reg, name_idx, 0);
+        // Parse the type string to handle optional and union types
+        let (base_types, is_optional) = self.parse_type_string(ty_name);
 
-        let is_null_reg = self.registers.allocate()?;
-        self.emit(Opcode::LoadNull, is_null_reg, 0, 0);
-        self.emit(Opcode::Eq, is_null_reg, type_reg, is_null_reg);
-        let skip_primitive_load = self.emit_jump(Opcode::JumpIfNot, is_null_reg);
-        self.emit(Opcode::LoadConst, type_reg, name_idx, 0);
-        self.patch_jump(skip_primitive_load)?;
-        self.free_temp(is_null_reg);
+        // Check if value is null (for optional types)
+        if is_optional {
+            let null_check_reg = self.registers.allocate()?;
+            self.emit(Opcode::LoadNull, null_check_reg, 0, 0);
+            self.emit(Opcode::Eq, null_check_reg, reg, null_check_reg);
+            let skip_null_check = self.emit_jump(Opcode::JumpIfNot, null_check_reg);
+            // If null, type check passes for optional types
+            let ok_jump = self.emit_jump(Opcode::Jump, 0);
+            self.patch_jump(skip_null_check)?;
+            self.free_temp(null_check_reg);
 
-        let is_match_reg = self.registers.allocate()?;
-        self.emit(Opcode::Is, is_match_reg, reg, type_reg);
-        let ok_jump = self.emit_jump(Opcode::JumpIf, is_match_reg);
+            // Continue to check base type
+            self.emit_type_check_for_types(reg, &base_types, ty_name)?;
 
-        // Throw type error
-        let error_msg = format!("Type error: expected {}, found ", ty_name);
+            self.patch_jump(ok_jump)?;
+        } else if base_types.len() > 1 {
+            // Union type: check if value matches any of the types
+            self.emit_type_check_for_types(reg, &base_types, ty_name)?;
+        } else {
+            // Single type check
+            self.emit_type_check_for_types(reg, &base_types, ty_name)?;
+        }
+
+        Ok(())
+    }
+
+    fn parse_type_string(&self, ty_name: &str) -> (Vec<String>, bool) {
+        // Check for optional type: Int?
+        if ty_name.ends_with('?') {
+            let base = ty_name[..ty_name.len() - 1].trim().to_string();
+            return (vec![base], true);
+        }
+
+        // Check for union type: Int | String | Float
+        if ty_name.contains('|') {
+            let types: Vec<String> = ty_name.split('|').map(|s| s.trim().to_string()).collect();
+            return (types, false);
+        }
+
+        // Single type
+        (vec![ty_name.to_string()], false)
+    }
+
+    fn emit_type_check_for_types(
+        &mut self,
+        reg: u8,
+        types: &[String],
+        original_ty_name: &str,
+    ) -> Result<(), CompileError> {
+        if types.is_empty() {
+            return Ok(());
+        }
+
+        // For union types, check each type and jump to success if any matches
+        let mut type_checks = Vec::new();
+        let mut temp_regs = Vec::new();
+
+        for ty_name in types.iter() {
+            let type_reg = self.registers.allocate()?;
+            temp_regs.push(type_reg);
+
+            let name_idx = self.add_constant(Value::String(ty_name.clone().into()));
+            self.emit(Opcode::GetGlobal, type_reg, name_idx, 0);
+
+            let is_null_reg = self.registers.allocate()?;
+            self.emit(Opcode::LoadNull, is_null_reg, 0, 0);
+            self.emit(Opcode::Eq, is_null_reg, type_reg, is_null_reg);
+            let skip_primitive_load = self.emit_jump(Opcode::JumpIfNot, is_null_reg);
+            self.emit(Opcode::LoadConst, type_reg, name_idx, 0);
+            self.patch_jump(skip_primitive_load)?;
+            self.free_temp(is_null_reg);
+
+            let is_match_reg = self.registers.allocate()?;
+            temp_regs.push(is_match_reg);
+            self.emit(Opcode::Is, is_match_reg, reg, type_reg);
+
+            // If this type matches, jump to success
+            let match_jump = self.emit_jump(Opcode::JumpIf, is_match_reg);
+            type_checks.push(match_jump);
+        }
+
+        // If we get here, none of the types matched
+        // Throw type error - use original type name to preserve optional/union syntax
+        let error_msg = format!("Type error: expected {}, found ", original_ty_name);
         let msg_idx = self.add_constant(Value::String(error_msg.into()));
         let msg_reg = self.registers.allocate()?;
         self.emit(Opcode::LoadConst, msg_reg, msg_idx, 0);
@@ -1763,18 +2168,37 @@ impl Compiler {
 
         self.emit(Opcode::Throw, final_msg_reg, 0, 0);
 
+        // Patch all match jumps to skip error
+        let ok_jump = self.emit_jump(Opcode::Jump, 0);
+        for check_jump in type_checks {
+            self.patch_jump(check_jump)?;
+        }
         self.patch_jump(ok_jump)?;
-        self.free_temp(type_reg);
-        self.free_temp(is_match_reg);
+
+        // Free temp registers
+        for temp_reg in temp_regs {
+            self.free_temp(temp_reg);
+        }
         self.free_temp(msg_reg);
         self.free_temp(actual_type_reg);
         self.free_temp(final_msg_reg);
+
         Ok(())
     }
 
-    fn insert_local(&mut self, name: String, reg: u8, mutable: bool, ty: Option<String>) {
-        let scope = self.locals.last_mut().expect("scope exists");
+    fn insert_local(
+        &mut self,
+        name: String,
+        reg: u8,
+        mutable: bool,
+        ty: Option<String>,
+    ) -> Result<(), CompileError> {
+        let scope = self
+            .locals
+            .last_mut()
+            .ok_or_else(|| CompileError::new("scope missing"))?;
         scope.insert(name, Local { reg, mutable, ty });
+        Ok(())
     }
 
     fn resolve_local(&self, name: &str) -> Option<Local> {

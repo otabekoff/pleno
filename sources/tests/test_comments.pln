@@ -1,0 +1,8 @@
+// This is a single line comment
+/* This is a block comment */
+let x = 1; // Another comment
+/* Multi-line
+   comment */
+fn main() {
+    println("Comments should be preserved in AST");
+}

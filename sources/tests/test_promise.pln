@@ -1,0 +1,50 @@
+// Test file for Promise functionality
+async fn main() {
+    print("Testing Promise functionality...");
+    
+    // Test creating a promise
+    let promise = Promise(|resolve, reject| => {
+        // Simulate async work
+        resolve(42);
+    });
+    
+    // Test Promise.then
+    promise
+        .then(|value| => {
+            print("Resolved with value: " + value);
+            return value * 2;
+        })
+        .then(|value| => {
+            print("Chained value: " + value);
+        });
+    
+    // Test Promise.all
+    let promises = [
+        Promise(|resolve, _| => resolve(1)),
+        Promise(|resolve, _| => resolve(2)),
+        Promise(|resolve, _| => resolve(3))
+    ];
+    
+    let results = await Promise.all(promises);
+    print("Results from Promise.all: " + results);
+    
+    // Test Promise.race
+    let racePromises = [
+        Promise(|resolve, _| => {
+            // Resolve immediately
+            resolve("fast");
+        }),
+        Promise(|_, reject| => {
+            // Reject later
+            reject("slow");
+        })
+    ];
+    
+    let winner = await Promise.race(racePromises);
+    print("Winner from Promise.race: " + winner);
+    
+    print("Promise tests completed!");
+}
+
+// Call main if this is the main script
+main();

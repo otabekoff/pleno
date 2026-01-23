@@ -9,3 +9,4 @@ pleno-lexer = { workspace = true }
 pleno-parser = { workspace = true }
 pleno-compiler = { workspace = true }
 pleno-vm = { workspace = true }
+pleno-formatter = { workspace = true }

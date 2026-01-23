@@ -1,0 +1,19 @@
+print("--- Testing Ternary Operator ---");
+
+let x = 10;
+let y = 20;
+
+let max = x > y ? x : y;
+print("Max: " + max); // Expected: 20
+
+let min = x < y ? x : y;
+print("Min: " + min); // Expected: 10
+
+let status = x > 0 ? "positive" : "negative";
+print("Status: " + status); // Expected: positive
+
+// Nested ternary
+let grade = x > 90 ? "A" : (x > 80 ? "B" : (x > 70 ? "C" : "F"));
+print("Grade: " + grade); // Expected: F
+
+print("--- Ternary Tests Complete ---");

@@ -1,0 +1,1 @@
+fn main() { let x = await 5; print(x); } main();
