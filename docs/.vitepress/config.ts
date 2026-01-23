@@ -87,8 +87,8 @@ export default defineConfig({
   },
   markdown: {
     theme: {
-      light: 'vitesse-light',
-      dark: 'vitesse-dark'
+      light: 'light-plus',
+      dark: 'dark-plus'
     },
     languages: [
       {

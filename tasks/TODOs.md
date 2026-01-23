@@ -7,7 +7,7 @@ Expand test suite and error messages
 
 How our programming language reports errors, shows exact positions and tracing, backtracing? Ideal and standart solution? How error reporting when it happens works?
 
-Implement date and time stuff, and also we need something related to time library.
+Implement date and time stdlib, and also we need something related to time stdlib and more stdlibs???
 
 And continue with next tasks in TECHNICAL_DEBT.md and ROADMAP.md and if you need any info , specs.md file is ready for you. And make sure to update the files at the end of the jobs those are done.
 
