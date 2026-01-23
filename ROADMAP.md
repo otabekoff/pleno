@@ -15,15 +15,14 @@ This roadmap stages the remaining implementation work for v1.
 
 ---
 
-## Stage 9 - Async + Concurrency (not started)
+## Stage 9 - Async + Concurrency (partial)
 
-**Completed**: async/await keywords parsed, Promise constructor exists
+**Completed**: async/await execution, promise resolution, event loop, output buffering (flushing), hidden promise ID handling
 
 **Remaining**:
-- Actual async execution
-- Promise resolution
-- Event loop
-- Concurrency primitives
+- Concurrency primitives (Mutex, Channels)
+- Promise.all, Promise.race
+- spawn() function
 
 ---
 
@@ -52,9 +51,9 @@ This roadmap stages the remaining implementation work for v1.
 **Completed**: register bytecode format; compiler for all language features; VM arithmetic/comparison/jumps; function call frames, class instances; exception handling; array methods (map, filter, reduce); 175+ passing tests; universal string concatenation; collection length aliases ✅
 
 **Remaining**:
-- GC integration (mark-sweep GC exists in pleno-gc crate but not integrated)
 - Performance optimizations
-- Memory management improvements
+- Memory management improvements (breaking Rc cycles)
+- NaN boxing (optional)
 
 ---
 
@@ -65,8 +64,8 @@ This roadmap stages the remaining implementation work for v1.
 **Partial**:
 - pleno-common (spans only)
 - pleno-diagnostics (basic error reporting)
-- pleno-value (primitives/collections/functions/classes)
-- pleno-gc (exists but not integrated)
+- pleno-value (primitives/collections/functions/classes) ✅
+- pleno-gc (fully integrated) ✅
 
 ---
 

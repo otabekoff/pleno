@@ -11,11 +11,11 @@ This document tracks known technical debts and areas requiring improvement in Pl
 ### Memory Management
 **Location:** `crates/pleno-gc/`, `crates/pleno-vm/`
 
-- Mark-sweep GC exists in `pleno-gc` but not integrated into VM
-- VM still uses `Rc<RefCell<>>` for memory management
-- Potential memory leaks from circular references
+- GC roots (registers, globals, call frames, async tasks, promises) integrated in VM loop
+- VM still uses `GcRc` (wrapping `Rc<RefCell<>>`) for memory management
+- GC can collect unreachable objects from `heap`, but cannot yet break circular references purely within `Rc` chains
 
-**Effort:** Very High
+**Effort:** High
 
 ---
 
@@ -131,11 +131,10 @@ Missing:
 | Low | 4 | Error handling, Tests, Performance, Documentation |
 
 **Next Steps:**
-1. REPL improvements (exit handling, keyboard navigation) ✅
-2. VM array methods (map, reduce, filter) ✅
-3. Lexer comment support ✅
-4. GC integration
-5. Standard library implementations (Math, Regex, universal concatenation) ✅
+1. GC: Investigate breaking `Rc` cycles or transitioning to full tracing management
+2. Async: Implement `Promise.all` and `spawn()`
+3. Standard Library: Expand `String` and `Map` methods
+4. Linter: Implement comprehensive rules
 
 
 
