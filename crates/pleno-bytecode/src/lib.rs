@@ -79,6 +79,9 @@ pub enum Opcode {
     MapSpread,
     SetSpread,
     Slice,
+    MulInt,
+    DivInt,
+    ModInt,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
