@@ -15,12 +15,7 @@ This roadmap stages the remaining implementation work for v1.
 
 ## Stage 9 - Async + Concurrency (partial)
 
-**Completed**: async/await execution, promise resolution, event loop, output buffering (flushing), hidden promise ID handling
-
-**Remaining**:
-- Concurrency primitives (Mutex, Channels)
-- Promise.all, Promise.race
-- spawn() function
+**Completed**: async/await execution, promise resolution, event loop, output buffering (flushing), hidden promise ID handling; Concurrency primitives (Mutex, Channels) ✅; spawn() function ✅
 
 ---
 
@@ -46,11 +41,10 @@ This roadmap stages the remaining implementation work for v1.
 
 ## Stage 12 - Runtime + VM (partial)
 
-**Completed**: register bytecode format; compiler for all language features; VM arithmetic/comparison/jumps; function call frames, class instances; exception handling; array methods (map, filter, reduce); 175+ passing tests; universal string concatenation; collection length aliases ✅
+**Completed**: register bytecode format; compiler for all language features; VM arithmetic/comparison/jumps; function call frames, class instances; exception handling; array methods (map, filter, reduce); 175+ passing tests; universal string concatenation; collection length aliases; memory management (breaking Rc cycles) ✅
 
 **Remaining**:
 - Performance optimizations
-- Memory management improvements (breaking Rc cycles)
 - NaN boxing (optional)
 
 ---

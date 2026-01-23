@@ -1,14 +1,17 @@
 use chrono::{DateTime as ChronoDateTime, TimeZone, Utc};
 use pleno_bytecode::{Chunk, Opcode, ParamSpec};
 use pleno_value::{
-    Class, MethodInfo, MethodVisibility, NativeFunction, Object, Range, RuntimeError, VMProvider,
-    Value, ValueKey,
+    Class, MethodInfo, MethodVisibility, MultiWaiter, MultiWaiterMode, NativeFunction, Object,
+    Range, RuntimeError, VMProvider, Value, ValueKey,
     gc::{GcObject, GcRc, MarkAndSweepGC},
 };
 use std::collections::HashMap;
 use std::fs;
 use std::io::Write;
 use std::rc::Rc;
+
+mod concurrency;
+use concurrency::*;
 
 #[derive(Debug, Clone)]
 pub struct AsyncTask {
@@ -56,6 +59,7 @@ pub struct VM {
     pub suspended_frames: HashMap<u64, SuspendedFrame>,
     pub promises: HashMap<u64, Value>,
     pub next_promise_id: u64,
+    pub multi_waiters: Vec<MultiWaiter>,
 }
 
 #[derive(Debug, Clone)]
@@ -117,6 +121,14 @@ impl VMProvider for VM {
                 final_args.extend(args);
                 return function(self, &final_args);
             }
+            Value::Map(map) => {
+                let callable = map.borrow().get("__call__").cloned();
+                if let Some(callable) = callable {
+                    return self.call(callable, args);
+                } else {
+                    return Err(RuntimeError::new("value is not callable"));
+                }
+            }
             _ => return Err(RuntimeError::new("value is not callable")),
         }
 
@@ -133,6 +145,35 @@ impl VMProvider for VM {
 
     fn get_gc(&mut self) -> &mut pleno_value::gc::GCManager {
         &mut self.gc
+    }
+
+    fn create_promise(&mut self) -> (u64, Value) {
+        let id = self.next_promise_id;
+        self.next_promise_id += 1;
+
+        let mut map = HashMap::new();
+        map.insert("id".to_string(), Value::Int(id as i64));
+        map.insert(
+            "variant".to_string(),
+            Value::String(Rc::new("Pending".to_string())),
+        );
+        map.insert("value".to_string(), Value::Null);
+        let promise = Value::Map(self.gc.allocate(map));
+        self.promises.insert(id, promise.clone());
+        (id, promise)
+    }
+
+    fn resolve_promise(&mut self, id: u64, value: Value) {
+        self.pending_tasks.push(AsyncTask {
+            promise_id: id,
+            value,
+            is_async: true,
+            is_resolved: true,
+        });
+    }
+
+    fn register_multi_waiter(&mut self, waiter: MultiWaiter) {
+        self.multi_waiters.push(waiter);
     }
 }
 
@@ -170,6 +211,7 @@ struct VmRoots<'a> {
     pending_tasks: &'a [AsyncTask],
     suspended_frames: &'a HashMap<u64, SuspendedFrame>,
     promises: &'a HashMap<u64, Value>,
+    multi_waiters: &'a [MultiWaiter],
 }
 
 impl<'a> GcObject for VmRoots<'a> {
@@ -195,6 +237,9 @@ impl<'a> GcObject for VmRoots<'a> {
         for frame in self.suspended_frames.values() {
             frame.mark(gc);
         }
+        for waiter in self.multi_waiters {
+            waiter.mark(gc);
+        }
     }
 }
 
@@ -209,6 +254,7 @@ impl VM {
         let mut gc = pleno_value::gc::GCManager::new(1000);
         let mut globals = HashMap::new();
         globals.insert("print".to_string(), Value::NativeFunction(native_print));
+        globals.insert("println".to_string(), Value::NativeFunction(native_print));
         globals.insert("id".to_string(), Value::NativeFunction(native_id));
         // Result type constructors
         globals.insert("Ok".to_string(), Value::NativeFunction(native_result_ok));
@@ -358,6 +404,22 @@ impl VM {
             "__native_os_platform".to_string(),
             Value::NativeFunction(native_os_platform),
         );
+        globals.insert(
+            "__native_http_get".to_string(),
+            Value::NativeFunction(native_http_get),
+        );
+        globals.insert(
+            "__native_http_post".to_string(),
+            Value::NativeFunction(native_http_post),
+        );
+        globals.insert(
+            "__native_http_put".to_string(),
+            Value::NativeFunction(native_http_put),
+        );
+        globals.insert(
+            "__native_http_delete".to_string(),
+            Value::NativeFunction(native_http_delete),
+        );
 
         // Populate Math object
         let mut math_map = HashMap::new();
@@ -433,6 +495,29 @@ impl VM {
             Value::NativeFunction(native_datetime_parse),
         );
 
+        // Async primitives
+        globals.insert(
+            "spawn".to_string(),
+            Value::NativeFunction(native_async_spawn),
+        );
+        let mut promise_map = HashMap::new();
+        promise_map.insert(
+            "__call__".to_string(),
+            Value::NativeFunction(native_promise_constructor),
+        );
+        promise_map.insert("all".to_string(), Value::NativeFunction(native_promise_all));
+        promise_map.insert(
+            "race".to_string(),
+            Value::NativeFunction(native_promise_race),
+        );
+        globals.insert("Promise".to_string(), Value::Map(gc.allocate(promise_map)));
+
+        // Debug shared store for concurrency tests
+        globals.insert(
+            "__TestShared".to_string(),
+            Value::Map(gc.allocate(HashMap::new())),
+        );
+
         Self {
             gc,
             registers: vec![Value::Null; 256],
@@ -444,6 +529,7 @@ impl VM {
             suspended_frames: HashMap::new(),
             promises: HashMap::new(),
             next_promise_id: 1,
+            multi_waiters: Vec::new(),
         }
     }
 
@@ -505,8 +591,50 @@ impl VM {
 
             if let Some(suspended) = self.suspended_frames.remove(&task.promise_id) {
                 let frame = suspended.frame;
-                self.registers[frame.base + suspended.await_reg] = task.value;
+                self.registers[frame.base + suspended.await_reg] = task.value.clone();
                 self.frames.push(frame);
+            }
+
+            // Check multi-waiters
+            let mut i = 0;
+            let mut resolutions = Vec::new();
+            while i < self.multi_waiters.len() {
+                let mut waiter = self.multi_waiters[i].clone();
+                let mut resolved = false;
+
+                if let Some(pos) = waiter
+                    .dependencies
+                    .iter()
+                    .position(|&id| id == task.promise_id)
+                {
+                    match waiter.mode {
+                        MultiWaiterMode::All => {
+                            waiter.results[pos] = task.value.clone();
+                            waiter.resolved_count += 1;
+                            if waiter.resolved_count == waiter.dependencies.len() {
+                                let gc = self.get_gc();
+                                let results_val = Value::Array(gc.allocate(waiter.results.clone()));
+                                resolutions.push((waiter.promise_id, results_val));
+                                resolved = true;
+                            }
+                        }
+                        MultiWaiterMode::Race => {
+                            resolutions.push((waiter.promise_id, task.value.clone()));
+                            resolved = true;
+                        }
+                    }
+                }
+
+                if resolved {
+                    self.multi_waiters.remove(i);
+                } else {
+                    self.multi_waiters[i] = waiter;
+                    i += 1;
+                }
+            }
+
+            for (id, val) in resolutions {
+                self.resolve_promise(id, val);
             }
         }
         Ok(())
@@ -522,6 +650,7 @@ impl VM {
                 pending_tasks: &self.pending_tasks,
                 suspended_frames: &self.suspended_frames,
                 promises: &self.promises,
+                multi_waiters: &self.multi_waiters,
             };
             self.gc.maybe_collect(&[&roots]);
 
@@ -694,6 +823,38 @@ impl VM {
                         _ => return Err(RuntimeError::new("array append on non-array value")),
                     }
                 }
+                Opcode::ArraySpread => {
+                    let value = self.registers[base + b].clone();
+                    match (&self.registers[base + a], value) {
+                        (Value::Array(target), Value::Array(source)) => {
+                            target.borrow_mut().extend(source.borrow().iter().cloned());
+                        }
+                        _ => return Err(RuntimeError::new("array spread expects array values")),
+                    }
+                }
+                Opcode::MapSpread => {
+                    let value = self.registers[base + b].clone();
+                    match (&self.registers[base + a], value) {
+                        (Value::Map(target), Value::Map(source)) => {
+                            for (k, v) in source.borrow().iter() {
+                                target.borrow_mut().insert(k.clone(), v.clone());
+                            }
+                        }
+                        _ => return Err(RuntimeError::new("map spread expects map values")),
+                    }
+                }
+                Opcode::SetSpread => {
+                    let value = self.registers[base + b].clone();
+                    match (&self.registers[base + a], value) {
+                        (Value::Set(target), Value::Set(source)) => {
+                            for k in source.borrow().iter() {
+                                target.borrow_mut().insert(k.clone());
+                            }
+                        }
+                        _ => return Err(RuntimeError::new("set spread expects set values")),
+                    }
+                }
+
                 Opcode::NewSet => {
                     self.registers[base + a] =
                         Value::Set(self.gc.allocate(std::collections::HashSet::new()));
@@ -1102,7 +1263,6 @@ impl VM {
                     let current_class = frame.current_class.as_ref().cloned();
                     let value = match &self.registers[base + b] {
                         Value::Map(map) => {
-                            // Check if this is a Result or Option type first
                             let map_ref = map.borrow();
                             if let Some(Value::String(variant)) = map_ref.get("variant") {
                                 if (variant.as_str() == "Ok" || variant.as_str() == "Err")
@@ -1138,9 +1298,20 @@ impl VM {
                                     continue;
                                 }
                             }
+                            // Check for Map built-in methods if not found as a key
+                            let val = map_ref.get(&name).cloned();
                             drop(map_ref);
-                            // Regular map access
-                            map.borrow().get(&name).cloned().unwrap_or(Value::Null)
+
+                            if let Some(val) = val {
+                                val
+                            } else if let Some(func) = resolve_builtin_method("Map", &name) {
+                                Value::BoundNativeMethod {
+                                    receiver: Box::new(Value::Map(map.clone())),
+                                    function: func,
+                                }
+                            } else {
+                                Value::Null
+                            }
                         }
                         Value::Object(object) => {
                             let class = object.borrow().class.clone();
@@ -1312,6 +1483,26 @@ impl VM {
                             } else if let Some(func) = resolve_builtin_method("Array", &name) {
                                 Value::BoundNativeMethod {
                                     receiver: Box::new(Value::Array(array.clone())),
+                                    function: func,
+                                }
+                            } else {
+                                Value::Null
+                            }
+                        }
+                        Value::Mutex(m) => {
+                            if let Some(func) = resolve_builtin_method("Mutex", &name) {
+                                Value::BoundNativeMethod {
+                                    receiver: Box::new(Value::Mutex(m.clone())),
+                                    function: func,
+                                }
+                            } else {
+                                Value::Null
+                            }
+                        }
+                        Value::Channel(c) => {
+                            if let Some(func) = resolve_builtin_method("Channel", &name) {
+                                Value::BoundNativeMethod {
+                                    receiver: Box::new(Value::Channel(c.clone())),
                                     function: func,
                                 }
                             } else {
@@ -1519,7 +1710,12 @@ impl VM {
                         }
                     }
 
-                    self.registers.truncate(frame.base);
+                    if self.frames.len() > depth
+                        || (self.suspended_frames.is_empty() && self.pending_tasks.is_empty())
+                    {
+                        self.registers.truncate(frame.base);
+                    }
+
                     if self.frames.len() == depth {
                         return Ok(result);
                     }
@@ -1666,123 +1862,144 @@ impl VM {
                         Value::Array(array) => array.borrow().clone(),
                         _ => return Err(RuntimeError::new("call expects args array")),
                     };
-                    match callee {
-                        Value::Partial {
-                            function,
-                            args: saved_args,
-                            placeholders,
-                        } => {
-                            let mut merged_args = saved_args.clone();
-                            let mut new_arg_idx = 0;
-                            for &placeholder_idx in &placeholders {
-                                if new_arg_idx < args.len() {
-                                    merged_args[placeholder_idx] = args[new_arg_idx].clone();
+                    let mut current_callee = callee;
+                    loop {
+                        match current_callee {
+                            Value::Partial {
+                                function,
+                                args: saved_args,
+                                placeholders,
+                            } => {
+                                let mut merged_args = saved_args.clone();
+                                let mut new_arg_idx = 0;
+                                for &placeholder_idx in &placeholders {
+                                    if new_arg_idx < args.len() {
+                                        merged_args[placeholder_idx] = args[new_arg_idx].clone();
+                                        new_arg_idx += 1;
+                                    }
+                                }
+                                while new_arg_idx < args.len() {
+                                    merged_args.push(args[new_arg_idx].clone());
                                     new_arg_idx += 1;
                                 }
-                            }
-                            while new_arg_idx < args.len() {
-                                merged_args.push(args[new_arg_idx].clone());
-                                new_arg_idx += 1;
-                            }
-                            self.call_function(
-                                function,
-                                None,
-                                &merged_args,
-                                base + a,
-                                None,
-                                Vec::new(),
-                                None,
-                                false,
-                            )?;
-                        }
-                        Value::Function(handle) => {
-                            self.call_function(
-                                handle,
-                                None,
-                                &args,
-                                base + a,
-                                None,
-                                Vec::new(),
-                                None,
-                                false,
-                            )?;
-                        }
-                        Value::Closure { function, captures } => {
-                            self.call_function(
-                                function,
-                                None,
-                                &args,
-                                base + a,
-                                None,
-                                captures,
-                                None,
-                                false,
-                            )?;
-                        }
-                        Value::NativeFunction(func) => {
-                            let result = func(self, &args)?;
-                            self.registers[base + a] = result;
-                        }
-                        Value::BoundNativeMethod { receiver, function } => {
-                            let mut merged_args = vec![*receiver];
-                            merged_args.extend(args);
-                            let result = function(self, &merged_args)?;
-                            self.registers[base + a] = result;
-                        }
-                        Value::BoundMethod {
-                            receiver,
-                            function,
-                            owner,
-                            ..
-                        } => {
-                            self.call_function(
-                                function,
-                                Some(receiver),
-                                &args,
-                                base + a,
-                                None,
-                                Vec::new(),
-                                Some(owner),
-                                false,
-                            )?;
-                        }
-                        Value::StaticMethod {
-                            function, owner, ..
-                        } => {
-                            self.call_function(
-                                function,
-                                None,
-                                &args,
-                                base + a,
-                                None,
-                                Vec::new(),
-                                Some(owner),
-                                false,
-                            )?;
-                        }
-                        Value::Class(class) => {
-                            let object = self.gc.allocate(Object {
-                                class: Some(class.clone()),
-                                fields: HashMap::new(),
-                            });
-                            if let Some(handle) = class.borrow().constructor {
                                 self.call_function(
-                                    handle,
-                                    Some(object.clone()),
-                                    &args,
+                                    function,
+                                    None,
+                                    &merged_args,
                                     base + a,
-                                    Some(Value::Object(object.clone())),
+                                    None,
                                     Vec::new(),
-                                    Some(class.clone()),
+                                    None,
                                     false,
                                 )?;
-                            } else {
-                                self.registers[base + a] = Value::Object(object);
+                                break;
                             }
+                            Value::Function(handle) => {
+                                self.call_function(
+                                    handle,
+                                    None,
+                                    &args,
+                                    base + a,
+                                    None,
+                                    Vec::new(),
+                                    None,
+                                    false,
+                                )?;
+                                break;
+                            }
+                            Value::Closure { function, captures } => {
+                                self.call_function(
+                                    function,
+                                    None,
+                                    &args,
+                                    base + a,
+                                    None,
+                                    captures,
+                                    None,
+                                    false,
+                                )?;
+                                break;
+                            }
+                            Value::NativeFunction(func) => {
+                                let result = func(self, &args)?;
+                                self.registers[base + a] = result;
+                                break;
+                            }
+                            Value::BoundNativeMethod { receiver, function } => {
+                                let mut merged_args = vec![*receiver];
+                                merged_args.extend(args);
+                                let result = function(self, &merged_args)?;
+                                self.registers[base + a] = result;
+                                break;
+                            }
+                            Value::BoundMethod {
+                                receiver,
+                                function,
+                                owner,
+                                ..
+                            } => {
+                                self.call_function(
+                                    function,
+                                    Some(receiver),
+                                    &args,
+                                    base + a,
+                                    None,
+                                    Vec::new(),
+                                    Some(owner),
+                                    false,
+                                )?;
+                                break;
+                            }
+                            Value::StaticMethod {
+                                function, owner, ..
+                            } => {
+                                self.call_function(
+                                    function,
+                                    None,
+                                    &args,
+                                    base + a,
+                                    None,
+                                    Vec::new(),
+                                    Some(owner),
+                                    false,
+                                )?;
+                                break;
+                            }
+                            Value::Class(class) => {
+                                let object = self.gc.allocate(Object {
+                                    class: Some(class.clone()),
+                                    fields: HashMap::new(),
+                                });
+                                if let Some(handle) = class.borrow().constructor {
+                                    self.call_function(
+                                        handle,
+                                        Some(object.clone()),
+                                        &args,
+                                        base + a,
+                                        Some(Value::Object(object.clone())),
+                                        Vec::new(),
+                                        Some(class.clone()),
+                                        false,
+                                    )?;
+                                } else {
+                                    self.registers[base + a] = Value::Object(object);
+                                }
+                                break;
+                            }
+                            Value::Map(map) => {
+                                let callable = map.borrow().get("__call__").cloned();
+                                if let Some(callable) = callable {
+                                    current_callee = callable;
+                                    continue;
+                                } else {
+                                    return Err(RuntimeError::new("value is not callable"));
+                                }
+                            }
+                            _ => return Err(RuntimeError::new("value is not callable")),
                         }
-                        _ => return Err(RuntimeError::new("value is not callable")),
                     }
                 }
+
                 Opcode::CallNamed => {
                     let callee = self.registers[base + b].clone();
                     let wrapper = match &self.registers[base + c] {
@@ -1862,6 +2079,42 @@ impl VM {
                     self.unwind_to_handler(error_value)?;
                     continue;
                 }
+                Opcode::Slice => {
+                    let collection = self.registers[base + b].clone();
+                    // According to Opcode::Slice emission in compiler:
+                    // self.emit(Opcode::Slice, dest, val_reg, wrapper_reg);
+                    // wrapper_reg has [start, end]
+                    let wrapper = match &self.registers[base + c] {
+                        Value::Array(arr) => arr.borrow().clone(),
+                        _ => return Err(RuntimeError::new("slice expects wrapper array")),
+                    };
+
+                    if wrapper.len() != 2 {
+                        return Err(RuntimeError::new("slice wrapper must have 2 elements"));
+                    }
+                    let start = expect_int_or_null(&wrapper[0])?;
+                    let end = expect_int_or_null(&wrapper[1])?;
+
+                    match collection {
+                        Value::Array(array) => {
+                            let array = array.borrow();
+                            let len = array.len() as i64;
+                            let start = resolve_index(start, len, 0);
+                            let end = resolve_index(end, len, len);
+                            let slice = array[start..end].to_vec();
+                            self.registers[base + a] = Value::Array(self.gc.allocate(slice));
+                        }
+                        Value::String(s) => {
+                            let len = s.len() as i64;
+                            let start = resolve_index(start, len, 0);
+                            let end = resolve_index(end, len, len);
+                            let slice = s[start..end].to_string();
+                            self.registers[base + a] = Value::String(Rc::new(slice));
+                        }
+                        _ => return Err(RuntimeError::new("slice expects array or string")),
+                    }
+                }
+
                 _ => {
                     return Err(RuntimeError::new("opcode not implemented"));
                 }
@@ -1964,6 +2217,12 @@ impl VM {
                 } else if param.has_default {
                     processed.push(Value::Missing);
                 } else {
+                    println!(
+                        "DEBUG: Missing arg. param: {}, arg_idx: {}, args_len: {}",
+                        param.name,
+                        arg_idx,
+                        final_args.len()
+                    );
                     return Err(RuntimeError::new("missing required argument"));
                 }
             }
@@ -2211,6 +2470,23 @@ impl VM {
     }
 
     fn execute_module(&mut self, path: &str) -> Result<Value, RuntimeError> {
+        if path == "std:sync" {
+            if let Some(mod_val) = self.modules.get("std:sync") {
+                return Ok(mod_val.clone());
+            }
+
+            let mut map = HashMap::new();
+
+            let mutex_fn = Value::NativeFunction(native_mutex_new);
+            let channel_fn = Value::NativeFunction(native_channel_new);
+
+            map.insert("Mutex".to_string(), mutex_fn);
+            map.insert("Channel".to_string(), channel_fn);
+
+            let module = Value::Map(self.gc.allocate(map));
+            self.modules.insert("std:sync".to_string(), module.clone());
+            return Ok(module);
+        }
         let base_dir = self
             .frames
             .last()
@@ -2380,6 +2656,77 @@ fn native_os_cwd(vm: &mut dyn VMProvider, _args: &[Value]) -> Result<Value, Runt
 fn native_os_platform(vm: &mut dyn VMProvider, _args: &[Value]) -> Result<Value, RuntimeError> {
     let _gc = vm.get_gc();
     Ok(Value::String(Rc::new(std::env::consts::OS.to_string())))
+}
+
+fn native_http_get(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    let url = match args.first() {
+        Some(Value::String(s)) => s.as_str(),
+        _ => return Err(RuntimeError::new("get() expects URL string")),
+    };
+    let response = reqwest::blocking::get(url)
+        .map_err(|err| RuntimeError::new(format!("HTTP request failed: {err}")))?;
+    let body = response
+        .text()
+        .map_err(|err| RuntimeError::new(format!("failed to read response body: {err}")))?;
+    Ok(Value::String(Rc::new(body)))
+}
+
+fn native_http_post(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    let url = match args.first() {
+        Some(Value::String(s)) => s.as_str(),
+        _ => return Err(RuntimeError::new("post() expects URL string")),
+    };
+    let body = match args.get(1) {
+        Some(Value::String(s)) => s.as_str(),
+        _ => "",
+    };
+    let client = reqwest::blocking::Client::new();
+    let response = client
+        .post(url)
+        .body(body.to_string())
+        .send()
+        .map_err(|err| RuntimeError::new(format!("HTTP request failed: {err}")))?;
+    let body = response
+        .text()
+        .map_err(|err| RuntimeError::new(format!("failed to read response body: {err}")))?;
+    Ok(Value::String(Rc::new(body)))
+}
+
+fn native_http_put(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    let url = match args.first() {
+        Some(Value::String(s)) => s.as_str(),
+        _ => return Err(RuntimeError::new("put() expects URL string")),
+    };
+    let body = match args.get(1) {
+        Some(Value::String(s)) => s.as_str(),
+        _ => "",
+    };
+    let client = reqwest::blocking::Client::new();
+    let response = client
+        .put(url)
+        .body(body.to_string())
+        .send()
+        .map_err(|err| RuntimeError::new(format!("HTTP request failed: {err}")))?;
+    let body = response
+        .text()
+        .map_err(|err| RuntimeError::new(format!("failed to read response body: {err}")))?;
+    Ok(Value::String(Rc::new(body)))
+}
+
+fn native_http_delete(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    let url = match args.first() {
+        Some(Value::String(s)) => s.as_str(),
+        _ => return Err(RuntimeError::new("delete() expects URL string")),
+    };
+    let client = reqwest::blocking::Client::new();
+    let response = client
+        .delete(url)
+        .send()
+        .map_err(|err| RuntimeError::new(format!("HTTP request failed: {err}")))?;
+    let body = response
+        .text()
+        .map_err(|err| RuntimeError::new(format!("failed to read response body: {err}")))?;
+    Ok(Value::String(Rc::new(body)))
 }
 
 fn native_print(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
@@ -2561,14 +2908,24 @@ fn is_truthy(value: &Value) -> bool {
 }
 
 fn add_values(a: Value, b: Value) -> Result<Value, RuntimeError> {
-    match (a, b) {
-        (Value::Int(a), Value::Int(b)) => Ok(Value::Int(a + b)),
-        (Value::Float(a), Value::Float(b)) => Ok(Value::Float(a + b)),
-        (Value::Int(a), Value::Float(b)) => Ok(Value::Float(a as f64 + b)),
-        (Value::Float(a), Value::Int(b)) => Ok(Value::Float(a + b as f64)),
-        (Value::String(a), Value::String(b)) => {
-            let mut res = a.as_str().to_string();
-            res.push_str(b.as_str());
+    match (&a, &b) {
+        (Value::Int(a_val), Value::Int(b_val)) => Ok(Value::Int(a_val + b_val)),
+        (Value::Float(a_val), Value::Float(b_val)) => Ok(Value::Float(a_val + b_val)),
+        (Value::Int(a_val), Value::Float(b_val)) => Ok(Value::Float(*a_val as f64 + b_val)),
+        (Value::Float(a_val), Value::Int(b_val)) => Ok(Value::Float(a_val + *b_val as f64)),
+        (Value::String(a_str), Value::String(b_str)) => {
+            let mut res = a_str.as_str().to_string();
+            res.push_str(b_str.as_str());
+            Ok(Value::String(Rc::new(res)))
+        }
+        (Value::String(a_str), _) => {
+            let mut res = a_str.as_str().to_string();
+            res.push_str(&b.to_string());
+            Ok(Value::String(Rc::new(res)))
+        }
+        (_, Value::String(b_str)) => {
+            let mut res = a.to_string();
+            res.push_str(b_str.as_str());
             Ok(Value::String(Rc::new(res)))
         }
         _ => Err(RuntimeError::new("invalid operands for +")),
@@ -2635,6 +2992,15 @@ fn expect_int_or_null(value: &Value) -> Result<Option<i64>, RuntimeError> {
     }
 }
 
+fn resolve_index(index: Option<i64>, len: i64, default_val: i64) -> usize {
+    let idx = index.unwrap_or(default_val);
+    if idx < 0 {
+        (len + idx).max(0) as usize
+    } else {
+        idx.min(len) as usize
+    }
+}
+
 fn compare_values(opcode: Opcode, left: Value, right: Value) -> Result<bool, RuntimeError> {
     let (left, right) = match (left, right) {
         (Value::Int(a), Value::Int(b)) => (a as f64, b as f64),
@@ -2670,34 +3036,65 @@ fn apply_offset(ip: usize, offset: i16) -> Result<usize, RuntimeError> {
 
 fn resolve_builtin_method(ty: &str, name: &str) -> Option<NativeFunction> {
     match (ty, name) {
-        ("String", "upper") => Some(native_string_upper),
-        ("String", "lower") => Some(native_string_lower),
+        ("String", "toUpperCase") => Some(native_string_upper),
+        ("String", "toLowerCase") => Some(native_string_lower),
         ("String", "trim") => Some(native_string_trim),
         ("String", "split") => Some(native_string_split),
         ("String", "contains") => Some(native_string_contains),
         ("String", "startsWith") => Some(native_string_starts_with),
         ("String", "endsWith") => Some(native_string_ends_with),
         ("String", "replace") => Some(native_string_replace),
+        ("String", "substring") => Some(native_string_substring),
+        ("String", "charAt") => Some(native_string_char_at),
+        ("String", "indexOf") => Some(native_string_index_of),
+        ("String", "repeat") => Some(native_string_repeat),
         ("Array", "push") => Some(native_array_push),
         ("Array", "pop") => Some(native_array_pop),
+        ("Array", "shift") => Some(native_array_shift),
+        ("Array", "unshift") => Some(native_array_unshift),
+        ("Array", "insert") => Some(native_array_insert),
+        ("Array", "remove") => Some(native_array_remove_at),
         ("Array", "clear") => Some(native_array_clear),
         ("Array", "slice") => Some(native_array_slice),
+        ("Array", "join") => Some(native_array_join),
+        ("Array", "find") => Some(native_array_find),
         ("Array", "map") => Some(native_array_map),
         ("Array", "filter") => Some(native_array_filter),
         ("Array", "reduce") => Some(native_array_reduce),
+        ("Array", "forEach") => Some(native_array_for_each),
         ("Array", "reverse") => Some(native_array_reverse),
         ("Array", "contains") => Some(native_array_contains),
         ("Array", "indexOf") => Some(native_array_index_of),
         ("Array", "sort") => Some(native_array_sort),
+        ("Array", "isEmpty") => Some(native_array_is_empty),
+        ("Map", "put") => Some(native_map_put),
+        ("Map", "get") => Some(native_map_get),
+        ("Map", "remove") => Some(native_map_remove),
+        ("Map", "containsKey") => Some(native_map_contains_key),
+        ("Map", "keys") => Some(native_map_keys),
+        ("Map", "values") => Some(native_map_values),
+        ("Map", "entries") => Some(native_map_entries),
+        ("Map", "size") => Some(native_map_size),
+        ("Map", "isEmpty") => Some(native_map_is_empty),
+        ("Map", "clear") => Some(native_map_clear),
         ("Set", "add") => Some(native_set_add),
         ("Set", "remove") => Some(native_set_remove),
-        ("Set", "clear") => Some(native_set_clear),
         ("Set", "contains") => Some(native_set_contains),
+        ("Set", "size") => Some(native_set_size),
+        ("Set", "isEmpty") => Some(native_set_is_empty),
+        ("Set", "clear") => Some(native_set_clear),
+        ("Set", "union") => Some(native_set_union),
+        ("Set", "intersection") => Some(native_set_intersection),
+        ("Set", "difference") => Some(native_set_difference),
         // Result methods
         ("Result", "unwrap") => Some(native_result_unwrap),
         ("Result", "unwrapOr") => Some(native_result_unwrap_or),
         ("Result", "expect") => Some(native_result_expect),
         ("Result", "isOk") => Some(native_result_is_ok),
+        ("Mutex", "lock") => Some(native_mutex_lock),
+        ("Mutex", "unlock") => Some(native_mutex_unlock),
+        ("Channel", "send") => Some(native_channel_send),
+        ("Channel", "recv") => Some(native_channel_recv),
         ("Result", "isErr") => Some(native_result_is_err),
         // Option methods
         ("Option", "unwrap") => Some(native_option_unwrap),
@@ -3768,4 +4165,522 @@ fn native_datetime_parse(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Val
     let dt = ChronoDateTime::parse_from_str(date_str, fmt)
         .map_err(|e| RuntimeError::new(format!("date parse error: {}", e)))?;
     Ok(Value::Int(dt.with_timezone(&Utc).timestamp()))
+}
+
+// Map native methods
+fn native_map_keys(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    let map = match &args[0] {
+        Value::Map(m) => m,
+        _ => return Err(RuntimeError::new("keys() expects Map")),
+    };
+    let keys: Vec<Value> = map
+        .borrow()
+        .keys()
+        .map(|k| Value::String(Rc::new(k.clone())))
+        .collect();
+    Ok(Value::Array(vm.get_gc().allocate(keys)))
+}
+
+fn native_map_values(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    let map = match &args[0] {
+        Value::Map(m) => m,
+        _ => return Err(RuntimeError::new("values() expects Map")),
+    };
+    let values: Vec<Value> = map.borrow().values().cloned().collect();
+    Ok(Value::Array(vm.get_gc().allocate(values)))
+}
+
+fn native_map_entries(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    let map = match &args[0] {
+        Value::Map(m) => m,
+        _ => return Err(RuntimeError::new("entries() expects Map")),
+    };
+    let mut entries = Vec::new();
+    for (k, v) in map.borrow().iter() {
+        let entry = vec![Value::String(Rc::new(k.clone())), v.clone()];
+        entries.push(Value::Array(vm.get_gc().allocate(entry)));
+    }
+    Ok(Value::Array(vm.get_gc().allocate(entries)))
+}
+
+fn native_map_contains_key(
+    _vm: &mut dyn VMProvider,
+    args: &[Value],
+) -> Result<Value, RuntimeError> {
+    let map = match &args[0] {
+        Value::Map(m) => m,
+        _ => return Err(RuntimeError::new("has() expects Map")),
+    };
+    let key = match args.get(1) {
+        Some(Value::String(s)) => s.as_str(),
+        _ => return Err(RuntimeError::new("has() expects string key")),
+    };
+    Ok(Value::Bool(map.borrow().contains_key(key)))
+}
+
+fn native_map_remove(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    let map = match &args[0] {
+        Value::Map(m) => m,
+        _ => return Err(RuntimeError::new("delete() expects Map")),
+    };
+    let key = match args.get(1) {
+        Some(Value::String(s)) => s.as_str(),
+        _ => return Err(RuntimeError::new("delete() expects string key")),
+    };
+    let removed = map.borrow_mut().remove(key).is_some();
+    Ok(Value::Bool(removed))
+}
+
+fn native_map_clear(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    let map = match &args[0] {
+        Value::Map(m) => m,
+        _ => return Err(RuntimeError::new("clear() expects Map")),
+    };
+    map.borrow_mut().clear();
+    Ok(Value::Null)
+}
+
+// Set methods (aliases)
+
+// String aliases and new methods
+
+fn native_string_substring(
+    _vm: &mut dyn VMProvider,
+    args: &[Value],
+) -> Result<Value, RuntimeError> {
+    let s = match &args[0] {
+        Value::String(s) => s.as_str(),
+        _ => return Err(RuntimeError::new("substring() expects String")),
+    };
+    let start = match args.get(1) {
+        Some(Value::Int(i)) => *i as usize,
+        _ => return Err(RuntimeError::new("substring() expects start index")),
+    };
+    let end = match args.get(2) {
+        Some(Value::Int(i)) => *i as usize,
+        Some(Value::Null) | None => s.len(),
+        _ => return Err(RuntimeError::new("substring() expects end index or null")),
+    };
+
+    if start > s.len() || end > s.len() || start > end {
+        return Err(RuntimeError::new("substring() out of bounds"));
+    }
+
+    Ok(Value::String(Rc::new(s[start..end].to_string())))
+}
+
+// Array aliases and new methods
+
+fn native_array_shift(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    let arr = match &args[0] {
+        Value::Array(arr) => arr,
+        _ => return Err(RuntimeError::new("shift() expects Array")),
+    };
+    let mut array = arr.borrow_mut();
+    if array.is_empty() {
+        Ok(Value::Null)
+    } else {
+        Ok(array.remove(0))
+    }
+}
+
+fn native_array_unshift(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    let arr = match &args[0] {
+        Value::Array(arr) => arr,
+        _ => return Err(RuntimeError::new("unshift() expects Array")),
+    };
+    if args.len() < 2 {
+        return Err(RuntimeError::new("unshift() expects value"));
+    }
+    arr.borrow_mut().insert(0, args[1].clone());
+    Ok(Value::Null)
+}
+
+fn native_array_join(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    let arr = match &args[0] {
+        Value::Array(arr) => arr,
+        _ => return Err(RuntimeError::new("join() expects Array")),
+    };
+    let sep = match args.get(1) {
+        Some(Value::String(s)) => s.as_str(),
+        Some(Value::Null) | None => ",",
+        _ => return Err(RuntimeError::new("join() expects string separator")),
+    };
+    let array = arr.borrow();
+    let s: Vec<String> = array.iter().map(|v| v.to_string()).collect();
+    Ok(Value::String(Rc::new(s.join(sep))))
+}
+
+fn native_array_find(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    let arr = match &args[0] {
+        Value::Array(arr) => arr.clone(),
+        _ => return Err(RuntimeError::new("find() expects Array")),
+    };
+    if args.len() < 2 {
+        return Err(RuntimeError::new("find() expects callback"));
+    }
+    let callback = args[1].clone();
+    let items = arr.borrow().clone();
+    for item in items {
+        let res = vm.call(callback.clone(), vec![item.clone()])?;
+        if let Value::Bool(true) = res {
+            return Ok(item);
+        }
+    }
+    Ok(Value::Null)
+}
+
+fn native_async_spawn(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    if args.is_empty() {
+        return Err(RuntimeError::new("spawn() requires a function"));
+    }
+    let callee = args[0].clone();
+    let call_args = args[1..].to_vec();
+    // In this VM, calling an async function already starts it and returns a promise.
+    // If it's a synchronous function, it will run to completion here.
+    vm.call(callee, call_args)
+}
+
+fn native_promise_all(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    let promises = match args.first() {
+        Some(Value::Array(arr)) => arr.borrow().clone(),
+        _ => return Err(RuntimeError::new("Promise.all() expects array of promises")),
+    };
+
+    if promises.is_empty() {
+        let gc = vm.get_gc();
+        let mut map = HashMap::new();
+        map.insert(
+            "variant".to_string(),
+            Value::String(Rc::new("Resolved".to_string())),
+        );
+        map.insert("value".to_string(), Value::Array(gc.allocate(vec![])));
+        return Ok(Value::Map(gc.allocate(map)));
+    }
+
+    let (master_id, master_promise) = vm.create_promise();
+    let mut dependencies = Vec::new();
+    let mut results = vec![Value::Null; promises.len()];
+    let mut resolved_count = 0;
+
+    for (i, p) in promises.iter().enumerate() {
+        if let Value::Map(map) = p {
+            let map_borrow = map.borrow();
+            let variant = map_borrow.get("variant").and_then(|v| v.as_str());
+            let id = map_borrow
+                .get("id")
+                .and_then(|v| v.as_int())
+                .map(|i| i as u64);
+
+            if variant == Some("Resolved") {
+                results[i] = map_borrow.get("value").cloned().unwrap_or(Value::Null);
+                resolved_count += 1;
+            } else if let Some(id) = id {
+                dependencies.push(id);
+            } else {
+                results[i] = p.clone();
+                resolved_count += 1;
+            }
+        } else {
+            results[i] = p.clone();
+            resolved_count += 1;
+        }
+    }
+
+    if resolved_count == promises.len() {
+        let gc = vm.get_gc();
+        let results_val = Value::Array(gc.allocate(results));
+        vm.resolve_promise(master_id, results_val);
+    } else {
+        vm.register_multi_waiter(MultiWaiter {
+            promise_id: master_id,
+            dependencies,
+            resolved_count,
+            results,
+            mode: MultiWaiterMode::All,
+        });
+    }
+
+    Ok(master_promise)
+}
+
+fn native_promise_race(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    let promises = match args.first() {
+        Some(Value::Array(arr)) => arr.borrow().clone(),
+        _ => {
+            return Err(RuntimeError::new(
+                "Promise.race() expects array of promises",
+            ));
+        }
+    };
+
+    if promises.is_empty() {
+        return Err(RuntimeError::new("Promise.race() called on empty array"));
+    }
+
+    for p in &promises {
+        let mut is_promise = false;
+        if let Value::Map(map) = p {
+            let map_borrow = map.borrow();
+            let variant = map_borrow.get("variant").and_then(|v| v.as_str());
+            if variant == Some("Resolved") {
+                let val = map_borrow.get("value").cloned().unwrap_or(Value::Null);
+                let (master_id, master_promise) = vm.create_promise();
+                vm.resolve_promise(master_id, val);
+                return Ok(master_promise);
+            } else if variant == Some("Pending") {
+                is_promise = true;
+            }
+        }
+
+        if !is_promise {
+            let (master_id, master_promise) = vm.create_promise();
+            vm.resolve_promise(master_id, p.clone());
+            return Ok(master_promise);
+        }
+    }
+
+    let (master_id, master_promise) = vm.create_promise();
+    let mut dependencies = Vec::new();
+
+    for p in &promises {
+        if let Value::Map(map) = p
+            && let Some(id) = map.borrow().get("id").and_then(|v| v.as_int())
+        {
+            dependencies.push(id as u64);
+        }
+    }
+
+    if dependencies.is_empty() {
+        let val = promises[0].clone();
+        vm.resolve_promise(master_id, val);
+    } else {
+        vm.register_multi_waiter(MultiWaiter {
+            promise_id: master_id,
+            dependencies,
+            resolved_count: 0,
+            results: Vec::new(),
+            mode: MultiWaiterMode::Race,
+        });
+    }
+
+    Ok(master_promise)
+}
+
+fn native_string_char_at(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    let s = match &args[0] {
+        Value::String(s) => s.as_str(),
+        _ => return Err(RuntimeError::new("charAt() expects String")),
+    };
+    let index = match args.get(1) {
+        Some(Value::Int(i)) => *i as usize,
+        _ => return Err(RuntimeError::new("charAt() expects index")),
+    };
+    if index >= s.len() {
+        return Ok(Value::Null);
+    }
+    Ok(Value::String(Rc::new(s[index..index + 1].to_string())))
+}
+
+fn native_string_index_of(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    let s = match &args[0] {
+        Value::String(s) => s.as_str(),
+        _ => return Err(RuntimeError::new("indexOf() expects String")),
+    };
+    let search = match args.get(1) {
+        Some(Value::String(s)) => s.as_str(),
+        _ => return Err(RuntimeError::new("indexOf() expects string to search")),
+    };
+    match s.find(search) {
+        Some(i) => Ok(Value::Int(i as i64)),
+        None => Ok(Value::Int(-1)),
+    }
+}
+
+fn native_string_repeat(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    let s = match &args[0] {
+        Value::String(s) => s.as_str(),
+        _ => return Err(RuntimeError::new("repeat() expects String")),
+    };
+    let count = match args.get(1) {
+        Some(Value::Int(i)) => *i as usize,
+        _ => return Err(RuntimeError::new("repeat() expects count")),
+    };
+    Ok(Value::String(Rc::new(s.repeat(count))))
+}
+
+fn native_array_insert(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    let arr = match &args[0] {
+        Value::Array(arr) => arr,
+        _ => return Err(RuntimeError::new("insert() expects Array")),
+    };
+    let index = match args.get(1) {
+        Some(Value::Int(i)) => *i as usize,
+        _ => return Err(RuntimeError::new("insert() expects index")),
+    };
+    let value = match args.get(2) {
+        Some(v) => v.clone(),
+        None => return Err(RuntimeError::new("insert() expects value")),
+    };
+    let mut array = arr.borrow_mut();
+    if index > array.len() {
+        return Err(RuntimeError::new("insert() index out of bounds"));
+    }
+    array.insert(index, value);
+    Ok(Value::Null)
+}
+
+fn native_array_remove_at(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    let arr = match &args[0] {
+        Value::Array(arr) => arr,
+        _ => return Err(RuntimeError::new("remove() expects Array")),
+    };
+    let index = match args.get(1) {
+        Some(Value::Int(i)) => *i as usize,
+        _ => return Err(RuntimeError::new("remove() expects index")),
+    };
+    let mut array = arr.borrow_mut();
+    if index >= array.len() {
+        return Err(RuntimeError::new("remove() index out of bounds"));
+    }
+    Ok(array.remove(index))
+}
+
+fn native_array_is_empty(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    let arr = match &args[0] {
+        Value::Array(arr) => arr,
+        _ => return Err(RuntimeError::new("isEmpty() expects Array")),
+    };
+    Ok(Value::Bool(arr.borrow().is_empty()))
+}
+
+fn native_array_for_each(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    let arr = match &args[0] {
+        Value::Array(arr) => arr.clone(),
+        _ => return Err(RuntimeError::new("forEach() expects Array")),
+    };
+    let callback = match args.get(1) {
+        Some(v) => v.clone(),
+        None => return Err(RuntimeError::new("forEach() expects callback")),
+    };
+    let items = arr.borrow().clone();
+    for item in items {
+        vm.call(callback.clone(), vec![item])?;
+    }
+    Ok(Value::Null)
+}
+
+fn native_map_put(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    let map = match &args[0] {
+        Value::Map(m) => m,
+        _ => return Err(RuntimeError::new("put() expects Map")),
+    };
+    let key = match args.get(1) {
+        Some(Value::String(s)) => s.as_str().to_string(),
+        _ => return Err(RuntimeError::new("put() expects string key")),
+    };
+    let value = match args.get(2) {
+        Some(v) => v.clone(),
+        None => return Err(RuntimeError::new("put() expects value")),
+    };
+    map.borrow_mut().insert(key, value);
+    Ok(Value::Null)
+}
+
+fn native_map_get(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    let map = match &args[0] {
+        Value::Map(m) => m,
+        _ => return Err(RuntimeError::new("get() expects Map")),
+    };
+    let key = match args.get(1) {
+        Some(Value::String(s)) => s.as_str(),
+        _ => return Err(RuntimeError::new("get() expects string key")),
+    };
+    Ok(map.borrow().get(key).cloned().unwrap_or(Value::Null))
+}
+
+fn native_map_size(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    let map = match &args[0] {
+        Value::Map(m) => m,
+        _ => return Err(RuntimeError::new("size() expects Map")),
+    };
+    Ok(Value::Int(map.borrow().len() as i64))
+}
+
+fn native_map_is_empty(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    let map = match &args[0] {
+        Value::Map(m) => m,
+        _ => return Err(RuntimeError::new("isEmpty() expects Map")),
+    };
+    Ok(Value::Bool(map.borrow().is_empty()))
+}
+
+fn native_set_size(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    let set = match &args[0] {
+        Value::Set(s) => s,
+        _ => return Err(RuntimeError::new("size() expects Set")),
+    };
+    Ok(Value::Int(set.borrow().len() as i64))
+}
+
+fn native_set_is_empty(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    let set = match &args[0] {
+        Value::Set(s) => s,
+        _ => return Err(RuntimeError::new("isEmpty() expects Set")),
+    };
+    Ok(Value::Bool(set.borrow().is_empty()))
+}
+
+fn native_set_union(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    let set1 = match &args[0] {
+        Value::Set(s) => s,
+        _ => return Err(RuntimeError::new("union() expects Set")),
+    };
+    let set2 = match args.get(1) {
+        Some(Value::Set(s)) => s,
+        _ => return Err(RuntimeError::new("union() expects second Set")),
+    };
+    let mut result = set1.borrow().clone();
+    for item in set2.borrow().iter() {
+        result.insert(item.clone());
+    }
+    Ok(Value::Set(vm.get_gc().allocate(result)))
+}
+
+fn native_set_intersection(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    let set1 = match &args[0] {
+        Value::Set(s) => s,
+        _ => return Err(RuntimeError::new("intersection() expects Set")),
+    };
+    let set2 = match args.get(1) {
+        Some(Value::Set(s)) => s,
+        _ => return Err(RuntimeError::new("intersection() expects second Set")),
+    };
+    let mut result = std::collections::HashSet::new();
+    let s2 = set2.borrow();
+    for item in set1.borrow().iter() {
+        if s2.contains(item) {
+            result.insert(item.clone());
+        }
+    }
+    Ok(Value::Set(vm.get_gc().allocate(result)))
+}
+
+fn native_set_difference(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    let set1 = match &args[0] {
+        Value::Set(s) => s,
+        _ => return Err(RuntimeError::new("difference() expects Set")),
+    };
+    let set2 = match args.get(1) {
+        Some(Value::Set(s)) => s,
+        _ => return Err(RuntimeError::new("difference() expects second Set")),
+    };
+    let mut result = std::collections::HashSet::new();
+    let s2 = set2.borrow();
+    for item in set1.borrow().iter() {
+        if !s2.contains(item) {
+            result.insert(item.clone());
+        }
+    }
+    Ok(Value::Set(vm.get_gc().allocate(result)))
 }

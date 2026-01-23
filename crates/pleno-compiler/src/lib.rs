@@ -365,10 +365,6 @@ impl Compiler {
                 let func_reg = self.compile_function(&decl, false, false, None)?;
                 if self.is_top_level {
                     let name_idx = self.add_constant(Value::String(name.clone().into()));
-                    if *is_async {
-                        // Emit async function opcode for async functions
-                        self.emit(Opcode::AsyncFunction, func_reg, 0, 0);
-                    }
                     self.emit(Opcode::SetGlobal, func_reg, name_idx, 0);
                     self.free_temp(func_reg);
                 } else {

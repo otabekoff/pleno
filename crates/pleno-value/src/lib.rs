@@ -7,6 +7,32 @@ use std::rc::Rc;
 pub trait VMProvider {
     fn call(&mut self, callee: Value, args: Vec<Value>) -> Result<Value, RuntimeError>;
     fn get_gc(&mut self) -> &mut gc::GCManager;
+    fn create_promise(&mut self) -> (u64, Value);
+    fn resolve_promise(&mut self, id: u64, value: Value);
+    fn register_multi_waiter(&mut self, waiter: MultiWaiter);
+}
+
+#[derive(Debug, Clone)]
+pub enum MultiWaiterMode {
+    All,
+    Race,
+}
+
+#[derive(Debug, Clone)]
+pub struct MultiWaiter {
+    pub promise_id: u64,
+    pub dependencies: Vec<u64>,
+    pub resolved_count: usize,
+    pub results: Vec<Value>,
+    pub mode: MultiWaiterMode,
+}
+
+impl GcObject for MultiWaiter {
+    fn mark(&self, gc: &mut MarkAndSweepGC) {
+        for v in &self.results {
+            v.mark(gc);
+        }
+    }
 }
 
 pub type NativeFunction =
@@ -57,6 +83,62 @@ pub enum Value {
         kind: ArrayOpKind,
         array: GcRc<Vec<Value>>,
     },
+    Mutex(GcRc<MutexState>),
+    Channel(GcRc<ChannelState>),
+}
+
+impl Value {
+    pub fn as_str(&self) -> Option<&str> {
+        match self {
+            Value::String(s) => Some(s.as_str()),
+            _ => None,
+        }
+    }
+
+    pub fn as_int(&self) -> Option<i64> {
+        match self {
+            Value::Int(i) => Some(*i),
+            _ => None,
+        }
+    }
+
+    pub fn as_bool(&self) -> Option<bool> {
+        match self {
+            Value::Bool(b) => Some(*b),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct MutexState {
+    pub locked: bool,
+    pub waiters: Vec<usize>, // Promise IDs waiting for lock
+}
+
+#[derive(Debug, Clone)]
+pub struct ChannelState {
+    pub buffer: std::collections::VecDeque<Value>,
+    pub capacity: usize,
+    pub send_waiters: Vec<(usize, Value)>, // (Promise ID, Value to send)
+    pub recv_waiters: Vec<usize>,          // Promise IDs waiting for value
+}
+
+impl GcObject for MutexState {
+    fn mark(&self, _gc: &mut MarkAndSweepGC) {
+        // Waiters are just IDs, no GC references
+    }
+}
+
+impl GcObject for ChannelState {
+    fn mark(&self, gc: &mut MarkAndSweepGC) {
+        for v in &self.buffer {
+            v.mark(gc);
+        }
+        for (_, v) in &self.send_waiters {
+            v.mark(gc);
+        }
+    }
 }
 
 impl GcObject for Value {
@@ -80,7 +162,15 @@ impl GcObject for Value {
                 }
             }
             Value::ArrayOp { array, .. } => gc.mark_object(&array.to_gc_object()),
+            Value::Mutex(m) => gc.mark_object(&m.to_gc_object()),
+            Value::Channel(c) => gc.mark_object(&c.to_gc_object()),
             _ => {}
+        }
+    }
+
+    fn clear_refs(&mut self) {
+        if let Value::BoundNativeMethod { receiver, .. } = self {
+            receiver.clear_refs();
         }
     }
 }
@@ -91,6 +181,10 @@ impl GcObject for Vec<Value> {
             v.mark(gc);
         }
     }
+
+    fn clear_refs(&mut self) {
+        self.clear();
+    }
 }
 
 impl GcObject for HashMap<String, Value> {
@@ -99,10 +193,17 @@ impl GcObject for HashMap<String, Value> {
             v.mark(gc);
         }
     }
+
+    fn clear_refs(&mut self) {
+        self.clear();
+    }
 }
 
 impl GcObject for HashSet<ValueKey> {
     fn mark(&self, _gc: &mut MarkAndSweepGC) {}
+    fn clear_refs(&mut self) {
+        self.clear();
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -154,6 +255,13 @@ impl GcObject for Class {
         for v in self.static_fields.values() {
             v.mark(gc);
         }
+    }
+
+    fn clear_refs(&mut self) {
+        self.superclass = None;
+        self.static_fields.clear();
+        self.methods.clear();
+        self.static_methods.clear();
     }
 }
 
@@ -276,7 +384,9 @@ impl PartialEq for Value {
                     kind: kb,
                     array: ab,
                 },
-            ) => ka == kb && aa.as_ptr() == ab.as_ptr(),
+            ) => *ka == *kb && aa.as_ptr() == ab.as_ptr(),
+            (Value::Mutex(a), Value::Mutex(b)) => a.as_ptr() == b.as_ptr(),
+            (Value::Channel(a), Value::Channel(b)) => a.as_ptr() == b.as_ptr(),
             _ => false,
         }
     }
@@ -366,6 +476,8 @@ impl std::fmt::Display for Value {
                 };
                 write!(f, "<array.{}>", name)
             }
+            Value::Mutex(_) => write!(f, "<mutex>"),
+            Value::Channel(_) => write!(f, "<channel>"),
         }
     }
 }
@@ -399,6 +511,8 @@ impl Value {
             Value::Object(_) => "Object",
             Value::Partial { .. } => "Partial",
             Value::ArrayOp { .. } => "ArrayOp",
+            Value::Mutex(_) => "Mutex",
+            Value::Channel(_) => "Channel",
         }
     }
 }
@@ -411,6 +525,11 @@ impl GcObject for Object {
         for v in self.fields.values() {
             v.mark(gc);
         }
+    }
+
+    fn clear_refs(&mut self) {
+        self.class = None;
+        self.fields.clear();
     }
 }
 

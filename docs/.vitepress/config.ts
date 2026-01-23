@@ -16,7 +16,11 @@ export default defineConfig({
   srcDir: '.',
   ignoreDeadLinks: true,
   themeConfig: {
-    logo: '/logo.png',
+    outline: {
+      level: "deep",
+      label: "On this page"
+    },
+    logo: '/logo.svg',
     nav: [
       { text: 'Home', link: '/' },
       { text: 'Guide', link: '/specs/index' },

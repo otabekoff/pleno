@@ -1,0 +1,25 @@
+async fn task(name) {
+    print("Task " + name + " started");
+    return name + " result";
+}
+
+async fn main() {
+    print("Promise.all test starting...");
+    let p1 = task("A");
+    let p2 = task("B");
+    let p3 = task("C");
+    
+    let results = await Promise.all([p1, p2, p3]);
+    
+    print("Results: " + results[0]);
+    print("Results: " + results[1]);
+    print("Results: " + results[2]);
+    
+    if (results[0] == "A result" && results[1] == "B result" && results[2] == "C result") {
+        print("Promise.all test PASSED");
+    } else {
+        print("Promise.all test FAILED");
+    }
+}
+
+main();
