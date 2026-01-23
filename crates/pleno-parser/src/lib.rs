@@ -81,10 +81,10 @@ impl Parser {
                         is_async: true,
                     })
                 } else {
-                    return Err(ParseError {
+                    Err(ParseError {
                         message: "Expected 'fn' after 'async'".to_string(),
                         span: self.previous_span(),
-                    });
+                    })
                 }
             }
             TokenKind::KeywordFn => {
@@ -154,11 +154,7 @@ impl Parser {
 
     fn parse_let_stmt(&mut self) -> Result<Stmt, ParseError> {
         self.advance();
-        let mutable = if self.matches(&TokenKind::KeywordMut) {
-            true
-        } else {
-            false
-        };
+        let mutable = self.matches(&TokenKind::KeywordMut);
         let name = match self.advance().kind.clone() {
             TokenKind::Ident(value) => value,
             other => {
@@ -1998,12 +1994,12 @@ fn is_accessor(
     third: Option<&TokenKind>,
     name: &str,
 ) -> bool {
-    match (first, second, third) {
-        (TokenKind::Ident(ident), Some(TokenKind::Ident(_)), Some(TokenKind::LParen))
-            if ident == name =>
-        {
-            true
-        }
-        _ => false,
-    }
+    matches!(
+        (first, second, third),
+        (
+            TokenKind::Ident(ident),
+            Some(TokenKind::Ident(_)),
+            Some(TokenKind::LParen)
+        ) if ident == name
+    )
 }

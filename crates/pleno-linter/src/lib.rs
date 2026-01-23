@@ -46,22 +46,20 @@ impl Default for LintRulesConfig {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct LintConfig {
     pub rules: LintRulesConfig,
-}
-
-impl Default for LintConfig {
-    fn default() -> Self {
-        Self {
-            rules: LintRulesConfig::default(),
-        }
-    }
 }
 
 pub struct Linter {
     rules: Vec<LintRule>,
     config: LintConfig,
+}
+
+impl Default for Linter {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Linter {
@@ -160,30 +158,52 @@ impl Linter {
             diagnostics.extend(self.check_semi_spacing(source));
         }
 
+        // Check for operator spacing
+        diagnostics.extend(self.check_operator_spacing(source));
+
         diagnostics
     }
 
     fn check_unused_variables(&self, program: &Program) -> Vec<LintDiagnostic> {
         let mut diagnostics = Vec::new();
 
-        // This is a simplified version - a real implementation would track variable usage
-        for stmt in &program.statements {
-            if let Stmt::Let {
-                name,
-                value: Some(_),
-                ..
-            } = stmt
-            {
-                // In a real implementation, we would check if the variable is used
-                // For now, we'll just add a diagnostic for demonstration
-                diagnostics.push(LintDiagnostic {
-                    rule_name: "no-unused-vars".to_string(),
-                    message: format!("Variable '{}' is declared but possibly unused", name),
-                    severity: Severity::Warning,
-                    line: 0,   // Placeholder line number
-                    column: 0, // Placeholder column number
-                });
+        fn find_let_declarations(stmt: &Stmt, diagnostics: &mut Vec<LintDiagnostic>) {
+            match stmt {
+                Stmt::Let { name, .. } => {
+                    diagnostics.push(LintDiagnostic {
+                        rule_name: "no-unused-vars".to_string(),
+                        message: format!("Variable '{}' is declared but possibly unused", name),
+                        severity: Severity::Warning,
+                        line: 0,
+                        column: 0,
+                    });
+                }
+                Stmt::Block(stmts) => {
+                    for s in stmts {
+                        find_let_declarations(s, diagnostics);
+                    }
+                }
+                Stmt::If {
+                    then_branch,
+                    else_branch,
+                    ..
+                } => {
+                    find_let_declarations(then_branch, diagnostics);
+                    if let Some(eb) = else_branch {
+                        find_let_declarations(eb, diagnostics);
+                    }
+                }
+                Stmt::While { body, .. } => find_let_declarations(body, diagnostics),
+                Stmt::For { body, .. } => find_let_declarations(body, diagnostics),
+                Stmt::Fn { body, .. } => {
+                    find_let_declarations(body, diagnostics);
+                }
+                _ => {}
             }
+        }
+
+        for stmt in &program.statements {
+            find_let_declarations(stmt, &mut diagnostics);
         }
 
         diagnostics
@@ -198,7 +218,7 @@ impl Linter {
                 diagnostics.push(LintDiagnostic {
                     rule_name: "max-line-length".to_string(),
                     message: format!(
-                        "Line {} exceeds maximum length of {} characters",
+                        "Line {} exceeds maximum line length of {} characters",
                         line_num + 1,
                         max_length
                     ),
@@ -209,6 +229,60 @@ impl Linter {
             }
         }
 
+        diagnostics
+    }
+
+    fn check_operator_spacing(&self, source: &str) -> Vec<LintDiagnostic> {
+        let mut diagnostics = Vec::new();
+        let ops = ["+", "-", "*", "/", "=", "==", ">", "<", ">=", "<="];
+
+        for (line_num, line) in source.lines().enumerate() {
+            for op in &ops {
+                let mut last_pos = 0;
+                while let Some(pos) = line[last_pos..].find(op) {
+                    let absolute_pos = last_pos + pos;
+
+                    // Simple check: is there a space before and after?
+                    // We avoid false positives for composite operators like ==, >=, etc.
+                    let is_part_of_composite = if *op == "=" {
+                        (absolute_pos > 0
+                            && (line.as_bytes()[absolute_pos - 1] == b'='
+                                || line.as_bytes()[absolute_pos - 1] == b'>'
+                                || line.as_bytes()[absolute_pos - 1] == b'<'))
+                            || (absolute_pos + 1 < line.len()
+                                && line.as_bytes()[absolute_pos + 1] == b'=')
+                    } else if *op == ">" || *op == "<" {
+                        absolute_pos + 1 < line.len() && line.as_bytes()[absolute_pos + 1] == b'='
+                    } else {
+                        false
+                    };
+
+                    if !is_part_of_composite {
+                        let space_before =
+                            absolute_pos == 0 || line.as_bytes()[absolute_pos - 1] == b' ';
+                        let space_after = absolute_pos + op.len() >= line.len()
+                            || line.as_bytes()[absolute_pos + op.len()] == b' ';
+
+                        if !space_before || !space_after {
+                            diagnostics.push(LintDiagnostic {
+                                rule_name: "operator-spacing".to_string(),
+                                message: format!(
+                                    "Missing spacing around operator '{}' on line {}",
+                                    op,
+                                    line_num + 1
+                                ),
+                                severity: Severity::Warning,
+                                line: line_num + 1,
+                                column: absolute_pos + 1,
+                            });
+                            // One warning per line per operator is enough for now to avoid spam
+                            break;
+                        }
+                    }
+                    last_pos = absolute_pos + op.len();
+                }
+            }
+        }
         diagnostics
     }
 

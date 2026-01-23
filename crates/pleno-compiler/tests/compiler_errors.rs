@@ -83,7 +83,7 @@ fn too_many_registers_error() {
     for i in 0..255 {
         code.push_str(&format!("let x{} = {};", i, i));
         if i < 254 {
-            code.push_str(" ");
+            code.push(' ');
         }
     }
     let err = compile(&code).unwrap_err();

@@ -36,7 +36,7 @@ fn is_complete(input: &str) -> bool {
             '/' => {
                 if let Some('/') = chars.peek() {
                     // Single line comment, skip until newline
-                    while let Some(next_ch) = chars.next() {
+                    for next_ch in chars.by_ref() {
                         if next_ch == '\n' {
                             break;
                         }

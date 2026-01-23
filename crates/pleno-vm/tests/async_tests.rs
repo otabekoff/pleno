@@ -14,8 +14,8 @@ fn eval(source: &str) -> pleno_value::Value {
 #[test]
 fn evaluates_simple_async_function() {
     let value = eval("async fn getValue() { return 42; } getValue();");
-    // For now, since we're not fully implementing async, this should return a function
-    assert!(matches!(value, pleno_value::Value::Function(_)));
+    // Async functions return a Promise (represented as a Map)
+    assert!(matches!(value, pleno_value::Value::Map(_)));
 }
 
 #[test]

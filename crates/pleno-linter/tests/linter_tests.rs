@@ -139,7 +139,7 @@ fn test_multiple_issues_detected() {
     let messages = lint(input);
 
     // Should detect multiple issues: naming, spacing, etc.
-    assert!(messages.len() > 0);
+    assert!(!messages.is_empty());
 }
 
 #[test]
