@@ -1,10 +1,20 @@
 import { defineConfig } from 'vitepress'
+import fs from 'fs'
+import path from 'path'
+
+const plenoGrammar = JSON.parse(
+  fs.readFileSync(
+    path.resolve(__dirname, '../public/pleno.tmLanguage.json'),
+    'utf-8'
+  )
+)
 
 // https://vitepress.dev/reference/site-config
 export default defineConfig({
   title: "Pleno",
   description: "Clarity, Safety, Expressiveness",
   srcDir: '.',
+  ignoreDeadLinks: true,
   themeConfig: {
     logo: '/logo.png',
     nav: [
@@ -74,5 +84,20 @@ export default defineConfig({
       message: 'Released under the MIT License.',
       copyright: 'Copyright © 2026-present Pleno Team'
     }
+  },
+  markdown: {
+    theme: {
+      light: 'vitesse-light',
+      dark: 'vitesse-dark'
+    },
+    languages: [
+      {
+        ...plenoGrammar,
+        name: 'pleno',
+        id: 'pleno',
+        
+        aliases: ['pln']
+      }
+    ]
   }
 })

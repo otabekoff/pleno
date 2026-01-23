@@ -205,7 +205,7 @@ impl Default for VM {
 
 impl VM {
     pub fn new() -> Self {
-        let gc = pleno_value::gc::GCManager::new(1000);
+        let mut gc = pleno_value::gc::GCManager::new(1000);
         let mut globals = HashMap::new();
         globals.insert("print".to_string(), Value::NativeFunction(native_print));
         globals.insert("id".to_string(), Value::NativeFunction(native_id));
@@ -217,9 +217,15 @@ impl VM {
             "Some".to_string(),
             Value::NativeFunction(native_option_some),
         );
+        let mut none_map = HashMap::new();
+        none_map.insert(
+            "variant".to_string(),
+            Value::String(Rc::new("None".to_string())),
+        );
+        globals.insert("None".to_string(), Value::Map(gc.allocate(none_map)));
         globals.insert(
-            "None".to_string(),
-            Value::NativeFunction(native_option_none),
+            "Promise".to_string(),
+            Value::NativeFunction(native_promise_constructor),
         );
 
         // Math native functions
@@ -351,26 +357,66 @@ impl VM {
             "__native_os_platform".to_string(),
             Value::NativeFunction(native_os_platform),
         );
-        globals.insert(
-            "__native_os_exit".to_string(),
-            Value::NativeFunction(native_os_exit),
+
+        // Populate Math object
+        let mut math_map = HashMap::new();
+        math_map.insert("abs".to_string(), Value::NativeFunction(native_math_abs));
+        math_map.insert("pow".to_string(), Value::NativeFunction(native_math_pow));
+        math_map.insert("sqrt".to_string(), Value::NativeFunction(native_math_sqrt));
+        math_map.insert(
+            "random".to_string(),
+            Value::NativeFunction(native_math_random),
         );
-        globals.insert(
-            "__native_os_getenv".to_string(),
+        math_map.insert(
+            "randomInt".to_string(),
+            Value::NativeFunction(native_math_random_int),
+        );
+        math_map.insert("sin".to_string(), Value::NativeFunction(native_math_sin));
+        math_map.insert("cos".to_string(), Value::NativeFunction(native_math_cos));
+        math_map.insert("tan".to_string(), Value::NativeFunction(native_math_tan));
+        math_map.insert("log".to_string(), Value::NativeFunction(native_math_log));
+        math_map.insert("exp".to_string(), Value::NativeFunction(native_math_exp));
+        math_map.insert(
+            "floor".to_string(),
+            Value::NativeFunction(native_math_floor),
+        );
+        math_map.insert("ceil".to_string(), Value::NativeFunction(native_math_ceil));
+        math_map.insert(
+            "round".to_string(),
+            Value::NativeFunction(native_math_round),
+        );
+        globals.insert("Math".to_string(), Value::Map(gc.allocate(math_map)));
+
+        // Populate JSON object
+        let mut json_map = HashMap::new();
+        json_map.insert(
+            "parse".to_string(),
+            Value::NativeFunction(native_json_parse),
+        );
+        json_map.insert(
+            "stringify".to_string(),
+            Value::NativeFunction(native_json_stringify),
+        );
+        json_map.insert(
+            "stringifyPretty".to_string(),
+            Value::NativeFunction(native_json_stringify_pretty),
+        );
+        globals.insert("JSON".to_string(), Value::Map(gc.allocate(json_map)));
+
+        // Populate OS object
+        let mut os_map = HashMap::new();
+        os_map.insert("exit".to_string(), Value::NativeFunction(native_os_exit));
+        os_map.insert(
+            "getenv".to_string(),
             Value::NativeFunction(native_os_getenv),
         );
-        globals.insert(
-            "__native_os_args".to_string(),
-            Value::NativeFunction(native_os_args),
-        );
-        globals.insert(
-            "__native_os_cwd".to_string(),
-            Value::NativeFunction(native_os_cwd),
-        );
-        globals.insert(
-            "__native_os_platform".to_string(),
+        os_map.insert("args".to_string(), Value::NativeFunction(native_os_args));
+        os_map.insert("cwd".to_string(), Value::NativeFunction(native_os_cwd));
+        os_map.insert(
+            "platform".to_string(),
             Value::NativeFunction(native_os_platform),
         );
+        globals.insert("OS".to_string(), Value::Map(gc.allocate(os_map)));
 
         Self {
             gc,
@@ -1030,7 +1076,7 @@ impl VM {
                             }
                             class.borrow_mut().static_fields.insert(name, value);
                         }
-                        _ => return Err(RuntimeError::new("property set on non-map/object value")),
+                        _ => return Err(RuntimeError::new("field set on non-object")),
                     }
                 }
                 Opcode::GetProperty => {
@@ -1062,6 +1108,17 @@ impl VM {
                                     self.registers[base + a] = Value::BoundNativeMethod {
                                         receiver: Box::new(Value::Map(map.clone())),
                                         function: resolve_builtin_method("Option", &name).unwrap(),
+                                    };
+                                    continue;
+                                } else if (variant.as_str() == "Pending"
+                                    || variant.as_str() == "Resolved")
+                                    && resolve_builtin_method("Promise", &name).is_some()
+                                {
+                                    // Promise type with method
+                                    drop(map_ref);
+                                    self.registers[base + a] = Value::BoundNativeMethod {
+                                        receiver: Box::new(Value::Map(map.clone())),
+                                        function: resolve_builtin_method("Promise", &name).unwrap(),
                                     };
                                     continue;
                                 }
@@ -1234,7 +1291,36 @@ impl VM {
                                 Value::Null
                             }
                         }
-                        _ => return Err(RuntimeError::new("property access on non-object value")),
+                        Value::ArrayOp { kind: _, array } => {
+                            if name == "len" || name == "length" {
+                                Value::Int(array.borrow().len() as i64)
+                            } else if let Some(func) = resolve_builtin_method("Array", &name) {
+                                Value::BoundNativeMethod {
+                                    receiver: Box::new(Value::Array(array.clone())),
+                                    function: func,
+                                }
+                            } else {
+                                Value::Null
+                            }
+                        }
+                        _ => {
+                            if name == "len" || name == "length" {
+                                return Err(RuntimeError::new("array length on non-array value"));
+                            }
+                            if name == "append" {
+                                return Err(RuntimeError::new("array append on non-array value"));
+                            }
+                            if name == "add" {
+                                return Err(RuntimeError::new("set add on non-set value"));
+                            }
+                            if name == "has" {
+                                return Err(RuntimeError::new("set has on non-set value"));
+                            }
+                            if name == "keys" {
+                                return Err(RuntimeError::new("map keys on non-map value"));
+                            }
+                            return Err(RuntimeError::new("field access on non-object"));
+                        }
                     };
                     self.registers[base + a] = value;
                 }
@@ -1270,7 +1356,11 @@ impl VM {
                     let value = match (collection, index) {
                         (Value::Array(array), Value::Int(idx)) => {
                             let idx = idx as usize;
-                            array.borrow().get(idx).cloned().unwrap_or(Value::Null)
+                            let array_borrow = array.borrow();
+                            if idx >= array_borrow.len() {
+                                return Err(RuntimeError::new("array index out of bounds"));
+                            }
+                            array_borrow[idx].clone()
                         }
                         (Value::Map(map), Value::String(key)) => map
                             .borrow()
@@ -1802,7 +1892,7 @@ impl VM {
                 .unwrap_or(false);
 
             if !has_variadic && final_args.len() > function.arity {
-                return Err(RuntimeError::new("argument count mismatch"));
+                return Err(RuntimeError::new("too many positional arguments"));
             }
 
             let mut processed = Vec::new();
@@ -2043,6 +2133,11 @@ impl VM {
         let start = if has_receiver { 1 } else { 0 };
         let params = function.params.get(start..).unwrap_or(&[]);
         let mut pos_index = 0usize;
+        for key in named.keys() {
+            if !params.iter().any(|param| param.name == *key) {
+                return Err(RuntimeError::new("unknown named argument"));
+            }
+        }
         for (idx, param) in params.iter().enumerate() {
             if param.is_variadic {
                 if idx + 1 != params.len() {
@@ -2080,11 +2175,7 @@ impl VM {
         if pos_index < positional.len() {
             return Err(RuntimeError::new("too many positional arguments"));
         }
-        for key in named.keys() {
-            if !params.iter().any(|param| param.name == *key) {
-                return Err(RuntimeError::new("unknown named argument"));
-            }
-        }
+
         Ok(args)
     }
 
@@ -2460,8 +2551,11 @@ fn add_values(a: Value, b: Value) -> Result<Value, RuntimeError> {
         (Value::Float(a), Value::Float(b)) => Ok(Value::Float(a + b)),
         (Value::Int(a), Value::Float(b)) => Ok(Value::Float(a as f64 + b)),
         (Value::Float(a), Value::Int(b)) => Ok(Value::Float(a + b as f64)),
-        (Value::String(a), b) => Ok(Value::String(Rc::new(format!("{}{}", a, b)))),
-        (a, Value::String(b)) => Ok(Value::String(Rc::new(format!("{}{}", a, b)))),
+        (Value::String(a), Value::String(b)) => {
+            let mut res = a.as_str().to_string();
+            res.push_str(b.as_str());
+            Ok(Value::String(Rc::new(res)))
+        }
         _ => Err(RuntimeError::new("invalid operands for +")),
     }
 }
@@ -2579,6 +2673,7 @@ fn resolve_builtin_method(ty: &str, name: &str) -> Option<NativeFunction> {
         ("Array", "reverse") => Some(native_array_reverse),
         ("Array", "contains") => Some(native_array_contains),
         ("Array", "indexOf") => Some(native_array_index_of),
+        ("Array", "sort") => Some(native_array_sort),
         ("Set", "add") => Some(native_set_add),
         ("Set", "remove") => Some(native_set_remove),
         ("Set", "clear") => Some(native_set_clear),
@@ -2595,6 +2690,8 @@ fn resolve_builtin_method(ty: &str, name: &str) -> Option<NativeFunction> {
         ("Option", "expect") => Some(native_option_expect),
         ("Option", "isSome") => Some(native_option_is_some),
         ("Option", "isNone") => Some(native_option_is_none),
+        // Promise methods
+        ("Promise", "then") => Some(native_promise_then),
         _ => None,
     }
 }
@@ -2914,6 +3011,40 @@ fn native_array_reverse(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value
     Ok(Value::Null)
 }
 
+fn native_array_sort(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    let arr = match &args[0] {
+        Value::Array(arr) => arr.clone(),
+        _ => return Err(RuntimeError::new("expected array")),
+    };
+    let mut items = arr.borrow().clone();
+    items.sort_by_key(|a| a.to_string());
+    Ok(Value::Array(vm.get_gc().allocate(items)))
+}
+
+fn native_promise_constructor(
+    vm: &mut dyn VMProvider,
+    args: &[Value],
+) -> Result<Value, RuntimeError> {
+    let gc = vm.get_gc();
+    if args.is_empty() {
+        return Err(RuntimeError::new("Promise() requires a callback"));
+    }
+    let mut promise_map = HashMap::new();
+    promise_map.insert(
+        "variant".to_string(),
+        Value::String(std::rc::Rc::new("Pending".to_string())),
+    );
+    promise_map.insert("value".to_string(), Value::Null);
+    Ok(Value::Map(gc.allocate(promise_map)))
+}
+
+fn native_promise_then(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    if args.is_empty() {
+        return Err(RuntimeError::new("then() requires callback"));
+    }
+    Ok(args[0].clone())
+}
+
 fn native_array_contains(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
     let _gc = vm.get_gc();
     let arr = match &args[0] {
@@ -2988,16 +3119,6 @@ fn native_option_some(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, 
         Value::String(Rc::new("Some".to_string())),
     );
     option.insert("value".to_string(), args[0].clone());
-    Ok(Value::Map(gc.allocate(option)))
-}
-
-fn native_option_none(vm: &mut dyn VMProvider, _args: &[Value]) -> Result<Value, RuntimeError> {
-    let gc = vm.get_gc();
-    let mut option = HashMap::new();
-    option.insert(
-        "variant".to_string(),
-        Value::String(Rc::new("None".to_string())),
-    );
     Ok(Value::Map(gc.allocate(option)))
 }
 
