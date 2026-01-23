@@ -44,15 +44,41 @@
  * -------------------------------------------------------------------------- */
 
 :root {
+  --vp-c-indigo-1: #a8b1ff;
+  --vp-c-indigo-2: #5c73e7;
+  --vp-c-indigo-3: #3e63dd;
+  --vp-c-indigo-soft: rgba(100, 108, 255, 0.16);
+
+  --vp-c-indigo-1: #3451b2;
+  --vp-c-indigo-2: #3a5ccc;
+  --vp-c-indigo-3: #5672cd;
+  --vp-c-indigo-soft: rgba(100, 108, 255, 0.14);
+
+  /* -#19947c; */
+
+  /* Emerald palette */
+
+  --vp-c-emerald-1: #25705b;   /* light */
+  --vp-c-emerald-2: #2e8f7c;   /* primary */
+  --vp-c-emerald-3: #38b296;   /* strong */
+  --vp-c-emerald-soft: rgba(16, 185, 129, 0.16);
+
+  /* Darker emerald (like your second indigo set) */
+
+  --vp-c-emerald-1: #42ab8e;
+  --vp-c-emerald-2: #19947c;
+  --vp-c-emerald-3: #10b981;
+  --vp-c-emerald-soft: rgba(16, 185, 129, 0.14);
+  
   --vp-c-default-1: var(--vp-c-gray-1);
   --vp-c-default-2: var(--vp-c-gray-2);
   --vp-c-default-3: var(--vp-c-gray-3);
   --vp-c-default-soft: var(--vp-c-gray-soft);
 
-  --vp-c-brand-1: var(--vp-c-indigo-1);
-  --vp-c-brand-2: var(--vp-c-indigo-2);
-  --vp-c-brand-3: var(--vp-c-indigo-3);
-  --vp-c-brand-soft: var(--vp-c-indigo-soft);
+  --vp-c-brand-1: var(--vp-c-emerald-1);
+  --vp-c-brand-2: var(--vp-c-emerald-2);
+  --vp-c-brand-3: var(--vp-c-emerald-3);
+  --vp-c-brand-soft: var(--vp-c-emerald-soft);
 
   --vp-c-tip-1: var(--vp-c-brand-1);
   --vp-c-tip-2: var(--vp-c-brand-2);
@@ -92,16 +118,12 @@
 
 :root {
   --vp-home-hero-name-color: transparent;
-  --vp-home-hero-name-background: -webkit-linear-gradient(
-    120deg,
-    #bd34fe 30%,
-    #41d1ff
-  );
+  --vp-home-hero-name-background: -webkit-linear-gradient( -45deg, #1a705d 50%, #38b296 50% );
 
   --vp-home-hero-image-background-image: linear-gradient(
     -45deg,
-    #bd34fe 50%,
-    #47caff 50%
+    #1a705d 50%,
+    #38b296 50%
   );
   --vp-home-hero-image-filter: blur(44px);
 }

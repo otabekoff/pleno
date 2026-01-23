@@ -1,21 +1,52 @@
 {
   "name": "pleno-language",
-  "displayName": "Pleno Language",
-  "description": "Syntax highlighting for Pleno (.pln)",
+  "displayName": "Pleno Language Support",
+  "description": "Pleno Programming Language Support Extension for VSCode with Syntax highlighting for Pleno (.pln)",
   "version": "0.0.1",
   "publisher": "pleno",
+  "icon": "resources/logo.png",
   "engines": {
-    "vscode": "^1.80.0"
+    "vscode": "^1.100.0"
   },
   "categories": [
     "Programming Languages"
+  ],
+  "repository": {
+    "url": "https://github.com/otabekoff/pleno",
+    "type": "git",
+    "directory": "ide/vscode"
+  },
+  "main": "out/extension.js",
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "pretest": "npm run compile && npm run lint",
+    "lint": "eslint src --ext ts",
+    "test": "node ./out/test/runTest.js"
+  },
+  "devDependencies": {
+    "@types/node": "25.x",
+    "@types/vscode": "^1.100.0",
+    "@typescript-eslint/eslint-plugin": "^8.53.1",
+    "@typescript-eslint/parser": "^8.53.1",
+    "eslint": "^9.39.2",
+    "typescript": "^5.9.3"
+  },
+  "activationEvents": [
+    "onCommand:markdown.showPreview",
+    "onCommand:markdown.showPreviewToSide"
   ],
   "contributes": {
     "languages": [
       {
         "id": "pleno",
-        "aliases": ["Pleno", "pleno"],
-        "extensions": [".pln"],
+        "aliases": [
+          "Pleno",
+          "pleno"
+        ],
+        "extensions": [
+          ".pln"
+        ],
         "configuration": "./language-configuration.json"
       }
     ],
@@ -24,7 +55,17 @@
         "language": "pleno",
         "scopeName": "source.pleno",
         "path": "./syntaxes/pleno.tmLanguage.json"
+      },
+      {
+        "scopeName": "markdown.pleno.codeblock",
+        "path": "./syntaxes/pleno.markdown-injection.tmLanguage.json",
+        "injectTo": [
+          "text.html.markdown"
+        ]
       }
     ]
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.1"
   }
 }

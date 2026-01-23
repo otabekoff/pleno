@@ -1,0 +1,28 @@
+async fn slow_task(name) {
+    return name;
+}
+
+async fn main() {
+    print("Promise.race test starting...");
+    
+    // Race between a promise and an immediate value
+    // Immediate value should win in our implementation synchronous check
+    let p1 = slow_task("Slow");
+    let winner1 = await Promise.race([p1, "Fast"]);
+    print("Winner 1: " + winner1);
+    
+    // Race between two promises
+    // The one that started first usually wins in this VM
+    let p2 = slow_task("A");
+    let p3 = slow_task("B");
+    let winner2 = await Promise.race([p2, p3]);
+    print("Winner 2: " + winner2);
+    
+    if (winner1 == "Fast" && winner2 == "A") {
+        print("Promise.race test PASSED");
+    } else {
+        print("Promise.race test FAILED");
+    }
+}
+
+main();

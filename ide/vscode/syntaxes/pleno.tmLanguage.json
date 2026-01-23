@@ -1,35 +1,73 @@
 {
   "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
-  "name": "pleno",
+	"name": "Pleno",
   "scopeName": "source.pleno",
   "patterns": [
-    { "include": "#comments" },
-    { "include": "#strings" },
-    { "include": "#numbers" },
-    { "include": "#keywords" },
-    { "include": "#types" },
-    { "include": "#operators" },
-    { "include": "#constants" }
+    {
+      "include": "#comments"
+    },
+    {
+      "include": "#strings"
+    },
+    {
+      "include": "#numbers"
+    },
+    {
+      "include": "#keywords"
+    },
+    {
+      "include": "#types"
+    },
+    {
+      "include": "#operators"
+    },
+    {
+      "include": "#constants"
+    }
   ],
   "repository": {
     "comments": {
       "patterns": [
-        { "name": "comment.line.documentation.pleno", "match": "///.*$" },
-        { "name": "comment.line.double-slash.pleno", "match": "//.*$" },
-        { "name": "comment.block.pleno", "begin": "/\\*", "end": "\\*/" }
+        {
+          "name": "comment.line.documentation.pleno",
+          "match": "///.*$"
+        },
+        {
+          "name": "comment.line.double-slash.pleno",
+          "match": "//.*$"
+        },
+        {
+          "name": "comment.block.pleno",
+          "begin": "/\\*",
+          "end": "\\*/"
+        }
       ]
     },
     "strings": {
       "patterns": [
-        { "name": "string.quoted.double.pleno", "begin": "\"", "end": "\"", "patterns": [
-          { "name": "constant.character.escape.pleno", "match": "\\\\." }
-        ] }
+        {
+          "name": "string.quoted.double.pleno",
+          "begin": "\"",
+          "end": "\"",
+          "patterns": [
+            {
+              "name": "constant.character.escape.pleno",
+              "match": "\\\\."
+            }
+          ]
+        }
       ]
     },
     "numbers": {
       "patterns": [
-        { "name": "constant.numeric.float.pleno", "match": "\\b\\d+\\.\\d+\\b" },
-        { "name": "constant.numeric.integer.pleno", "match": "\\b\\d+\\b" }
+        {
+          "name": "constant.numeric.float.pleno",
+          "match": "\\b\\d+\\.\\d+\\b"
+        },
+        {
+          "name": "constant.numeric.integer.pleno",
+          "match": "\\b\\d+\\b"
+        }
       ]
     },
     "keywords": {
@@ -50,26 +88,62 @@
     },
     "types": {
       "patterns": [
-        { "name": "storage.type.pleno", "match": "\\b(Int|Float|String|Bool|Char|Void|Any|Null|Map|Set|Promise|Result|Option)\\b" }
+        {
+          "name": "storage.type.pleno",
+          "match": "\\b(Int|Float|String|Bool|Char|Void|Any|Null|Map|Set|Promise|Result|Option)\\b"
+        }
       ]
     },
     "operators": {
       "patterns": [
-        { "name": "keyword.operator.pipeline.pleno", "match": "\\|>" },
-        { "name": "keyword.operator.null-coalescing.pleno", "match": "\\?\\?" },
-        { "name": "keyword.operator.safe-navigation.pleno", "match": "\\?\\." },
-        { "name": "keyword.operator.arrow.pleno", "match": "=>" },
-        { "name": "keyword.operator.range.pleno", "match": "\\.\\.=?|\\.\\." },
-        { "name": "keyword.operator.comparison.pleno", "match": "==|!=|<=|>=|<|>" },
-        { "name": "keyword.operator.assignment.pleno", "match": "=" },
-        { "name": "keyword.operator.arithmetic.pleno", "match": "\\+|\\-|\\*|/|%" },
-        { "name": "keyword.operator.logical.pleno", "match": "&&|\\|\\||!" },
-        { "name": "keyword.operator.other.pleno", "match": "\\?|\\!|\\*" }
+        {
+          "name": "keyword.operator.pipeline.pleno",
+          "match": "\\|>"
+        },
+        {
+          "name": "keyword.operator.null-coalescing.pleno",
+          "match": "\\?\\?"
+        },
+        {
+          "name": "keyword.operator.safe-navigation.pleno",
+          "match": "\\?\\."
+        },
+        {
+          "name": "keyword.operator.arrow.pleno",
+          "match": "=>"
+        },
+        {
+          "name": "keyword.operator.range.pleno",
+          "match": "\\.\\.=?|\\.\\."
+        },
+        {
+          "name": "keyword.operator.comparison.pleno",
+          "match": "==|!=|<=|>=|<|>"
+        },
+        {
+          "name": "keyword.operator.assignment.pleno",
+          "match": "="
+        },
+        {
+          "name": "keyword.operator.arithmetic.pleno",
+          "match": "\\+|\\-|\\*|/|%"
+        },
+        {
+          "name": "keyword.operator.logical.pleno",
+          "match": "&&|\\|\\||!"
+        },
+        {
+          "name": "keyword.operator.other.pleno",
+          "match": "\\?|\\!|\\*"
+        }
       ]
     },
     "constants": {
       "patterns": [
-        { "name": "constant.language.pleno", "match": "\\b(true|false|null|this|super)\\b" }
+        {
+          "name": "constant.language.pleno",
+          "match": "\\b(true|false|null|this|super)\\b"
+        }
       ]
     }
   }

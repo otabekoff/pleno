@@ -24,3 +24,5 @@ cargo run -p pleno-cli -- run test_async.pln
 cargo run -p pleno-cli -- run test_gc.pln (to test memory pressure)
 cargo run -p pleno-cli -- run test_stdlib.pln
 
+cargo run -p pleno-cli -- test sources/tests | grep -B 5 
+FAILED

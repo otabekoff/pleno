@@ -1,0 +1,30 @@
+{
+    "scopeName": "markdown.pleno.codeblock",
+    "injectionSelector": "L:text.html.markdown",
+    "patterns": [
+        {
+            "name": "fenced_code.block.language.pleno",
+            "begin": "^(\\s*)(`{3,}|~{3,})\\s*(pleno|pln)\\s*$",
+            "beginCaptures": {
+                "2": {
+                    "name": "punctuation.definition.fence.markdown"
+                },
+                "3": {
+                    "name": "fenced_code.block.language.markdown"
+                }
+            },
+            "end": "^(\\s*)(\\2)\\s*$",
+            "endCaptures": {
+                "2": {
+                    "name": "punctuation.definition.fence.markdown"
+                }
+            },
+            "contentName": "source.pleno",
+            "patterns": [
+                {
+                    "include": "source.pleno"
+                }
+            ]
+        }
+    ]
+}

@@ -7,6 +7,7 @@ use std::rc::{Rc, Weak};
 // A trait that all garbage collectible objects must implement
 pub trait GcObject {
     fn mark(&self, gc: &mut MarkAndSweepGC);
+    fn clear_refs(&mut self) {} // Default implementation does nothing
 }
 
 // Wrapper for reference-counted objects that can be garbage collected
@@ -160,6 +161,14 @@ impl MarkAndSweepGC {
     }
 
     fn sweep(&mut self) {
+        // Break cycles for unmarked objects
+        for obj in &self.heap {
+            let ptr = obj.as_ptr() as *const dyn GcObject;
+            if !self.marked.contains(&ptr) {
+                obj.borrow_mut().clear_refs();
+            }
+        }
+
         self.heap.retain(|obj| {
             let ptr = obj.as_ptr() as *const dyn GcObject;
             self.marked.contains(&ptr)

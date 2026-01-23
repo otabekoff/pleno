@@ -58,4 +58,9 @@ export class Regex {
     public static fn isMatch(pattern, text): Bool {
         return __native_regex_is_match(pattern, text);
     }
+
+    public static fn replace(pattern: String, text: String, replacement: String): String {
+        return __native_regex_replace(pattern, text, replacement);
+    }
 }
+

@@ -7,7 +7,7 @@ hero:
   text: "Clarity, Safety, Expressiveness"
   tagline: "A modern, multi-paradigm language built for performance and developer happiness."
   image:
-    src: /logo.png
+    src: /logo.svg
     alt: Pleno Logo
   actions:
     - theme: brand
@@ -31,6 +31,6 @@ features:
 <style>
 :root {
   --vp-home-hero-name-color: transparent;
-  --vp-home-hero-name-background: -webkit-linear-gradient(120deg, #bd34fe 30%, #41d1ff);
+  --vp-home-hero-name-background: -webkit-linear-gradient(120deg, #38b296 30%, #1a705d);
 }
 </style>
