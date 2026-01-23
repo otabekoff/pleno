@@ -1,0 +1,62 @@
+// Time standard library module
+// Date and Time manipulation
+
+export class DateTime {
+    private timestamp: Int;
+
+    constructor(timestamp: Int) {
+        this.timestamp = timestamp;
+    }
+
+    public static fn now(): DateTime {
+        return DateTime(__native_datetime_now());
+    }
+
+    public static fn parse(dateStr: String, fmt: String): DateTime {
+        return DateTime(__native_datetime_parse(dateStr, fmt));
+    }
+
+    public fn format(fmt: String): String {
+        return __native_datetime_format(this.timestamp, fmt);
+    }
+
+    public fn add(duration: Duration): DateTime {
+        return DateTime(this.timestamp + duration.getSeconds());
+    }
+
+    public fn subtract(duration: Duration): DateTime {
+        return DateTime(this.timestamp - duration.getSeconds());
+    }
+
+    public fn getTimestamp(): Int {
+        return this.timestamp;
+    }
+}
+
+export class Duration {
+    private seconds: Int;
+
+    constructor(seconds: Int) {
+        this.seconds = seconds;
+    }
+
+    public static fn seconds(s: Int): Duration {
+        return Duration(s);
+    }
+
+    public static fn minutes(m: Int): Duration {
+        return Duration(m * 60);
+    }
+
+    public static fn hours(h: Int): Duration {
+        return Duration(h * 3600);
+    }
+
+    public static fn days(d: Int): Duration {
+        return Duration(d * 86400);
+    }
+
+    public fn getSeconds(): Int {
+        return this.seconds;
+    }
+}
