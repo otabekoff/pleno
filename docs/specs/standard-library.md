@@ -226,3 +226,60 @@ if (match) {
     print(match.group(2));  // "example.com"
 }
 ```
+
+### 13.9 Path Operations
+
+```pleno
+import Path from "std:path";
+
+// Join path components
+let fullPath = Path.join("folder", "subfolder", "file.txt");
+// "folder/subfolder/file.txt" (Unix) or "folder\subfolder\file.txt" (Windows)
+
+// Get directory name
+Path.dirname("/home/user/file.txt");  // "/home/user"
+
+// Get file name
+Path.basename("/home/user/file.txt");  // "file.txt"
+
+// Get extension
+Path.extname("document.pdf");  // ".pdf"
+
+// Check existence
+Path.exists("config.json");     // true/false
+Path.isFile("config.json");     // true if file
+Path.isDir("src");              // true if directory
+
+// Resolve to absolute path
+Path.resolve("./relative/path");  // "/absolute/path/to/relative/path"
+
+// Path separator (platform-specific)
+Path.separator;  // "/" on Unix, "\" on Windows
+```
+
+### 13.10 Process Management
+
+```pleno
+import Process from "std:process";
+
+// Get current working directory
+let cwd = Process.cwd();
+print(cwd);  // "/home/user/project"
+
+// Get command line arguments
+let args = Process.args();
+// ["pleno", "script.pln", "--verbose"]
+
+// Get environment variable
+let home = Process.env("HOME");
+let path = Process.env("PATH");
+
+// Get process ID
+let pid = Process.pid();
+print(pid);  // 12345
+
+// Exit with status code
+Process.exit(0);  // Success
+Process.exit(1);  // Error
+```
+

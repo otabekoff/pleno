@@ -21,20 +21,13 @@ This roadmap stages the remaining implementation work for v1.
 
 ## Stage 10 - Standard Library (partial)
 
-**Completed**: basic stdlib module stubs; JSON module fully implemented; I/O module (files/dirs) fully implemented; HTTP module fully implemented; Math and Regex libraries aligned with specs; Native function bindings for system operations (OS module); Time Standard Library (DateTime, Duration) ✅; `std:path` cross-platform manipulation ✅; `std:process` management ✅; Advanced collection methods (Map/Set functional API: map, filter, forEach, toArray) ✅
-
-**Remaining**:
-- Standard library documentation generation
+**Completed**: basic stdlib module stubs; JSON module fully implemented; I/O module (files/dirs) fully implemented; HTTP module fully implemented; Math and Regex libraries aligned with specs; Native function bindings for system operations (OS module); Time Standard Library (DateTime, Duration) ✅; `std:path` cross-platform manipulation ✅; `std:process` management ✅; Advanced collection methods (Map/Set functional API: map, filter, forEach, toArray) ✅; Standard library documentation ✅
 
 ---
 
 ## Stage 11 - Tooling (partial)
 
-**Completed**: LSP MVP (diagnostics, go-to-def); basic formatter/linter CLI commands; type checker CLI command; optional types (`Int?`) and union types (`Int | String`) runtime type checking; Full formatter implementation in CLI
-
-**Remaining**:
-- Full linter implementation (comprehensive style rules, best practices, unused variable detection)
-- Docs tooling (generation, API docs)
+**Completed**: LSP MVP (diagnostics, go-to-def); basic formatter/linter CLI commands; type checker CLI command; optional types (`Int?`) and union types (`Int | String`) runtime type checking; Full formatter implementation in CLI; Full linter implementation (unused variable detection, style rules, best practices) ✅; Docs tooling (API documentation) ✅
 
 ---
 

@@ -1,6 +1,7 @@
 use pleno_ast::*;
 use pleno_lexer::lex;
 use pleno_parser::Parser;
+use std::collections::HashSet;
 
 #[derive(Debug, Clone)]
 pub struct LintRule {
@@ -146,7 +147,7 @@ impl Linter {
 
         // Apply lint rules to the AST based on config
         if self.config.rules.warn_unused_vars {
-            diagnostics.extend(self.check_unused_variables(&ast));
+            diagnostics.extend(self.check_unused_variables(source, &ast));
         }
         if self.config.rules.max_line_length.is_some() {
             diagnostics.extend(self.check_max_line_length(source));
@@ -164,46 +165,32 @@ impl Linter {
         diagnostics
     }
 
-    fn check_unused_variables(&self, program: &Program) -> Vec<LintDiagnostic> {
+    fn check_unused_variables(&self, source: &str, program: &Program) -> Vec<LintDiagnostic> {
         let mut diagnostics = Vec::new();
+        let mut declarations: Vec<(String, usize, usize)> = Vec::new();
+        let mut usages: HashSet<String> = HashSet::new();
 
-        fn find_let_declarations(stmt: &Stmt, diagnostics: &mut Vec<LintDiagnostic>) {
-            match &stmt.kind {
-                StmtKind::Let { name, .. } => {
-                    diagnostics.push(LintDiagnostic {
-                        rule_name: "no-unused-vars".to_string(),
-                        message: format!("Variable '{}' is declared but possibly unused", name),
-                        severity: Severity::Warning,
-                        line: 0,
-                        column: 0,
-                    });
-                }
-                StmtKind::Block(stmts) => {
-                    for s in stmts {
-                        find_let_declarations(s, diagnostics);
-                    }
-                }
-                StmtKind::If {
-                    then_branch,
-                    else_branch,
-                    ..
-                } => {
-                    find_let_declarations(then_branch, diagnostics);
-                    if let Some(eb) = else_branch {
-                        find_let_declarations(eb, diagnostics);
-                    }
-                }
-                StmtKind::While { body, .. } => find_let_declarations(body, diagnostics),
-                StmtKind::For { body, .. } => find_let_declarations(body, diagnostics),
-                StmtKind::Fn { body, .. } => {
-                    find_let_declarations(body, diagnostics);
-                }
-                _ => {}
-            }
+        // Collect all variable declarations
+        for stmt in &program.statements {
+            collect_declarations(stmt, source, &mut declarations);
         }
 
+        // Collect all variable usages
         for stmt in &program.statements {
-            find_let_declarations(stmt, &mut diagnostics);
+            collect_usages_from_stmt(stmt, &mut usages);
+        }
+
+        // Report unused variables (skip _ prefixed)
+        for (name, line, column) in declarations {
+            if !usages.contains(&name) && !name.starts_with('_') {
+                diagnostics.push(LintDiagnostic {
+                    rule_name: "no-unused-vars".to_string(),
+                    message: format!("Variable '{}' is declared but never used", name),
+                    severity: Severity::Warning,
+                    line,
+                    column,
+                });
+            }
         }
 
         diagnostics
@@ -242,8 +229,6 @@ impl Linter {
                 while let Some(pos) = line[last_pos..].find(op) {
                     let absolute_pos = last_pos + pos;
 
-                    // Simple check: is there a space before and after?
-                    // We avoid false positives for composite operators like ==, >=, etc.
                     let is_part_of_composite = if *op == "=" {
                         (absolute_pos > 0
                             && (line.as_bytes()[absolute_pos - 1] == b'='
@@ -275,7 +260,6 @@ impl Linter {
                                 line: line_num + 1,
                                 column: absolute_pos + 1,
                             });
-                            // One warning per line per operator is enough for now to avoid spam
                             break;
                         }
                     }
@@ -328,18 +312,194 @@ impl Linter {
         diagnostics
     }
 
-    // Method to add custom rules
     pub fn add_rule(&mut self, rule: LintRule) {
         self.rules.push(rule);
     }
 
-    // Method to run specific rules
     pub fn run_rules(&self, source: &str, rule_names: &[&str]) -> Vec<LintDiagnostic> {
         let mut all_diagnostics = self.lint(source);
-
         all_diagnostics.retain(|diag| rule_names.contains(&diag.rule_name.as_str()));
-
         all_diagnostics
+    }
+}
+
+// Helper functions for unused variable detection
+
+fn collect_declarations(stmt: &Stmt, source: &str, declarations: &mut Vec<(String, usize, usize)>) {
+    match &stmt.kind {
+        StmtKind::Let { name, .. } => {
+            let (line, column) = position_from_offset(source, stmt.span.start);
+            declarations.push((name.clone(), line, column));
+        }
+        StmtKind::Block(stmts) => {
+            for s in stmts {
+                collect_declarations(s, source, declarations);
+            }
+        }
+        StmtKind::If {
+            then_branch,
+            else_branch,
+            ..
+        } => {
+            collect_declarations(then_branch, source, declarations);
+            if let Some(eb) = else_branch {
+                collect_declarations(eb, source, declarations);
+            }
+        }
+        StmtKind::While { body, .. } => collect_declarations(body, source, declarations),
+        StmtKind::For { body, .. } => collect_declarations(body, source, declarations),
+        StmtKind::Fn { body, .. } => {
+            collect_declarations(body, source, declarations);
+        }
+        StmtKind::Try {
+            try_branch,
+            catch_branches,
+            finally_branch,
+        } => {
+            collect_declarations(try_branch, source, declarations);
+            for cb in catch_branches {
+                collect_declarations(&cb.body, source, declarations);
+            }
+            if let Some(fb) = finally_branch {
+                collect_declarations(fb, source, declarations);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn collect_usages_from_stmt(stmt: &Stmt, usages: &mut HashSet<String>) {
+    match &stmt.kind {
+        StmtKind::Expr(expr) => collect_usages_from_expr(expr, usages),
+        StmtKind::Let { value: Some(v), .. } => {
+            collect_usages_from_expr(v, usages);
+        }
+        StmtKind::Assign { value, .. } => {
+            collect_usages_from_expr(value, usages);
+        }
+        StmtKind::Return(Some(expr)) => collect_usages_from_expr(expr, usages),
+        StmtKind::If {
+            condition,
+            then_branch,
+            else_branch,
+        } => {
+            collect_usages_from_expr(condition, usages);
+            collect_usages_from_stmt(then_branch, usages);
+            if let Some(eb) = else_branch {
+                collect_usages_from_stmt(eb, usages);
+            }
+        }
+        StmtKind::While { condition, body } => {
+            collect_usages_from_expr(condition, usages);
+            collect_usages_from_stmt(body, usages);
+        }
+        StmtKind::For { iterable, body, .. } => {
+            collect_usages_from_expr(iterable, usages);
+            collect_usages_from_stmt(body, usages);
+        }
+        StmtKind::Block(stmts) => {
+            for s in stmts {
+                collect_usages_from_stmt(s, usages);
+            }
+        }
+        StmtKind::Fn { body, .. } => {
+            collect_usages_from_stmt(body, usages);
+        }
+        StmtKind::Throw(expr) => collect_usages_from_expr(expr, usages),
+        _ => {}
+    }
+}
+
+fn collect_usages_from_expr(expr: &Expr, usages: &mut HashSet<String>) {
+    match &expr.kind {
+        ExprKind::Ident(name) => {
+            usages.insert(name.clone());
+        }
+        ExprKind::Binary { left, right, .. } => {
+            collect_usages_from_expr(left, usages);
+            collect_usages_from_expr(right, usages);
+        }
+        ExprKind::Unary { expr: inner, .. } => {
+            collect_usages_from_expr(inner, usages);
+        }
+        ExprKind::Call { callee, args } => {
+            collect_usages_from_expr(callee, usages);
+            for arg in args {
+                match arg {
+                    CallArg::Positional(e) | CallArg::Named(_, e) => {
+                        collect_usages_from_expr(e, usages);
+                    }
+                    CallArg::Placeholder => {}
+                }
+            }
+        }
+        ExprKind::Property { object, .. } | ExprKind::SafeProperty { object, .. } => {
+            collect_usages_from_expr(object, usages);
+        }
+        ExprKind::Index { collection, index } => {
+            collect_usages_from_expr(collection, usages);
+            collect_usages_from_expr(index, usages);
+        }
+        ExprKind::ArrayLiteral(items)
+        | ExprKind::TupleLiteral(items)
+        | ExprKind::SetLiteral(items) => {
+            for item in items {
+                collect_usages_from_expr(item, usages);
+            }
+        }
+        ExprKind::MapLiteral(entries) => {
+            for entry in entries {
+                match entry {
+                    MapItem::Entry(_, value) => collect_usages_from_expr(value, usages),
+                    MapItem::Spread(e) => collect_usages_from_expr(e, usages),
+                }
+            }
+        }
+        ExprKind::Lambda { body, .. } => {
+            collect_usages_from_expr(body, usages);
+        }
+        ExprKind::Ternary {
+            condition,
+            then_branch,
+            else_branch,
+        } => {
+            collect_usages_from_expr(condition, usages);
+            collect_usages_from_expr(then_branch, usages);
+            collect_usages_from_expr(else_branch, usages);
+        }
+        ExprKind::Pipeline { left, right } => {
+            collect_usages_from_expr(left, usages);
+            collect_usages_from_expr(right, usages);
+        }
+        ExprKind::Await { expr: inner } => {
+            collect_usages_from_expr(inner, usages);
+        }
+        ExprKind::Match { expr: inner, arms } => {
+            collect_usages_from_expr(inner, usages);
+            for arm in arms {
+                if let Some(guard) = &arm.guard {
+                    collect_usages_from_expr(guard, usages);
+                }
+                collect_usages_from_expr(&arm.body, usages);
+            }
+        }
+        ExprKind::Range { start, end, .. } => {
+            if let Some(s) = start {
+                collect_usages_from_expr(s, usages);
+            }
+            if let Some(e) = end {
+                collect_usages_from_expr(e, usages);
+            }
+        }
+        ExprKind::Block(stmts) => {
+            for s in stmts {
+                collect_usages_from_stmt(s, usages);
+            }
+        }
+        ExprKind::Spread(inner) | ExprKind::Paren(inner) => {
+            collect_usages_from_expr(inner, usages);
+        }
+        _ => {}
     }
 }
 
