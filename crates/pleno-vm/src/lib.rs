@@ -863,7 +863,10 @@ impl VM {
                     let value = self.registers[base + b].clone();
                     match &self.registers[base + a] {
                         Value::Array(array) => {
-                            array.borrow().ensure_mutable()?;
+                            if array.borrow().is_immutable {
+                                self.throw_runtime_error("cannot modify immutable array")?;
+                                continue;
+                            }
                             array.borrow_mut().elements.push(value);
                         }
                         _ => return Err(RuntimeError::new("array append on non-array value")),
@@ -873,7 +876,10 @@ impl VM {
                     let value = self.registers[base + b].clone();
                     match (&self.registers[base + a], value) {
                         (Value::Array(target), Value::Array(source)) => {
-                            target.borrow().ensure_mutable()?;
+                            if target.borrow().is_immutable {
+                                self.throw_runtime_error("cannot modify immutable array")?;
+                                continue;
+                            }
                             target
                                 .borrow_mut()
                                 .elements
@@ -886,7 +892,10 @@ impl VM {
                     let value = self.registers[base + b].clone();
                     match (&self.registers[base + a], value) {
                         (Value::Map(target), Value::Map(source)) => {
-                            target.borrow().ensure_mutable()?;
+                            if target.borrow().is_immutable {
+                                self.throw_runtime_error("cannot modify immutable map")?;
+                                continue;
+                            }
                             for (k, v) in source.borrow().entries.iter() {
                                 target.borrow_mut().entries.insert(k.clone(), v.clone());
                             }
@@ -967,7 +976,10 @@ impl VM {
                     let value = self.registers[base + a].clone();
                     match &self.registers[base + b] {
                         Value::Object(object) => {
-                            object.borrow().ensure_mutable()?;
+                            if object.borrow().is_immutable {
+                                self.throw_runtime_error("cannot modify immutable object")?;
+                                continue;
+                            }
                             object.borrow_mut().fields.insert(name, value);
                         }
                         _ => return Err(RuntimeError::new("field set on non-object value")),
@@ -1250,11 +1262,17 @@ impl VM {
                     let current_module = frame.current_module.as_ref().cloned();
                     match &self.registers[base + b] {
                         Value::Map(map) => {
-                            map.borrow().ensure_mutable()?;
+                            if map.borrow().is_immutable {
+                                self.throw_runtime_error("cannot modify immutable map")?;
+                                continue;
+                            }
                             map.borrow_mut().insert(name, value);
                         }
                         Value::Object(object) => {
-                            object.borrow().ensure_mutable()?;
+                            if object.borrow().is_immutable {
+                                self.throw_runtime_error("cannot modify immutable object")?;
+                                continue;
+                            }
                             let class = object.borrow().class.clone();
                             if let Some(class) = class.as_ref() {
                                 if let Some(info) = resolve_setter(class, &name) {
@@ -1638,28 +1656,30 @@ impl VM {
                 Opcode::GetIndex => {
                     let collection = self.registers[base + b].clone();
                     let index = self.registers[base + c].clone();
-                    let value = match (collection, index) {
+                    match (collection, index) {
                         (Value::Array(array), Value::Int(idx)) => {
                             let idx = idx as usize;
                             let array_borrow = array.borrow();
                             if idx >= array_borrow.len() {
-                                return Err(RuntimeError::new("array index out of bounds"));
+                                self.throw_runtime_error("array index out of bounds")?;
+                                continue;
                             }
-                            array_borrow[idx].clone()
+                            self.registers[base + a] = array_borrow[idx].clone();
                         }
-                        (Value::Map(map), Value::String(key)) => map
-                            .borrow()
-                            .get(key.as_str())
-                            .cloned()
-                            .unwrap_or(Value::Null),
+                        (Value::Map(map), Value::String(key)) => {
+                            self.registers[base + a] = map
+                                .borrow()
+                                .get(key.as_str())
+                                .cloned()
+                                .unwrap_or(Value::Null);
+                        }
                         (Value::Set(set), value) => {
                             let key = ValueKey::try_from_value(&value)
                                 .ok_or_else(|| RuntimeError::new("unsupported set element type"))?;
-                            Value::Bool(set.borrow().contains(&key))
+                            self.registers[base + a] = Value::Bool(set.borrow().contains(&key));
                         }
                         _ => return Err(RuntimeError::new("invalid index operation")),
-                    };
-                    self.registers[base + a] = value;
+                    }
                 }
                 Opcode::SetIndex => {
                     let value = self.registers[base + a].clone();
@@ -1667,16 +1687,23 @@ impl VM {
                     let index = self.registers[base + c].clone();
                     match (collection, index) {
                         (Value::Array(array), Value::Int(idx)) => {
-                            array.borrow().ensure_mutable()?;
+                            if array.borrow().is_immutable {
+                                self.throw_runtime_error("cannot modify immutable array")?;
+                                continue;
+                            }
                             let idx = idx as usize;
                             let mut array = array.borrow_mut();
                             if idx >= array.elements.len() {
-                                return Err(RuntimeError::new("array index out of bounds"));
+                                self.throw_runtime_error("array index out of bounds")?;
+                                continue;
                             }
                             array.elements[idx] = value;
                         }
                         (Value::Map(map), Value::String(key)) => {
-                            map.borrow().ensure_mutable()?;
+                            if map.borrow().is_immutable {
+                                self.throw_runtime_error("cannot modify immutable map")?;
+                                continue;
+                            }
                             map.borrow_mut()
                                 .entries
                                 .insert(key.as_str().to_string(), value);
