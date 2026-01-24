@@ -43,7 +43,10 @@ pub fn get_stdlib_modules(gc: &mut pleno_value::gc::GCManager) -> HashMap<String
         "separator".to_string(),
         Value::String(Rc::new(std::path::MAIN_SEPARATOR.to_string())),
     );
-    modules.insert("std:path".to_string(), Value::Map(gc.allocate(path_module)));
+    modules.insert(
+        "std:path".to_string(),
+        Value::Map(gc.allocate(pleno_value::MapState::new(path_module))),
+    );
 
     // std:process
     let mut process_module = HashMap::new();
@@ -69,7 +72,7 @@ pub fn get_stdlib_modules(gc: &mut pleno_value::gc::GCManager) -> HashMap<String
     );
     modules.insert(
         "std:process".to_string(),
-        Value::Map(gc.allocate(process_module)),
+        Value::Map(gc.allocate(pleno_value::MapState::new(process_module))),
     );
 
     modules

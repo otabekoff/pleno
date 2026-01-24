@@ -13,7 +13,7 @@ How our programming language reports errors, shows exact positions and tracing, 
 
 Implement date and time stdlib, and also we need something related to time stdlib and more stdlibs???
 
-Continue with the implementation/fix/bugfix/update of next tasks in TECHNICAL_DEBT.md and ROADMAP.md and if you need any info , specs.md file is ready for you. And make sure to update the files at the end of the jobs those are done.
+Continue with the implementation/fix/bugfix/update of next tasks in TECHNICAL_DEBT.md and ROADMAP.md and if you need any info , specs.md file is ready for you. And make sure to update the files at the end of the jobs those are done. And if completely done tasks and if we don't address them anymore you can remove them.
 
 In vscode only highlighting working. When imported modules, ctrl + click is not opening that part of / the file. Also on hovering nothing is being shown on code of .pln. No icon of extension and files of .pln. Also, there is no README for better support.
 
@@ -22,6 +22,25 @@ Add vscode snippets.
 Does each crate is doing their job only. For example stdlib crate should be responsilble for stdlib, but the compile crate may be trying to be dominant and having the stdlib functions inside of it. Is it a good practice? I think no. What do you think? This is one of the example of the thing I wanted to explain you. There might be so many of others. So, find and fix them.
 
 We had a solid specs.md, then while developing based on the specs.md we may have introduced many additional things too. But they are not in the specs.md, I've also divided the specs.md into docs/specs folder into files, you may update those files to be correct. For example not all of the stlibs may not be documented all other data structures we have or there are many things not documented, now it is time to document them all.
+
+Review tests. Add more tests. Meaningful tests.
+
+Check all the parts of the specs.md or docs/specs and are they done, if not add them to technical debt and roadmap. Also find the technical debts which we introduced while implementing towards the finished roadmap.md and fixing the old technical_debts.md files. Now, we have lots of them. Also they might be mentioned in comments too. Find and list them in new technical debts file.
+
+How we can optimize the code?
+
+How we can make Pleno very fast even if it is dynamic?
+
+Does each crate finished its work fully and complete? I mean, any crate may not be giving errors or even warnings and working minimalistically, but not to be complete yet supporitng everything needed for v1, not compatible with specs and not including everthing needed, so identify limitations and the blocks and make their list and begin working on them.
+
+AI can do the things, and make the project work finally without errors. But while developing, it can make so many mistakes with logic. Many beginner codes, no optimization, and very needless codes too. So, we've to avoid them and make the project code professional and written with best practices.  AI does children like coding sometimes, sometimes like professionals and sometimes like juniors or interns or someone who doesn't know coding. So, let's find those kind of unprofessional parts and enhance.
+
+Via Claude AI generate V2 specs. Upgrades/updates/news/critical and breakign changes, new features, inclrementals, bugfixing, avoiding inconsistencies and more. Instead of fixing the real problems, or being lazy to implement and refactor, AI just might wanted to lie or be lazy or be tricky and just satisfied error and warning linters and compiler. So, let's find them and actually fix those parts.
+
+AI model's generation exceeded the maximum output token limit like error might happen and couldn't do some works, or execution tool may have failed in some cases and some changes might not have been applied.
+
+
+
 ---
 
 To add new languages to Highlight.js officially, you need to develop a separate 3rd-party language module, package it as a standalone file (like

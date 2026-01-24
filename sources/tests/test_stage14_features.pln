@@ -1,0 +1,67 @@
+// Integration test for Stage 14 features
+
+// 1. Properties
+class Circle {
+    private radius: Float;
+    constructor(r: Float) { this.radius = r; }
+    
+    property area: Float {
+        get { return 3.14 * this.radius * this.radius; }
+    }
+}
+
+let c = Circle(5.0);
+print("Circle area: " + c.area);
+
+class User {
+    private name: String;
+    constructor(n: String) { this.name = n; }
+    property displayName: String {
+        get { return "User: " + this.name; }
+        set(val) { this.name = val; }
+    }
+}
+
+let u = User("Alice");
+print(u.displayName);
+u.displayName = "Bob";
+print(u.displayName);
+
+class Counter {
+    static count = 0;
+    static property globalCount: Int {
+        get { return Counter.count; }
+        set(val) { Counter.count = val; }
+    }
+}
+
+print("Static property get: " + Counter.globalCount);
+Counter.globalCount = 42;
+print("Static property set result: " + Counter.globalCount);
+
+// 2. Do-While
+let mut i = 0;
+do {
+    i = i + 1;
+} while (i < 5);
+print("Do-while limit: " + i);
+
+// 3. Labeled Break/Continue
+let mut k_res = 0;
+outer: for (k in 0..3) {
+    for (m in 0..3) {
+        if (k + m > 2) {
+            k_res = k;
+            break outer;
+        }
+    }
+}
+print("Labeled loop k_res: " + k_res);
+
+// 4. Const Deep
+const deep config = {
+    "version": "1.0",
+    "settings": [1, 2, 3]
+};
+
+print("Stage 14 syntax verified");

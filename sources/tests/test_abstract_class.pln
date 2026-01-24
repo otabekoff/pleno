@@ -1,0 +1,21 @@
+// Test abstract class instantiation
+
+abstract class Shape {
+    abstract fn area(): Float;
+}
+
+class Circle extends Shape {
+    private radius: Float;
+    constructor(r: Float) { this.radius = r; }
+    fn area(): Float { return 3.14 * this.radius * this.radius; }
+}
+
+let c = Circle(5.0);
+print("Circle area: " + c.area());
+
+try {
+    let s = Shape(); // Should error
+    print("ERROR: Should not be able to instantiate Shape");
+} catch (e) {
+    print("Caught expected error: " + e.message);
+}

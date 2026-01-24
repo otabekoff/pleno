@@ -5,7 +5,7 @@ fn eval(source: &str) -> pleno_value::Value {
     let tokens = pleno_lexer::lex(source).expect("lex failed");
     let mut parser = pleno_parser::Parser::new(tokens);
     let program = parser.parse_program().expect("parse failed");
-    let mut compiler = Compiler::new();
+    let mut compiler = Compiler::new(source.to_string());
     let chunk = compiler.compile(&program).expect("compile failed");
     let mut vm = VM::new();
     vm.execute(chunk).expect("runtime failed")
@@ -15,7 +15,7 @@ fn eval_result(source: &str) -> Result<pleno_value::Value, String> {
     let tokens = pleno_lexer::lex(source).map_err(|e| e.message)?;
     let mut parser = pleno_parser::Parser::new(tokens);
     let program = parser.parse_program().map_err(|e| e.message)?;
-    let mut compiler = Compiler::new();
+    let mut compiler = Compiler::new(source.to_string());
     let chunk = compiler.compile(&program).map_err(|e| e.message)?;
     let mut vm = VM::new();
     vm.execute(chunk).map_err(|e| e.message)

@@ -69,8 +69,8 @@ pub enum Value {
         receiver: Box<Value>,
         function: NativeFunction,
     },
-    Map(GcRc<HashMap<String, Value>>),
-    Array(GcRc<Vec<Value>>),
+    Map(GcRc<MapState>),
+    Array(GcRc<ArrayState>),
     Set(GcRc<HashSet<ValueKey>>),
     Object(GcRc<Object>),
     Partial {
@@ -81,7 +81,7 @@ pub enum Value {
     /// Array operation that requires callback (map, filter, reduce)
     ArrayOp {
         kind: ArrayOpKind,
-        array: GcRc<Vec<Value>>,
+        array: GcRc<ArrayState>,
     },
     Mutex(GcRc<MutexState>),
     Channel(GcRc<ChannelState>),
@@ -107,6 +107,10 @@ impl Value {
             Value::Bool(b) => Some(*b),
             _ => None,
         }
+    }
+
+    pub fn is_null(&self) -> bool {
+        matches!(self, Value::Null)
     }
 }
 
@@ -175,27 +179,27 @@ impl GcObject for Value {
     }
 }
 
-impl GcObject for Vec<Value> {
+impl GcObject for ArrayState {
     fn mark(&self, gc: &mut MarkAndSweepGC) {
-        for v in self {
+        for v in &self.elements {
             v.mark(gc);
         }
     }
 
     fn clear_refs(&mut self) {
-        self.clear();
+        self.elements.clear();
     }
 }
 
-impl GcObject for HashMap<String, Value> {
+impl GcObject for MapState {
     fn mark(&self, gc: &mut MarkAndSweepGC) {
-        for v in self.values() {
+        for v in self.entries.values() {
             v.mark(gc);
         }
     }
 
     fn clear_refs(&mut self) {
-        self.clear();
+        self.entries.clear();
     }
 }
 
@@ -216,13 +220,20 @@ pub enum ArrayOpKind {
 #[derive(Debug, Clone, PartialEq)]
 pub struct RuntimeError {
     pub message: String,
+    pub line: Option<u32>,
 }
 
 impl RuntimeError {
     pub fn new(message: impl Into<String>) -> Self {
         Self {
             message: message.into(),
+            line: None,
         }
+    }
+
+    pub fn with_line(mut self, line: u32) -> Self {
+        self.line = Some(line);
+        self
     }
 }
 
@@ -244,7 +255,12 @@ pub struct Class {
     pub static_fields: HashMap<String, Value>,
     pub fields: HashMap<String, MethodVisibility>,
     pub static_field_visibility: HashMap<String, MethodVisibility>,
+    pub getters: HashMap<String, MethodInfo>,
+    pub setters: HashMap<String, MethodInfo>,
+    pub static_getters: HashMap<String, MethodInfo>,
+    pub static_setters: HashMap<String, MethodInfo>,
     pub module: Option<Rc<String>>,
+    pub is_abstract: bool,
 }
 
 impl GcObject for Class {
@@ -262,6 +278,10 @@ impl GcObject for Class {
         self.static_fields.clear();
         self.methods.clear();
         self.static_methods.clear();
+        self.getters.clear();
+        self.setters.clear();
+        self.static_getters.clear();
+        self.static_setters.clear();
     }
 }
 
@@ -280,7 +300,12 @@ impl PartialEq for Class {
             && self.static_fields == other.static_fields
             && self.fields == other.fields
             && self.static_field_visibility == other.static_field_visibility
+            && self.getters == other.getters
+            && self.setters == other.setters
+            && self.static_getters == other.static_getters
+            && self.static_setters == other.static_setters
             && self.module == other.module
+            && self.is_abstract == other.is_abstract
     }
 }
 
@@ -426,7 +451,8 @@ impl std::fmt::Display for Value {
             Value::BoundNativeMethod { .. } => write!(f, "<native method>"),
             Value::Map(m) => {
                 write!(f, "{{")?;
-                for (i, (k, v)) in m.borrow().iter().enumerate() {
+                let entries = &m.borrow().entries;
+                for (i, (k, v)) in entries.iter().enumerate() {
                     if i > 0 {
                         write!(f, ", ")?;
                     }
@@ -436,7 +462,8 @@ impl std::fmt::Display for Value {
             }
             Value::Array(a) => {
                 write!(f, "[")?;
-                for (i, v) in a.borrow().iter().enumerate() {
+                let elements = &a.borrow().elements;
+                for (i, v) in elements.iter().enumerate() {
                     if i > 0 {
                         write!(f, ", ")?;
                     }
@@ -483,9 +510,132 @@ impl std::fmt::Display for Value {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub struct ArrayState {
+    pub elements: Vec<Value>,
+    pub is_immutable: bool,
+}
+
+impl ArrayState {
+    pub fn new(elements: Vec<Value>) -> Self {
+        Self {
+            elements,
+            is_immutable: false,
+        }
+    }
+
+    pub fn ensure_mutable(&self) -> Result<(), RuntimeError> {
+        if self.is_immutable {
+            Err(RuntimeError::new("cannot modify immutable array"))
+        } else {
+            Ok(())
+        }
+    }
+}
+
+impl std::ops::Deref for ArrayState {
+    type Target = Vec<Value>;
+    fn deref(&self) -> &Self::Target {
+        &self.elements
+    }
+}
+
+impl std::ops::DerefMut for ArrayState {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.elements
+    }
+}
+
+impl IntoIterator for ArrayState {
+    type Item = Value;
+    type IntoIter = std::vec::IntoIter<Value>;
+    fn into_iter(self) -> Self::IntoIter {
+        self.elements.into_iter()
+    }
+}
+
+impl<'a> IntoIterator for &'a ArrayState {
+    type Item = &'a Value;
+    type IntoIter = std::slice::Iter<'a, Value>;
+    fn into_iter(self) -> Self::IntoIter {
+        self.elements.iter()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct MapState {
+    pub entries: HashMap<String, Value>,
+    pub is_immutable: bool,
+}
+
+impl MapState {
+    pub fn new(entries: HashMap<String, Value>) -> Self {
+        Self {
+            entries,
+            is_immutable: false,
+        }
+    }
+
+    pub fn ensure_mutable(&self) -> Result<(), RuntimeError> {
+        if self.is_immutable {
+            Err(RuntimeError::new("cannot modify immutable map"))
+        } else {
+            Ok(())
+        }
+    }
+}
+
+impl std::ops::Deref for MapState {
+    type Target = HashMap<String, Value>;
+    fn deref(&self) -> &Self::Target {
+        &self.entries
+    }
+}
+
+impl std::ops::DerefMut for MapState {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.entries
+    }
+}
+
+impl IntoIterator for MapState {
+    type Item = (String, Value);
+    type IntoIter = std::collections::hash_map::IntoIter<String, Value>;
+    fn into_iter(self) -> Self::IntoIter {
+        self.entries.into_iter()
+    }
+}
+
+impl<'a> IntoIterator for &'a MapState {
+    type Item = (&'a String, &'a Value);
+    type IntoIter = std::collections::hash_map::Iter<'a, String, Value>;
+    fn into_iter(self) -> Self::IntoIter {
+        self.entries.iter()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct Object {
     pub class: Option<GcRc<Class>>,
     pub fields: HashMap<String, Value>,
+    pub is_immutable: bool,
+}
+
+impl Object {
+    pub fn new(class: Option<GcRc<Class>>) -> Self {
+        Self {
+            class,
+            fields: HashMap::new(),
+            is_immutable: false,
+        }
+    }
+
+    pub fn ensure_mutable(&self) -> Result<(), RuntimeError> {
+        if self.is_immutable {
+            Err(RuntimeError::new("cannot modify immutable object"))
+        } else {
+            Ok(())
+        }
+    }
 }
 
 impl Value {

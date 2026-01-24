@@ -28,7 +28,9 @@ pub fn process_args(vm: &mut dyn VMProvider, _args: &[Value]) -> Result<Value, R
     let args: Vec<Value> = std::env::args()
         .map(|arg| Value::String(Rc::new(arg)))
         .collect();
-    Ok(Value::Array(gc.allocate(args)))
+    Ok(Value::Array(
+        gc.allocate(pleno_value::ArrayState::new(args)),
+    ))
 }
 
 pub fn process_env(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {

@@ -1,19 +1,10 @@
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct Span {
-    pub start: usize,
-    pub end: usize,
-}
-
-impl Span {
-    pub fn new(start: usize, end: usize) -> Self {
-        Self { start, end }
-    }
-}
+pub use pleno_common::Span;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum CommentKind {
     Line,
     Block,
+    Doc,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -184,6 +175,7 @@ impl Stmt {
 pub enum StmtKind {
     Module {
         name: String,
+        body: Option<Vec<Stmt>>,
     },
     Let {
         name: String,
@@ -191,6 +183,7 @@ pub enum StmtKind {
         ty: Option<String>,
         value: Option<Expr>,
         is_const: bool,
+        is_deep: bool,
     },
     Assign {
         name: String,
@@ -216,9 +209,14 @@ pub enum StmtKind {
         body: Box<Stmt>,
     },
     For {
+        label: Option<String>,
         names: Vec<String>,
         iterable: Expr,
         body: Box<Stmt>,
+    },
+    DoWhile {
+        body: Box<Stmt>,
+        condition: Expr,
     },
     Import {
         path: String,
@@ -228,14 +226,26 @@ pub enum StmtKind {
     ExportList(Vec<ExportName>),
     Class {
         name: String,
+        generics: Vec<GenericParam>,
         fields: Vec<FieldDecl>,
         methods: Vec<FunctionDecl>,
+        properties: Vec<PropertyDecl>,
         superclass: Option<String>,
+        implements: Vec<String>,
+        is_abstract: bool,
         annotations: Vec<Annotation>,
         nested_classes: Vec<Stmt>,
     },
+    Interface {
+        name: String,
+        generics: Vec<GenericParam>,
+        methods: Vec<FunctionDecl>,
+        extends: Vec<String>,
+        annotations: Vec<Annotation>,
+    },
     Fn {
         name: String,
+        generics: Vec<GenericParam>,
         params: Vec<Param>,
         body: Box<Stmt>,
         annotations: Vec<Annotation>,
@@ -248,8 +258,12 @@ pub enum StmtKind {
     },
     Throw(Expr),
     Return(Option<Expr>),
-    Break,
-    Continue,
+    Break(Option<String>),
+    Continue(Option<String>),
+    Labeled {
+        label: String,
+        stmt: Box<Stmt>,
+    },
     Block(Vec<Stmt>),
     Expr(Expr),
 }
@@ -277,16 +291,35 @@ impl Program {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub struct GenericParam {
+    pub name: String,
+    pub constraints: Vec<String>, // e.g. T: Comparable
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct FunctionDecl {
     pub name: String,
+    pub generics: Vec<GenericParam>,
     pub params: Vec<Param>,
     pub return_ty: Option<String>,
     pub body: Box<Stmt>,
     pub is_static: bool,
+    pub is_abstract: bool,
+    pub is_async: bool,
     pub visibility: Option<Visibility>,
     pub kind: FunctionKind,
     pub annotations: Vec<Annotation>,
-    pub is_async: bool,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct PropertyDecl {
+    pub name: String,
+    pub ty: Option<String>,
+    pub getter: Option<FunctionDecl>,
+    pub setter: Option<FunctionDecl>,
+    pub is_static: bool,
+    pub visibility: Option<Visibility>,
+    pub annotations: Vec<Annotation>,
 }
 
 #[derive(Debug, Clone, PartialEq)]

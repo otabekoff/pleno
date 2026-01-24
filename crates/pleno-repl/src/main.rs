@@ -177,7 +177,7 @@ fn execute_line(vm: &mut VM, line: &str) {
     };
 
     // Compile
-    let mut compiler = Compiler::new();
+    let mut compiler = Compiler::new(line.to_string());
     let chunk = match compiler.compile(&program) {
         Ok(c) => c,
         Err(err) => {

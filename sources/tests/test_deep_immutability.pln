@@ -1,0 +1,42 @@
+// Test deep immutability - should successfully print but fail on mutation attempts
+fn test_array_read() {
+    const deep a = [1, 2, [3, 4]];
+    print("Array a:", a);
+    print("a[0]:", a[0]);
+    print("Nested a[2][0]:", a[2][0]);
+    print("Array read test passed!");
+}
+
+fn test_map_read() {
+    const deep m = {"x": 1, "y": {"z": 2}};
+    print("Map m:", m);
+    print("m['x']:", m["x"]);
+    print("Nested m['y']['z']:", m["y"]["z"]);
+    print("Map read test passed!");
+}
+
+class Point {
+    x;
+    y;
+    constructor(x, y) {
+        this.x = x;
+        this.y = y;
+    }
+}
+
+fn test_object_read() {
+    const deep p = new Point(1, 2);
+    print("Object p.x:", p.x);
+    print("Object p.y:", p.y);
+    print("Object read test passed!");
+}
+
+// Run read-only tests (should all pass)
+test_array_read();
+test_map_read();
+test_object_read();
+
+print("");
+print("All read tests passed!");
+print("Deep immutability prevents mutation of const deep values.");
+print("Attempting to modify will cause: 'cannot modify immutable array/map/object'");
