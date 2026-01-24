@@ -202,16 +202,19 @@ impl Compiler {
             }
             StmtKind::Assign { name, value } => {
                 let value_reg = self.compile_expr(value)?;
-                let local = self
-                    .resolve_local(name)
-                    .ok_or_else(|| self.error("unknown local in assignment", stmt.span))?;
-                if !local.mutable {
-                    return Err(self.error("cannot assign to immutable binding", stmt.span));
+                if let Some(local) = self.resolve_local(name) {
+                    if !local.mutable {
+                        return Err(self.error("cannot assign to immutable binding", stmt.span));
+                    }
+                    if let Some(ty_name) = &local.ty {
+                        self.emit_type_check(value_reg, ty_name)?;
+                    }
+                    self.emit(Opcode::Move, local.reg, value_reg, 0);
+                } else {
+                    // Global assignment
+                    let name_idx = self.add_constant(Value::String(name.clone().into()));
+                    self.emit(Opcode::SetGlobal, value_reg, name_idx, 0);
                 }
-                if let Some(ty_name) = &local.ty {
-                    self.emit_type_check(value_reg, ty_name)?;
-                }
-                self.emit(Opcode::Move, local.reg, value_reg, 0);
                 self.free_temp(value_reg);
                 Ok(())
             }
@@ -714,6 +717,15 @@ impl Compiler {
                 self.patch_jump(jump_to_end)?;
                 Ok(dest)
             }
+            ExprKind::Lambda {
+                params,
+                body,
+                return_ty,
+                annotations,
+            } => {
+                let is_pure = annotations.iter().any(|a| a.name == "pure");
+                Ok(self.compile_lambda(params, body, return_ty.as_deref(), is_pure)?)
+            }
             ExprKind::Range {
                 start,
                 end,
@@ -805,36 +817,6 @@ impl Compiler {
                     self.free_temp(value_reg);
                 }
                 Ok(dest)
-            }
-            ExprKind::Lambda {
-                params,
-                body,
-                return_ty: _,
-            } => {
-                let body_stmt = match &body.kind {
-                    ExprKind::Block(stmts) => Stmt {
-                        kind: StmtKind::Block(stmts.clone()),
-                        span: body.span,
-                    },
-                    _ => Stmt {
-                        kind: StmtKind::Return(Some((**body).clone())),
-                        span: body.span,
-                    },
-                };
-                let decl = FunctionDecl {
-                    name: "anonymous".to_string(),
-                    generics: Vec::new(),
-                    params: params.clone(),
-                    return_ty: None,
-                    body: Box::new(body_stmt),
-                    is_static: false,
-                    is_abstract: false,
-                    is_async: false,
-                    visibility: None,
-                    kind: FunctionKind::Method,
-                    annotations: Vec::new(),
-                };
-                self.compile_function(&decl, false, false, None)
             }
             ExprKind::Block(stmts) => {
                 self.locals.push(HashMap::new());
@@ -1909,11 +1891,14 @@ impl Compiler {
                 }
             })
             .collect();
+
+        let is_pure = decl.annotations.iter().any(|a| a.name == "pure");
         self.chunk.functions.push(FunctionProto {
             chunk: compiler.chunk,
             arity,
             params: param_specs,
             is_async: decl.is_async,
+            is_pure,
         });
         let dest = self.registers.allocate()?;
         if store_as_function {
@@ -1928,6 +1913,125 @@ impl Compiler {
                     .reg;
                 self.emit(Opcode::Capture, dest, reg, idx as u8);
             }
+        }
+        Ok(dest)
+    }
+
+    fn compile_lambda(
+        &mut self,
+        params: &[pleno_ast::Param],
+        body: &pleno_ast::Expr,
+        return_ty: Option<&str>,
+        is_pure: bool,
+    ) -> Result<u8, CompileError> {
+        let body_stmt = match &body.kind {
+            ExprKind::Block(stmts) => Stmt {
+                kind: StmtKind::Block(stmts.clone()),
+                span: body.span,
+            },
+            _ => Stmt {
+                kind: StmtKind::Return(Some((*body).clone())),
+                span: body.span,
+            },
+        };
+        let decl = FunctionDecl {
+            name: "anonymous".to_string(),
+            generics: Vec::new(),
+            params: params.to_vec(),
+            return_ty: return_ty.map(|s| s.to_string()),
+            body: Box::new(body_stmt),
+            is_static: false,
+            is_abstract: false,
+            is_async: false,
+            visibility: None,
+            kind: FunctionKind::Method,
+            annotations: Vec::new(),
+        };
+
+        let captures = self.analyze_captures(&decl, false);
+        let mut compiler = Compiler::new(self.source.clone());
+        compiler.is_top_level = false;
+        compiler.locals = vec![HashMap::new()];
+        compiler.module_name = self.module_name.clone();
+        compiler.captures = captures
+            .iter()
+            .enumerate()
+            .map(|(idx, name)| (name.clone(), idx))
+            .collect();
+
+        // Register captures in locals so they can be resolved
+        for (idx, name) in captures.iter().enumerate() {
+            compiler.insert_local(name.clone(), idx as u8, true, None)?;
+        }
+
+        for param in params {
+            let reg = compiler.registers.allocate()?;
+            compiler.insert_local(param.name.clone(), reg, true, param.ty.clone())?;
+        }
+
+        for param in params.iter() {
+            if let Some(default) = &param.default {
+                let param_reg = compiler
+                    .resolve_local(&param.name)
+                    .ok_or_else(|| CompileError::new("unknown parameter"))?
+                    .reg;
+                let missing_reg = compiler.registers.allocate()?;
+                compiler.emit(Opcode::LoadMissing, missing_reg, 0, 0);
+                let cond_reg = compiler.registers.allocate()?;
+                compiler.emit(Opcode::Eq, cond_reg, param_reg, missing_reg);
+                let skip_jump = compiler.emit_jump(Opcode::JumpIfNot, cond_reg);
+                compiler.free_temp(cond_reg);
+                compiler.free_temp(missing_reg);
+
+                let value_reg = compiler.compile_expr(default)?;
+                compiler.emit(Opcode::Move, param_reg, value_reg, 0);
+                compiler.free_temp(value_reg);
+                compiler.patch_jump(skip_jump)?;
+            }
+        }
+
+        compiler.compile_stmt(&decl.body)?;
+        let return_reg = match compiler.last_expr_register {
+            Some(reg) => reg,
+            None => {
+                let reg = compiler.registers.allocate()?;
+                compiler.emit(Opcode::LoadNull, reg, 0, 0);
+                reg
+            }
+        };
+        compiler.emit(Opcode::Return, return_reg, 0, 0);
+        compiler.chunk.max_registers = compiler.registers.max_used.max(params.len());
+        compiler.chunk.module_name = self.module_name.clone();
+
+        let func_index = self.chunk.functions.len();
+        let arity = params.len() as u8;
+        let param_specs = params
+            .iter()
+            .map(|p| ParamSpec {
+                name: p.name.clone(),
+                has_default: p.default.is_some(),
+                is_variadic: p.is_variadic,
+                is_keyword_only: p.is_keyword_only,
+            })
+            .collect();
+
+        self.chunk.functions.push(FunctionProto {
+            chunk: compiler.chunk,
+            arity,
+            params: param_specs,
+            is_async: false,
+            is_pure,
+        });
+
+        let dest = self.registers.allocate()?;
+        let capture_count = captures.len() as u8;
+        self.emit(Opcode::Closure, dest, func_index as u8, capture_count);
+        for (idx, name) in captures.iter().enumerate() {
+            let reg = self
+                .resolve_local(name)
+                .ok_or_else(|| CompileError::new("unknown capture"))?
+                .reg;
+            self.emit(Opcode::Capture, dest, reg, idx as u8);
         }
         Ok(dest)
     }

@@ -96,6 +96,7 @@ pub enum ExprKind {
         params: Vec<Param>,
         body: Box<Expr>,
         return_ty: Option<String>,
+        annotations: Vec<Annotation>,
     },
     Block(Vec<Stmt>),
     Underscore,

@@ -1,86 +1,52 @@
-// Test Interface Validation
+// Test Interface Satisfaction Validation
 
-interface Runnable {
-    fn run();
+interface ILogger {
+    fn log(message);
+    fn info(message);
 }
 
-interface Calculator {
-    fn add(a, b);
-    fn subtract(a, b);
+interface ISerializable {
+    fn serialize() : string;
 }
 
-// 1. Valid Implementation
-class Runner implements Runnable {
-    fn run() {
-        print("Runner running!");
-    }
+print("Testing Interface Validation...");
+
+// Case 1: Correct Implementation
+class FileLogger implements ILogger {
+    fn log(msg) { print("LOG:", msg); }
+    fn info(msg) { print("INFO:", msg); }
 }
 
-class MyCalc implements Calculator {
-    fn add(a, b) { return a + b; }
-    fn subtract(a, b) { return a - b; }
-}
+print("SUCCESS: FileLogger correctly implements ILogger");
 
-print("Instantiating valid classes...");
-let r = new Runner();
-r.run();
-let c = new MyCalc();
-print("1 + 2 =", c.add(1, 2));
-
-// 2. Missing Method
-interface Logger {
-    fn log(msg);
-}
-
-print("Testing missing method validation...");
+// Case 2: Missing Method
 try {
-    // We define class inside try block or just define it globally and catch runtime error upon definition?
-    // In Pleno, class definition executes at runtime. So try block should catch it.
-    // However, class definition is a statement. Can we put class definition in try block?
-    // Pleno supports block statements, so yes.
-    
-    // NOTE: Pleno might not support class definition inside try block depending on scoping?
-    // Classes are usually block scoped or module scoped.
-    // Let's try defining classes in a function to isolate scope.
-    
-    let makeInvalidLogger = fn() {
-        // This is dynamic class definition? No, Pleno class def is statement.
-        // We can't easily conditionally define classes in current syntax if they are declarations.
-        // But let's assume we can wrapper code string and eval? No eval.
-        
-        // Actually, if class definition throws, it throws at definition time.
-        // If I put it in a function, it runs when function runs? No, class def runs when encountered.
-        // So putting it in a function and calling function inside try should work.
-    };
-    
-    // Actually, let's just use a block
-    try {
-        class BadLogger implements Logger {
-            // Missing log method
-            fn other() {}
-        }
-    } catch (e) {
-        print("SUCCESS: Caught missing method error:", e.message);
+    class IncompleteLogger implements ILogger {
+        fn log(msg) { print("LOG:", msg); }
     }
-
+    print("FAILED: IncompleteLogger should have thrown an error");
 } catch (e) {
-    print("Outer catch:", e.message);
+    print("SUCCESS: Caught missing method error:", e.message);
 }
 
-// 3. Arity Mismatch
-print("Testing arity mismatch...");
-interface Printer {
-    fn print(msg);
-}
-
+// Case 3: Arity Mismatch
 try {
-    class BadPrinter implements Printer {
-        fn print(a, b) { // Wrong arity
-            print(a, b);
-        }
+    class BadArityLogger implements ILogger {
+        fn log(msg) { print("LOG:", msg); }
+        fn info(msg, level) { print(level, ":", msg); }
     }
+    print("FAILED: BadArityLogger should have thrown an error");
 } catch (e) {
     print("SUCCESS: Caught arity mismatch error:", e.message);
 }
 
-print("Interface validation tests completed!");
+// Case 4: Multiple Interfaces
+class AdvancedLogger implements ILogger, ISerializable {
+    fn log(msg) { print("LOG:", msg); }
+    fn info(msg) { print("INFO:", msg); }
+    fn serialize() { return "AdvancedLoggerData"; }
+}
+
+print("SUCCESS: AdvancedLogger implements multiple interfaces");
+
+print("Interface Validation Test Completed");

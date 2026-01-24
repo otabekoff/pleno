@@ -73,6 +73,7 @@ pub struct Function {
     pub module: Option<Rc<String>>,
     pub module_path: Option<Rc<String>>,
     pub is_async: bool,
+    pub is_pure: bool,
 }
 
 impl VMProvider for VM {
@@ -176,6 +177,15 @@ impl VMProvider for VM {
 
     fn register_multi_waiter(&mut self, waiter: MultiWaiter) {
         self.multi_waiters.push(waiter);
+    }
+
+    fn check_purity(&mut self) -> Result<(), RuntimeError> {
+        if let Some(frame) = self.frames.last()
+            && self.functions[frame.function_index].is_pure
+        {
+            return Err(RuntimeError::new("pure function cannot have side effects"));
+        }
+        Ok(())
     }
 }
 
@@ -558,10 +568,11 @@ impl VM {
             name: Rc::new("<script>".to_string()),
             chunk,
             arity: 0,
-            params: Vec::new(),
             module: None,
             module_path: None,
             is_async: false,
+            is_pure: false,
+            params: Vec::new(),
         };
         let func_index = self.functions.len();
         self.functions.push(function);
@@ -763,6 +774,7 @@ impl VM {
                             .map(|name| Rc::new(name.clone())),
                         module_path: frame.current_module_path.as_ref().cloned(),
                         is_async: proto.is_async,
+                        is_pure: proto.is_pure,
                     });
                     let captures = vec![Value::Null; c];
                     self.registers[base + a] = Value::Closure {
@@ -789,6 +801,7 @@ impl VM {
                             .map(|name| Rc::new(name.clone())),
                         module_path: frame.current_module_path.as_ref().cloned(),
                         is_async: true,
+                        is_pure: proto.is_pure,
                     });
                     self.registers[base + a] = Value::Function(func_index);
                 }
@@ -811,6 +824,7 @@ impl VM {
                             .map(|name| Rc::new(name.clone())),
                         module_path: frame.current_module_path.as_ref().cloned(),
                         is_async: proto.is_async,
+                        is_pure: proto.is_pure,
                     });
                     self.registers[base + a] = Value::Function(func_index);
                 }
@@ -1253,6 +1267,10 @@ impl VM {
                 }
 
                 Opcode::SetProperty => {
+                    if self.functions[frame.function_index].is_pure {
+                        self.throw_runtime_error("pure function cannot have side effects")?;
+                        continue;
+                    }
                     let name = match &function.chunk.constants[c] {
                         Value::String(value) => value.as_str().to_string(),
                         _ => return Err(RuntimeError::new("property name must be string")),
@@ -1682,6 +1700,10 @@ impl VM {
                     }
                 }
                 Opcode::SetIndex => {
+                    if self.functions[frame.function_index].is_pure {
+                        self.throw_runtime_error("pure function cannot have side effects")?;
+                        continue;
+                    }
                     let value = self.registers[base + a].clone();
                     let collection = self.registers[base + b].clone();
                     let index = self.registers[base + c].clone();
@@ -1843,6 +1865,10 @@ impl VM {
                     self.registers[base + a] = value;
                 }
                 Opcode::SetGlobal => {
+                    if self.functions[frame.function_index].is_pure {
+                        self.throw_runtime_error("pure function cannot have side effects")?;
+                        continue;
+                    }
                     let name = match &function.chunk.constants[b] {
                         Value::String(value) => value.as_str().to_string(),
                         _ => return Err(RuntimeError::new("global name must be string")),
@@ -1878,6 +1904,7 @@ impl VM {
                         static_setters: HashMap::new(),
                         module: module.clone(),
                         is_abstract: false,
+                        implements: Vec::new(),
                     });
 
                     // Now parse methods with class reference
@@ -1973,71 +2000,79 @@ impl VM {
                     let class_val = self.registers[base + a].clone();
                     match class_val {
                         Value::Class(class) => {
+                            let mut validation_error = None;
                             // Validation Logic
-                            for interface_val in interfaces {
-                                if let Value::Interface(interface) = interface_val {
-                                    for (name, sig) in &interface.borrow().methods {
-                                        if let Some(method_info) = class.borrow().methods.get(name)
-                                        {
-                                            // Check arity and modifiers
-                                            // Need to lookup function to check arity
-                                            if let Some(func) =
-                                                self.functions.get(method_info.function)
-                                            {
-                                                let mut expected_arity = sig.arity;
-                                                if !sig.is_static {
-                                                    expected_arity += 1;
-                                                }
+                            'interface_loop: for interface_val in interfaces {
+                                if let Value::Interface(interface) = &interface_val {
+                                    {
+                                        let interface_borrow = interface.borrow();
+                                        let class_borrow = class.borrow();
 
-                                                if func.arity != expected_arity {
-                                                    self.throw_runtime_error(&format!(
-                                                        "Class '{}' implements interface '{}' incorrectly: method '{}' requires {} args (excluding this), found {} (including this)",
-                                                        class.borrow().name,
-                                                        interface.borrow().name,
-                                                        name,
-                                                        sig.arity,
-                                                        func.arity
-                                                    ))?;
-                                                    continue; // Caught by throw_runtime_error loop or returns
-                                                }
-                                                // Check async
-                                                if func.is_async != sig.is_async {
-                                                    self.throw_runtime_error(&format!(
-                                                        "Class '{}' method '{}' async mismatch with interface '{}'",
-                                                        class.borrow().name,
-                                                        name,
-                                                        interface.borrow().name,
-                                                    ))?;
-                                                    continue;
+                                        // Check methods
+                                        for (name, sig) in &interface_borrow.methods {
+                                            if let Some(method_info) =
+                                                class_borrow.methods.get(name)
+                                            {
+                                                if let Some(func) =
+                                                    self.functions.get(method_info.function)
+                                                {
+                                                    let mut expected_arity = sig.arity;
+                                                    if !sig.is_static {
+                                                        expected_arity += 1;
+                                                    }
+
+                                                    if func.arity != expected_arity {
+                                                        validation_error = Some(format!(
+                                                            "Class '{}' implements interface '{}' incorrectly: method '{}' requires {} args, found {}",
+                                                            class_borrow.name,
+                                                            interface_borrow.name,
+                                                            name,
+                                                            expected_arity,
+                                                            func.arity
+                                                        ));
+                                                        break 'interface_loop;
+                                                    }
                                                 }
                                             } else {
-                                                // Should not happen really
-                                                return Err(RuntimeError::new(
-                                                    "Method function not found",
+                                                validation_error = Some(format!(
+                                                    "Class '{}' missing method '{}' required by interface '{}'",
+                                                    class_borrow.name, name, interface_borrow.name
                                                 ));
+                                                break 'interface_loop;
                                             }
-                                        } else {
-                                            self.throw_runtime_error(&format!(
-                                                "Class '{}' missing method '{}' required by interface '{}'",
-                                                class.borrow().name,
-                                                name,
-                                                interface.borrow().name
-                                            ))?;
-                                            continue;
+                                        }
+
+                                        // Check getters
+                                        for name in interface_borrow.getters.keys() {
+                                            if !class_borrow.getters.contains_key(name) {
+                                                validation_error = Some(format!(
+                                                    "Class '{}' missing getter '{}' required by interface '{}'",
+                                                    class_borrow.name, name, interface_borrow.name
+                                                ));
+                                                break 'interface_loop;
+                                            }
+                                        }
+
+                                        // Check setters
+                                        for name in interface_borrow.setters.keys() {
+                                            if !class_borrow.setters.contains_key(name) {
+                                                validation_error = Some(format!(
+                                                    "Class '{}' missing setter '{}' required by interface '{}'",
+                                                    class_borrow.name, name, interface_borrow.name
+                                                ));
+                                                break 'interface_loop;
+                                            }
                                         }
                                     }
 
-                                    // TODO: Check getters and setters similarly
-                                } else {
-                                    return Err(RuntimeError::new(
-                                        "SetImplements expects array of interfaces",
-                                    ));
+                                    class.borrow_mut().implements.push(interface_val.clone());
                                 }
                             }
 
-                            // If passed validation (no throw), we could store implements list in class if needed for reflection
-                            // but implementation plan didn't strictly require it.
-                            // Validation is the main goal.
+                            if let Some(msg) = validation_error {
+                                self.throw_runtime_error(&msg)?;
+                                continue;
+                            }
                         }
                         _ => return Err(RuntimeError::new("SetImplements on non-class value")),
                     }
@@ -2294,15 +2329,27 @@ impl VM {
                                 break;
                             }
                             Value::NativeFunction(func) => {
-                                let result = func(self, &args)?;
-                                self.registers[base + a] = result;
+                                match func(self, &args) {
+                                    Ok(result) => {
+                                        self.registers[base + a] = result;
+                                    }
+                                    Err(err) => {
+                                        self.throw_runtime_error(&err.message)?;
+                                    }
+                                }
                                 break;
                             }
                             Value::BoundNativeMethod { receiver, function } => {
                                 let mut merged_args = vec![*receiver];
                                 merged_args.extend(args.elements.clone());
-                                let result = function(self, &merged_args)?;
-                                self.registers[base + a] = result;
+                                match function(self, &merged_args) {
+                                    Ok(result) => {
+                                        self.registers[base + a] = result;
+                                    }
+                                    Err(err) => {
+                                        self.throw_runtime_error(&err.message)?;
+                                    }
+                                }
                                 break;
                             }
                             Value::BoundMethod {
@@ -2948,6 +2995,7 @@ impl VM {
             module: Some(Rc::clone(&module_rc)),
             module_path: Some(Rc::new(resolved_key.clone())),
             is_async: false,
+            is_pure: false,
         };
         let func_index = self.functions.len();
         self.functions.push(function);
@@ -2991,54 +3039,43 @@ fn resolve_module_path(
         return Err(RuntimeError::new(format!("std module not found: {}", name)));
     }
 
-    if let Some(name) = path.strip_prefix("registry:") {
-        let current_dir = std::env::current_dir()
-            .map_err(|err| RuntimeError::new(format!("failed to get current dir: {err}")))?;
-        let pkg_path = current_dir
-            .join("sources/packages")
-            .join(format!("{}.pln", name));
-        if pkg_path.exists() {
-            return Ok(pkg_path);
-        }
-        let pkg_index = current_dir
-            .join("sources/packages")
-            .join(name)
-            .join("index.pln");
-        if pkg_index.exists() {
-            return Ok(pkg_index);
-        }
-        return Err(RuntimeError::new(format!(
-            "registry package not found: {}",
-            name
-        )));
-    }
-
     let raw_path = std::path::Path::new(path);
     if raw_path.is_absolute() {
         return Ok(raw_path.to_path_buf());
     }
 
-    // Package Resolution
+    let current_dir = std::env::current_dir()
+        .map_err(|err| RuntimeError::new(format!("failed to get current dir: {err}")))?;
+
+    // Package Resolution (non-relative paths)
     if !path.starts_with("./") && !path.starts_with("../") && !path.starts_with("/") {
-        let start_dir = base_dir.clone().unwrap_or_else(|| {
-            std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."))
-        });
+        let start_dir = base_dir.clone().unwrap_or_else(|| current_dir.clone());
         let mut current = start_dir.as_path();
         loop {
-            // Check packages/<path>/lib.pln
-            let pkg_lib = current.join("packages").join(path).join("lib.pln");
-            if pkg_lib.exists() {
-                return Ok(pkg_lib);
-            }
-            // Check packages/<path>.pln
-            let pkg_file = current.join("packages").join(format!("{}.pln", path));
-            if pkg_file.exists() {
-                return Ok(pkg_file);
-            }
-            // Check packages/<path>/index.pln
-            let pkg_index = current.join("packages").join(path).join("index.pln");
-            if pkg_index.exists() {
-                return Ok(pkg_index);
+            let pkg_root = current.join("packages").join(path);
+            if pkg_root.is_dir() {
+                // Check package.pln
+                let manifest_path = pkg_root.join("package.pln");
+                if manifest_path.exists()
+                    && let Ok(content) = fs::read_to_string(&manifest_path)
+                    && let Ok(manifest) = serde_json::from_str::<serde_json::Value>(&content)
+                    && let Some(main) = manifest.get("main").and_then(|v| v.as_str())
+                {
+                    let main_path = pkg_root.join(main);
+                    if main_path.exists() {
+                        return Ok(main_path);
+                    }
+                } // Fallback to lib.pln
+                let lib_path = pkg_root.join("lib.pln");
+                if lib_path.exists() {
+                    return Ok(lib_path);
+                }
+            } else {
+                // Check packages/<path>.pln
+                let pkg_file = current.join("packages").join(format!("{}.pln", path));
+                if pkg_file.exists() {
+                    return Ok(pkg_file);
+                }
             }
 
             if let Some(parent) = current.parent() {
@@ -3049,24 +3086,17 @@ fn resolve_module_path(
         }
     }
 
+    // Relative or regular file resolution
     let mut candidates = Vec::new();
-    let current_dir = std::env::current_dir()
-        .map_err(|err| RuntimeError::new(format!("failed to get current dir: {err}")))?;
-
-    if let Some(base) = base_dir.as_ref() {
-        candidates.push(base.join(raw_path));
-    }
-    candidates.push(current_dir.join(raw_path));
-    if raw_path.extension().is_none() {
-        if let Some(base) = base_dir.as_ref() {
-            candidates.push(base.join(format!("{path}.pln")));
-        }
-        candidates.push(current_dir.join(format!("{path}.pln")));
+    let base = base_dir.unwrap_or_else(|| current_dir.clone());
+    candidates.push(base.join(path));
+    if !path.ends_with(".pln") {
+        candidates.push(base.join(format!("{}.pln", path)));
     }
 
     // Legacy source fallback
     if !path.contains('/') && !path.contains('\\') {
-        candidates.push(current_dir.join("sources").join(format!("{path}.pln")));
+        candidates.push(current_dir.join("sources").join(format!("{}.pln", path)));
     }
 
     for candidate in candidates {
@@ -3074,7 +3104,8 @@ fn resolve_module_path(
             return Ok(candidate);
         }
     }
-    Err(RuntimeError::new(format!("module not found: {path}")))
+
+    Err(RuntimeError::new(format!("module not found: {}", path)))
 }
 
 fn native_os_exit(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
@@ -3190,6 +3221,7 @@ fn native_http_delete(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value,
 }
 
 fn native_print(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    vm.check_purity()?;
     let _gc = vm.get_gc();
     let mut out = String::new();
     for (idx, value) in args.iter().enumerate() {

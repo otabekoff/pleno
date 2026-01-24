@@ -153,6 +153,7 @@ pub struct FunctionProto {
     pub arity: u8,
     pub params: Vec<ParamSpec>,
     pub is_async: bool,
+    pub is_pure: bool,
 }
 
 #[derive(Debug, Clone)]
