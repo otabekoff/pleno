@@ -1898,6 +1898,150 @@ impl VM {
 
                     self.registers[base + a] = Value::Class(class);
                 }
+                Opcode::DefineInterface => {
+                    let name = match &function.chunk.constants[b] {
+                        Value::String(s) => s.clone(),
+                        _ => {
+                            return Err(RuntimeError::new(
+                                "DefineInterface expects string constant",
+                            ));
+                        }
+                    };
+                    let methods_val = self.registers[base + c].clone();
+                    let (methods, getters, setters) = match methods_val {
+                        Value::Map(map) => {
+                            let mut methods = HashMap::new();
+                            let mut getters = HashMap::new();
+                            let mut setters = HashMap::new();
+                            for (_name, val) in map.borrow().iter() {
+                                // Expected structure: [name, type, arity, is_static, is_async]
+                                if let Value::Array(meta) = val {
+                                    let meta = meta.borrow();
+                                    if meta.len() >= 5 {
+                                        let name = meta[0].as_str().unwrap_or("").to_string();
+                                        let type_str = meta[1].as_str().unwrap_or("");
+                                        let arity = meta[2].as_int().unwrap_or(0) as usize;
+                                        let is_static = meta[3].as_bool().unwrap_or(false);
+                                        let is_async = meta[4].as_bool().unwrap_or(false);
+
+                                        let sig = pleno_value::MethodSignature {
+                                            name: name.clone(),
+                                            arity,
+                                            is_static,
+                                            is_async,
+                                        };
+
+                                        match type_str {
+                                            "method" => {
+                                                methods.insert(name, sig);
+                                            }
+                                            "getter" => {
+                                                getters.insert(name, sig);
+                                            }
+                                            "setter" => {
+                                                setters.insert(name, sig);
+                                            }
+                                            _ => {}
+                                        }
+                                    }
+                                }
+                            }
+                            (methods, getters, setters)
+                        }
+                        _ => return Err(RuntimeError::new("DefineInterface expects methods map")),
+                    };
+
+                    self.registers[base + a] =
+                        Value::Interface(self.gc.allocate(pleno_value::Interface {
+                            name,
+                            methods,
+                            getters,
+                            setters,
+                        }));
+                }
+                Opcode::SetImplements => {
+                    let interfaces_val = self.registers[base + b].clone();
+                    let interfaces = match interfaces_val {
+                        Value::Array(arr) => arr.borrow().elements.clone(),
+                        _ => {
+                            return Err(RuntimeError::new(
+                                "SetImplements expects array of interfaces",
+                            ));
+                        }
+                    };
+
+                    let class_val = self.registers[base + a].clone();
+                    match class_val {
+                        Value::Class(class) => {
+                            // Validation Logic
+                            for interface_val in interfaces {
+                                if let Value::Interface(interface) = interface_val {
+                                    for (name, sig) in &interface.borrow().methods {
+                                        if let Some(method_info) = class.borrow().methods.get(name)
+                                        {
+                                            // Check arity and modifiers
+                                            // Need to lookup function to check arity
+                                            if let Some(func) =
+                                                self.functions.get(method_info.function)
+                                            {
+                                                let mut expected_arity = sig.arity;
+                                                if !sig.is_static {
+                                                    expected_arity += 1;
+                                                }
+
+                                                if func.arity != expected_arity {
+                                                    self.throw_runtime_error(&format!(
+                                                        "Class '{}' implements interface '{}' incorrectly: method '{}' requires {} args (excluding this), found {} (including this)",
+                                                        class.borrow().name,
+                                                        interface.borrow().name,
+                                                        name,
+                                                        sig.arity,
+                                                        func.arity
+                                                    ))?;
+                                                    continue; // Caught by throw_runtime_error loop or returns
+                                                }
+                                                // Check async
+                                                if func.is_async != sig.is_async {
+                                                    self.throw_runtime_error(&format!(
+                                                        "Class '{}' method '{}' async mismatch with interface '{}'",
+                                                        class.borrow().name,
+                                                        name,
+                                                        interface.borrow().name,
+                                                    ))?;
+                                                    continue;
+                                                }
+                                            } else {
+                                                // Should not happen really
+                                                return Err(RuntimeError::new(
+                                                    "Method function not found",
+                                                ));
+                                            }
+                                        } else {
+                                            self.throw_runtime_error(&format!(
+                                                "Class '{}' missing method '{}' required by interface '{}'",
+                                                class.borrow().name,
+                                                name,
+                                                interface.borrow().name
+                                            ))?;
+                                            continue;
+                                        }
+                                    }
+
+                                    // TODO: Check getters and setters similarly
+                                } else {
+                                    return Err(RuntimeError::new(
+                                        "SetImplements expects array of interfaces",
+                                    ));
+                                }
+                            }
+
+                            // If passed validation (no throw), we could store implements list in class if needed for reflection
+                            // but implementation plan didn't strictly require it.
+                            // Validation is the main goal.
+                        }
+                        _ => return Err(RuntimeError::new("SetImplements on non-class value")),
+                    }
+                }
                 Opcode::Freeze => {
                     let value = self.registers[base + a].clone();
                     self.freeze_value(&value);
@@ -2200,7 +2344,7 @@ impl VM {
                                         "cannot instantiate abstract class '{}'",
                                         class.borrow().name
                                     ))?;
-                                    return Ok(Value::Null); // Operation aborted, handler will take over
+                                    break;
                                 }
                                 let object = self.gc.allocate(Object::new(Some(class.clone())));
                                 if let Some(handle) = class.borrow().constructor {

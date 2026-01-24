@@ -453,8 +453,89 @@ impl Compiler {
                 self.next_labels.push(label.clone());
                 self.compile_stmt(stmt)
             }
-            StmtKind::Interface { .. } => {
-                // Interfaces are type-only in Pleno, no bytecode emission for now
+            StmtKind::Interface {
+                name,
+                methods,
+                annotations: _,
+                generics: _,
+                extends: _,
+            } => {
+                let methods_reg = self.registers.allocate()?;
+                self.emit(Opcode::NewMap, methods_reg, 0, 0);
+
+                for method in methods {
+                    let meta_reg = self.registers.allocate()?;
+                    self.emit(Opcode::NewArray, meta_reg, 0, 0);
+
+                    // Format: [name, type, arity, is_static, is_async]
+                    let name_val = Value::String(std::rc::Rc::new(method.name.clone()));
+                    let name_reg = self.registers.allocate()?;
+                    let name_idx = self.add_constant(name_val);
+                    self.emit(Opcode::LoadConst, name_reg, name_idx, 0);
+                    self.emit(Opcode::ArrayAppend, meta_reg, name_reg, 0);
+                    self.free_temp(name_reg);
+
+                    let type_str = match method.kind {
+                        FunctionKind::Method => "method",
+                        FunctionKind::Getter => "getter",
+                        FunctionKind::Setter => "setter",
+                    };
+                    let type_reg = self.registers.allocate()?;
+                    let type_idx =
+                        self.add_constant(Value::String(std::rc::Rc::new(type_str.to_string())));
+                    self.emit(Opcode::LoadConst, type_reg, type_idx, 0);
+                    self.emit(Opcode::ArrayAppend, meta_reg, type_reg, 0);
+                    self.free_temp(type_reg);
+
+                    let arity_reg = self.registers.allocate()?;
+                    self.emit(Opcode::LoadInt, arity_reg, method.params.len() as u8, 0);
+                    self.emit(Opcode::ArrayAppend, meta_reg, arity_reg, 0);
+                    self.free_temp(arity_reg);
+
+                    let static_reg = self.registers.allocate()?;
+                    if method.is_static {
+                        self.emit(Opcode::LoadTrue, static_reg, 0, 0);
+                    } else {
+                        self.emit(Opcode::LoadFalse, static_reg, 0, 0);
+                    }
+                    self.emit(Opcode::ArrayAppend, meta_reg, static_reg, 0);
+                    self.free_temp(static_reg);
+
+                    let async_reg = self.registers.allocate()?;
+                    if method.is_async {
+                        self.emit(Opcode::LoadTrue, async_reg, 0, 0);
+                    } else {
+                        self.emit(Opcode::LoadFalse, async_reg, 0, 0);
+                    }
+                    self.emit(Opcode::ArrayAppend, meta_reg, async_reg, 0);
+                    self.free_temp(async_reg);
+
+                    let key_idx =
+                        self.add_constant(Value::String(std::rc::Rc::new(method.name.clone())));
+                    let key_reg = self.registers.allocate()?;
+                    self.emit(Opcode::LoadConst, key_reg, key_idx, 0);
+                    self.emit(Opcode::SetIndex, meta_reg, methods_reg, key_reg);
+                    self.free_temp(key_reg);
+                    self.free_temp(meta_reg);
+                }
+
+                // TODO: Compile interface properties if needed
+
+                let interface_reg = self.registers.allocate()?;
+                let name_idx = self.add_constant(Value::String(std::rc::Rc::new(name.clone())));
+                self.emit(
+                    Opcode::DefineInterface,
+                    interface_reg,
+                    name_idx,
+                    methods_reg,
+                );
+
+                let name_idx_global =
+                    self.add_constant(Value::String(std::rc::Rc::new(name.clone())));
+                self.emit(Opcode::SetGlobal, interface_reg, name_idx_global, 0);
+
+                self.free_temp(interface_reg);
+                self.free_temp(methods_reg);
                 Ok(())
             }
         }
@@ -1877,30 +1958,39 @@ impl Compiler {
     }
 
     fn compile_class_declaration(&mut self, stmt: &Stmt) -> Result<u8, CompileError> {
-        let (name, fields, methods, superclass, nested_classes, properties, is_abstract) =
-            match &stmt.kind {
-                StmtKind::Class {
-                    name,
-                    generics: _,
-                    fields,
-                    methods,
-                    superclass,
-                    nested_classes,
-                    annotations: _,
-                    implements: _,
-                    is_abstract,
-                    properties,
-                } => (
-                    name,
-                    fields,
-                    methods,
-                    superclass,
-                    nested_classes,
-                    properties,
-                    *is_abstract,
-                ),
-                _ => return Err(CompileError::new("expected class statement")),
-            };
+        let (
+            name,
+            fields,
+            methods,
+            superclass,
+            nested_classes,
+            properties,
+            is_abstract,
+            implements,
+        ) = match &stmt.kind {
+            StmtKind::Class {
+                name,
+                generics: _,
+                fields,
+                methods,
+                superclass,
+                nested_classes,
+                annotations: _,
+                implements,
+                is_abstract,
+                properties,
+            } => (
+                name,
+                fields,
+                methods,
+                superclass,
+                nested_classes,
+                properties,
+                *is_abstract,
+                implements.clone(),
+            ),
+            _ => return Err(CompileError::new("expected class statement")),
+        };
 
         let methods_reg = self.registers.allocate()?;
         self.emit(Opcode::NewMap, methods_reg, 0, 0);
@@ -1944,6 +2034,26 @@ impl Compiler {
             self.emit(Opcode::SetAbstract, class_reg, 0, 0);
         }
 
+        // Compile Implements
+        if !implements.is_empty() {
+            let interfaces_reg = self.registers.allocate()?;
+            self.emit(Opcode::NewArray, interfaces_reg, 0, 0);
+            for interface_name in implements {
+                let interface_reg = self.registers.allocate()?;
+                if let Some(local) = self.resolve_local(&interface_name) {
+                    self.emit(Opcode::Move, interface_reg, local.reg, 0);
+                } else {
+                    let name_idx =
+                        self.add_constant(Value::String(std::rc::Rc::new(interface_name.clone())));
+                    self.emit(Opcode::GetGlobal, interface_reg, name_idx, 0);
+                }
+
+                self.emit(Opcode::ArrayAppend, interfaces_reg, interface_reg, 0);
+                self.free_temp(interface_reg);
+            }
+            self.emit(Opcode::SetImplements, class_reg, interfaces_reg, 0);
+            self.free_temp(interfaces_reg);
+        }
         // Compile Properties
         let getters_reg = self.registers.allocate()?;
         self.emit(Opcode::NewMap, getters_reg, 0, 0);

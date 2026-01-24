@@ -48,6 +48,7 @@ pub enum Value {
     String(Rc<String>),
     Range(Range),
     Class(GcRc<Class>),
+    Interface(GcRc<Interface>),
     Function(usize),
     BoundMethod {
         receiver: GcRc<Object>,
@@ -149,6 +150,7 @@ impl GcObject for Value {
     fn mark(&self, gc: &mut MarkAndSweepGC) {
         match self {
             Value::Class(c) => gc.mark_object(&c.to_gc_object()),
+            Value::Interface(i) => gc.mark_object(&i.to_gc_object()),
             Value::BoundMethod { receiver, .. } => gc.mark_object(&receiver.to_gc_object()),
             Value::Closure { captures, .. } => {
                 for v in captures {
@@ -244,6 +246,26 @@ pub struct Range {
     pub inclusive: bool,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct MethodSignature {
+    pub name: String,
+    pub arity: usize,
+    pub is_static: bool,
+    pub is_async: bool,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Interface {
+    pub name: Rc<String>,
+    pub methods: HashMap<String, MethodSignature>,
+    pub getters: HashMap<String, MethodSignature>,
+    pub setters: HashMap<String, MethodSignature>,
+}
+
+impl GcObject for Interface {
+    fn mark(&self, _gc: &mut MarkAndSweepGC) {}
+}
+
 #[derive(Debug, Clone)]
 pub struct Class {
     pub name: Rc<String>,
@@ -336,6 +358,7 @@ impl PartialEq for Value {
             (Value::String(a), Value::String(b)) => a == b,
             (Value::Range(a), Value::Range(b)) => a == b,
             (Value::Class(a), Value::Class(b)) => a.as_ptr() == b.as_ptr(),
+            (Value::Interface(a), Value::Interface(b)) => a.as_ptr() == b.as_ptr(),
             (Value::Function(a), Value::Function(b)) => a == b,
             (
                 Value::BoundMethod {
@@ -441,6 +464,7 @@ impl std::fmt::Display for Value {
                 Ok(())
             }
             Value::Class(c) => write!(f, "<class {}>", c.borrow().name),
+            Value::Interface(i) => write!(f, "<interface {}>", i.borrow().name),
             Value::Function(_) => write!(f, "<fn>"),
             Value::BoundMethod { owner, .. } => write!(f, "<method of {}>", owner.borrow().name),
             Value::StaticMethod { owner, .. } => {
@@ -649,6 +673,7 @@ impl Value {
             Value::String(_) => "String",
             Value::Range(_) => "Range",
             Value::Class(_) => "Class",
+            Value::Interface(_) => "Interface",
             Value::Function(_) => "Function",
             Value::BoundMethod { .. } => "Method",
             Value::StaticMethod { .. } => "StaticMethod",
