@@ -1,17 +1,9 @@
 
 ## Priority: Standard Library & GC Integration
 
-- [x] Memory management (breaking Rc cycles)
-- [x] Concurrency primitives (Mutex, Channels)
-- [x] spawn() function improvements
-
 See `TECHNICAL_DEBT.md` for the full list of technical debt items.
 
 Expand test suite and error messages
-
-How our programming language reports errors, shows exact positions and tracing, backtracing? Ideal and standart solution? How error reporting when it happens works?
-
-Implement date and time stdlib, and also we need something related to time stdlib and more stdlibs???
 
 Continue with the implementation/fix/bugfix/update of next tasks in TECHNICAL_DEBT.md and ROADMAP.md and if you need any info , specs.md file is ready for you. And make sure to update the files at the end of the jobs those are done. And if completely done tasks and if we don't address them anymore, remove them from ROADMAP.md and TECHNICAL_DEBT.md.
 

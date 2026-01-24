@@ -1,0 +1,46 @@
+print("Testing C-style for loops");
+
+let mut sum = 0;
+for (let i = 0; i < 10; i = i + 1) {
+    sum = sum + i;
+}
+print("Sum 0-9:", sum);
+if (sum != 45) {
+    throw "C-style for failed (basic)";
+}
+
+let mut j = 0;
+let mut count = 0;
+for (; j < 5; j = j + 1) {
+    count = count + 1;
+}
+print("Count 0-4:", count);
+if (count != 5 || j != 5) {
+    throw "C-style for failed (no init)";
+}
+
+let mut k = 0;
+for (let i = 0; i < 10; i = i + 1) {
+    if (i == 5) {
+        break;
+    }
+    k = k + 1;
+}
+print("Break at 5:", k);
+if (k != 5) {
+    throw "C-style for failed (break)";
+}
+
+let mut L = 0;
+for (let i = 0; i < 10; i = i + 1) {
+    if (i % 2 == 0) {
+        continue;
+    }
+    L = L + 1;
+}
+print("Continue (odds):", L);
+if (L != 5) {
+    throw "C-style for failed (continue)";
+}
+
+print("C-style for loops: PASSED");

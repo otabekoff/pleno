@@ -1,0 +1,3 @@
+// Minimal reproduction for "expected Int, found Int"
+let age: Int = 25;
+print("Age: " + age);

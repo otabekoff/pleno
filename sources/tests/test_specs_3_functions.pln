@@ -1,0 +1,26 @@
+// 3. Functions
+
+// 3.6 Closures
+fn makeCounter() {
+    print("makeCounter called");
+    let mut count = 0;
+    print("count init: " + count);
+    return fn() {
+        print("closure called, count before: " + count);
+        count = count + 1;
+        print("closure called, count after: " + count);
+        return count;
+    };
+}
+print("Creating counter");
+let c = makeCounter();
+print("Calling c()");
+let v1 = c();
+print("v1: " + v1);
+if (v1 != 1) throw "Closure failed";
+
+let v2 = c();
+print("v2: " + v2);
+if (v2 != 2) throw "Closure failed 2";
+
+print("Section 3 Functions: PASSED");

@@ -430,6 +430,9 @@ fn collect_usages_from_expr(expr: &Expr, usages: &mut HashSet<String>) {
                         collect_usages_from_expr(e, usages);
                     }
                     CallArg::Placeholder => {}
+                    CallArg::Spread(expr) => {
+                        collect_usages_from_expr(expr, usages);
+                    }
                 }
             }
         }

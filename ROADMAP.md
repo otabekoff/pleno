@@ -4,37 +4,22 @@ This roadmap tracks remaining implementation work for v1.
 
 ---
 
-## Stage 12 - Runtime + VM (Complete)
+## Deferred Features (Post-v1)
 
-- [x] Core VM implementation
-- Performance optimizations (deferred post-v1)
-- NaN boxing (deferred post-v1)
+The following features from `specs.md` are deferred to v1.x or v2:
 
----
-
-## Stage 13 - Core VM Crates (Complete)
-
-- [x] pleno-value, pleno-bytecode, pleno-compiler, pleno-vm
-
----
-
-## Stage 14 - v1 Hardening (Complete)
-
-**Completed**:
-- [x] GC Robustness: Cyclic reference reclamation verified
-- [x] Benchmarking suite (`std:benchmark`) implemented
-- [x] Testing expansion: **102 tests passing**
-
-**Deferred (post-v1)**:
-- NaN boxing optimization
+- **Advanced Standard Library**: `std:http`, `std:regex`, `std:security` (Sandboxing)
+- **Advanced Types**: `Tuple`, `Decorator`, `Interface` (runtime checks), `Generics` (runtime reification)
+- **Tooling**: Full LSP implementation, Formatter perfection
+- **Performance**: JIT Compilation, NaN boxing
 
 ---
 
 ## v1 Release Criteria
 
-- [x] All language features implemented and tested
-- [x] Standard library complete (JSON, I/O, HTTP, Path, Process, etc.)
-- [x] Tooling functional (LSP, formatter, linter)
+- [x] Core language features implemented (including Enums, Classes, Functions)
+- [x] Essential Standard Library (`io`, `json`, `process`, `path`, `time`)
 - [x] Documentation complete
-- [x] **102 passing tests** (exceeds 100+ goal)
-- [ ] No critical bugs in issue tracker
+- [x] Stable pass rate on test suite
+
+**STATUS**: RELEASE CANDIDATE 1

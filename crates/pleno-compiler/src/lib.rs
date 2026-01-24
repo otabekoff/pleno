@@ -204,6 +204,9 @@ impl Compiler {
                         self.emit_type_check(value_reg, ty_name)?;
                     }
                     self.emit(Opcode::Move, local.reg, value_reg, 0);
+                } else if let Some(index) = self.captures.get(name).cloned() {
+                    // Update capture
+                    self.emit(Opcode::SetCapture, value_reg, index as u8, 0);
                 } else {
                     // Global assignment
                     let name_idx = self.add_constant(Value::String(name.clone().into()));
@@ -264,6 +267,55 @@ impl Compiler {
                 } else {
                     self.patch_jump(jump_to_else)?;
                 }
+                Ok(())
+            }
+            StmtKind::CFor {
+                init,
+                condition,
+                step,
+                body,
+            } => {
+                self.locals.push(HashMap::new());
+
+                if let Some(init_stmt) = init {
+                    self.compile_stmt(init_stmt)?;
+                }
+
+                let loop_start = self.chunk.code.len();
+                let jump_to_end = if let Some(cond_expr) = condition {
+                    let cond_reg = self.compile_expr(cond_expr)?;
+                    let jump = self.emit_jump(Opcode::JumpIfNot, cond_reg);
+                    self.free_temp(cond_reg);
+                    Some(jump)
+                } else {
+                    None
+                };
+
+                self.push_loop(Some(loop_start));
+                self.compile_stmt(body)?;
+
+                let continue_target = self.chunk.code.len();
+                if let Some(ctx) = self.loop_stack.last_mut() {
+                    ctx.continue_target = Some(continue_target);
+                }
+
+                if let Some(step_stmt) = step {
+                    self.compile_stmt(step_stmt)?;
+                }
+
+                self.emit_loop(loop_start)?;
+
+                if let Some(jump) = jump_to_end {
+                    self.patch_jump(jump)?;
+                }
+
+                let loop_ctx = self
+                    .pop_loop()
+                    .ok_or_else(|| self.error("loop stack underflow", stmt.span))?;
+                let loop_end = self.chunk.code.len();
+                self.patch_loop_jumps(loop_ctx, loop_end)?;
+
+                self.pop_scope();
                 Ok(())
             }
             StmtKind::While { condition, body } => {
@@ -694,23 +746,53 @@ impl Compiler {
                 else_branch,
             } => {
                 let cond_reg = self.compile_expr(condition)?;
-                let jump_to_else = self.emit_jump(Opcode::JumpIfNot, cond_reg);
+                let else_jump = self.emit_jump(Opcode::JumpIfNot, cond_reg);
                 self.free_temp(cond_reg);
 
-                let dest = self.registers.allocate()?;
+                let result_reg = self.registers.allocate()?;
+
                 let then_reg = self.compile_expr(then_branch)?;
-                self.emit(Opcode::Move, dest, then_reg, 0);
+                self.emit(Opcode::Move, result_reg, then_reg, 0);
                 self.free_temp(then_reg);
 
-                let jump_to_end = self.emit_jump(Opcode::Jump, 0);
+                let end_jump = self.emit_jump(Opcode::Jump, 0);
 
-                self.patch_jump(jump_to_else)?;
+                self.patch_jump(else_jump)?;
+
                 let else_reg = self.compile_expr(else_branch)?;
-                self.emit(Opcode::Move, dest, else_reg, 0);
+                self.emit(Opcode::Move, result_reg, else_reg, 0);
                 self.free_temp(else_reg);
 
-                self.patch_jump(jump_to_end)?;
-                Ok(dest)
+                self.patch_jump(end_jump)?;
+
+                Ok(result_reg)
+            }
+            ExprKind::If {
+                condition,
+                then_branch,
+                else_branch,
+            } => {
+                let cond_reg = self.compile_expr(condition)?;
+                let else_jump = self.emit_jump(Opcode::JumpIfNot, cond_reg);
+                self.free_temp(cond_reg);
+
+                let result_reg = self.registers.allocate()?;
+
+                let then_reg = self.compile_expr(then_branch)?;
+                self.emit(Opcode::Move, result_reg, then_reg, 0);
+                self.free_temp(then_reg);
+
+                let end_jump = self.emit_jump(Opcode::Jump, 0);
+
+                self.patch_jump(else_jump)?;
+
+                let else_reg = self.compile_expr(else_branch)?;
+                self.emit(Opcode::Move, result_reg, else_reg, 0);
+                self.free_temp(else_reg);
+
+                self.patch_jump(end_jump)?;
+
+                Ok(result_reg)
             }
             ExprKind::Lambda {
                 params,
@@ -909,21 +991,9 @@ impl Compiler {
                     self.free_temp(null_reg);
                 }
 
-                // Get the slice method
-                let slice_name_idx = self.add_constant(Value::String("slice".to_string().into()));
-                let method_reg = self.registers.allocate()?;
-                self.emit(
-                    Opcode::GetProperty,
-                    method_reg,
-                    collection_reg,
-                    slice_name_idx,
-                );
-
-                // Call the method
                 let dest = self.registers.allocate()?;
-                self.emit(Opcode::Call, dest, method_reg, args_reg);
+                self.emit(Opcode::Slice, dest, collection_reg, args_reg);
                 self.free_temp(collection_reg);
-                self.free_temp(method_reg);
                 self.free_temp(args_reg);
                 Ok(dest)
             }
@@ -932,6 +1002,47 @@ impl Compiler {
                 "spread operator only allowed in collection literals",
             )),
             ExprKind::Call { callee, args } => {
+                // Handle super() constructor call
+                if matches!(&callee.kind, ExprKind::Super) {
+                    if self.current_super.is_none() {
+                        return Err(self.error("super() called without superclass", expr.span));
+                    }
+                    let this_reg = self
+                        .resolve_local("this")
+                        .map(|local| local.reg)
+                        .ok_or_else(|| {
+                            self.error("super() called outside of constructor", expr.span)
+                        })?;
+
+                    // Compile arguments
+                    let args_reg = self.registers.allocate()?;
+                    self.emit(Opcode::NewArray, args_reg, 0, 0);
+                    for arg in args {
+                        match arg {
+                            pleno_ast::CallArg::Positional(arg_expr) => {
+                                let arg_reg = self.compile_expr(arg_expr)?;
+                                self.emit(Opcode::ArrayAppend, args_reg, arg_reg, 0);
+                                self.free_temp(arg_reg);
+                            }
+                            pleno_ast::CallArg::Spread(arg_expr) => {
+                                let spread_reg = self.compile_expr(arg_expr)?;
+                                self.emit(Opcode::ArrayExtend, args_reg, spread_reg, 0);
+                                self.free_temp(spread_reg);
+                            }
+                            _ => {
+                                return Err(CompileError::new(
+                                    "super() does not support named/placeholder args",
+                                ));
+                            }
+                        }
+                    }
+
+                    let dest = self.registers.allocate()?;
+                    self.emit(Opcode::CallSuper, dest, this_reg, args_reg);
+                    self.free_temp(args_reg);
+                    return Ok(dest);
+                }
+
                 let callee_reg = self.compile_expr(callee)?;
                 let has_placeholder = args
                     .iter()
@@ -955,6 +1066,11 @@ impl Compiler {
                                 self.emit(Opcode::LoadMissing, arg_reg, 0, 0);
                                 self.emit(Opcode::ArrayAppend, args_reg, arg_reg, 0);
                                 self.free_temp(arg_reg);
+                            }
+                            pleno_ast::CallArg::Spread(expr) => {
+                                let spread_reg = self.compile_expr(expr)?;
+                                self.emit(Opcode::ArrayExtend, args_reg, spread_reg, 0);
+                                self.free_temp(spread_reg);
                             }
                             pleno_ast::CallArg::Named(_, _) => {
                                 return Err(CompileError::new(
@@ -993,6 +1109,11 @@ impl Compiler {
                                 self.emit(Opcode::SetProperty, arg_reg, named_reg, name_idx);
                                 self.free_temp(arg_reg);
                             }
+                            pleno_ast::CallArg::Spread(expr) => {
+                                let spread_reg = self.compile_expr(expr)?;
+                                self.emit(Opcode::ArrayExtend, positional_reg, spread_reg, 0);
+                                self.free_temp(spread_reg);
+                            }
                             pleno_ast::CallArg::Placeholder => unreachable!(),
                         }
                     }
@@ -1011,15 +1132,22 @@ impl Compiler {
                     let args_reg = self.registers.allocate()?;
                     self.emit(Opcode::NewArray, args_reg, 0, 0);
                     for arg in args {
-                        let arg_reg = match arg {
-                            pleno_ast::CallArg::Positional(expr) => self.compile_expr(expr)?,
+                        match arg {
+                            pleno_ast::CallArg::Positional(expr) => {
+                                let arg_reg = self.compile_expr(expr)?;
+                                self.emit(Opcode::ArrayAppend, args_reg, arg_reg, 0);
+                                self.free_temp(arg_reg);
+                            }
+                            pleno_ast::CallArg::Spread(expr) => {
+                                let spread_reg = self.compile_expr(expr)?;
+                                self.emit(Opcode::ArrayExtend, args_reg, spread_reg, 0);
+                                self.free_temp(spread_reg);
+                            }
                             pleno_ast::CallArg::Named(_, _) => {
                                 return Err(CompileError::new("named arguments require name"));
                             }
                             pleno_ast::CallArg::Placeholder => unreachable!(),
-                        };
-                        self.emit(Opcode::ArrayAppend, args_reg, arg_reg, 0);
-                        self.free_temp(arg_reg);
+                        }
                     }
                     let dest = self.registers.allocate()?;
                     self.emit(Opcode::Call, dest, callee_reg, args_reg);
@@ -1955,11 +2083,6 @@ impl Compiler {
             .map(|(idx, name)| (name.clone(), idx))
             .collect();
 
-        // Register captures in locals so they can be resolved
-        for (idx, name) in captures.iter().enumerate() {
-            compiler.insert_local(name.clone(), idx as u8, true, None)?;
-        }
-
         for param in params {
             let reg = compiler.registers.allocate()?;
             compiler.insert_local(param.name.clone(), reg, true, param.ty.clone())?;
@@ -2333,6 +2456,12 @@ impl Compiler {
                 }
                 self.collect_locals(body, locals)
             }
+            StmtKind::CFor { init, body, .. } => {
+                if let Some(init) = init {
+                    self.collect_locals(init, locals);
+                }
+                self.collect_locals(body, locals)
+            }
             StmtKind::Fn { name, .. } => {
                 locals.insert(name.clone(), ());
             }
@@ -2355,6 +2484,23 @@ impl Compiler {
             StmtKind::AssignProperty { object, value, .. } => {
                 self.collect_idents_expr(object, used);
                 self.collect_idents_expr(value, used);
+            }
+            StmtKind::CFor {
+                init,
+                condition,
+                step,
+                body,
+            } => {
+                if let Some(init) = init {
+                    self.collect_idents(init, used);
+                }
+                if let Some(condition) = condition {
+                    self.collect_idents_expr(condition, used);
+                }
+                if let Some(step) = step {
+                    self.collect_idents(step, used);
+                }
+                self.collect_idents(body, used);
             }
             StmtKind::AssignIndex {
                 collection,
@@ -2459,6 +2605,9 @@ impl Compiler {
                             self.collect_idents_expr(expr, used);
                         }
                         pleno_ast::CallArg::Named(_, expr) => {
+                            self.collect_idents_expr(expr, used);
+                        }
+                        pleno_ast::CallArg::Spread(expr) => {
                             self.collect_idents_expr(expr, used);
                         }
                         pleno_ast::CallArg::Placeholder => {}
