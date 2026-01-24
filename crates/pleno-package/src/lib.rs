@@ -71,3 +71,101 @@ impl Manifest {
         Ok(())
     }
 }
+
+pub struct PackageManager {
+    pub packages_dir: PathBuf,
+}
+
+impl PackageManager {
+    pub fn new<P: AsRef<Path>>(packages_dir: P) -> Self {
+        Self {
+            packages_dir: packages_dir.as_ref().to_path_buf(),
+        }
+    }
+
+    pub fn install_all(&self, manifest: &Manifest) -> Result<(), PackageError> {
+        let mut installed = HashMap::new();
+        self.resolve_recursive(manifest, &mut installed)?;
+        Ok(())
+    }
+
+    fn resolve_recursive(
+        &self,
+        manifest: &Manifest,
+        installed: &mut HashMap<String, String>,
+    ) -> Result<(), PackageError> {
+        for (name, source) in &manifest.dependencies {
+            if let Some(existing_source) = installed.get(name) {
+                if existing_source != source {
+                    println!(
+                        "Warning: Version mismatch for {}: {} vs {}",
+                        name, existing_source, source
+                    );
+                }
+                continue;
+            }
+
+            println!("Installing {} from {}...", name, source);
+            self.fetch_package(name, source)?;
+            installed.insert(name.clone(), source.clone());
+
+            // Load manifest of the installed package and resolve its dependencies
+            let pkg_dir = self.packages_dir.join(name);
+            let pkg_manifest_path = pkg_dir.join("package.pln");
+            if pkg_manifest_path.exists() {
+                let sub_manifest = Manifest::load_from_file(pkg_manifest_path)?;
+                self.resolve_recursive(&sub_manifest, installed)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn fetch_package(&self, name: &str, source: &str) -> Result<(), PackageError> {
+        let dest = self.packages_dir.join(name);
+        if dest.exists() {
+            std::fs::remove_dir_all(&dest)?;
+        }
+        std::fs::create_dir_all(&dest)?;
+
+        if let Some(url) = source.strip_prefix("git+") {
+            let status = std::process::Command::new("git")
+                .arg("clone")
+                .arg("--depth")
+                .arg("1")
+                .arg(url)
+                .arg(&dest)
+                .status()?;
+            if !status.success() {
+                return Err(PackageError::Io(std::io::Error::other(format!(
+                    "git clone failed for {url}"
+                ))));
+            }
+        } else if source.starts_with("./") || source.starts_with("../") || source.starts_with("/") {
+            let src_path = PathBuf::from(source);
+            self.copy_dir(&src_path, &dest)?;
+        } else {
+            return Err(PackageError::Io(std::io::Error::other(format!(
+                "Unsupported source: {source}"
+            ))));
+        }
+        Ok(())
+    }
+
+    fn copy_dir(&self, src: &Path, dst: &Path) -> Result<(), PackageError> {
+        if !src.exists() {
+            return Err(PackageError::NotFound(src.to_path_buf()));
+        }
+        for entry in std::fs::read_dir(src)? {
+            let entry = entry?;
+            let ty = entry.file_type()?;
+            let dst_path = dst.join(entry.file_name());
+            if ty.is_dir() {
+                std::fs::create_dir_all(&dst_path)?;
+                self.copy_dir(&entry.path(), &dst_path)?;
+            } else {
+                std::fs::copy(entry.path(), dst_path)?;
+            }
+        }
+        Ok(())
+    }
+}

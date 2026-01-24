@@ -10,6 +10,7 @@ pub trait VMProvider {
     fn create_promise(&mut self) -> (u64, Value);
     fn resolve_promise(&mut self, id: u64, value: Value);
     fn register_multi_waiter(&mut self, waiter: MultiWaiter);
+    fn check_purity(&mut self) -> Result<(), RuntimeError>;
 }
 
 #[derive(Debug, Clone)]
@@ -283,6 +284,7 @@ pub struct Class {
     pub static_setters: HashMap<String, MethodInfo>,
     pub module: Option<Rc<String>>,
     pub is_abstract: bool,
+    pub implements: Vec<Value>,
 }
 
 impl GcObject for Class {
@@ -291,6 +293,9 @@ impl GcObject for Class {
             gc.mark_object(&sc.to_gc_object());
         }
         for v in self.static_fields.values() {
+            v.mark(gc);
+        }
+        for v in &self.implements {
             v.mark(gc);
         }
     }
@@ -304,6 +309,7 @@ impl GcObject for Class {
         self.setters.clear();
         self.static_getters.clear();
         self.static_setters.clear();
+        self.implements.clear();
     }
 }
 
@@ -328,6 +334,7 @@ impl PartialEq for Class {
             && self.static_setters == other.static_setters
             && self.module == other.module
             && self.is_abstract == other.is_abstract
+            && self.implements == other.implements
     }
 }
 

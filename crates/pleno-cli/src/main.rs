@@ -47,46 +47,40 @@ fn main() {
                 }
             };
 
+            let manager = pleno_package::PackageManager::new("packages");
+
             if let Some(pkg) = pkg_name {
-                // Add dependency
-                // For now, version is just "latest" or whatever
-                manifest
-                    .dependencies
-                    .insert(pkg.clone(), "^1.0.0".to_string());
+                // Determine source: if it contains '/' or starts with 'git+', use as is.
+                // Otherwise we don't have a registry, so error out.
+                let (name, source) = if pkg.contains('/') || pkg.starts_with("git+") {
+                    let name = pkg.split('/').next_back().unwrap().replace(".git", "");
+                    (name, pkg)
+                } else {
+                    eprintln!(
+                        "Error: Package source must be a Git URL (git+...) or local path (./...). Registry lookups are not yet supported."
+                    );
+                    process::exit(1);
+                };
+
+                manifest.dependencies.insert(name.clone(), source.clone());
                 if let Err(e) = manifest.save_to_file("package.pln") {
                     eprintln!("Failed to save package.pln: {}", e);
                     process::exit(1);
                 }
-                println!("Added {} to dependencies", pkg);
+                println!("Added {} to dependencies", name);
 
-                // TODO: Actually install (fetch/clone)
-                let packages_dir = PathBuf::from("packages");
-                if !packages_dir.exists() {
-                    fs::create_dir(&packages_dir).ok();
+                if let Err(e) = manager.install_all(&manifest) {
+                    eprintln!("Installation failed: {}", e);
+                    process::exit(1);
                 }
-                let pkg_dir = packages_dir.join(&pkg);
-                if !pkg_dir.exists() {
-                    fs::create_dir(&pkg_dir).ok();
-                    // Create a dummy file
-                    fs::write(pkg_dir.join("lib.pln"), format!("// Package {}", pkg)).ok();
-                }
-                println!("Installed {} (mock)", pkg);
             } else {
-                // Install all dependencies
                 println!("Installing dependencies...");
-                let packages_dir = PathBuf::from("packages");
-                if !packages_dir.exists() {
-                    fs::create_dir(&packages_dir).ok();
-                }
-                for name in manifest.dependencies.keys() {
-                    let pkg_dir = packages_dir.join(name);
-                    if !pkg_dir.exists() {
-                        fs::create_dir(&pkg_dir).ok();
-                        fs::write(pkg_dir.join("lib.pln"), format!("// Package {}", name)).ok();
-                    }
-                    println!("Installed {} (mock)", name);
+                if let Err(e) = manager.install_all(&manifest) {
+                    eprintln!("Installation failed: {}", e);
+                    process::exit(1);
                 }
             }
+            println!("Installation successful.");
         }
         "run" => {
             let target = args.next().unwrap_or_else(|| {

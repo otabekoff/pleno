@@ -776,6 +776,7 @@ impl Formatter {
                 params,
                 body,
                 return_ty: _,
+                annotations: _,
             } => {
                 let param_strs: Vec<String> =
                     params.iter().map(|param| param.name.clone()).collect();

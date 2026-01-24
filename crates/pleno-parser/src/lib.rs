@@ -1806,56 +1806,22 @@ impl Parser {
                 let expr = Box::new(self.parse_unary()?);
                 Ok(self.wrap_expr(ExprKind::Await { expr }, start_span))
             }
-            TokenKind::Pipe => {
-                let params = self.parse_lambda_params()?;
-                self.expect(TokenKind::Pipe, "Expected '|' after lambda parameters")?;
-                self.expect(TokenKind::FatArrow, "Expected '=>' after lambda parameters")?;
-                let body = if matches!(self.peek_kind(), TokenKind::LBrace) {
-                    let block = self.parse_block_stmt()?;
-                    if let StmtKind::Block(stmts) = block.kind {
-                        self.wrap_expr(ExprKind::Block(stmts), block.span)
-                    } else {
-                        unreachable!()
-                    }
-                } else {
-                    self.parse_expr()?
-                };
-                Ok(self.wrap_expr(
-                    ExprKind::Lambda {
-                        params,
-                        body: Box::new(body),
-                        return_ty: None,
-                    },
-                    start_span,
-                ))
-            }
-            TokenKind::KeywordFn => {
-                self.expect(TokenKind::LParen, "Expected '(' after 'fn'")?;
-                let params = self.parse_param_list()?;
-                self.expect(TokenKind::RParen, "Expected ')' after parameters")?;
-                let return_ty = if self.matches(&TokenKind::Colon) {
-                    Some(self.parse_type()?)
-                } else {
-                    None
-                };
-                let body = if self.matches(&TokenKind::FatArrow) {
-                    Box::new(self.parse_expr()?)
-                } else {
-                    let block = self.parse_block_stmt()?;
-                    if let StmtKind::Block(stmts) = block.kind {
-                        Box::new(self.wrap_expr(ExprKind::Block(stmts), block.span))
-                    } else {
-                        unreachable!()
-                    }
-                };
-                Ok(self.wrap_expr(
-                    ExprKind::Lambda {
-                        params,
-                        body,
-                        return_ty,
-                    },
-                    start_span,
-                ))
+            TokenKind::Pipe => self.parse_lambda_expr(Vec::new(), start_span),
+            TokenKind::KeywordFn => self.parse_fn_expr(Vec::new(), start_span),
+            TokenKind::At => {
+                let first_annotation = self.parse_annotation()?;
+                let mut annotations = vec![first_annotation];
+                annotations.extend(self.parse_annotations()?);
+                let start_token = self.advance();
+                match start_token.kind {
+                    TokenKind::Pipe => self.parse_lambda_expr(annotations, start_span),
+                    TokenKind::KeywordFn => self.parse_fn_expr(annotations, start_span),
+                    _ => Err(ParseError {
+                        message: "Annotations only allowed before lambda functions in expressions"
+                            .to_string(),
+                        span: start_span,
+                    }),
+                }
             }
             TokenKind::LBrace => {
                 if matches!(self.peek_kind(), TokenKind::RBrace) {
@@ -1912,6 +1878,7 @@ impl Parser {
                             params,
                             body: Box::new(body),
                             return_ty: None,
+                            annotations: Vec::new(),
                         },
                         start_span,
                     ))
@@ -2207,11 +2174,15 @@ impl Parser {
                         break;
                     }
                 }
-                TokenKind::Colon if depth == 1 => return Ok(false),
+                TokenKind::Colon if depth == 1 => return Ok(false), // Map literal
+                TokenKind::Semicolon if depth == 1 => return Ok(false), // Block
+                TokenKind::KeywordReturn if depth == 1 => return Ok(false), // Block
+                TokenKind::KeywordLet if depth == 1 => return Ok(false), // Block
                 _ => {}
             }
             i += 1;
         }
+
         Ok(true)
     }
 
@@ -2546,6 +2517,69 @@ impl Parser {
         } else {
             Ok(types.join(" | "))
         }
+    }
+
+    fn parse_lambda_expr(
+        &mut self,
+        annotations: Vec<pleno_ast::Annotation>,
+        start_span: Span,
+    ) -> Result<Expr, ParseError> {
+        let params = self.parse_lambda_params()?;
+        self.expect(TokenKind::Pipe, "Expected '|' after lambda parameters")?;
+        self.expect(TokenKind::FatArrow, "Expected '=>' after lambda parameters")?;
+        let body = if matches!(self.peek_kind(), TokenKind::LBrace) {
+            let block = self.parse_block_stmt()?;
+            if let StmtKind::Block(stmts) = block.kind {
+                self.wrap_expr(ExprKind::Block(stmts), block.span)
+            } else {
+                unreachable!()
+            }
+        } else {
+            self.parse_expr()?
+        };
+        Ok(self.wrap_expr(
+            ExprKind::Lambda {
+                params,
+                body: Box::new(body),
+                return_ty: None,
+                annotations,
+            },
+            start_span,
+        ))
+    }
+
+    fn parse_fn_expr(
+        &mut self,
+        annotations: Vec<pleno_ast::Annotation>,
+        start_span: Span,
+    ) -> Result<Expr, ParseError> {
+        self.expect(TokenKind::LParen, "Expected '(' after 'fn'")?;
+        let params = self.parse_param_list()?;
+        self.expect(TokenKind::RParen, "Expected ')' after parameters")?;
+        let return_ty = if self.matches(&TokenKind::Colon) {
+            Some(self.parse_type()?)
+        } else {
+            None
+        };
+        let body = if self.matches(&TokenKind::FatArrow) {
+            Box::new(self.parse_expr()?)
+        } else {
+            let block = self.parse_block_stmt()?;
+            if let StmtKind::Block(stmts) = block.kind {
+                Box::new(self.wrap_expr(ExprKind::Block(stmts), block.span))
+            } else {
+                unreachable!()
+            }
+        };
+        Ok(self.wrap_expr(
+            ExprKind::Lambda {
+                params,
+                body,
+                return_ty,
+                annotations,
+            },
+            start_span,
+        ))
     }
 }
 

@@ -1,0 +1,38 @@
+// Test @pure function enforcement
+
+let global_var = 10;
+
+@pure
+fn pure_add(a, b) {
+    return a + b;
+}
+
+@pure
+fn impure_global() {
+    global_var = 20; // ERROR
+}
+
+@pure
+fn impure_io() {
+    print("side effect"); // ERROR
+}
+
+print("Testing pure functions...");
+
+print("Valid: 1 + 2 =", pure_add(1, 2));
+
+try {
+    impure_global();
+    print("FAILED: impure_global did not throw");
+} catch (e) {
+    print("SUCCESS: Caught global mutation in pure function:", e.message);
+}
+
+try {
+    impure_io();
+    print("FAILED: impure_io did not throw");
+} catch (e) {
+    print("SUCCESS: Caught I/O in pure function:", e.message);
+}
+
+print("Pure function test completed");
