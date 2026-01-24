@@ -75,10 +75,10 @@ Features documented in `specs.md` but missing in codebase:
 - Runtime enforcement for `@pure` functions
 - Runtime enforcement for `const deep` immutability ✅
 - Runtime error catchability (e.g. out-of-bounds, immutability violations) ✅
-- Bytecode emission for property getters/setters
+- Bytecode emission for property getters/setters ✅
 - Runtime instantiation checks for `abstract` classes ✅
-- Interface satisfaction validation at compile-time/runtime
-- Property getters/setters syntax support (Partially done: Lexer/Parser/Formatter ✅)
+- Interface satisfaction validation at compile-time/runtime ✅
+- Property getters/setters syntax support (Lexer/Parser/Formatter ✅)
 
 ### Package Management Completion
 - Complete implementation of `pleno install` (fetch/clone)

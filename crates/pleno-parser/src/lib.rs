@@ -2555,12 +2555,22 @@ fn is_accessor(
     third: Option<&TokenKind>,
     name: &str,
 ) -> bool {
-    matches!(
-        (first, second, third),
-        (
-            TokenKind::Ident(ident),
-            Some(TokenKind::Ident(_)),
-            Some(TokenKind::LParen)
-        ) if ident == name
-    )
+    match (first, second, third) {
+        (TokenKind::Ident(ident), Some(TokenKind::Ident(_)), Some(TokenKind::LParen))
+            if ident == name =>
+        {
+            true
+        }
+        (TokenKind::KeywordGet, Some(TokenKind::Ident(_)), Some(TokenKind::LParen))
+            if name == "get" =>
+        {
+            true
+        }
+        (TokenKind::KeywordSet, Some(TokenKind::Ident(_)), Some(TokenKind::LParen))
+            if name == "set" =>
+        {
+            true
+        }
+        _ => false,
+    }
 }

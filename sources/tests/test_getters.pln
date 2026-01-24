@@ -1,0 +1,46 @@
+// Test property getters and setters
+
+class Rectangle {
+    _width;
+    _height;
+
+    constructor(w, h) {
+        this._width = w;
+        this._height = h;
+    }
+
+    // Method syntax getter
+    get area() {
+        return this._width * this._height;
+    }
+
+    // Method syntax setter
+    set width(w) {
+        this._width = w;
+    }
+
+    get width() {
+        return this._width;
+    }
+}
+
+print("Testing Getter/Setter syntax...");
+let r = new Rectangle(10, 20);
+print("Area:", r.area); // Should be 200
+
+if (r.area == 200) {
+    print("Getter SUCCESS");
+} else {
+    print("Getter FAILED");
+}
+
+r.width = 5;
+print("New Area:", r.area); // Should be 100
+
+if (r.area == 100) {
+    print("Setter SUCCESS");
+} else {
+    print("Setter FAILED");
+}
+
+print("Getter/Setter Test Completed");
