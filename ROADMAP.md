@@ -1,63 +1,65 @@
 # Pleno v1 Roadmap
 
-This roadmap stages the remaining implementation work for v1.
+This roadmap tracks remaining implementation work for v1. Completed stages have been archived.
 
 ---
 
-## Stage 8 - Functional Features (partial)
+## Completed Stages ✅
 
-**Completed**: pipeline operator, basic pattern matching (identity/wildcard patterns), lambdas/closures (shorthand and anonymous fn expressions), Tuple patterns in match expressions, Full pattern matching runtime verification
+- **Stage 8 - Functional Features**: pipeline operator, pattern matching, lambdas/closures
+- **Stage 9 - Async + Concurrency**: async/await, promises, event loop, Mutex, Channels, spawn()
+- **Stage 10 - Standard Library**: JSON, I/O, HTTP, Math, Regex, OS, DateTime, std:path, std:process, Map/Set functional API
+- **Stage 11 - Tooling**: LSP, formatter, linter, type checker, docs tooling
+
+---
+
+## Stage 12 - Runtime + VM (mostly complete)
+
+**Completed**: register bytecode format; compiler for all language features; VM arithmetic/comparison/jumps; function call frames, class instances; exception handling; array methods (map, filter, reduce); 193 passing tests; universal string concatenation; collection length aliases; memory management ✅
 
 **Remaining**:
-- Advanced pattern matching features
+- Performance optimizations (optional for v1)
+- NaN boxing (optional for v1)
 
 ---
 
-## Stage 9 - Async + Concurrency (partial)
+## Stage 13 - Core VM Crates (mostly complete)
 
-**Completed**: async/await execution, promise resolution, event loop, output buffering (flushing), hidden promise ID handling; Concurrency primitives (Mutex, Channels) ✅; spawn() function ✅
-
----
-
-## Stage 10 - Standard Library (partial)
-
-**Completed**: basic stdlib module stubs; JSON module fully implemented; I/O module (files/dirs) fully implemented; HTTP module fully implemented; Math and Regex libraries aligned with specs; Native function bindings for system operations (OS module); Time Standard Library (DateTime, Duration) ✅; `std:path` cross-platform manipulation ✅; `std:process` management ✅; Advanced collection methods (Map/Set functional API: map, filter, forEach, toArray) ✅; Standard library documentation ✅
-
----
-
-## Stage 11 - Tooling (partial)
-
-**Completed**: LSP MVP (diagnostics, go-to-def); basic formatter/linter CLI commands; type checker CLI command; optional types (`Int?`) and union types (`Int | String`) runtime type checking; Full formatter implementation in CLI; Full linter implementation (unused variable detection, style rules, best practices) ✅; Docs tooling (API documentation) ✅
-
----
-
-## Stage 12 - Runtime + VM (partial)
-
-**Completed**: register bytecode format; compiler for all language features; VM arithmetic/comparison/jumps; function call frames, class instances; exception handling; array methods (map, filter, reduce); 175+ passing tests; universal string concatenation; collection length aliases; memory management (breaking Rc cycles) ✅
+**Completed**: 
+- pleno-bytecode ✅
+- pleno-compiler ✅
+- pleno-vm ✅
+- pleno-value ✅
+- pleno-gc ✅
 
 **Remaining**:
-- Performance optimizations
-- NaN boxing (optional)
+- pleno-common: Currently spans only, could expand to shared utilities
+- pleno-diagnostics: Basic error reporting, could improve messages
 
 ---
 
-## Stage 13 - Core VM Crates (partial)
+## Stage 14 - v1 Hardening
 
-**Completed**: pleno-bytecode, pleno-compiler, pleno-vm (fully functional)
+**Completed**:
+- Linter: Comprehensive style rules and unused variable detection ✅
+- Docs Tooling: API documentation ✅
 
-**Partial**:
-- pleno-common (spans only)
-- pleno-diagnostics (basic error reporting)
-- pleno-value (primitives/collections/functions/classes) ✅
-- pleno-gc (fully integrated) ✅
+**Remaining**:
+- **Testing Expansion**: Add more integration tests
+- **Diagnostics**: Improve compiler/VM error messages with source spans
+
+**Deferred (post-v1)**:
+- GC Robustness: Full tracing management
+- Performance: Benchmarking suite
+- NaN boxing optimization
 
 ---
 
-## Stage 14 - v1 Hardening (not started)
+## v1 Release Criteria
 
-- **GC Robustness**: Break `Rc` cycles or transition to full tracing management
-- **Linter Completion**: Comprehensive style rules and unused variable detection
-- **Testing Expansion**: Increase coverage from 53+ tests to full feature parity
-- **Diagnostics**: Improve compiler/VM error messages and source spans
-- **Docs Tooling**: Automated API documentation generation
-- **Performance**: Benchmarking suite and optimization passes
+- [x] All language features implemented and tested
+- [x] Standard library complete (JSON, I/O, HTTP, Path, Process, etc.)
+- [x] Tooling functional (LSP, formatter, linter)
+- [x] Documentation complete
+- [ ] 200+ passing tests
+- [ ] No critical bugs in issue tracker
