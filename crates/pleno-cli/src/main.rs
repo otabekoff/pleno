@@ -1,6 +1,7 @@
 use std::env;
 use std::fs;
 // CLI imports
+use pleno_package::Manifest;
 use std::path::PathBuf;
 use std::process;
 
@@ -21,12 +22,119 @@ fn main() {
         "-v" | "--version" => {
             println!("pleno {}", env!("CARGO_PKG_VERSION"));
         }
+        "init" => {
+            let name = args.next().unwrap_or_else(|| {
+                // Default to current directory name
+                env::current_dir()
+                    .ok()
+                    .and_then(|p| p.file_name().map(|n| n.to_string_lossy().to_string()))
+                    .unwrap_or_else(|| "my-app".to_string())
+            });
+            let manifest = Manifest::new(&name, "0.1.0");
+            if let Err(e) = manifest.save_to_file("package.pln") {
+                eprintln!("Failed to create package.pln: {}", e);
+                process::exit(1);
+            }
+            println!("Created package.pln for {}", name);
+        }
+        "install" => {
+            let pkg_name = args.next();
+            let mut manifest = match Manifest::load_from_file("package.pln") {
+                Ok(m) => m,
+                Err(e) => {
+                    eprintln!("Failed to load package.pln: {}", e);
+                    process::exit(1);
+                }
+            };
+
+            if let Some(pkg) = pkg_name {
+                // Add dependency
+                // For now, version is just "latest" or whatever
+                manifest
+                    .dependencies
+                    .insert(pkg.clone(), "^1.0.0".to_string());
+                if let Err(e) = manifest.save_to_file("package.pln") {
+                    eprintln!("Failed to save package.pln: {}", e);
+                    process::exit(1);
+                }
+                println!("Added {} to dependencies", pkg);
+
+                // TODO: Actually install (fetch/clone)
+                let packages_dir = PathBuf::from("packages");
+                if !packages_dir.exists() {
+                    fs::create_dir(&packages_dir).ok();
+                }
+                let pkg_dir = packages_dir.join(&pkg);
+                if !pkg_dir.exists() {
+                    fs::create_dir(&pkg_dir).ok();
+                    // Create a dummy file
+                    fs::write(pkg_dir.join("lib.pln"), format!("// Package {}", pkg)).ok();
+                }
+                println!("Installed {} (mock)", pkg);
+            } else {
+                // Install all dependencies
+                println!("Installing dependencies...");
+                let packages_dir = PathBuf::from("packages");
+                if !packages_dir.exists() {
+                    fs::create_dir(&packages_dir).ok();
+                }
+                for name in manifest.dependencies.keys() {
+                    let pkg_dir = packages_dir.join(name);
+                    if !pkg_dir.exists() {
+                        fs::create_dir(&pkg_dir).ok();
+                        fs::write(pkg_dir.join("lib.pln"), format!("// Package {}", name)).ok();
+                    }
+                    println!("Installed {} (mock)", name);
+                }
+            }
+        }
         "run" => {
-            let path = args.next().unwrap_or_else(|| {
-                eprintln!("Error: 'run' requires a file path");
+            let target = args.next().unwrap_or_else(|| {
+                eprintln!("Error: 'run' requires a file path or script name");
                 process::exit(1);
             });
-            run_file(&path);
+            // Check if target is a file
+            if PathBuf::from(&target).exists() || target.ends_with(".pln") {
+                run_file(&target);
+            } else {
+                // Check for package.pln script
+                match Manifest::load_from_file("package.pln") {
+                    Ok(manifest) => {
+                        if let Some(script) = manifest.scripts.get(&target) {
+                            println!("> {}", script);
+                            // Run shell command
+                            // Split script into command and args
+                            // Naive splitting
+                            let mut parts = script.split_whitespace();
+                            if let Some(cmd) = parts.next() {
+                                let status = process::Command::new(cmd).args(parts).status();
+                                match status {
+                                    Ok(s) => {
+                                        if !s.success() {
+                                            process::exit(s.code().unwrap_or(1));
+                                        }
+                                    }
+                                    Err(e) => {
+                                        eprintln!("Failed to execute script: {}", e);
+                                        process::exit(1);
+                                    }
+                                }
+                            }
+                        } else {
+                            eprintln!(
+                                "Script '{}' not found in package.pln, and file '{}' does not exist.",
+                                target, target
+                            );
+                            process::exit(1);
+                        }
+                    }
+                    Err(_) => {
+                        // No manifest, and file doesn't exist
+                        eprintln!("File '{}' not found.", target);
+                        process::exit(1);
+                    }
+                }
+            }
         }
         "format" => {
             let path = args.next().unwrap_or_else(|| {
@@ -154,7 +262,7 @@ fn run_single_test(path: &PathBuf, stats: &mut TestStats) {
 
     let is_expected_compile_error = source.contains("// EXPECT_COMPILE_ERROR");
 
-    let mut compiler = pleno_compiler::Compiler::new();
+    let mut compiler = pleno_compiler::Compiler::new(source);
     let chunk = match compiler.compile(&program) {
         Ok(chunk) => {
             if is_expected_compile_error {
@@ -259,7 +367,7 @@ fn run_file(path: &str) {
         }
     };
 
-    let mut compiler = pleno_compiler::Compiler::new();
+    let mut compiler = pleno_compiler::Compiler::new(source);
     let chunk = match compiler.compile(&program) {
         Ok(chunk) => chunk,
         Err(err) => {
@@ -272,7 +380,11 @@ fn run_file(path: &str) {
     match vm.execute(chunk) {
         Ok(_) => {}
         Err(err) => {
-            eprintln!("Runtime error: {}", err.message);
+            if let Some(line) = err.line {
+                eprintln!("Runtime error at line {}: {}", line, err.message);
+            } else {
+                eprintln!("Runtime error: {}", err.message);
+            }
             process::exit(1);
         }
     }
@@ -418,9 +530,23 @@ fn lint_single_file(path: &PathBuf) {
     }
 }
 
-fn lint_directory(_dir: &PathBuf) {
-    // TODO: Recursively lint all .pln files
-    println!("Directory linting not yet fully implemented");
+fn lint_directory(dir: &PathBuf) {
+    let entries = match fs::read_dir(dir) {
+        Ok(entries) => entries,
+        Err(err) => {
+            eprintln!("Failed to read directory {}: {err}", dir.display());
+            return;
+        }
+    };
+
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            lint_directory(&path);
+        } else if path.extension().is_some_and(|ext| ext == "pln") {
+            lint_single_file(&path);
+        }
+    }
 }
 
 fn check_file(path: &str) {
@@ -455,7 +581,7 @@ fn check_file(path: &str) {
         }
     };
 
-    let mut compiler = pleno_compiler::Compiler::new();
+    let mut compiler = pleno_compiler::Compiler::new(source);
     match compiler.compile(&program) {
         Ok(_) => {
             println!("Type check passed for {}", path);

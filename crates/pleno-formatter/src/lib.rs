@@ -5,6 +5,8 @@ pub struct Formatter {
     indent_size: usize,
     use_tabs: bool,
     _max_line_length: usize,
+    comments: Vec<Comment>,
+    comment_index: usize,
 }
 
 impl Default for Formatter {
@@ -19,6 +21,8 @@ impl Formatter {
             indent_size: 4,
             use_tabs: false,
             _max_line_length: 80,
+            comments: Vec::new(),
+            comment_index: 0,
         }
     }
 
@@ -42,7 +46,67 @@ impl Formatter {
         }
     }
 
+    fn emit_comments_before(&mut self, limit: usize, indent_level: usize) -> String {
+        let mut result = String::new();
+        while self.comment_index < self.comments.len() {
+            let comment = &self.comments[self.comment_index];
+            if comment.span.start >= limit {
+                break;
+            }
+            // Add indentation
+            result.push_str(&self.indent(indent_level));
+            match comment.kind {
+                CommentKind::Line => {
+                    result.push_str("//");
+                    result.push_str(&comment.content);
+                    result.push('\n');
+                }
+                CommentKind::Block => {
+                    result.push_str("/*");
+                    result.push_str(&comment.content);
+                    result.push_str("*/\n");
+                }
+                CommentKind::Doc => {
+                    result.push_str("///");
+                    result.push_str(&comment.content);
+                    result.push('\n');
+                }
+            }
+            self.comment_index += 1;
+        }
+        result
+    }
+
+    fn emit_remaining_comments(&mut self, indent_level: usize) -> String {
+        let mut result = String::new();
+        while self.comment_index < self.comments.len() {
+            let comment = &self.comments[self.comment_index];
+            result.push_str(&self.indent(indent_level));
+            match comment.kind {
+                CommentKind::Line => {
+                    result.push_str("//");
+                    result.push_str(&comment.content);
+                    result.push('\n');
+                }
+                CommentKind::Block => {
+                    result.push_str("/*");
+                    result.push_str(&comment.content);
+                    result.push_str("*/\n");
+                }
+                CommentKind::Doc => {
+                    result.push_str("///");
+                    result.push_str(&comment.content);
+                    result.push('\n');
+                }
+            }
+            self.comment_index += 1;
+        }
+        result
+    }
+
     pub fn format_program(&mut self, program: &Program, indent_level: usize) -> String {
+        self.comments = program.comments.clone();
+        self.comment_index = 0;
         let mut result = String::new();
 
         for stmt in &program.statements {
@@ -54,25 +118,43 @@ impl Formatter {
             }
         }
 
+        // Emit remaining comments (trailing comments at end of file)
+        result.push_str(&self.emit_remaining_comments(indent_level));
+
         result
     }
 
     fn format_statement(&mut self, stmt: &Stmt, indent_level: usize) -> String {
+        let result = self.emit_comments_before(stmt.span.start, indent_level);
         let current_indent = self.indent(indent_level);
-        match &stmt.kind {
-            StmtKind::Module { name } => {
-                format!("{}module {} {{\n}}\n", current_indent, name)
+        let stmt_str = match &stmt.kind {
+            StmtKind::Module { name, body } => {
+                if let Some(stmts) = body {
+                    let mut result = format!("{}module {} {{\n", current_indent, name);
+                    for stmt in stmts {
+                        result.push_str(&self.format_statement(stmt, indent_level + 1));
+                    }
+                    result.push_str(&format!("{}}}\n", current_indent));
+                    result
+                } else {
+                    format!("{}module {};\n", current_indent, name)
+                }
             }
             StmtKind::Let {
                 name,
                 value,
                 mutable,
                 is_const,
+                is_deep,
                 ty,
             } => {
                 let mut result = current_indent;
                 if *is_const {
-                    result.push_str("const ");
+                    if *is_deep {
+                        result.push_str("const deep ");
+                    } else {
+                        result.push_str("const ");
+                    }
                 } else if *mutable {
                     result.push_str("let mut ");
                 } else {
@@ -192,17 +274,21 @@ impl Formatter {
                 result
             }
             StmtKind::For {
+                label,
                 names,
                 iterable,
                 body,
             } => {
                 let names_str = names.join(", ");
-                let mut result = format!(
-                    "{}for ({} in {}) ",
-                    current_indent,
+                let mut result = current_indent.clone();
+                if let Some(l) = label {
+                    result.push_str(&format!("{}: ", l));
+                }
+                result.push_str(&format!(
+                    "for ({} in {}) ",
                     names_str,
                     self.format_expression(iterable, indent_level)
-                );
+                ));
                 match &body.kind {
                     StmtKind::Block(_) => {
                         let body_formatted = self.format_statement(body, indent_level);
@@ -215,6 +301,27 @@ impl Formatter {
                         result.push_str(&format!("{}}}\n", self.indent(indent_level)));
                     }
                 }
+                result
+            }
+            StmtKind::DoWhile { body, condition } => {
+                let mut result = format!("{}do ", current_indent);
+                match &body.kind {
+                    StmtKind::Block(_) => {
+                        let body_formatted = self.format_statement(body, indent_level);
+                        result.push_str(body_formatted.trim_start());
+                        result = result.trim_end().to_string();
+                    }
+                    _ => {
+                        result.push_str("{\n");
+                        let body_formatted = self.format_statement(body, indent_level + 1);
+                        result.push_str(&body_formatted);
+                        result.push_str(&format!("{}}}", self.indent(indent_level)));
+                    }
+                }
+                result.push_str(&format!(
+                    " while ({});\n",
+                    self.format_expression(condition, indent_level)
+                ));
                 result
             }
             StmtKind::Try {
@@ -349,18 +456,31 @@ impl Formatter {
             }
             StmtKind::Class {
                 name,
+                generics,
                 fields,
                 methods,
+                properties,
                 superclass,
+                implements,
+                is_abstract,
                 annotations: _,
                 nested_classes,
             } => {
                 let mut result = String::new();
-                result.push_str(&format!("{}class ", current_indent));
+                let mut prefix = current_indent.clone();
+                if *is_abstract {
+                    prefix.push_str("abstract ");
+                }
+                result.push_str(&format!("{}class ", prefix));
                 result.push_str(name);
+                result.push_str(&self.format_generics(generics));
 
                 if let Some(superclass_name) = superclass {
                     result.push_str(&format!(" extends {}", superclass_name));
+                }
+
+                if !implements.is_empty() {
+                    result.push_str(&format!(" implements {}", implements.join(", ")));
                 }
 
                 result.push_str(" {\n");
@@ -386,6 +506,10 @@ impl Formatter {
                     result.push_str(&self.format_function(method, next_indent));
                 }
 
+                for property in properties {
+                    result.push_str(&self.format_property(property, next_indent));
+                }
+
                 for nested_class in nested_classes {
                     // Recursively format nested classes
                     if let StmtKind::Class { .. } = &nested_class.kind {
@@ -400,8 +524,29 @@ impl Formatter {
 
                 result
             }
+            StmtKind::Interface {
+                name,
+                generics,
+                methods,
+                extends,
+                annotations: _,
+            } => {
+                let mut result = format!("{}interface {} ", current_indent, name);
+                result.push_str(&self.format_generics(generics));
+                if !extends.is_empty() {
+                    result.push_str(&format!("extends {} ", extends.join(", ")));
+                }
+                result.push_str("{\n");
+                let next_indent = indent_level + 1;
+                for method in methods {
+                    result.push_str(&self.format_function(method, next_indent));
+                }
+                result.push_str(&format!("{}}}\n", self.indent(indent_level)));
+                result
+            }
             StmtKind::Fn {
                 name,
+                generics,
                 params,
                 body,
                 annotations: _,
@@ -413,6 +558,7 @@ impl Formatter {
                 }
                 result.push_str("fn ");
                 result.push_str(name);
+                result.push_str(&self.format_generics(generics));
                 result.push('(');
 
                 let param_strs: Vec<String> = params
@@ -445,8 +591,29 @@ impl Formatter {
                 ),
                 None => format!("{}return;\n", current_indent),
             },
-            StmtKind::Break => format!("{}break;\n", current_indent),
-            StmtKind::Continue => format!("{}continue;\n", current_indent),
+            StmtKind::Break(label) => {
+                let mut result = format!("{}break", current_indent);
+                if let Some(l) = label {
+                    result.push_str(&format!(" {}", l));
+                }
+                result.push_str(";\n");
+                result
+            }
+            StmtKind::Continue(label) => {
+                let mut result = format!("{}continue", current_indent);
+                if let Some(l) = label {
+                    result.push_str(&format!(" {}", l));
+                }
+                result.push_str(";\n");
+                result
+            }
+            StmtKind::Labeled { label, stmt } => {
+                let mut result = format!("{}{}: ", current_indent, label);
+                // Try to format on same line if possible, or new line
+                let inner = self.format_statement(stmt, indent_level);
+                result.push_str(inner.trim_start());
+                result
+            }
             StmtKind::Block(statements) => {
                 // Handle empty blocks
                 if statements.is_empty() {
@@ -480,7 +647,8 @@ impl Formatter {
                     self.format_expression(expr, indent_level)
                 )
             }
-        }
+        };
+        result + &stmt_str
     }
 
     fn format_expression(&mut self, expr: &Expr, indent_level: usize) -> String {
@@ -734,6 +902,24 @@ impl Formatter {
         }
     }
 
+    fn format_generics(&self, generics: &[GenericParam]) -> String {
+        if generics.is_empty() {
+            return String::new();
+        }
+        let params: Vec<String> = generics
+            .iter()
+            .map(|param| {
+                let mut result = param.name.clone();
+                if !param.constraints.is_empty() {
+                    result.push_str(": ");
+                    result.push_str(&param.constraints.join(" + "));
+                }
+                result
+            })
+            .collect();
+        format!("<{}>", params.join(", "))
+    }
+
     fn format_param(&mut self, param: &Param) -> String {
         let mut result = param.name.clone();
         if let Some(ty) = &param.ty {
@@ -812,8 +998,16 @@ impl Formatter {
             result.push_str("async ");
         }
 
+        // Add abstract if applicable
+        if func.is_abstract {
+            result.push_str("abstract ");
+        }
+
         // Add function keyword and name
-        result.push_str(&format!("fn {}(", func.name));
+        result.push_str("fn ");
+        result.push_str(&func.name);
+        result.push_str(&self.format_generics(&func.generics));
+        result.push('(');
 
         // Add parameters
         let param_strs: Vec<String> = func
@@ -839,6 +1033,71 @@ impl Formatter {
             }
         }
 
+        result
+    }
+
+    fn format_property(&mut self, prop: &pleno_ast::PropertyDecl, indent_level: usize) -> String {
+        let mut result = self.indent(indent_level);
+
+        // Add visibility if present
+        if let Some(visibility) = &prop.visibility {
+            result.push_str(&format!("{} ", format_visibility(visibility)));
+        }
+
+        // Add static if applicable
+        if prop.is_static {
+            result.push_str("static ");
+        }
+
+        result.push_str(&format!("property {} ", prop.name));
+
+        if let Some(ty) = &prop.ty {
+            result.push_str(&format!(": {} ", ty));
+        }
+
+        result.push_str("{\n");
+        let next_indent = indent_level + 1;
+
+        if let Some(getter) = &prop.getter {
+            result.push_str(&self.indent(next_indent));
+            result.push_str("get ");
+            // Getter body - handle both block and expression if needed, but here it's likely a block
+            match &getter.body.kind {
+                StmtKind::Block(_) => {
+                    let body_formatted = self.format_statement(&getter.body, next_indent);
+                    result.push_str(body_formatted.trim_start());
+                }
+                _ => {
+                    result.push_str("{\n");
+                    let body_formatted = self.format_statement(&getter.body, next_indent + 1);
+                    result.push_str(&body_formatted);
+                    result.push_str(&format!("{}}}\n", self.indent(next_indent)));
+                }
+            }
+        }
+
+        if let Some(setter) = &prop.setter {
+            result.push_str(&self.indent(next_indent));
+            result.push_str("set(");
+            if let Some(param) = setter.params.first() {
+                result.push_str(&param.name);
+            }
+            result.push_str(") ");
+            match &setter.body.kind {
+                StmtKind::Block(_) => {
+                    let body_formatted = self.format_statement(&setter.body, next_indent);
+                    result.push_str(body_formatted.trim_start());
+                }
+                _ => {
+                    result.push_str("{\n");
+                    let body_formatted = self.format_statement(&setter.body, next_indent + 1);
+                    result.push_str(&body_formatted);
+                    result.push_str(&format!("{}}}\n", self.indent(next_indent)));
+                }
+            }
+        }
+
+        result.push_str(&format!("{}}}\n", self.indent(indent_level)));
         result
     }
 }
@@ -871,6 +1130,8 @@ pub fn format_code(source: &str, options: &FormatOptions) -> Result<String, Stri
         },
         use_tabs: matches!(options.indent_style, IndentStyle::Tabs),
         _max_line_length: options.max_line_length.unwrap_or(80),
+        comments: Vec::new(),
+        comment_index: 0,
     };
 
     // Format the program

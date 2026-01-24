@@ -1,0 +1,10 @@
+fn test_catch() {
+    let arr = [1, 2, 3];
+    try {
+        let x = arr[10]; // out of bounds
+        print("Should not reach here");
+    } catch (e) {
+        print("Caught:", e);
+    }
+}
+test_catch();

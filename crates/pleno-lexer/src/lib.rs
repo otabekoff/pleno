@@ -45,6 +45,14 @@ pub enum TokenKind {
     KeywordSuper,
     KeywordAsync,
     KeywordAwait,
+    KeywordDo,
+    KeywordAbstract,
+    KeywordInterface,
+    KeywordImplements,
+    KeywordProperty,
+    KeywordGet,
+    KeywordSet,
+    KeywordDeep,
     LParen,
     RParen,
     LBrace,
@@ -172,6 +180,12 @@ pub fn lex(source: &str) -> Result<Vec<Token>, LexError> {
             '/' => {
                 if matches!(chars.peek(), Some((_, '/'))) {
                     chars.next();
+                    let kind = if matches!(chars.peek(), Some((_, '/'))) {
+                        chars.next();
+                        CommentKind::Doc
+                    } else {
+                        CommentKind::Line
+                    };
                     let mut content = String::new();
                     while let Some((_, next_ch)) = chars.peek() {
                         if *next_ch == '\n' {
@@ -182,7 +196,7 @@ pub fn lex(source: &str) -> Result<Vec<Token>, LexError> {
                     }
                     let end = chars.peek().map(|(idx, _)| *idx).unwrap_or(source.len());
                     Token {
-                        kind: TokenKind::Comment(content, CommentKind::Line),
+                        kind: TokenKind::Comment(content, kind),
                         span: Span::new(start, end),
                     }
                 } else if matches!(chars.peek(), Some((_, '*'))) {
@@ -372,6 +386,14 @@ pub fn lex(source: &str) -> Result<Vec<Token>, LexError> {
                     "super" => TokenKind::KeywordSuper,
                     "async" => TokenKind::KeywordAsync,
                     "await" => TokenKind::KeywordAwait,
+                    "do" => TokenKind::KeywordDo,
+                    "abstract" => TokenKind::KeywordAbstract,
+                    "interface" => TokenKind::KeywordInterface,
+                    "implements" => TokenKind::KeywordImplements,
+                    "property" => TokenKind::KeywordProperty,
+                    "get" => TokenKind::KeywordGet,
+                    "set" => TokenKind::KeywordSet,
+                    "deep" => TokenKind::KeywordDeep,
                     "true" => TokenKind::Bool(true),
                     "false" => TokenKind::Bool(false),
                     "null" => TokenKind::Null,

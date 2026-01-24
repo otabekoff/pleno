@@ -3,8 +3,8 @@ pub mod stdlib;
 use chrono::{DateTime as ChronoDateTime, TimeZone, Utc};
 use pleno_bytecode::{Chunk, Opcode, ParamSpec};
 use pleno_value::{
-    Class, MethodInfo, MethodVisibility, MultiWaiter, MultiWaiterMode, NativeFunction, Object,
-    Range, RuntimeError, VMProvider, Value, ValueKey,
+    ArrayState, Class, MapState, MethodInfo, MethodVisibility, MultiWaiter, MultiWaiterMode,
+    NativeFunction, Object, Range, RuntimeError, VMProvider, Value, ValueKey,
     gc::{GcObject, GcRc, MarkAndSweepGC},
 };
 use std::collections::HashMap;
@@ -160,7 +160,7 @@ impl VMProvider for VM {
             Value::String(Rc::new("Pending".to_string())),
         );
         map.insert("value".to_string(), Value::Null);
-        let promise = Value::Map(self.gc.allocate(map));
+        let promise = Value::Map(self.gc.allocate(MapState::new(map)));
         self.promises.insert(id, promise.clone());
         (id, promise)
     }
@@ -271,7 +271,10 @@ impl VM {
             "variant".to_string(),
             Value::String(Rc::new("None".to_string())),
         );
-        globals.insert("None".to_string(), Value::Map(gc.allocate(none_map)));
+        globals.insert(
+            "None".to_string(),
+            Value::Map(gc.allocate(MapState::new(none_map))),
+        );
         globals.insert(
             "Promise".to_string(),
             Value::NativeFunction(native_promise_constructor),
@@ -450,7 +453,10 @@ impl VM {
             "round".to_string(),
             Value::NativeFunction(native_math_round),
         );
-        globals.insert("Math".to_string(), Value::Map(gc.allocate(math_map)));
+        globals.insert(
+            "Math".to_string(),
+            Value::Map(gc.allocate(MapState::new(math_map))),
+        );
 
         // Populate JSON object
         let mut json_map = HashMap::new();
@@ -466,7 +472,10 @@ impl VM {
             "stringifyPretty".to_string(),
             Value::NativeFunction(native_json_stringify_pretty),
         );
-        globals.insert("JSON".to_string(), Value::Map(gc.allocate(json_map)));
+        globals.insert(
+            "JSON".to_string(),
+            Value::Map(gc.allocate(MapState::new(json_map))),
+        );
 
         // Populate OS object
         let mut os_map = HashMap::new();
@@ -481,7 +490,10 @@ impl VM {
             "platform".to_string(),
             Value::NativeFunction(native_os_platform),
         );
-        globals.insert("OS".to_string(), Value::Map(gc.allocate(os_map)));
+        globals.insert(
+            "OS".to_string(),
+            Value::Map(gc.allocate(MapState::new(os_map))),
+        );
 
         // Time native functions
         globals.insert(
@@ -512,12 +524,15 @@ impl VM {
             "race".to_string(),
             Value::NativeFunction(native_promise_race),
         );
-        globals.insert("Promise".to_string(), Value::Map(gc.allocate(promise_map)));
+        globals.insert(
+            "Promise".to_string(),
+            Value::Map(gc.allocate(MapState::new(promise_map))),
+        );
 
         // Debug shared store for concurrency tests
         globals.insert(
             "__TestShared".to_string(),
-            Value::Map(gc.allocate(HashMap::new())),
+            Value::Map(gc.allocate(MapState::new(HashMap::new()))),
         );
 
         let modules = stdlib::get_stdlib_modules(&mut gc);
@@ -571,13 +586,35 @@ impl VM {
         let mut last_result = Value::Null;
         while !self.frames.is_empty() || !self.pending_tasks.is_empty() {
             if !self.frames.is_empty() {
-                last_result = self.run_until(0)?;
+                last_result = match self.run_until(0) {
+                    Ok(val) => val,
+                    Err(mut err) => {
+                        self.enrich_error(&mut err);
+                        return Err(err);
+                    }
+                };
             }
-            if !self.pending_tasks.is_empty() {
-                self.process_tasks()?;
+            if !self.pending_tasks.is_empty()
+                && let Err(mut err) = self.process_tasks()
+            {
+                self.enrich_error(&mut err);
+                return Err(err);
             }
         }
         Ok(last_result)
+    }
+
+    fn enrich_error(&self, err: &mut RuntimeError) {
+        if err.line.is_none()
+            && let Some(frame) = self.frames.last()
+            && let Some(func) = self.functions.get(frame.function_index)
+        {
+            // IP is already incremented, so look at previous instruction
+            let ip = if frame.ip > 0 { frame.ip - 1 } else { 0 };
+            if let Some(line) = func.chunk.lines.get(ip) {
+                *err = err.clone().with_line(*line);
+            }
+        }
     }
 
     fn process_tasks(&mut self) -> Result<(), RuntimeError> {
@@ -617,7 +654,9 @@ impl VM {
                             waiter.resolved_count += 1;
                             if waiter.resolved_count == waiter.dependencies.len() {
                                 let gc = self.get_gc();
-                                let results_val = Value::Array(gc.allocate(waiter.results.clone()));
+                                let results_val = Value::Array(
+                                    gc.allocate(ArrayState::new(waiter.results.clone())),
+                                );
                                 resolutions.push((waiter.promise_id, results_val));
                                 resolved = true;
                             }
@@ -813,16 +852,19 @@ impl VM {
                     });
                 }
                 Opcode::NewMap => {
-                    self.registers[base + a] = Value::Map(self.gc.allocate(HashMap::new()));
+                    self.registers[base + a] =
+                        Value::Map(self.gc.allocate(MapState::new(HashMap::new())));
                 }
                 Opcode::NewArray => {
-                    self.registers[base + a] = Value::Array(self.gc.allocate(Vec::new()));
+                    self.registers[base + a] =
+                        Value::Array(self.gc.allocate(ArrayState::new(Vec::new())));
                 }
                 Opcode::ArrayAppend => {
                     let value = self.registers[base + b].clone();
                     match &self.registers[base + a] {
                         Value::Array(array) => {
-                            array.borrow_mut().push(value);
+                            array.borrow().ensure_mutable()?;
+                            array.borrow_mut().elements.push(value);
                         }
                         _ => return Err(RuntimeError::new("array append on non-array value")),
                     }
@@ -831,7 +873,11 @@ impl VM {
                     let value = self.registers[base + b].clone();
                     match (&self.registers[base + a], value) {
                         (Value::Array(target), Value::Array(source)) => {
-                            target.borrow_mut().extend(source.borrow().iter().cloned());
+                            target.borrow().ensure_mutable()?;
+                            target
+                                .borrow_mut()
+                                .elements
+                                .extend(source.borrow().elements.iter().cloned());
                         }
                         _ => return Err(RuntimeError::new("array spread expects array values")),
                     }
@@ -840,8 +886,9 @@ impl VM {
                     let value = self.registers[base + b].clone();
                     match (&self.registers[base + a], value) {
                         (Value::Map(target), Value::Map(source)) => {
-                            for (k, v) in source.borrow().iter() {
-                                target.borrow_mut().insert(k.clone(), v.clone());
+                            target.borrow().ensure_mutable()?;
+                            for (k, v) in source.borrow().entries.iter() {
+                                target.borrow_mut().entries.insert(k.clone(), v.clone());
                             }
                         }
                         _ => return Err(RuntimeError::new("map spread expects map values")),
@@ -906,13 +953,11 @@ impl VM {
                             .collect::<Vec<_>>(),
                         _ => return Err(RuntimeError::new("set values on non-set value")),
                     };
-                    self.registers[base + a] = Value::Array(self.gc.allocate(values));
+                    self.registers[base + a] =
+                        Value::Array(self.gc.allocate(ArrayState::new(values)));
                 }
                 Opcode::NewObject => {
-                    self.registers[base + a] = Value::Object(self.gc.allocate(Object {
-                        class: None,
-                        fields: HashMap::new(),
-                    }));
+                    self.registers[base + a] = Value::Object(self.gc.allocate(Object::new(None)));
                 }
                 Opcode::SetField => {
                     let name = match &function.chunk.constants[c] {
@@ -922,6 +967,7 @@ impl VM {
                     let value = self.registers[base + a].clone();
                     match &self.registers[base + b] {
                         Value::Object(object) => {
+                            object.borrow().ensure_mutable()?;
                             object.borrow_mut().fields.insert(name, value);
                         }
                         _ => return Err(RuntimeError::new("field set on non-object value")),
@@ -974,7 +1020,8 @@ impl VM {
                             .collect::<Vec<_>>(),
                         _ => return Err(RuntimeError::new("map keys on non-map value")),
                     };
-                    self.registers[base + a] = Value::Array(self.gc.allocate(keys));
+                    self.registers[base + a] =
+                        Value::Array(self.gc.allocate(ArrayState::new(keys)));
                 }
                 Opcode::IterValues => {
                     let value = match &self.registers[base + b] {
@@ -986,7 +1033,7 @@ impl VM {
                                 .cloned()
                                 .map(|key| Value::String(Rc::new(key)))
                                 .collect::<Vec<_>>();
-                            Value::Array(self.gc.allocate(values))
+                            Value::Array(self.gc.allocate(ArrayState::new(values)))
                         }
                         Value::Set(set) => {
                             let values = set
@@ -1003,7 +1050,7 @@ impl VM {
                                     pleno_value::ValueKey::String(value) => Value::String(value),
                                 })
                                 .collect::<Vec<_>>();
-                            Value::Array(self.gc.allocate(values))
+                            Value::Array(self.gc.allocate(ArrayState::new(values)))
                         }
                         _ => return Err(RuntimeError::new("iter over non-collection value")),
                     };
@@ -1017,25 +1064,26 @@ impl VM {
                                 .iter()
                                 .enumerate()
                                 .map(|(idx, val)| {
-                                    Value::Array(
-                                        self.gc.allocate(vec![Value::Int(idx as i64), val.clone()]),
-                                    )
+                                    Value::Array(self.gc.allocate(ArrayState::new(vec![
+                                        Value::Int(idx as i64),
+                                        val.clone(),
+                                    ])))
                                 })
                                 .collect::<Vec<_>>();
-                            Value::Array(self.gc.allocate(entries))
+                            Value::Array(self.gc.allocate(ArrayState::new(entries)))
                         }
                         Value::Map(map) => {
                             let entries = map
                                 .borrow()
                                 .iter()
                                 .map(|(key, val)| {
-                                    Value::Array(self.gc.allocate(vec![
+                                    Value::Array(self.gc.allocate(ArrayState::new(vec![
                                         Value::String(Rc::new(key.clone())),
                                         val.clone(),
-                                    ]))
+                                    ])))
                                 })
                                 .collect::<Vec<_>>();
-                            Value::Array(self.gc.allocate(entries))
+                            Value::Array(self.gc.allocate(ArrayState::new(entries)))
                         }
                         Value::Set(set) => {
                             let entries = set
@@ -1052,12 +1100,13 @@ impl VM {
                                         }
                                         ValueKey::String(v) => Value::String(Rc::clone(v)),
                                     };
-                                    Value::Array(
-                                        self.gc.allocate(vec![Value::Int(idx as i64), val]),
-                                    )
+                                    Value::Array(self.gc.allocate(ArrayState::new(vec![
+                                        Value::Int(idx as i64),
+                                        val,
+                                    ])))
                                 })
                                 .collect::<Vec<_>>();
-                            Value::Array(self.gc.allocate(entries))
+                            Value::Array(self.gc.allocate(ArrayState::new(entries)))
                         }
                         _ => return Err(RuntimeError::new("iter over non-collection value")),
                     };
@@ -1065,7 +1114,7 @@ impl VM {
                 }
                 Opcode::ArrayLen => {
                     let len = match &self.registers[base + b] {
-                        Value::Array(array) => array.borrow().len() as i64,
+                        Value::Array(array) => array.borrow().elements.len() as i64,
                         _ => return Err(RuntimeError::new("array length on non-array value")),
                     };
                     self.registers[base + a] = Value::Int(len);
@@ -1201,20 +1250,21 @@ impl VM {
                     let current_module = frame.current_module.as_ref().cloned();
                     match &self.registers[base + b] {
                         Value::Map(map) => {
+                            map.borrow().ensure_mutable()?;
                             map.borrow_mut().insert(name, value);
                         }
                         Value::Object(object) => {
+                            object.borrow().ensure_mutable()?;
                             let class = object.borrow().class.clone();
                             if let Some(class) = class.as_ref() {
-                                let setter_name = format!("set:{name}");
-                                if let Some(info) = resolve_method(class, &setter_name) {
+                                if let Some(info) = resolve_setter(class, &name) {
                                     if !can_access_method(
                                         &info,
                                         current_class.as_ref(),
                                         current_module.as_ref(),
                                         &self.globals,
                                     ) {
-                                        return Err(RuntimeError::new("method access denied"));
+                                        return Err(RuntimeError::new("property access denied"));
                                     }
                                     self.call_function(
                                         info.function,
@@ -1245,15 +1295,14 @@ impl VM {
                             object.borrow_mut().fields.insert(name, value);
                         }
                         Value::Class(class) => {
-                            let setter_name = format!("set:{name}");
-                            if let Some(info) = resolve_static_method(class, &setter_name) {
+                            if let Some(info) = resolve_static_setter(class, &name) {
                                 if !can_access_method(
                                     &info,
                                     current_class.as_ref(),
                                     current_module.as_ref(),
                                     &self.globals,
                                 ) {
-                                    return Err(RuntimeError::new("static method access denied"));
+                                    return Err(RuntimeError::new("static property access denied"));
                                 }
                                 self.call_function(
                                     info.function,
@@ -1349,15 +1398,14 @@ impl VM {
                             let class = object.borrow().class.clone();
                             let field_value = object.borrow().fields.get(&name).cloned();
                             if let Some(class) = class.as_ref() {
-                                let getter_name = format!("get:{name}");
-                                if let Some(info) = resolve_method(class, &getter_name) {
+                                if let Some(info) = resolve_getter(class, &name) {
                                     if !can_access_method(
                                         &info,
                                         current_class.as_ref(),
                                         frame.current_module.as_ref(),
                                         &self.globals,
                                     ) {
-                                        return Err(RuntimeError::new("method access denied"));
+                                        return Err(RuntimeError::new("property access denied"));
                                     }
                                     self.call_function(
                                         info.function,
@@ -1409,15 +1457,14 @@ impl VM {
                             }
                         }
                         Value::Class(class) => {
-                            let getter_name = format!("get:{name}");
-                            if let Some(info) = resolve_static_method(class, &getter_name) {
+                            if let Some(info) = resolve_static_getter(class, &name) {
                                 if !can_access_method(
                                     &info,
                                     current_class.as_ref(),
                                     frame.current_module.as_ref(),
                                     &self.globals,
                                 ) {
-                                    return Err(RuntimeError::new("static method access denied"));
+                                    return Err(RuntimeError::new("static property access denied"));
                                 }
                                 self.call_function(
                                     info.function,
@@ -1620,15 +1667,19 @@ impl VM {
                     let index = self.registers[base + c].clone();
                     match (collection, index) {
                         (Value::Array(array), Value::Int(idx)) => {
+                            array.borrow().ensure_mutable()?;
                             let idx = idx as usize;
                             let mut array = array.borrow_mut();
-                            if idx >= array.len() {
+                            if idx >= array.elements.len() {
                                 return Err(RuntimeError::new("array index out of bounds"));
                             }
-                            array[idx] = value;
+                            array.elements[idx] = value;
                         }
                         (Value::Map(map), Value::String(key)) => {
-                            map.borrow_mut().insert(key.as_str().to_string(), value);
+                            map.borrow().ensure_mutable()?;
+                            map.borrow_mut()
+                                .entries
+                                .insert(key.as_str().to_string(), value);
                         }
                         _ => return Err(RuntimeError::new("invalid index assignment")),
                     }
@@ -1779,7 +1830,7 @@ impl VM {
                     };
                     let module = frame.current_module.as_ref().map(Rc::clone);
                     let methods_map = match &self.registers[base + c] {
-                        Value::Map(map) => map.borrow().clone(),
+                        Value::Map(map) => map.borrow().entries.clone(),
                         _ => return Err(RuntimeError::new("class methods must be map")),
                     };
 
@@ -1794,7 +1845,12 @@ impl VM {
                         static_fields: HashMap::new(),
                         fields: HashMap::new(),
                         static_field_visibility: HashMap::new(),
+                        getters: HashMap::new(),
+                        setters: HashMap::new(),
+                        static_getters: HashMap::new(),
+                        static_setters: HashMap::new(),
                         module: module.clone(),
+                        is_abstract: false,
                     });
 
                     // Now parse methods with class reference
@@ -1815,6 +1871,10 @@ impl VM {
 
                     self.registers[base + a] = Value::Class(class);
                 }
+                Opcode::Freeze => {
+                    let value = self.registers[base + a].clone();
+                    self.freeze_value(&value);
+                }
                 Opcode::SetSuper => {
                     let superclass = match &self.registers[base + b] {
                         Value::Class(class) => class.clone(),
@@ -1827,9 +1887,15 @@ impl VM {
                         _ => return Err(RuntimeError::new("set super on non-class value")),
                     }
                 }
+                Opcode::SetAbstract => match &mut self.registers[base + a] {
+                    Value::Class(class) => {
+                        class.borrow_mut().is_abstract = true;
+                    }
+                    _ => return Err(RuntimeError::new("set abstract on non-class value")),
+                },
                 Opcode::SetStatic => {
                     let static_map = match &self.registers[base + b] {
-                        Value::Map(map) => map.borrow().clone(),
+                        Value::Map(map) => map.borrow().entries.clone(),
                         _ => return Err(RuntimeError::new("static methods must be map")),
                     };
                     let mut static_methods = HashMap::new();
@@ -1849,6 +1915,110 @@ impl VM {
                             class.borrow_mut().static_methods = static_methods;
                         }
                         _ => return Err(RuntimeError::new("set static on non-class value")),
+                    }
+                }
+                Opcode::SetGetters => {
+                    let getters_map = match &self.registers[base + b] {
+                        Value::Map(map) => map.borrow().entries.clone(),
+                        _ => return Err(RuntimeError::new("getters must be map")),
+                    };
+                    let mut getters = HashMap::new();
+                    let (class_ref, module) = match &self.registers[base + a] {
+                        Value::Class(class) => {
+                            let borrowed = class.borrow();
+                            (class.clone(), borrowed.module.clone())
+                        }
+                        _ => return Err(RuntimeError::new("set getters on non-class value")),
+                    };
+                    for (prop_name, value) in getters_map {
+                        let info = parse_method_info(value, &class_ref, module.as_ref())?;
+                        getters.insert(prop_name, info);
+                    }
+                    match &mut self.registers[base + a] {
+                        Value::Class(class) => {
+                            class.borrow_mut().getters = getters;
+                        }
+                        _ => return Err(RuntimeError::new("set getters on non-class value")),
+                    }
+                }
+                Opcode::SetSetters => {
+                    let setters_map = match &self.registers[base + b] {
+                        Value::Map(map) => map.borrow().entries.clone(),
+                        _ => return Err(RuntimeError::new("setters must be map")),
+                    };
+                    let mut setters = HashMap::new();
+                    let (class_ref, module) = match &self.registers[base + a] {
+                        Value::Class(class) => {
+                            let borrowed = class.borrow();
+                            (class.clone(), borrowed.module.clone())
+                        }
+                        _ => return Err(RuntimeError::new("set setters on non-class value")),
+                    };
+                    for (prop_name, value) in setters_map {
+                        let info = parse_method_info(value, &class_ref, module.as_ref())?;
+                        setters.insert(prop_name, info);
+                    }
+                    match &mut self.registers[base + a] {
+                        Value::Class(class) => {
+                            class.borrow_mut().setters = setters;
+                        }
+                        _ => return Err(RuntimeError::new("set setters on non-class value")),
+                    }
+                }
+                Opcode::SetStaticGetters => {
+                    let getters_map = match &self.registers[base + b] {
+                        Value::Map(map) => map.borrow().entries.clone(),
+                        _ => return Err(RuntimeError::new("static getters must be map")),
+                    };
+                    let mut static_getters = HashMap::new();
+                    let (class_ref, module) = match &self.registers[base + a] {
+                        Value::Class(class) => {
+                            let borrowed = class.borrow();
+                            (class.clone(), borrowed.module.clone())
+                        }
+                        _ => {
+                            return Err(RuntimeError::new("set static getters on non-class value"));
+                        }
+                    };
+                    for (prop_name, value) in getters_map {
+                        let info = parse_method_info(value, &class_ref, module.as_ref())?;
+                        static_getters.insert(prop_name, info);
+                    }
+                    match &mut self.registers[base + a] {
+                        Value::Class(class) => {
+                            class.borrow_mut().static_getters = static_getters;
+                        }
+                        _ => {
+                            return Err(RuntimeError::new("set static getters on non-class value"));
+                        }
+                    }
+                }
+                Opcode::SetStaticSetters => {
+                    let setters_map = match &self.registers[base + b] {
+                        Value::Map(map) => map.borrow().entries.clone(),
+                        _ => return Err(RuntimeError::new("static setters must be map")),
+                    };
+                    let mut static_setters = HashMap::new();
+                    let (class_ref, module) = match &self.registers[base + a] {
+                        Value::Class(class) => {
+                            let borrowed = class.borrow();
+                            (class.clone(), borrowed.module.clone())
+                        }
+                        _ => {
+                            return Err(RuntimeError::new("set static setters on non-class value"));
+                        }
+                    };
+                    for (prop_name, value) in setters_map {
+                        let info = parse_method_info(value, &class_ref, module.as_ref())?;
+                        static_setters.insert(prop_name, info);
+                    }
+                    match &mut self.registers[base + a] {
+                        Value::Class(class) => {
+                            class.borrow_mut().static_setters = static_setters;
+                        }
+                        _ => {
+                            return Err(RuntimeError::new("set static setters on non-class value"));
+                        }
                     }
                 }
                 Opcode::SetFieldVisibility => {
@@ -1896,7 +2066,7 @@ impl VM {
                     };
                     let mut current_callee = callee;
                     loop {
-                        match current_callee {
+                        match current_callee.clone() {
                             Value::Partial {
                                 function,
                                 args: saved_args,
@@ -1959,7 +2129,7 @@ impl VM {
                             }
                             Value::BoundNativeMethod { receiver, function } => {
                                 let mut merged_args = vec![*receiver];
-                                merged_args.extend(args);
+                                merged_args.extend(args.elements.clone());
                                 let result = function(self, &merged_args)?;
                                 self.registers[base + a] = result;
                                 break;
@@ -1998,10 +2168,14 @@ impl VM {
                                 break;
                             }
                             Value::Class(class) => {
-                                let object = self.gc.allocate(Object {
-                                    class: Some(class.clone()),
-                                    fields: HashMap::new(),
-                                });
+                                if class.borrow().is_abstract {
+                                    self.throw_runtime_error(&format!(
+                                        "cannot instantiate abstract class '{}'",
+                                        class.borrow().name
+                                    ))?;
+                                    return Ok(Value::Null); // Operation aborted, handler will take over
+                                }
+                                let object = self.gc.allocate(Object::new(Some(class.clone())));
                                 if let Some(handle) = class.borrow().constructor {
                                     self.call_function(
                                         handle,
@@ -2019,7 +2193,7 @@ impl VM {
                                 break;
                             }
                             Value::Map(map) => {
-                                let callable = map.borrow().get("__call__").cloned();
+                                let callable = map.borrow().entries.get("__call__").cloned();
                                 if let Some(callable) = callable {
                                     current_callee = callable;
                                     continue;
@@ -2042,11 +2216,11 @@ impl VM {
                         return Err(RuntimeError::new("call named expects [positional, named]"));
                     }
                     let positional = match &wrapper[0] {
-                        Value::Array(array) => array.borrow().clone(),
+                        Value::Array(array) => array.borrow().elements.clone(),
                         _ => return Err(RuntimeError::new("call named positional must be array")),
                     };
                     let named = match &wrapper[1] {
-                        Value::Map(map) => map.borrow().clone(),
+                        Value::Map(map) => map.borrow().entries.clone(),
                         _ => return Err(RuntimeError::new("call named named must be map")),
                     };
                     match callee {
@@ -2130,11 +2304,12 @@ impl VM {
                     match collection {
                         Value::Array(array) => {
                             let array = array.borrow();
-                            let len = array.len() as i64;
+                            let len = array.elements.len() as i64;
                             let start = resolve_index(start, len, 0);
                             let end = resolve_index(end, len, len);
-                            let slice = array[start..end].to_vec();
-                            self.registers[base + a] = Value::Array(self.gc.allocate(slice));
+                            let slice = array.elements[start..end].to_vec();
+                            self.registers[base + a] =
+                                Value::Array(self.gc.allocate(ArrayState::new(slice)));
                         }
                         Value::String(s) => {
                             let len = s.len() as i64;
@@ -2212,7 +2387,7 @@ impl VM {
                     Value::String(Rc::new("Pending".to_string())),
                 );
                 promise_map.insert("value".to_string(), Value::Null);
-                let promise = Value::Map(self.gc.allocate(promise_map));
+                let promise = Value::Map(self.gc.allocate(MapState::new(promise_map)));
                 self.promises.insert(promise_id, promise.clone());
 
                 // Set return register to Promise immediately
@@ -2222,7 +2397,7 @@ impl VM {
             for param in function.params.iter() {
                 if param.is_variadic {
                     let rest = final_args[arg_idx..].to_vec();
-                    processed.push(Value::Array(self.gc.allocate(rest)));
+                    processed.push(Value::Array(self.gc.allocate(ArrayState::new(rest))));
                     arg_idx = final_args.len();
                     break;
                 }
@@ -2322,10 +2497,7 @@ impl VM {
                 Ok(())
             }
             Value::Class(class) => {
-                let object = self.gc.allocate(Object {
-                    class: Some(class.clone()),
-                    fields: HashMap::new(),
-                });
+                let object = self.gc.allocate(Object::new(Some(class.clone())));
                 if let Some(handle) = class.borrow().constructor {
                     let _function = self
                         .functions
@@ -2449,7 +2621,7 @@ impl VM {
                     return Err(RuntimeError::new("variadic parameter cannot be named"));
                 }
                 let rest = positional[pos_index..].to_vec();
-                args.push(Value::Array(self.gc.allocate(rest)));
+                args.push(Value::Array(self.gc.allocate(ArrayState::new(rest))));
                 pos_index = positional.len();
                 continue;
             }
@@ -2497,6 +2669,55 @@ impl VM {
         )))
     }
 
+    fn freeze_value(&mut self, value: &Value) {
+        match value {
+            Value::Array(array) => {
+                let mut arr = array.borrow_mut();
+                if !arr.is_immutable {
+                    arr.is_immutable = true;
+                    let elements = arr.elements.clone();
+                    drop(arr);
+                    for item in elements {
+                        self.freeze_value(&item);
+                    }
+                }
+            }
+            Value::Map(map) => {
+                let mut m = map.borrow_mut();
+                if !m.is_immutable {
+                    m.is_immutable = true;
+                    let entries = m.entries.clone();
+                    drop(m);
+                    for item in entries.values() {
+                        self.freeze_value(item);
+                    }
+                }
+            }
+            Value::Object(object) => {
+                let mut obj = object.borrow_mut();
+                if !obj.is_immutable {
+                    obj.is_immutable = true;
+                    let fields = obj.fields.clone();
+                    drop(obj);
+                    for item in fields.values() {
+                        self.freeze_value(item);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn throw_runtime_error(&mut self, message: &str) -> Result<(), RuntimeError> {
+        let mut map = HashMap::new();
+        map.insert(
+            "message".to_string(),
+            Value::String(Rc::new(message.to_string())),
+        );
+        let error_val = Value::Map(self.gc.allocate(MapState::new(map)));
+        self.unwind_to_handler(error_val)
+    }
+
     fn execute_module(&mut self, path: &str) -> Result<Value, RuntimeError> {
         if let Some(mod_val) = self.modules.get(path) {
             return Ok(mod_val.clone());
@@ -2515,7 +2736,7 @@ impl VM {
             map.insert("Mutex".to_string(), mutex_fn);
             map.insert("Channel".to_string(), channel_fn);
 
-            let module = Value::Map(self.gc.allocate(map));
+            let module = Value::Map(self.gc.allocate(MapState::new(map)));
             self.modules.insert("std:sync".to_string(), module.clone());
             return Ok(module);
         }
@@ -2539,7 +2760,7 @@ impl VM {
         let program = parser
             .parse_program()
             .map_err(|err| RuntimeError::new(err.message))?;
-        let mut compiler = pleno_compiler::Compiler::new();
+        let mut compiler = pleno_compiler::Compiler::new(source);
         let chunk = compiler
             .compile_module(&program)
             .map_err(|err| RuntimeError::new(err.message))?;
@@ -2625,9 +2846,42 @@ fn resolve_module_path(
     if raw_path.is_absolute() {
         return Ok(raw_path.to_path_buf());
     }
+
+    // Package Resolution
+    if !path.starts_with("./") && !path.starts_with("../") && !path.starts_with("/") {
+        let start_dir = base_dir.clone().unwrap_or_else(|| {
+            std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."))
+        });
+        let mut current = start_dir.as_path();
+        loop {
+            // Check packages/<path>/lib.pln
+            let pkg_lib = current.join("packages").join(path).join("lib.pln");
+            if pkg_lib.exists() {
+                return Ok(pkg_lib);
+            }
+            // Check packages/<path>.pln
+            let pkg_file = current.join("packages").join(format!("{}.pln", path));
+            if pkg_file.exists() {
+                return Ok(pkg_file);
+            }
+            // Check packages/<path>/index.pln
+            let pkg_index = current.join("packages").join(path).join("index.pln");
+            if pkg_index.exists() {
+                return Ok(pkg_index);
+            }
+
+            if let Some(parent) = current.parent() {
+                current = parent;
+            } else {
+                break;
+            }
+        }
+    }
+
     let mut candidates = Vec::new();
     let current_dir = std::env::current_dir()
         .map_err(|err| RuntimeError::new(format!("failed to get current dir: {err}")))?;
+
     if let Some(base) = base_dir.as_ref() {
         candidates.push(base.join(raw_path));
     }
@@ -2638,9 +2892,12 @@ fn resolve_module_path(
         }
         candidates.push(current_dir.join(format!("{path}.pln")));
     }
+
+    // Legacy source fallback
     if !path.contains('/') && !path.contains('\\') {
         candidates.push(current_dir.join("sources").join(format!("{path}.pln")));
     }
+
     for candidate in candidates {
         if candidate.exists() {
             return Ok(candidate);
@@ -2675,7 +2932,7 @@ fn native_os_args(vm: &mut dyn VMProvider, _args: &[Value]) -> Result<Value, Run
     let args: Vec<Value> = std::env::args()
         .map(|arg| Value::String(Rc::new(arg)))
         .collect();
-    Ok(Value::Array(gc.allocate(args)))
+    Ok(Value::Array(gc.allocate(ArrayState::new(args))))
 }
 
 fn native_os_cwd(vm: &mut dyn VMProvider, _args: &[Value]) -> Result<Value, RuntimeError> {
@@ -2799,6 +3056,50 @@ fn resolve_static_method(class: &GcRc<Class>, name: &str) -> Option<MethodInfo> 
         .superclass
         .as_ref()
         .and_then(|superclass| resolve_static_method(superclass, name))
+}
+
+fn resolve_getter(class: &GcRc<Class>, name: &str) -> Option<MethodInfo> {
+    if let Some(info) = class.borrow().getters.get(name) {
+        return Some(info.clone());
+    }
+    class
+        .borrow()
+        .superclass
+        .as_ref()
+        .and_then(|superclass| resolve_getter(superclass, name))
+}
+
+fn resolve_setter(class: &GcRc<Class>, name: &str) -> Option<MethodInfo> {
+    if let Some(info) = class.borrow().setters.get(name) {
+        return Some(info.clone());
+    }
+    class
+        .borrow()
+        .superclass
+        .as_ref()
+        .and_then(|superclass| resolve_setter(superclass, name))
+}
+
+fn resolve_static_getter(class: &GcRc<Class>, name: &str) -> Option<MethodInfo> {
+    if let Some(info) = class.borrow().static_getters.get(name) {
+        return Some(info.clone());
+    }
+    class
+        .borrow()
+        .superclass
+        .as_ref()
+        .and_then(|superclass| resolve_static_getter(superclass, name))
+}
+
+fn resolve_static_setter(class: &GcRc<Class>, name: &str) -> Option<MethodInfo> {
+    if let Some(info) = class.borrow().static_setters.get(name) {
+        return Some(info.clone());
+    }
+    class
+        .borrow()
+        .superclass
+        .as_ref()
+        .and_then(|superclass| resolve_static_setter(superclass, name))
 }
 
 fn parse_method_info(
@@ -3191,7 +3492,7 @@ fn native_string_split(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value,
         .split(separator)
         .map(|part| Value::String(Rc::new(part.to_string())))
         .collect();
-    Ok(Value::Array(gc.allocate(parts)))
+    Ok(Value::Array(gc.allocate(ArrayState::new(parts))))
 }
 
 fn native_string_contains(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
@@ -3378,7 +3679,7 @@ fn native_array_slice(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, 
     let end = end.min(len);
 
     let slice: Vec<Value> = array[start..end].to_vec();
-    Ok(Value::Array(gc.allocate(slice)))
+    Ok(Value::Array(gc.allocate(ArrayState::new(slice))))
 }
 
 fn native_array_map(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
@@ -3396,7 +3697,7 @@ fn native_array_map(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, Ru
         let res = vm.call(callback.clone(), vec![item])?;
         results.push(res);
     }
-    Ok(Value::Array(vm.get_gc().allocate(results)))
+    Ok(Value::Array(vm.get_gc().allocate(ArrayState::new(results))))
 }
 
 fn native_array_filter(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
@@ -3416,7 +3717,7 @@ fn native_array_filter(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value,
             results.push(item);
         }
     }
-    Ok(Value::Array(vm.get_gc().allocate(results)))
+    Ok(Value::Array(vm.get_gc().allocate(ArrayState::new(results))))
 }
 
 fn native_array_reduce(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
@@ -3486,7 +3787,7 @@ fn native_promise_constructor(
         Value::String(std::rc::Rc::new("Pending".to_string())),
     );
     promise_map.insert("value".to_string(), Value::Null);
-    Ok(Value::Map(gc.allocate(promise_map)))
+    Ok(Value::Map(gc.allocate(MapState::new(promise_map))))
 }
 
 fn native_promise_then(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
@@ -3541,7 +3842,7 @@ fn native_result_ok(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, Ru
         Value::String(Rc::new("Ok".to_string())),
     );
     result.insert("value".to_string(), args[0].clone());
-    Ok(Value::Map(gc.allocate(result)))
+    Ok(Value::Map(gc.allocate(MapState::new(result))))
 }
 
 fn native_result_err(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
@@ -3555,7 +3856,7 @@ fn native_result_err(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, R
         Value::String(Rc::new("Err".to_string())),
     );
     result.insert("error".to_string(), args[0].clone());
-    Ok(Value::Map(gc.allocate(result)))
+    Ok(Value::Map(gc.allocate(MapState::new(result))))
 }
 
 // Option type constructors
@@ -3570,7 +3871,7 @@ fn native_option_some(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, 
         Value::String(Rc::new("Some".to_string())),
     );
     option.insert("value".to_string(), args[0].clone());
-    Ok(Value::Map(gc.allocate(option)))
+    Ok(Value::Map(gc.allocate(MapState::new(option))))
 }
 
 // Result methods
@@ -3937,7 +4238,7 @@ fn native_regex_match(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, 
                     None => groups.push(Value::Null),
                 }
             }
-            Ok(Value::Array(gc.allocate(groups)))
+            Ok(Value::Array(gc.allocate(ArrayState::new(groups))))
         }
         None => Ok(Value::Null),
     }
@@ -3969,9 +4270,9 @@ fn native_regex_find_all(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Valu
                 None => groups.push(Value::Null),
             }
         }
-        matches.push(Value::Array(gc.allocate(groups)));
+        matches.push(Value::Array(gc.allocate(ArrayState::new(groups))));
     }
-    Ok(Value::Array(gc.allocate(matches)))
+    Ok(Value::Array(gc.allocate(ArrayState::new(matches))))
 }
 
 fn native_regex_replace(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
@@ -4040,14 +4341,14 @@ fn json_to_value(json: serde_json::Value, gc: &mut pleno_value::gc::GCManager) -
         serde_json::Value::String(s) => Value::String(Rc::new(s)),
         serde_json::Value::Array(arr) => {
             let items: Vec<Value> = arr.into_iter().map(|v| json_to_value(v, gc)).collect();
-            Value::Array(gc.allocate(items))
+            Value::Array(gc.allocate(ArrayState::new(items)))
         }
         serde_json::Value::Object(obj) => {
             let mut map = HashMap::new();
             for (k, v) in obj {
                 map.insert(k, json_to_value(v, gc));
             }
-            Value::Map(gc.allocate(map))
+            Value::Map(gc.allocate(MapState::new(map)))
         }
     }
 }
@@ -4217,7 +4518,7 @@ fn native_map_keys(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, Run
         .keys()
         .map(|k| Value::String(Rc::new(k.clone())))
         .collect();
-    Ok(Value::Array(vm.get_gc().allocate(keys)))
+    Ok(Value::Array(vm.get_gc().allocate(ArrayState::new(keys))))
 }
 
 fn native_map_values(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
@@ -4226,7 +4527,7 @@ fn native_map_values(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, R
         _ => return Err(RuntimeError::new("values() expects Map")),
     };
     let values: Vec<Value> = map.borrow().values().cloned().collect();
-    Ok(Value::Array(vm.get_gc().allocate(values)))
+    Ok(Value::Array(vm.get_gc().allocate(ArrayState::new(values))))
 }
 
 fn native_map_entries(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
@@ -4237,9 +4538,9 @@ fn native_map_entries(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, 
     let mut entries = Vec::new();
     for (k, v) in map.borrow().iter() {
         let entry = vec![Value::String(Rc::new(k.clone())), v.clone()];
-        entries.push(Value::Array(vm.get_gc().allocate(entry)));
+        entries.push(Value::Array(vm.get_gc().allocate(ArrayState::new(entry))));
     }
-    Ok(Value::Array(vm.get_gc().allocate(entries)))
+    Ok(Value::Array(vm.get_gc().allocate(ArrayState::new(entries))))
 }
 
 fn native_map_contains_key(
@@ -4393,8 +4694,11 @@ fn native_promise_all(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, 
             "variant".to_string(),
             Value::String(Rc::new("Resolved".to_string())),
         );
-        map.insert("value".to_string(), Value::Array(gc.allocate(vec![])));
-        return Ok(Value::Map(gc.allocate(map)));
+        map.insert(
+            "value".to_string(),
+            Value::Array(gc.allocate(ArrayState::new(vec![]))),
+        );
+        return Ok(Value::Map(gc.allocate(MapState::new(map))));
     }
 
     let (master_id, master_promise) = vm.create_promise();
@@ -4428,7 +4732,7 @@ fn native_promise_all(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, 
 
     if resolved_count == promises.len() {
         let gc = vm.get_gc();
-        let results_val = Value::Array(gc.allocate(results));
+        let results_val = Value::Array(gc.allocate(ArrayState::new(results)));
         vm.resolve_promise(master_id, results_val);
     } else {
         vm.register_multi_waiter(MultiWaiter {
@@ -4740,7 +5044,7 @@ fn native_set_to_array(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value,
             ValueKey::String(v) => Value::String(Rc::clone(v)),
         })
         .collect();
-    Ok(Value::Array(vm.get_gc().allocate(values)))
+    Ok(Value::Array(vm.get_gc().allocate(ArrayState::new(values))))
 }
 
 fn native_set_map(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
@@ -4768,7 +5072,7 @@ fn native_set_map(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, Runt
         let res = vm.call(callback.clone(), vec![item])?;
         results.push(res);
     }
-    Ok(Value::Array(vm.get_gc().allocate(results)))
+    Ok(Value::Array(vm.get_gc().allocate(ArrayState::new(results))))
 }
 
 fn native_set_filter(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
@@ -4841,7 +5145,7 @@ fn native_map_map(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, Runt
         )?;
         results.insert(key, res);
     }
-    Ok(Value::Map(vm.get_gc().allocate(results)))
+    Ok(Value::Map(vm.get_gc().allocate(MapState::new(results))))
 }
 
 fn native_map_filter(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
@@ -4868,7 +5172,7 @@ fn native_map_filter(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, R
             results.insert(key, value);
         }
     }
-    Ok(Value::Map(vm.get_gc().allocate(results)))
+    Ok(Value::Map(vm.get_gc().allocate(MapState::new(results))))
 }
 
 fn native_map_for_each(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {

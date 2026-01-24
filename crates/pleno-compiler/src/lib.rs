@@ -33,6 +33,9 @@ pub struct Compiler {
     module_mode: bool,
     module_exports: Vec<ExportItem>,
     module_name: Option<String>,
+    source: String,
+    current_line: u32,
+    next_labels: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -43,12 +46,12 @@ struct ExportItem {
 
 impl Default for Compiler {
     fn default() -> Self {
-        Self::new()
+        Self::new(String::new())
     }
 }
 
 impl Compiler {
-    pub fn new() -> Self {
+    pub fn new(source: String) -> Self {
         Self {
             chunk: Chunk::new(),
             registers: RegisterAllocator::new(),
@@ -62,7 +65,17 @@ impl Compiler {
             module_mode: false,
             module_exports: Vec::new(),
             module_name: None,
+            source,
+            current_line: 1,
+            next_labels: Vec::new(),
         }
+    }
+
+    fn error(&self, message: &str, span: Span) -> CompileError {
+        use pleno_diagnostics::{Diagnostic, DiagnosticReporter};
+        let diagnostic = Diagnostic::new(message, span);
+        let formatted = DiagnosticReporter::report(&diagnostic, &self.source);
+        CompileError::new(formatted)
     }
 
     pub fn compile(&mut self, program: &Program) -> Result<Chunk, CompileError> {
@@ -121,17 +134,31 @@ impl Compiler {
     }
 
     fn compile_stmt(&mut self, stmt: &Stmt) -> Result<(), CompileError> {
+        // Update current line based on statement start
+        if !self.source.is_empty() && stmt.span.start < self.source.len() {
+            self.current_line = self.source[..stmt.span.start].lines().count() as u32;
+            if self.current_line == 0 {
+                self.current_line = 1;
+            }
+        }
+
         match &stmt.kind {
-            StmtKind::Module { name } => {
-                if !self.module_mode {
-                    return Err(CompileError::new(
-                        "module declaration only allowed in modules",
-                    ));
+            StmtKind::Module { name, body } => {
+                if let Some(stmts) = body {
+                    for stmt in stmts {
+                        self.compile_stmt(stmt)?;
+                    }
+                } else {
+                    if !self.module_mode {
+                        return Err(
+                            self.error("module declaration only allowed in modules", stmt.span)
+                        );
+                    }
+                    if self.module_name.is_some() {
+                        return Err(self.error("module already declared", stmt.span));
+                    }
+                    self.module_name = Some(name.clone());
                 }
-                if self.module_name.is_some() {
-                    return Err(CompileError::new("module already declared"));
-                }
-                self.module_name = Some(name.clone());
                 Ok(())
             }
             StmtKind::Expr(expr) => {
@@ -144,10 +171,11 @@ impl Compiler {
                 value,
                 mutable,
                 is_const,
+                is_deep,
                 ty,
             } => {
                 if *is_const && value.is_none() {
-                    return Err(CompileError::new("const requires an initializer"));
+                    return Err(self.error("const requires an initializer", stmt.span));
                 }
                 let reg = if let Some(expr) = value {
                     let reg = self.compile_expr(expr)?;
@@ -166,6 +194,9 @@ impl Compiler {
                     }
                     reg
                 };
+                if *is_deep {
+                    self.emit(Opcode::Freeze, reg, 0, 0);
+                }
                 self.insert_local(name.clone(), reg, *mutable, ty.clone())?;
                 Ok(())
             }
@@ -173,9 +204,9 @@ impl Compiler {
                 let value_reg = self.compile_expr(value)?;
                 let local = self
                     .resolve_local(name)
-                    .ok_or_else(|| CompileError::new("unknown local in assignment"))?;
+                    .ok_or_else(|| self.error("unknown local in assignment", stmt.span))?;
                 if !local.mutable {
-                    return Err(CompileError::new("cannot assign to immutable binding"));
+                    return Err(self.error("cannot assign to immutable binding", stmt.span));
                 }
                 if let Some(ty_name) = &local.ty {
                     self.emit_type_check(value_reg, ty_name)?;
@@ -247,7 +278,7 @@ impl Compiler {
                 self.compile_stmt(body)?;
                 let loop_ctx = self
                     .pop_loop()
-                    .ok_or_else(|| CompileError::new("loop stack underflow"))?;
+                    .ok_or_else(|| self.error("loop stack underflow", stmt.span))?;
                 self.emit_loop(loop_start)?;
                 self.patch_jump(jump_to_end)?;
                 let loop_end = self.chunk.code.len();
@@ -255,10 +286,28 @@ impl Compiler {
                 Ok(())
             }
             StmtKind::For {
+                label: _,
                 names,
                 iterable,
                 body,
             } => self.compile_for_stmt(names, iterable, body),
+            StmtKind::DoWhile { body, condition } => {
+                let loop_start = self.chunk.code.len();
+                self.push_loop(None);
+                self.compile_stmt(body)?;
+                let continue_target = self.chunk.code.len();
+                if let Some(ctx) = self.loop_stack.last_mut() {
+                    ctx.continue_target = Some(continue_target);
+                }
+                let cond_reg = self.compile_expr(condition)?;
+                self.emit_loop_if(loop_start, cond_reg)?;
+                self.free_temp(cond_reg);
+                let loop_ctx = self
+                    .pop_loop()
+                    .ok_or_else(|| self.error("loop stack underflow", stmt.span))?;
+                self.patch_loop_jumps(loop_ctx, self.chunk.code.len())?;
+                Ok(())
+            }
             StmtKind::Try {
                 try_branch,
                 catch_branches,
@@ -307,7 +356,7 @@ impl Compiler {
                     StmtKind::Let { name, .. } => name.clone(),
                     StmtKind::Fn { name, .. } => name.clone(),
                     StmtKind::Class { name, .. } => name.clone(),
-                    _ => return Err(CompileError::new("invalid export statement")),
+                    _ => return Err(self.error("invalid export statement", stmt.span)),
                 };
                 self.compile_stmt(stmt)?;
                 self.module_exports.push(ExportItem {
@@ -341,7 +390,7 @@ impl Compiler {
                         .map(|scope| scope.contains_key(name))
                         .unwrap_or(false)
                     {
-                        return Err(CompileError::new("class name already defined in scope"));
+                        return Err(self.error("class name already defined in scope", stmt.span));
                     }
                     self.insert_local(name.clone(), class_reg, false, None)?;
                 }
@@ -349,6 +398,7 @@ impl Compiler {
             }
             StmtKind::Fn {
                 name,
+                generics,
                 params,
                 body,
                 annotations,
@@ -356,14 +406,16 @@ impl Compiler {
             } => {
                 let decl = FunctionDecl {
                     name: name.clone(),
+                    generics: generics.clone(),
                     params: params.clone(),
                     return_ty: None,
                     body: body.clone(),
                     is_static: false,
+                    is_abstract: false,
+                    is_async: *is_async,
                     visibility: None,
                     kind: FunctionKind::Method,
                     annotations: annotations.clone(),
-                    is_async: *is_async,
                 };
                 let func_reg = self.compile_function(&decl, false, false, None)?;
                 if self.is_top_level {
@@ -377,7 +429,7 @@ impl Compiler {
                         .map(|scope| scope.contains_key(name))
                         .unwrap_or(false)
                     {
-                        return Err(CompileError::new("function name already defined in scope"));
+                        return Err(self.error("function name already defined in scope", stmt.span));
                     }
                     self.insert_local(name.clone(), func_reg, false, None)?;
                 }
@@ -395,8 +447,16 @@ impl Compiler {
                 self.emit(Opcode::Return, reg, 0, 0);
                 Ok(())
             }
-            StmtKind::Break => self.compile_break_stmt(),
-            StmtKind::Continue => self.compile_continue_stmt(),
+            StmtKind::Break(label) => self.compile_break_stmt(label.as_deref(), stmt.span),
+            StmtKind::Continue(label) => self.compile_continue_stmt(label.as_deref(), stmt.span),
+            StmtKind::Labeled { label, stmt } => {
+                self.next_labels.push(label.clone());
+                self.compile_stmt(stmt)
+            }
+            StmtKind::Interface { .. } => {
+                // Interfaces are type-only in Pleno, no bytecode emission for now
+                Ok(())
+            }
         }
     }
 
@@ -457,7 +517,7 @@ impl Compiler {
                                 // This requires a conditional jump, so we handle it specially
                                 return self.compile_null_coalesce(left, right);
                             }
-                            _ => return Err(CompileError::new("unsupported binary op")),
+                            _ => return Err(self.error("unsupported binary op", expr.span)),
                         };
                         self.emit(opcode, dest, left_reg, right_reg);
                         self.free_temp(left_reg);
@@ -494,16 +554,16 @@ impl Compiler {
             ExprKind::This => self
                 .resolve_local("this")
                 .map(|local| local.reg)
-                .ok_or_else(|| CompileError::new("this used outside of method")),
-            ExprKind::Super => Err(CompileError::new("super is not supported yet")),
+                .ok_or_else(|| self.error("this used outside of method", expr.span)),
+            ExprKind::Super => Err(self.error("super is not supported yet", expr.span)),
             ExprKind::Property { object, name } => {
                 if matches!(&object.kind, ExprKind::Super) {
                     let this_reg = self
                         .resolve_local("this")
                         .map(|local| local.reg)
-                        .ok_or_else(|| CompileError::new("super used outside of method"))?;
+                        .ok_or_else(|| self.error("super used outside of method", expr.span))?;
                     if self.current_super.is_none() {
-                        return Err(CompileError::new("super used without superclass"));
+                        return Err(self.error("super used without superclass", expr.span));
                     }
                     let dest = self.registers.allocate()?;
                     let name_idx = self.add_constant(Value::String(name.clone().into()));
@@ -682,14 +742,16 @@ impl Compiler {
                 };
                 let decl = FunctionDecl {
                     name: "anonymous".to_string(),
+                    generics: Vec::new(),
                     params: params.clone(),
                     return_ty: None,
                     body: Box::new(body_stmt),
                     is_static: false,
+                    is_abstract: false,
+                    is_async: false,
                     visibility: None,
                     kind: FunctionKind::Method,
                     annotations: Vec::new(),
-                    is_async: false,
                 };
                 self.compile_function(&decl, false, false, None)
             }
@@ -741,8 +803,9 @@ impl Compiler {
                 self.free_temp(args_reg);
                 Ok(dest)
             }
-            ExprKind::Underscore => Err(CompileError::new(
+            ExprKind::Underscore => Err(self.error(
                 "underscore is only allowed as a placeholder in calls",
+                expr.span,
             )),
             ExprKind::Index { collection, index } => {
                 let collection_reg = self.compile_expr(collection)?;
@@ -970,7 +1033,7 @@ impl Compiler {
 
     fn emit(&mut self, opcode: Opcode, a: u8, b: u8, c: u8) {
         self.chunk.code.push(Instruction::new(opcode, a, b, c));
-        self.chunk.lines.push(0);
+        self.chunk.lines.push(self.current_line);
     }
 
     fn emit_jump(&mut self, opcode: Opcode, reg: u8) -> usize {
@@ -984,6 +1047,14 @@ impl Compiler {
         let offset = i16::try_from(offset).map_err(|_| CompileError::new("loop too large"))?;
         let (b, c) = encode_offset(offset);
         self.emit(Opcode::Jump, 0, b, c);
+        Ok(())
+    }
+
+    fn emit_loop_if(&mut self, loop_start: usize, reg: u8) -> Result<(), CompileError> {
+        let offset = (loop_start as isize) - (self.chunk.code.len() as isize + 1);
+        let offset = i16::try_from(offset).map_err(|_| CompileError::new("loop too large"))?;
+        let (b, c) = encode_offset(offset);
+        self.emit(Opcode::JumpIf, reg, b, c);
         Ok(())
     }
 
@@ -1191,8 +1262,9 @@ impl Compiler {
         } = &iterable.kind
         {
             if names.len() > 1 {
-                return Err(CompileError::new(
+                return Err(self.error(
                     "range-based for loops only support one variable",
+                    iterable.span,
                 ));
             }
             let name = &names[0];
@@ -1211,43 +1283,75 @@ impl Compiler {
                     return self.compile_for_open_range(name, start, body);
                 }
                 _ => {
-                    return Err(CompileError::new(
+                    return Err(self.error(
                         "for loop requires a start or end value for range",
+                        iterable.span,
                     ));
                 }
             }
         }
         if matches!(iterable.kind, ExprKind::Literal(_)) {
-            return Err(CompileError::new("for loop expects array, set, or range"));
+            return Err(self.error("for loop expects array, set, or range", iterable.span));
         }
         if names.len() > 2 {
-            return Err(CompileError::new(
+            return Err(self.error(
                 "for loop supports at most two variables (key, value)",
+                iterable.span,
             ));
         }
         self.compile_for_iterable(names, iterable, body)
     }
 
-    fn compile_break_stmt(&mut self) -> Result<(), CompileError> {
+    fn compile_break_stmt(&mut self, label: Option<&str>, span: Span) -> Result<(), CompileError> {
         if self.loop_stack.is_empty() {
-            return Err(CompileError::new("break used outside of loop"));
+            return Err(self.error("break used outside of loop", span));
         }
         let jump = self.emit_jump(Opcode::Jump, 0);
-        if let Some(loop_ctx) = self.loop_stack.last_mut() {
-            loop_ctx.break_jumps.push(jump);
+        if let Some(target_label) = label {
+            for ctx in self.loop_stack.iter_mut().rev() {
+                if ctx.labels.iter().any(|l| l == target_label) {
+                    ctx.break_jumps.push(jump);
+                    return Ok(());
+                }
+            }
+            Err(self.error(
+                &format!("no loop found with label '{}'", target_label),
+                span,
+            ))
+        } else {
+            if let Some(loop_ctx) = self.loop_stack.last_mut() {
+                loop_ctx.break_jumps.push(jump);
+            }
+            Ok(())
         }
-        Ok(())
     }
 
-    fn compile_continue_stmt(&mut self) -> Result<(), CompileError> {
+    fn compile_continue_stmt(
+        &mut self,
+        label: Option<&str>,
+        span: Span,
+    ) -> Result<(), CompileError> {
         if self.loop_stack.is_empty() {
-            return Err(CompileError::new("continue used outside of loop"));
+            return Err(self.error("continue used outside of loop", span));
         }
         let jump = self.emit_jump(Opcode::Jump, 0);
-        if let Some(loop_ctx) = self.loop_stack.last_mut() {
-            loop_ctx.continue_jumps.push(jump);
+        if let Some(target_label) = label {
+            for ctx in self.loop_stack.iter_mut().rev() {
+                if ctx.labels.iter().any(|l| l == target_label) {
+                    ctx.continue_jumps.push(jump);
+                    return Ok(());
+                }
+            }
+            Err(self.error(
+                &format!("no loop found with label '{}'", target_label),
+                span,
+            ))
+        } else {
+            if let Some(loop_ctx) = self.loop_stack.last_mut() {
+                loop_ctx.continue_jumps.push(jump);
+            }
+            Ok(())
         }
-        Ok(())
     }
 
     fn compile_for_range(
@@ -1634,7 +1738,7 @@ impl Compiler {
                 "class methods cannot capture outer variables yet",
             ));
         }
-        let mut compiler = Compiler::new();
+        let mut compiler = Compiler::new(String::new());
         compiler.is_top_level = false;
         compiler.locals = vec![HashMap::new()];
         compiler.module_name = self.module_name.clone();
@@ -1773,17 +1877,30 @@ impl Compiler {
     }
 
     fn compile_class_declaration(&mut self, stmt: &Stmt) -> Result<u8, CompileError> {
-        let (name, fields, methods, superclass, nested_classes) = match &stmt.kind {
-            StmtKind::Class {
-                name,
-                fields,
-                methods,
-                superclass,
-                nested_classes,
-                annotations: _,
-            } => (name, fields, methods, superclass, nested_classes),
-            _ => return Err(CompileError::new("expected class statement")),
-        };
+        let (name, fields, methods, superclass, nested_classes, properties, is_abstract) =
+            match &stmt.kind {
+                StmtKind::Class {
+                    name,
+                    generics: _,
+                    fields,
+                    methods,
+                    superclass,
+                    nested_classes,
+                    annotations: _,
+                    implements: _,
+                    is_abstract,
+                    properties,
+                } => (
+                    name,
+                    fields,
+                    methods,
+                    superclass,
+                    nested_classes,
+                    properties,
+                    *is_abstract,
+                ),
+                _ => return Err(CompileError::new("expected class statement")),
+            };
 
         let methods_reg = self.registers.allocate()?;
         self.emit(Opcode::NewMap, methods_reg, 0, 0);
@@ -1823,6 +1940,93 @@ impl Compiler {
         let name_idx = self.add_constant(Value::String(name.clone().into()));
         self.emit(Opcode::DefineClass, class_reg, name_idx, methods_reg);
         self.emit(Opcode::SetStatic, class_reg, static_reg, 0);
+        if is_abstract {
+            self.emit(Opcode::SetAbstract, class_reg, 0, 0);
+        }
+
+        // Compile Properties
+        let getters_reg = self.registers.allocate()?;
+        self.emit(Opcode::NewMap, getters_reg, 0, 0);
+        let setters_reg = self.registers.allocate()?;
+        self.emit(Opcode::NewMap, setters_reg, 0, 0);
+        let static_getters_reg = self.registers.allocate()?;
+        self.emit(Opcode::NewMap, static_getters_reg, 0, 0);
+        let static_setters_reg = self.registers.allocate()?;
+        self.emit(Opcode::NewMap, static_setters_reg, 0, 0);
+
+        for prop in properties {
+            if let Some(getter) = &prop.getter {
+                let func_reg = self.compile_function(
+                    getter,
+                    !prop.is_static,
+                    true,
+                    superclass.as_ref().cloned(),
+                )?;
+                let meta_reg = self.registers.allocate()?;
+                self.emit(Opcode::NewArray, meta_reg, 0, 0);
+                self.emit(Opcode::ArrayAppend, meta_reg, func_reg, 0);
+                let vis_name = visibility_name(prop.visibility.as_ref());
+                let vis_idx =
+                    self.add_constant(Value::String(std::rc::Rc::new(vis_name.to_string())));
+                let vis_reg = self.registers.allocate()?;
+                self.emit(Opcode::LoadConst, vis_reg, vis_idx, 0);
+                self.emit(Opcode::ArrayAppend, meta_reg, vis_reg, 0);
+                self.free_temp(vis_reg);
+
+                let name_idx = self.add_constant(Value::String(prop.name.clone().into()));
+                let name_reg = self.registers.allocate()?;
+                self.emit(Opcode::LoadConst, name_reg, name_idx, 0);
+                if prop.is_static {
+                    self.emit(Opcode::SetIndex, meta_reg, static_getters_reg, name_reg);
+                } else {
+                    self.emit(Opcode::SetIndex, meta_reg, getters_reg, name_reg);
+                }
+                self.free_temp(name_reg);
+                self.free_temp(func_reg);
+                self.free_temp(meta_reg);
+            }
+
+            if let Some(setter) = &prop.setter {
+                let func_reg = self.compile_function(
+                    setter,
+                    !prop.is_static,
+                    true,
+                    superclass.as_ref().cloned(),
+                )?;
+                let meta_reg = self.registers.allocate()?;
+                self.emit(Opcode::NewArray, meta_reg, 0, 0);
+                self.emit(Opcode::ArrayAppend, meta_reg, func_reg, 0);
+                let vis_name = visibility_name(prop.visibility.as_ref());
+                let vis_idx =
+                    self.add_constant(Value::String(std::rc::Rc::new(vis_name.to_string())));
+                let vis_reg = self.registers.allocate()?;
+                self.emit(Opcode::LoadConst, vis_reg, vis_idx, 0);
+                self.emit(Opcode::ArrayAppend, meta_reg, vis_reg, 0);
+                self.free_temp(vis_reg);
+
+                let name_idx = self.add_constant(Value::String(prop.name.clone().into()));
+                let name_reg = self.registers.allocate()?;
+                self.emit(Opcode::LoadConst, name_reg, name_idx, 0);
+                if prop.is_static {
+                    self.emit(Opcode::SetIndex, meta_reg, static_setters_reg, name_reg);
+                } else {
+                    self.emit(Opcode::SetIndex, meta_reg, setters_reg, name_reg);
+                }
+                self.free_temp(name_reg);
+                self.free_temp(func_reg);
+                self.free_temp(meta_reg);
+            }
+        }
+
+        self.emit(Opcode::SetGetters, class_reg, getters_reg, 0);
+        self.emit(Opcode::SetSetters, class_reg, setters_reg, 0);
+        self.emit(Opcode::SetStaticGetters, class_reg, static_getters_reg, 0);
+        self.emit(Opcode::SetStaticSetters, class_reg, static_setters_reg, 0);
+
+        self.free_temp(getters_reg);
+        self.free_temp(setters_reg);
+        self.free_temp(static_getters_reg);
+        self.free_temp(static_setters_reg);
         if let Some(superclass) = superclass {
             let super_reg = self.registers.allocate()?;
             let super_idx = self.add_constant(Value::String(superclass.clone().into()));
@@ -2058,14 +2262,17 @@ struct LoopContext {
     break_jumps: Vec<usize>,
     continue_jumps: Vec<usize>,
     continue_target: Option<usize>,
+    labels: Vec<String>,
 }
 
 impl Compiler {
     fn push_loop(&mut self, continue_target: Option<usize>) {
+        let labels = std::mem::take(&mut self.next_labels);
         self.loop_stack.push(LoopContext {
             break_jumps: Vec::new(),
             continue_jumps: Vec::new(),
             continue_target,
+            labels,
         });
     }
 
