@@ -1996,15 +1996,44 @@ impl Compiler {
         self.emit(Opcode::NewMap, methods_reg, 0, 0);
         let static_reg = self.registers.allocate()?;
         self.emit(Opcode::NewMap, static_reg, 0, 0);
+        let getters_reg = self.registers.allocate()?;
+        self.emit(Opcode::NewMap, getters_reg, 0, 0);
+        let setters_reg = self.registers.allocate()?;
+        self.emit(Opcode::NewMap, setters_reg, 0, 0);
+        let static_getters_reg = self.registers.allocate()?;
+        self.emit(Opcode::NewMap, static_getters_reg, 0, 0);
+        let static_setters_reg = self.registers.allocate()?;
+        self.emit(Opcode::NewMap, static_setters_reg, 0, 0);
+
         for method in methods {
             let is_method = !method.is_static;
             let func_reg =
                 self.compile_function(method, is_method, true, superclass.as_ref().cloned())?;
-            let method_name = match method.kind {
-                FunctionKind::Method => method.name.clone(),
-                FunctionKind::Getter => format!("get:{}", method.name),
-                FunctionKind::Setter => format!("set:{}", method.name),
+
+            let (target_reg, name_str) = match method.kind {
+                FunctionKind::Method => {
+                    if method.is_static {
+                        (static_reg, method.name.clone())
+                    } else {
+                        (methods_reg, method.name.clone())
+                    }
+                }
+                FunctionKind::Getter => {
+                    if method.is_static {
+                        (static_getters_reg, method.name.clone())
+                    } else {
+                        (getters_reg, method.name.clone())
+                    }
+                }
+                FunctionKind::Setter => {
+                    if method.is_static {
+                        (static_setters_reg, method.name.clone())
+                    } else {
+                        (setters_reg, method.name.clone())
+                    }
+                }
             };
+
             let meta_reg = self.registers.allocate()?;
             self.emit(Opcode::NewArray, meta_reg, 0, 0);
             self.emit(Opcode::ArrayAppend, meta_reg, func_reg, 0);
@@ -2014,14 +2043,13 @@ impl Compiler {
             self.emit(Opcode::LoadConst, vis_reg, vis_idx, 0);
             self.emit(Opcode::ArrayAppend, meta_reg, vis_reg, 0);
             self.free_temp(vis_reg);
-            let name_idx = self.add_constant(Value::String(method_name.clone().into()));
+
+            let name_idx = self.add_constant(Value::String(std::rc::Rc::new(name_str)));
             let name_reg = self.registers.allocate()?;
             self.emit(Opcode::LoadConst, name_reg, name_idx, 0);
-            if method.is_static {
-                self.emit(Opcode::SetIndex, meta_reg, static_reg, name_reg);
-            } else {
-                self.emit(Opcode::SetIndex, meta_reg, methods_reg, name_reg);
-            }
+
+            self.emit(Opcode::SetIndex, meta_reg, target_reg, name_reg);
+
             self.free_temp(name_reg);
             self.free_temp(func_reg);
             self.free_temp(meta_reg);
@@ -2055,15 +2083,6 @@ impl Compiler {
             self.free_temp(interfaces_reg);
         }
         // Compile Properties
-        let getters_reg = self.registers.allocate()?;
-        self.emit(Opcode::NewMap, getters_reg, 0, 0);
-        let setters_reg = self.registers.allocate()?;
-        self.emit(Opcode::NewMap, setters_reg, 0, 0);
-        let static_getters_reg = self.registers.allocate()?;
-        self.emit(Opcode::NewMap, static_getters_reg, 0, 0);
-        let static_setters_reg = self.registers.allocate()?;
-        self.emit(Opcode::NewMap, static_setters_reg, 0, 0);
-
         for prop in properties {
             if let Some(getter) = &prop.getter {
                 let func_reg = self.compile_function(
