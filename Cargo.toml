@@ -23,6 +23,7 @@ pleno-bytecode = { path = "crates/pleno-bytecode" }
 pleno-compiler = { path = "crates/pleno-compiler" }
 pleno-vm = { path = "crates/pleno-vm" }
 pleno-package = { path = "crates/pleno-package" }
+pleno-stdlib = { path = "crates/pleno-stdlib" }
 thiserror = "1"
 serde_json = "1"
 rustyline = "14"

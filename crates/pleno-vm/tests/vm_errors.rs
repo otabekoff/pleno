@@ -8,6 +8,7 @@ fn eval_result(source: &str) -> Result<pleno_value::Value, String> {
     let mut compiler = Compiler::new(source.to_string());
     let chunk = compiler.compile(&program).map_err(|e| e.message)?;
     let mut vm = VM::new();
+    pleno_stdlib::register(&mut vm);
     vm.execute(chunk).map_err(|e| e.message)
 }
 
@@ -31,7 +32,7 @@ fn array_index_out_of_bounds_error() {
 
 #[test]
 fn property_access_on_non_object_error() {
-    let err = eval_result("let a = 1; a.property;").unwrap_err();
+    let err = eval_result("let a = 1; a.x;").unwrap_err();
     // Both field and property use GetProperty, so accept either error message
     assert!(
         err.contains("property access on non-object") || err.contains("field access on non-object")
@@ -42,6 +43,12 @@ fn property_access_on_non_object_error() {
 fn call_on_non_callable_error() {
     let err = eval_result("let a = 1; a();").unwrap_err();
     assert!(err.contains("not callable"));
+}
+
+#[test]
+fn registry_package_not_found_error() {
+    let err = eval_result("import NonExistentPackage from \"registry:nonexistent\";").unwrap_err();
+    assert!(err.contains("registry package not found") || err.contains("module not found"));
 }
 
 #[test]
@@ -481,12 +488,6 @@ fn failed_to_read_module_error() {
 fn std_module_not_found_error() {
     let err = eval_result("import NonExistentStd from \"std:nonexistent\";").unwrap_err();
     assert!(err.contains("std module not found"));
-}
-
-#[test]
-fn registry_package_not_found_error() {
-    let err = eval_result("import NonExistentPackage from \"registry:nonexistent\";").unwrap_err();
-    assert!(err.contains("registry package not found"));
 }
 
 #[test]

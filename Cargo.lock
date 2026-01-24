@@ -642,6 +642,7 @@ dependencies = [
  "pleno-lexer",
  "pleno-package",
  "pleno-parser",
+ "pleno-stdlib",
  "pleno-vm",
 ]
 
@@ -733,6 +734,7 @@ dependencies = [
  "pleno-compiler",
  "pleno-lexer",
  "pleno-parser",
+ "pleno-stdlib",
  "pleno-value",
  "pleno-vm",
  "rustyline",
@@ -741,6 +743,19 @@ dependencies = [
 [[package]]
 name = "pleno-runtime"
 version = "0.1.0"
+
+[[package]]
+name = "pleno-stdlib"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "pleno-bytecode",
+ "pleno-value",
+ "rand 0.8.5",
+ "regex",
+ "reqwest",
+ "serde_json",
+]
 
 [[package]]
 name = "pleno-value"
@@ -758,6 +773,7 @@ dependencies = [
  "pleno-compiler",
  "pleno-lexer",
  "pleno-parser",
+ "pleno-stdlib",
  "pleno-value",
  "rand 0.8.5",
  "regex",

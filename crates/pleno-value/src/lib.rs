@@ -12,6 +12,9 @@ pub trait VMProvider {
     fn register_multi_waiter(&mut self, waiter: MultiWaiter);
     fn check_purity(&mut self) -> Result<(), RuntimeError>;
     fn collect(&mut self);
+    fn register_module(&mut self, name: String, value: Value);
+    fn register_global(&mut self, name: String, value: Value);
+    fn set_builtin_resolver(&mut self, resolver: fn(&str, &str) -> Option<NativeFunction>);
 }
 
 #[derive(Debug, Clone)]

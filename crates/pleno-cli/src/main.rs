@@ -281,6 +281,7 @@ fn run_single_test(path: &PathBuf, stats: &mut TestStats) {
     };
 
     let mut vm = pleno_vm::VM::new();
+    pleno_stdlib::register(&mut vm);
     // Temporarily verify simply by running without error
     match vm.execute(chunk) {
         Ok(_) => {
@@ -352,9 +353,10 @@ fn run_file(path: &str) {
     let tokens = match pleno_lexer::lex(&source) {
         Ok(tokens) => tokens,
         Err(err) => {
+            let diagnostic = pleno_diagnostics::Diagnostic::new(&err.message, err.span);
             eprintln!(
-                "Lex error at {}..{}: {}",
-                err.span.start, err.span.end, err.message
+                "{}",
+                pleno_diagnostics::DiagnosticReporter::report(&diagnostic, &source)
             );
             process::exit(1);
         }
@@ -364,9 +366,10 @@ fn run_file(path: &str) {
     let program = match parser.parse_program() {
         Ok(program) => program,
         Err(err) => {
+            let diagnostic = pleno_diagnostics::Diagnostic::new(&err.message, err.span);
             eprintln!(
-                "Parse error at {}..{}: {}",
-                err.span.start, err.span.end, err.message
+                "{}",
+                pleno_diagnostics::DiagnosticReporter::report(&diagnostic, &source)
             );
             process::exit(1);
         }
@@ -382,6 +385,7 @@ fn run_file(path: &str) {
     };
 
     let mut vm = pleno_vm::VM::new();
+    pleno_stdlib::register(&mut vm);
     match vm.execute(chunk) {
         Ok(_) => {}
         Err(err) => {

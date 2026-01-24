@@ -12,3 +12,4 @@ pleno-vm = { workspace = true }
 pleno-formatter = { workspace = true }
 pleno-package = { workspace = true }
 pleno-diagnostics = { workspace = true }
+pleno-stdlib = { workspace = true }

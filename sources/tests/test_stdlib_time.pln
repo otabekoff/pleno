@@ -1,23 +1,35 @@
-// Test: Time Standard Library
- 
-import time from "std:time";
- 
-let now = time.DateTime.now();
-print("Current timestamp: " + now.getTimestamp());
- 
-let formatted = now.format("%Y-%m-%d");
-print("Formatted: " + formatted);
- 
-let ns = time.DateTime.now_ns();
-print("Nanoseconds: " + ns);
- 
-// Sleep test
-let start = time.DateTime.now_ns();
-time.DateTime.sleep(5);
-let end = time.DateTime.now_ns();
-let diff = end - start;
-print("5ms sleep took: " + (diff / 1000000) + "ms");
- 
-if (ns > 0 && diff >= 5000000) {
-    print("SUCCESS: Time stdlib works");
+import { now, format, parse, parts } from "std:time";
+
+let t = now();
+print("Current time (Unix):", t);
+
+let fmt = "%Y-%m-%d %H:%M:%S";
+let s = format(t, fmt);
+print("Formatted:", s);
+
+let t2 = parse(s, fmt);
+print("Parsed back:", t2);
+
+// Check difference is small (within 1 second)
+let mut diff = t - t2;
+if (diff < 0) {
+    diff = -diff;
 }
+print("Difference:", diff);
+if (diff > 1.0) {
+    throw "Time parse/format mismatch";
+}
+
+let p = parts(t);
+print("Year:", p.year);
+print("Month:", p.month);
+print("Day:", p.day);
+print("Hour:", p.hour);
+print("Minute:", p.minute);
+print("Second:", p.second);
+
+if (p.year < 2024) {
+    throw "Invalid year";
+}
+
+print("std:time expansion: PASSED");

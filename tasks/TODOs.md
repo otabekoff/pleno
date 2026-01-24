@@ -11,7 +11,6 @@ In vscode only highlighting working. When imported modules, ctrl + click is not 
 
 Add vscode snippets.
 
-Does each crate is doing their job only. For example stdlib crate should be responsilble for stdlib, but the compile crate may be trying to be dominant and having the stdlib functions inside of it. Is it a good practice? I think no. What do you think? This is one of the example of the thing I wanted to explain you. There might be so many of others. So, find and fix them.
 
 We had a solid specs.md, then while developing based on the specs.md we may have introduced many additional things too. But they are not in the specs.md, I've also divided the specs.md into docs/specs folder into files, you may update those files to be correct. For example not all of the stlibs may not be documented all other data structures we have or there are many things not documented, now it is time to document them all.
 
@@ -33,6 +32,20 @@ AI model's generation exceeded the maximum output token limit like error might h
 
 Instruction to AI:
 Eyes are coward, hands are heroes. The eye is afraid, but the hand is brave. Fear looks bigger than it really is. It’s not as hard as it looks. Once you start, it’s easier. The hardest part is getting started. Something looks scary or difficult at first, but when you actually start doing it, it turns out to be manageable. And the thing you're escaping will be the thing that you need in most cases. So, don't escape from implementing, refactring and making great results.
+
+Add benching, reporting. Pleno vs Python vs JS vs TS vs Java vs C++ vs C vs Rust vs Kotlin. Speed and other tests? Builtin time tracking tests vs outer command execution time tests. Languages' inner time trackers may differ, so we need some command prompt/terminal tool?
+
+To reach self-hosted compiler programming level what we need to do?
+
+To make this programming language very fast what we need to do?
+
+To make this programming language very stable what we need to do?
+
+To make this programming language complete what we need to do?
+
+To make this programming language all platforms supported and very good tooling what we need to do?
+
+Now it is time to renew/fefresh the specs.md with what our programming language has and can do.
 
 ---
 

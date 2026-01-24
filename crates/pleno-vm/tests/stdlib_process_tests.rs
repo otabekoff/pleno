@@ -8,6 +8,7 @@ fn eval(source: &str) -> pleno_value::Value {
     let mut compiler = Compiler::new(source.to_string());
     let chunk = compiler.compile(&program).expect("compile failed");
     let mut vm = VM::new();
+    pleno_stdlib::register(&mut vm);
     vm.execute(chunk).expect("runtime failed")
 }
 
