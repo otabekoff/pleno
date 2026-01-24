@@ -1,3 +1,5 @@
+pub mod stdlib;
+
 use chrono::{DateTime as ChronoDateTime, TimeZone, Utc};
 use pleno_bytecode::{Chunk, Opcode, ParamSpec};
 use pleno_value::{
@@ -518,12 +520,14 @@ impl VM {
             Value::Map(gc.allocate(HashMap::new())),
         );
 
+        let modules = stdlib::get_stdlib_modules(&mut gc);
+
         Self {
             gc,
             registers: vec![Value::Null; 256],
             frames: Vec::new(),
             globals,
-            modules: HashMap::new(),
+            modules,
             functions: Vec::new(),
             pending_tasks: Vec::new(),
             suspended_frames: HashMap::new(),
@@ -2494,6 +2498,10 @@ impl VM {
     }
 
     fn execute_module(&mut self, path: &str) -> Result<Value, RuntimeError> {
+        if let Some(mod_val) = self.modules.get(path) {
+            return Ok(mod_val.clone());
+        }
+
         if path == "std:sync" {
             if let Some(mod_val) = self.modules.get("std:sync") {
                 return Ok(mod_val.clone());
