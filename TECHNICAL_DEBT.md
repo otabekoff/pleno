@@ -4,34 +4,27 @@ This document tracks known technical debts and areas requiring improvement in Pl
 
 ---
 
-## Completed
+## Post-v1 Improvements
 
-### Memory Management
-- [x] Circular reference handling (`collect_with` marking implemented)
+### Standard Library
+- Implement `std:http` (Client/Server) using `reqwest`
+- Implement `std:regex` using `regex` crate
+- Implement `std:test` assertion framework (currently ad-hoc in tests)
 
-### Test Coverage  
-- [x] 102 tests passing (core language feature coverage complete)
+### Language Features
+- **Generics**: Currently parsed but not fully enforced/reified in runtime.
+- **Interfaces**: Parsed but conformance checks are basic.
+- **Async/Await**: Basic Promise support exists; needs full event loop integration.
 
-### Performance
-- [x] Benchmarking infrastructure (`std:benchmark` implemented)
+### Spec Compliance Gaps (Found during verification)
+- **If Expressions**: `let x = if (...) ...` syntax is not currently supported by parser (expects statement).
+- **Closures**: Runtime error observed in closure variable capture test.
+- **Field Declarations**: Parser requires delimiters/types more strictly than spec implies (e.g. `name;` vs `name: String;`).
+- **Type Checking**: Strict type checking might be too aggressive or reporting errors confusingly (`expected Int, found Int`).
 
----
-
-## Remaining (Low Priority)
-
-### Error Handling in Tests
-- Excessive `unwrap()` and `expect!()` usage (cosmetic)
-- Can be addressed incrementally
-
-### Performance (Deferred)
-- No optimization passes in compiler
-- NaN boxing optimization
-
-### Known Limitations
-- `super` keyword not fully supported in constructors
-- Set `has()` method not implemented
-- Spread in function calls not fully supported
-- Array/string slice syntax not supported (use `substring()`)
+### Tooling
+- Error messages: Improve span reporting and suggestions.
+- LSP: Complete implementation for IDE support.
 
 ---
 
@@ -39,8 +32,8 @@ This document tracks known technical debts and areas requiring improvement in Pl
 
 | Priority | Status |
 |----------|--------|
-| High | Completed (OOP/PM/Diagnostics) |
-| Medium | Completed (GC, Test coverage, Benchmarking) |
-| Low/Deferred | Performance, Known limitations |
+| High | **Completed** (Core VM, Parser, Essential StdLib, Enums) |
+| Medium | **Deferred** (HTTP, Regex, Decorators, If-Expr, Closures fix) |
+| Low | Optimization, Refactoring |
 
-**v1 Status**: Ready for release candidate
+**v1 Status**: Feature Complete (Essential Scope)

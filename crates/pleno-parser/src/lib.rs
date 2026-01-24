@@ -103,6 +103,7 @@ impl Parser {
             TokenKind::KeywordThrow => self.parse_throw_stmt(),
             TokenKind::KeywordImport => self.parse_import_stmt(),
             TokenKind::KeywordExport => self.parse_export_stmt(annotations),
+            TokenKind::Enum => self.parse_enum_declaration(annotations),
             TokenKind::KeywordClass => self.parse_class_stmt(annotations, false),
             TokenKind::KeywordAbstract => {
                 self.advance();
@@ -225,9 +226,15 @@ impl Parser {
     }
 
     fn parse_let_stmt(&mut self) -> Result<Stmt, ParseError> {
+        let stmt = self.parse_let_declaration(false)?;
+        self.expect(TokenKind::Semicolon, "Expected ';' after let statement")?;
+        Ok(stmt)
+    }
+
+    fn parse_let_declaration(&mut self, forced_mutable: bool) -> Result<Stmt, ParseError> {
         let start_span = self.peek_span();
-        self.advance();
-        let mutable = self.matches(&TokenKind::KeywordMut);
+        self.advance(); // let
+        let mutable = self.matches(&TokenKind::KeywordMut) || forced_mutable;
         let name = match self.advance().kind.clone() {
             TokenKind::Ident(value) => value,
             other => {
@@ -247,7 +254,6 @@ impl Parser {
         } else {
             None
         };
-        self.expect(TokenKind::Semicolon, "Expected ';' after let statement")?;
         Ok(self.wrap_stmt(
             StmtKind::Let {
                 name,
@@ -326,6 +332,40 @@ impl Parser {
             },
             start_span,
         ))
+    }
+
+    fn parse_expr_or_assign(&mut self) -> Result<Stmt, ParseError> {
+        let start_span = self.peek_span();
+        let expr = self.parse_expr()?;
+        if self.matches(&TokenKind::Equal) {
+            let value = self.parse_expr()?;
+            return match expr.kind {
+                ExprKind::Ident(name) => {
+                    Ok(self.wrap_stmt(StmtKind::Assign { name, value }, start_span))
+                }
+                ExprKind::Property { object, name } => Ok(self.wrap_stmt(
+                    StmtKind::AssignProperty {
+                        object: *object,
+                        name,
+                        value,
+                    },
+                    start_span,
+                )),
+                ExprKind::Index { collection, index } => Ok(self.wrap_stmt(
+                    StmtKind::AssignIndex {
+                        collection: *collection,
+                        index: *index,
+                        value,
+                    },
+                    start_span,
+                )),
+                _ => Err(ParseError {
+                    message: "Invalid assignment target".to_string(),
+                    span: expr.span,
+                }),
+            };
+        }
+        Ok(self.wrap_stmt(StmtKind::Expr(expr), start_span))
     }
 
     fn parse_module_stmt(&mut self) -> Result<Stmt, ParseError> {
@@ -444,33 +484,112 @@ impl Parser {
 
     fn parse_for_stmt(&mut self) -> Result<Stmt, ParseError> {
         let start_span = self.peek_span();
-        self.advance();
+        self.advance(); // 'for'
         self.expect(TokenKind::LParen, "Expected '(' after 'for'")?;
-        let mut names = Vec::new();
-        loop {
-            let name = match self.advance().kind.clone() {
-                TokenKind::Ident(name) => name,
-                other => {
-                    return Err(ParseError {
-                        message: format!("Expected identifier in for loop, found {other:?}"),
-                        span: self.previous_span(),
-                    });
-                }
-            };
-            names.push(name);
-            if !self.matches(&TokenKind::Comma) {
+
+        // Try to parse C-style for or range for
+        // If we see ';' immediately, it's C-style: for (; ...; ...)
+        if self.check(&TokenKind::Semicolon) {
+            return self.parse_c_for_remainder(None, start_span);
+        }
+
+        // If we see 'let', 'mut', or 'const', it might be C-style declaration
+        // for (let i = 0; i < 10; i++)
+        if self.check(&TokenKind::KeywordLet) {
+            let init_stmt = self.parse_let_declaration(true)?; // C-style loop variables are mutable
+            return self.parse_c_for_remainder(Some(Box::new(init_stmt)), start_span);
+        }
+
+        // Handle mut i = 0 or const i = 0 if they don't use 'let' but are decls
+        // (Wait, in Pleno 'mut' and 'const' usually follow 'let' or are modifiers)
+        // Let's stick to 'let' for now as 'parse_let_declaration' handles 'let mut'
+        // If it's a raw assignment, it's an expression.
+
+        // Otherwise, it could be range or C-style expression init
+        // We peek ahead to see if 'in' exists before ';'
+        let mut is_range = false;
+        let mut i = 0;
+        while !self.is_at_end()
+            && self.peek_n_kind(i).is_some()
+            && self.peek_n_kind(i) != Some(&TokenKind::RParen)
+        {
+            if self.peek_n_kind(i) == Some(&TokenKind::KeywordIn) {
+                is_range = true;
                 break;
             }
+            if self.peek_n_kind(i) == Some(&TokenKind::Semicolon) {
+                break;
+            }
+            i += 1;
         }
-        self.expect(TokenKind::KeywordIn, "Expected 'in' in for loop")?;
-        let iterable = self.parse_expr()?;
-        self.expect(TokenKind::RParen, "Expected ')' after for loop")?;
+
+        if is_range {
+            let mut names = Vec::new();
+            loop {
+                let name = match self.advance().kind.clone() {
+                    TokenKind::Ident(name) => name,
+                    other => {
+                        return Err(ParseError {
+                            message: format!("Expected identifier in for loop, found {other:?}"),
+                            span: self.previous_span(),
+                        });
+                    }
+                };
+                names.push(name);
+                if !self.matches(&TokenKind::Comma) {
+                    break;
+                }
+            }
+            self.expect(TokenKind::KeywordIn, "Expected 'in' in for loop")?;
+            let iterable = self.parse_expr()?;
+            self.expect(TokenKind::RParen, "Expected ')' after for loop")?;
+            let body = Box::new(self.parse_stmt()?);
+            Ok(self.wrap_stmt(
+                StmtKind::For {
+                    label: None,
+                    names,
+                    iterable,
+                    body,
+                },
+                start_span,
+            ))
+        } else {
+            let init = self.parse_expr_or_assign()?;
+            self.parse_c_for_remainder(Some(Box::new(init)), start_span)
+        }
+    }
+
+    fn parse_c_for_remainder(
+        &mut self,
+        init: Option<Box<Stmt>>,
+        start_span: Span,
+    ) -> Result<Stmt, ParseError> {
+        self.expect(
+            TokenKind::Semicolon,
+            "Expected ';' after loop initialization",
+        )?;
+
+        let condition = if self.check(&TokenKind::Semicolon) {
+            None
+        } else {
+            Some(self.parse_expr()?)
+        };
+        self.expect(TokenKind::Semicolon, "Expected ';' after loop condition")?;
+
+        let step = if self.check(&TokenKind::RParen) {
+            None
+        } else {
+            Some(Box::new(self.parse_expr_or_assign()?))
+        };
+        self.expect(TokenKind::RParen, "Expected ')' after for clause")?;
+
         let body = Box::new(self.parse_stmt()?);
+
         Ok(self.wrap_stmt(
-            StmtKind::For {
-                label: None,
-                names,
-                iterable,
+            StmtKind::CFor {
+                init,
+                condition,
+                step,
                 body,
             },
             start_span,
@@ -913,6 +1032,13 @@ impl Parser {
                 nested_classes.push(self.parse_class_stmt(member_annotations, false)?);
                 continue;
             }
+
+            // Relaxed field declaration: visibility static? mut? identifier
+            // We already handled visibility and static.
+            // Check for 'mut' if not already consumed in the visibility loop
+            // Actually, mut is often a keyword for fields.
+            let is_mut = self.matches(&TokenKind::KeywordMut);
+
             if matches!(self.peek_kind(), TokenKind::Ident(name) if name == "constructor") {
                 let name = match self.advance().kind.clone() {
                     TokenKind::Ident(n) => n,
@@ -965,7 +1091,7 @@ impl Parser {
                 ty,
                 default,
                 is_static,
-                is_const,
+                is_const: is_const && !is_mut,
                 visibility,
                 annotations: member_annotations,
             });
@@ -1811,6 +1937,7 @@ impl Parser {
                 Ok(self.wrap_expr(ExprKind::Await { expr }, start_span))
             }
             TokenKind::Pipe => self.parse_lambda_expr(Vec::new(), start_span),
+            TokenKind::KeywordIf => self.parse_if_expr(start_span),
             TokenKind::KeywordFn => self.parse_fn_expr(Vec::new(), start_span),
             TokenKind::At => {
                 let first_annotation = self.parse_annotation()?;
@@ -2007,16 +2134,20 @@ impl Parser {
                 continue;
             }
             if self.matches(&TokenKind::LBracket) {
-                // Check if this is a slice: [start..end], [start..], [..end], [..]
-                if self.matches(&TokenKind::DotDot) || self.matches(&TokenKind::DotDotEqual) {
-                    // Slice: [..end] or [..=end]
+                // Check if this is a slice starting with separator: [:end] or [..end]
+                if self.matches(&TokenKind::DotDot)
+                    || self.matches(&TokenKind::DotDotEqual)
+                    || self.matches(&TokenKind::Colon)
+                {
+                    // Slice: [:end], [..end] or [..=end]
                     let _inclusive = self.previous().kind == TokenKind::DotDotEqual;
-                    let end = if self.is_range_terminator() {
+                    let end = if self.matches(&TokenKind::RBracket) || self.is_range_terminator() {
                         None
                     } else {
-                        Some(Box::new(self.parse_expr()?))
+                        let expr = Box::new(self.parse_expr()?);
+                        self.expect(TokenKind::RBracket, "Expected ']' after slice")?;
+                        Some(expr)
                     };
-                    self.expect(TokenKind::RBracket, "Expected ']' after slice")?;
                     expr = self.wrap_expr(
                         ExprKind::Slice {
                             collection: Box::new(expr),
@@ -2028,21 +2159,25 @@ impl Parser {
                     continue;
                 }
 
-                let start_expr = self.parse_expr()?;
+                let start_idx = self.parse_expr()?;
 
-                // Check for slice syntax: [start..end] or [start..]
-                if self.matches(&TokenKind::DotDot) || self.matches(&TokenKind::DotDotEqual) {
+                // Check for slice separator: [start:end] or [start..end]
+                if self.matches(&TokenKind::DotDot)
+                    || self.matches(&TokenKind::DotDotEqual)
+                    || self.matches(&TokenKind::Colon)
+                {
                     let _inclusive = self.previous().kind == TokenKind::DotDotEqual;
-                    let end = if self.is_range_terminator() {
+                    let end = if self.matches(&TokenKind::RBracket) || self.is_range_terminator() {
                         None
                     } else {
-                        Some(Box::new(self.parse_expr()?))
+                        let expr = Box::new(self.parse_expr()?);
+                        self.expect(TokenKind::RBracket, "Expected ']' after slice")?;
+                        Some(expr)
                     };
-                    self.expect(TokenKind::RBracket, "Expected ']' after slice")?;
                     expr = self.wrap_expr(
                         ExprKind::Slice {
                             collection: Box::new(expr),
-                            start: Some(Box::new(start_expr)),
+                            start: Some(Box::new(start_idx)),
                             end,
                         },
                         start_span,
@@ -2055,7 +2190,7 @@ impl Parser {
                 expr = self.wrap_expr(
                     ExprKind::Index {
                         collection: Box::new(expr),
-                        index: Box::new(start_expr),
+                        index: Box::new(start_idx),
                     },
                     start_span,
                 );
@@ -2078,6 +2213,10 @@ impl Parser {
                             self.expect(TokenKind::Equal, "Expected '=' in named argument")?;
                             let value = self.parse_expr()?;
                             pleno_ast::CallArg::Named(name, value)
+                        } else if self.matches(&TokenKind::Ellipsis)
+                            || self.matches(&TokenKind::DotDot)
+                        {
+                            pleno_ast::CallArg::Spread(self.parse_expr()?)
                         } else {
                             pleno_ast::CallArg::Positional(self.parse_expr()?)
                         };
@@ -2583,6 +2722,130 @@ impl Parser {
                 body,
                 return_ty,
                 annotations,
+            },
+            start_span,
+        ))
+    }
+
+    fn parse_if_expr(&mut self, start_span: pleno_ast::Span) -> Result<Expr, ParseError> {
+        self.expect(TokenKind::LParen, "Expected '(' after 'if'")?;
+        let condition = self.parse_expr()?;
+        self.expect(TokenKind::RParen, "Expected ')' after condition")?;
+
+        let then_branch = self.parse_expr()?;
+
+        self.expect(TokenKind::KeywordElse, "Expected 'else' in if-expression")?;
+
+        let else_branch = self.parse_expr()?;
+
+        Ok(self.wrap_expr(
+            ExprKind::If {
+                condition: Box::new(condition),
+                then_branch: Box::new(then_branch),
+                else_branch: Box::new(else_branch),
+            },
+            start_span,
+        ))
+    }
+
+    fn parse_enum_declaration(
+        &mut self,
+        annotations: Vec<pleno_ast::Annotation>,
+    ) -> Result<Stmt, ParseError> {
+        let start_span = self.peek_span();
+        self.expect(TokenKind::Enum, "Expected 'enum'")?;
+
+        let name = match self.advance().kind.clone() {
+            TokenKind::Ident(value) => value,
+            _ => {
+                return Err(ParseError {
+                    message: "Expected enum name".to_string(),
+                    span: self.peek_span(),
+                });
+            }
+        };
+
+        self.expect(TokenKind::LBrace, "Expected '{' after enum name")?;
+
+        let mut static_fields = Vec::new();
+
+        // Enum variants
+        let mut discriminator = 0;
+        while !self.matches(&TokenKind::RBrace) {
+            // Check if end of enum body
+            if self.check(&TokenKind::RBrace) {
+                break;
+            }
+
+            // Check for methods separator
+            if self.matches(&TokenKind::Semicolon) {
+                // Consume until brace for now as we don't fully support methods inside enum desugaring yet
+                while !self.matches(&TokenKind::RBrace) && !self.is_at_end() {
+                    self.advance();
+                }
+                break;
+            }
+
+            // Parse variant
+            let variant_name = if matches!(self.peek_kind(), TokenKind::Ident(_)) {
+                match &self.advance().kind {
+                    TokenKind::Ident(name) => name.clone(),
+                    _ => unreachable!(),
+                }
+            } else {
+                return Err(ParseError {
+                    message: "Expected enum variant name".to_string(),
+                    span: self.peek_span(),
+                });
+            };
+
+            // Optional value assignment: Variant = 1
+            let value = if self.matches(&TokenKind::Equal) {
+                Some(self.parse_expr()?)
+            } else {
+                None
+            };
+
+            let field_value = value.unwrap_or(pleno_ast::Expr {
+                kind: pleno_ast::ExprKind::Literal(pleno_ast::Literal::Int(discriminator)),
+                span: start_span,
+            });
+            discriminator += 1;
+
+            static_fields.push(pleno_ast::FieldDecl {
+                name: variant_name,
+                ty: None,
+                default: Some(field_value),
+                is_static: true,
+                is_const: true, // Enum variants are constants
+                visibility: Some(pleno_ast::Visibility::Public),
+                annotations: Vec::new(),
+            });
+
+            if !self.matches(&TokenKind::Comma) {
+                if self.check(&TokenKind::RBrace) || self.check(&TokenKind::Semicolon) {
+                    continue;
+                }
+                return Err(ParseError {
+                    message: "Expected ',' or '}' after enum variant".to_string(),
+                    span: self.peek_span(),
+                });
+            }
+        }
+
+        // Create the class
+        Ok(self.wrap_stmt(
+            StmtKind::Class {
+                name,
+                generics: Vec::new(),
+                superclass: None,
+                fields: static_fields, // variants are static fields
+                methods: Vec::new(),
+                nested_classes: Vec::new(),
+                properties: Vec::new(),
+                annotations,
+                is_abstract: false,
+                implements: Vec::new(),
             },
             start_span,
         ))

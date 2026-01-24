@@ -303,6 +303,42 @@ impl Formatter {
                 }
                 result
             }
+            StmtKind::CFor {
+                init,
+                condition,
+                step,
+                body,
+            } => {
+                let mut result = current_indent.clone();
+                result.push_str("for (");
+                if let Some(i) = init {
+                    let formatted = self.format_statement(i, 0);
+                    result.push_str(formatted.trim_end_matches([';', '\n', ' ']));
+                }
+                result.push_str("; ");
+                if let Some(c) = condition {
+                    result.push_str(&self.format_expression(c, indent_level));
+                }
+                result.push_str("; ");
+                if let Some(s) = step {
+                    let formatted = self.format_statement(s, 0);
+                    result.push_str(formatted.trim_end_matches([';', '\n', ' ']));
+                }
+                result.push_str(") ");
+                match &body.kind {
+                    StmtKind::Block(_) => {
+                        let body_formatted = self.format_statement(body, indent_level);
+                        result.push_str(body_formatted.trim_start());
+                    }
+                    _ => {
+                        result.push_str("{\n");
+                        let body_formatted = self.format_statement(body, indent_level + 1);
+                        result.push_str(&body_formatted);
+                        result.push_str(&format!("{}}}\n", self.indent(indent_level)));
+                    }
+                }
+                result
+            }
             StmtKind::DoWhile { body, condition } => {
                 let mut result = format!("{}do ", current_indent);
                 match &body.kind {
@@ -676,6 +712,18 @@ impl Formatter {
                     self.format_expression(else_branch, indent_level)
                 )
             }
+            ExprKind::If {
+                condition,
+                then_branch,
+                else_branch,
+            } => {
+                format!(
+                    "if ({}) {} else {}",
+                    self.format_expression(condition, indent_level),
+                    self.format_expression(then_branch, indent_level),
+                    self.format_expression(else_branch, indent_level)
+                )
+            }
             ExprKind::Binary { left, op, right } => {
                 let op_str = match op {
                     BinaryOp::Add => "+",
@@ -857,6 +905,9 @@ impl Formatter {
                             format!("{}: {}", name, self.format_expression(expr, indent_level))
                         }
                         CallArg::Placeholder => "_".to_string(),
+                        CallArg::Spread(expr) => {
+                            format!("...{}", self.format_expression(expr, indent_level))
+                        }
                     })
                     .collect();
                 format!(

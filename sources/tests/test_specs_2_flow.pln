@@ -1,0 +1,42 @@
+// 2. Control Flow
+
+// 2.1 Conditionals
+let score = 85;
+if (score >= 90) {
+    print("A");
+} else if (score >= 80) {
+    print("B");
+} else {
+    print("C");
+}
+
+let status = if (score >= 60) "Pass" else "Fail";
+if (status != "Pass") throw "If expression failed";
+
+// Match (Pattern Matching)
+let matchRes = match (0) {
+    case 0 => "zero",
+    case 1 => "one",
+    case _ => "other"
+};
+if (matchRes != "zero") throw "Match failed";
+
+// 2.2 Loops
+// let sum = 0;
+// for (let i = 0; i < 5; i = i + 1) {
+//     sum = sum + i;
+// }
+// if (sum != 10) throw "For loop failed";
+
+sum = 0;
+for (i in 0..5) {
+    sum = sum + i;
+}
+if (sum != 10) throw "Range loop failed";
+
+let mut j = 0;
+while (j < 3) {
+    j = j + 1;
+}
+
+print("Section 2 Control Flow: PASSED");

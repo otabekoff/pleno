@@ -132,6 +132,11 @@ pub enum ExprKind {
     },
     Spread(Box<Expr>),
     Paren(Box<Expr>),
+    If {
+        condition: Box<Expr>,
+        then_branch: Box<Expr>,
+        else_branch: Box<Expr>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -213,6 +218,12 @@ pub enum StmtKind {
         label: Option<String>,
         names: Vec<String>,
         iterable: Expr,
+        body: Box<Stmt>,
+    },
+    CFor {
+        init: Option<Box<Stmt>>,
+        condition: Option<Expr>,
+        step: Option<Box<Stmt>>,
         body: Box<Stmt>,
     },
     DoWhile {
@@ -373,6 +384,7 @@ pub enum CallArg {
     Positional(Expr),
     Named(String, Expr),
     Placeholder,
+    Spread(Expr),
 }
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Visibility {

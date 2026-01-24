@@ -1,5 +1,8 @@
+pub mod io;
+pub mod json;
 pub mod path;
 pub mod process;
+pub mod time;
 
 use crate::Value;
 use std::collections::HashMap;
@@ -73,6 +76,54 @@ pub fn get_stdlib_modules(gc: &mut pleno_value::gc::GCManager) -> HashMap<String
     modules.insert(
         "std:process".to_string(),
         Value::Map(gc.allocate(pleno_value::MapState::new(process_module))),
+    );
+
+    // std:io
+    let mut file_obj = HashMap::new();
+    file_obj.insert("read".to_string(), Value::NativeFunction(io::io_file_read));
+    file_obj.insert(
+        "write".to_string(),
+        Value::NativeFunction(io::io_file_write),
+    );
+    file_obj.insert(
+        "exists".to_string(),
+        Value::NativeFunction(io::io_file_exists),
+    );
+
+    let mut io_module = HashMap::new();
+    io_module.insert(
+        "File".to_string(),
+        Value::Map(gc.allocate(pleno_value::MapState::new(file_obj))),
+    );
+    modules.insert(
+        "std:io".to_string(),
+        Value::Map(gc.allocate(pleno_value::MapState::new(io_module))),
+    );
+
+    // std:json
+    let mut json_obj = HashMap::new();
+    json_obj.insert("parse".to_string(), Value::NativeFunction(json::json_parse));
+    json_obj.insert(
+        "stringify".to_string(),
+        Value::NativeFunction(json::json_stringify),
+    );
+
+    let mut json_module = HashMap::new();
+    json_module.insert(
+        "JSON".to_string(),
+        Value::Map(gc.allocate(pleno_value::MapState::new(json_obj))),
+    );
+    modules.insert(
+        "std:json".to_string(),
+        Value::Map(gc.allocate(pleno_value::MapState::new(json_module))),
+    );
+
+    // std:time
+    let mut time_module = HashMap::new();
+    time_module.insert("now".to_string(), Value::NativeFunction(time::time_now));
+    modules.insert(
+        "std:time".to_string(),
+        Value::Map(gc.allocate(pleno_value::MapState::new(time_module))),
     );
 
     modules

@@ -1,0 +1,38 @@
+print("Testing relaxed field declarations");
+
+class Fields {
+    a;
+    b = 1;
+    mut c;
+    mut d = 2;
+    static s;
+    static mut sm = 3;
+
+    constructor() {
+        this.a = 0;
+        this.c = 0;
+    }
+}
+
+let f = Fields();
+print("f.a:", f.a);
+print("f.b:", f.b);
+print("f.c:", f.c);
+print("f.d:", f.d);
+
+f.a = 10;
+f.c = 20;
+print("f.a (after):", f.a);
+print("f.c (after):", f.c);
+
+print("Fields.s:", Fields.s);
+print("Fields.sm:", Fields.sm);
+
+Fields.sm = 30;
+print("Fields.sm (after):", Fields.sm);
+
+if (f.a != 10 || f.c != 20 || Fields.sm != 30) {
+    throw "Fields failed";
+}
+
+print("Relaxed field declarations: PASSED");

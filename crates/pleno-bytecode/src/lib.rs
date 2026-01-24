@@ -91,6 +91,9 @@ pub enum Opcode {
     MulInt,
     DivInt,
     ModInt,
+    ArrayExtend,
+    CallSuper,
+    SetCapture,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

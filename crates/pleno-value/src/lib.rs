@@ -63,10 +63,7 @@ pub enum Value {
         owner: GcRc<Class>,
         visibility: MethodVisibility,
     },
-    Closure {
-        function: usize,
-        captures: Vec<Value>,
-    },
+    Closure(GcRc<ClosureState>),
     NativeFunction(NativeFunction),
     BoundNativeMethod {
         receiver: Box<Value>,
@@ -154,11 +151,7 @@ impl GcObject for Value {
             Value::Class(c) => gc.mark_object(&c.to_gc_object()),
             Value::Interface(i) => gc.mark_object(&i.to_gc_object()),
             Value::BoundMethod { receiver, .. } => gc.mark_object(&receiver.to_gc_object()),
-            Value::Closure { captures, .. } => {
-                for v in captures {
-                    v.mark(gc);
-                }
-            }
+            Value::Closure(c) => gc.mark_object(&c.to_gc_object()),
             Value::BoundNativeMethod { receiver, .. } => receiver.mark(gc),
             Value::Map(m) => gc.mark_object(&m.to_gc_object()),
             Value::Array(a) => gc.mark_object(&a.to_gc_object()),
@@ -407,16 +400,7 @@ impl PartialEq for Value {
                     visibility: vb,
                 },
             ) => fa == fb && oa == ob && va == vb,
-            (
-                Value::Closure {
-                    function: fa,
-                    captures: ca,
-                },
-                Value::Closure {
-                    function: fb,
-                    captures: cb,
-                },
-            ) => fa == fb && ca == cb,
+            (Value::Closure(ca), Value::Closure(cb)) => ca == cb,
             (Value::NativeFunction(a), Value::NativeFunction(b)) => (*a as usize) == (*b as usize),
             (
                 Value::BoundNativeMethod {
@@ -491,7 +475,7 @@ impl std::fmt::Display for Value {
             Value::StaticMethod { owner, .. } => {
                 write!(f, "<static method of {}>", owner.borrow().name)
             }
-            Value::Closure { .. } => write!(f, "<closure>"),
+            Value::Closure(c) => write!(f, "<closure {}>", c.borrow().function),
             Value::NativeFunction(_) => write!(f, "<native fn>"),
             Value::BoundNativeMethod { .. } => write!(f, "<native method>"),
             Value::Map(m) => {
@@ -597,6 +581,25 @@ impl IntoIterator for ArrayState {
         self.elements.into_iter()
     }
 }
+#[derive(Debug, Clone)]
+pub struct ClosureState {
+    pub function: usize,
+    pub captures: Vec<Value>,
+}
+
+impl ClosureState {
+    pub fn new(function: usize, captures: Vec<Value>) -> Self {
+        Self { function, captures }
+    }
+}
+
+impl GcObject for ClosureState {
+    fn mark(&self, gc: &mut MarkAndSweepGC) {
+        for v in &self.captures {
+            v.mark(gc);
+        }
+    }
+}
 
 impl<'a> IntoIterator for &'a ArrayState {
     type Item = &'a Value;
@@ -698,7 +701,7 @@ impl Value {
             Value::Function(_) => "Function",
             Value::BoundMethod { .. } => "Method",
             Value::StaticMethod { .. } => "StaticMethod",
-            Value::Closure { .. } => "Closure",
+            Value::Closure(_) => "Closure",
             Value::NativeFunction(_) => "NativeFunction",
             Value::BoundNativeMethod { .. } => "NativeMethod",
             Value::Map(_) => "Map",
