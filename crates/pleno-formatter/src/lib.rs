@@ -59,11 +59,11 @@ impl Formatter {
 
     fn format_statement(&mut self, stmt: &Stmt, indent_level: usize) -> String {
         let current_indent = self.indent(indent_level);
-        match stmt {
-            Stmt::Module { name } => {
+        match &stmt.kind {
+            StmtKind::Module { name } => {
                 format!("{}module {} {{\n}}\n", current_indent, name)
             }
-            Stmt::Let {
+            StmtKind::Let {
                 name,
                 value,
                 mutable,
@@ -92,7 +92,7 @@ impl Formatter {
                 result.push_str(";\n");
                 result
             }
-            Stmt::Assign { name, value } => {
+            StmtKind::Assign { name, value } => {
                 format!(
                     "{}{} = {};\n",
                     current_indent,
@@ -100,7 +100,7 @@ impl Formatter {
                     self.format_expression(value, indent_level)
                 )
             }
-            Stmt::AssignProperty {
+            StmtKind::AssignProperty {
                 object,
                 name,
                 value,
@@ -113,7 +113,7 @@ impl Formatter {
                     self.format_expression(value, indent_level)
                 )
             }
-            Stmt::AssignIndex {
+            StmtKind::AssignIndex {
                 collection,
                 index,
                 value,
@@ -126,7 +126,7 @@ impl Formatter {
                     self.format_expression(value, indent_level)
                 )
             }
-            Stmt::If {
+            StmtKind::If {
                 condition,
                 then_branch,
                 else_branch,
@@ -138,8 +138,8 @@ impl Formatter {
                 );
 
                 // Format the then branch - if it's a block, format it directly
-                match then_branch.as_ref() {
-                    Stmt::Block(_) => {
+                match &then_branch.kind {
+                    StmtKind::Block(_) => {
                         let then_formatted = self.format_statement(then_branch, indent_level);
                         result.push_str(then_formatted.trim_start());
                     }
@@ -155,8 +155,8 @@ impl Formatter {
                     // Remove trailing newline and add else on same line
                     result = result.trim_end().to_string();
                     result.push_str(" else ");
-                    match else_stmt.as_ref() {
-                        Stmt::Block(_) => {
+                    match &else_stmt.kind {
+                        StmtKind::Block(_) => {
                             let else_formatted = self.format_statement(else_stmt, indent_level);
                             result.push_str(else_formatted.trim_start());
                         }
@@ -171,14 +171,14 @@ impl Formatter {
 
                 result
             }
-            Stmt::While { condition, body } => {
+            StmtKind::While { condition, body } => {
                 let mut result = format!(
                     "{}while ({}) ",
                     current_indent,
                     self.format_expression(condition, indent_level)
                 );
-                match body.as_ref() {
-                    Stmt::Block(_) => {
+                match &body.kind {
+                    StmtKind::Block(_) => {
                         let body_formatted = self.format_statement(body, indent_level);
                         result.push_str(body_formatted.trim_start());
                     }
@@ -191,7 +191,7 @@ impl Formatter {
                 }
                 result
             }
-            Stmt::For {
+            StmtKind::For {
                 names,
                 iterable,
                 body,
@@ -203,8 +203,8 @@ impl Formatter {
                     names_str,
                     self.format_expression(iterable, indent_level)
                 );
-                match body.as_ref() {
-                    Stmt::Block(_) => {
+                match &body.kind {
+                    StmtKind::Block(_) => {
                         let body_formatted = self.format_statement(body, indent_level);
                         result.push_str(body_formatted.trim_start());
                     }
@@ -217,7 +217,7 @@ impl Formatter {
                 }
                 result
             }
-            Stmt::Try {
+            StmtKind::Try {
                 try_branch,
                 catch_branches,
                 finally_branch,
@@ -225,8 +225,8 @@ impl Formatter {
                 let mut result = format!("{}try ", current_indent);
 
                 // Format try branch as block
-                match try_branch.as_ref() {
-                    Stmt::Block(_) => {
+                match &try_branch.kind {
+                    StmtKind::Block(_) => {
                         let try_formatted = self.format_statement(try_branch, indent_level);
                         result.push_str(try_formatted.trim_start());
                     }
@@ -248,8 +248,8 @@ impl Formatter {
                         result.push_str(&format!("({}) ", catch.name));
                     }
 
-                    match catch.body.as_ref() {
-                        Stmt::Block(_) => {
+                    match &catch.body.kind {
+                        StmtKind::Block(_) => {
                             let catch_formatted = self.format_statement(&catch.body, indent_level);
                             result.push_str(catch_formatted.trim_start());
                         }
@@ -267,8 +267,8 @@ impl Formatter {
                     // Remove trailing newline from catch block if present
                     result = result.trim_end().to_string();
                     result.push_str(" finally ");
-                    match finally.as_ref() {
-                        Stmt::Block(_) => {
+                    match &finally.kind {
+                        StmtKind::Block(_) => {
                             let finally_formatted = self.format_statement(finally, indent_level);
                             result.push_str(finally_formatted.trim_start());
                         }
@@ -284,14 +284,14 @@ impl Formatter {
 
                 result
             }
-            Stmt::Throw(expr) => {
+            StmtKind::Throw(expr) => {
                 format!(
                     "{}throw {};\n",
                     current_indent,
                     self.format_expression(expr, indent_level)
                 )
             }
-            Stmt::Import { path, kind } => match kind {
+            StmtKind::Import { path, kind } => match kind {
                 ImportKind::Module { alias } => {
                     if let Some(alias_name) = alias {
                         format!(
@@ -327,14 +327,14 @@ impl Formatter {
                     )
                 }
             },
-            Stmt::Export(inner_stmt) => {
+            StmtKind::Export(inner_stmt) => {
                 format!(
                     "{}export {}",
                     current_indent,
                     self.format_statement(inner_stmt, indent_level)
                 )
             }
-            Stmt::ExportList(items) => {
+            StmtKind::ExportList(items) => {
                 let names: Vec<String> = items
                     .iter()
                     .map(|item| {
@@ -347,7 +347,7 @@ impl Formatter {
                     .collect();
                 format!("{}export {{{}}};\n", current_indent, names.join(", "))
             }
-            Stmt::Class {
+            StmtKind::Class {
                 name,
                 fields,
                 methods,
@@ -388,7 +388,7 @@ impl Formatter {
 
                 for nested_class in nested_classes {
                     // Recursively format nested classes
-                    if let Stmt::Class { .. } = nested_class {
+                    if let StmtKind::Class { .. } = &nested_class.kind {
                         // We need to re-invoke format_statement but adjust indentation?
                         // format_statement should handle it correctly if we pass next_indent
                         let class_str = self.format_statement(nested_class, next_indent);
@@ -400,7 +400,7 @@ impl Formatter {
 
                 result
             }
-            Stmt::Fn {
+            StmtKind::Fn {
                 name,
                 params,
                 body,
@@ -422,8 +422,8 @@ impl Formatter {
                 result.push_str(&param_strs.join(", "));
 
                 result.push_str(") ");
-                match body.as_ref() {
-                    Stmt::Block(_) => {
+                match &body.kind {
+                    StmtKind::Block(_) => {
                         let body_formatted = self.format_statement(body, indent_level);
                         result.push_str(body_formatted.trim_start());
                     }
@@ -437,7 +437,7 @@ impl Formatter {
 
                 result
             }
-            Stmt::Return(expr) => match expr {
+            StmtKind::Return(expr) => match expr {
                 Some(e) => format!(
                     "{}return {};\n",
                     current_indent,
@@ -445,9 +445,9 @@ impl Formatter {
                 ),
                 None => format!("{}return;\n", current_indent),
             },
-            Stmt::Break => format!("{}break;\n", current_indent),
-            Stmt::Continue => format!("{}continue;\n", current_indent),
-            Stmt::Block(statements) => {
+            StmtKind::Break => format!("{}break;\n", current_indent),
+            StmtKind::Continue => format!("{}continue;\n", current_indent),
+            StmtKind::Block(statements) => {
                 // Handle empty blocks
                 if statements.is_empty() {
                     let mut result = String::new();
@@ -473,7 +473,7 @@ impl Formatter {
                 result.push_str(&format!("{}}}\n", self.indent(indent_level)));
                 result
             }
-            Stmt::Expr(expr) => {
+            StmtKind::Expr(expr) => {
                 format!(
                     "{}{};\n",
                     current_indent,
@@ -484,19 +484,19 @@ impl Formatter {
     }
 
     fn format_expression(&mut self, expr: &Expr, indent_level: usize) -> String {
-        match expr {
-            Expr::Literal(literal) => self.format_literal(literal),
-            Expr::Ident(name) => name.clone(),
-            Expr::This => "this".to_string(),
-            Expr::Super => "super".to_string(),
-            Expr::Unary { op, expr } => {
+        match &expr.kind {
+            ExprKind::Literal(literal) => self.format_literal(literal),
+            ExprKind::Ident(name) => name.clone(),
+            ExprKind::This => "this".to_string(),
+            ExprKind::Super => "super".to_string(),
+            ExprKind::Unary { op, expr } => {
                 let op_str = match op {
                     UnaryOp::Negate => "-",
                     UnaryOp::Not => "!",
                 };
                 format!("{}{}", op_str, self.format_expression(expr, indent_level))
             }
-            Expr::Ternary {
+            ExprKind::Ternary {
                 condition,
                 then_branch,
                 else_branch,
@@ -508,7 +508,7 @@ impl Formatter {
                     self.format_expression(else_branch, indent_level)
                 )
             }
-            Expr::Binary { left, op, right } => {
+            ExprKind::Binary { left, op, right } => {
                 let op_str = match op {
                     BinaryOp::Add => "+",
                     BinaryOp::Subtract => "-",
@@ -532,13 +532,13 @@ impl Formatter {
                     self.format_expression(right, indent_level)
                 )
             }
-            Expr::Property { object, name } => {
+            ExprKind::Property { object, name } => {
                 format!("{}.{}", self.format_expression(object, indent_level), name)
             }
-            Expr::SafeProperty { object, name } => {
+            ExprKind::SafeProperty { object, name } => {
                 format!("{}?.{}", self.format_expression(object, indent_level), name)
             }
-            Expr::Range {
+            ExprKind::Range {
                 start,
                 end,
                 inclusive,
@@ -554,7 +554,7 @@ impl Formatter {
                 let op = if *inclusive { "..=" } else { ".." };
                 format!("{}{}{}", start_str, op, end_str)
             }
-            Expr::MapLiteral(entries) => {
+            ExprKind::MapLiteral(entries) => {
                 let items: Vec<String> = entries
                     .iter()
                     .map(|item| match item {
@@ -563,18 +563,25 @@ impl Formatter {
                             key,
                             self.format_expression(value, indent_level)
                         ),
-                        MapItem::Spread(expr) => self.format_expression(expr, indent_level),
+                        MapItem::Spread(expr) => {
+                            let expr_kind = &expr.kind;
+                            if matches!(expr_kind, ExprKind::MapLiteral(_)) {
+                                self.format_expression(expr, indent_level)
+                            } else {
+                                format!("...{}", self.format_expression(expr, indent_level))
+                            }
+                        }
                     })
                     .collect();
                 format!("{{{}}}", items.join(", "))
             }
-            Expr::Spread(expr) => {
+            ExprKind::Spread(expr) => {
                 format!("...{}", self.format_expression(expr, indent_level))
             }
-            Expr::Paren(expr) => {
+            ExprKind::Paren(expr) => {
                 format!("({})", self.format_expression(expr, indent_level))
             }
-            Expr::NamedTupleLiteral(entries) => {
+            ExprKind::NamedTupleLiteral(entries) => {
                 let pairs: Vec<String> = entries
                     .iter()
                     .map(|(key, value)| {
@@ -583,21 +590,21 @@ impl Formatter {
                     .collect();
                 format!("({})", pairs.join(", "))
             }
-            Expr::ArrayLiteral(items) => {
+            ExprKind::ArrayLiteral(items) => {
                 let items_str: Vec<String> = items
                     .iter()
                     .map(|item| self.format_expression(item, indent_level))
                     .collect();
                 format!("[{}]", items_str.join(", "))
             }
-            Expr::TupleLiteral(items) => {
+            ExprKind::TupleLiteral(items) => {
                 let items_str: Vec<String> = items
                     .iter()
                     .map(|item| self.format_expression(item, indent_level))
                     .collect();
                 format!("({})", items_str.join(", "))
             }
-            Expr::Lambda {
+            ExprKind::Lambda {
                 params,
                 body,
                 return_ty: _,
@@ -606,8 +613,8 @@ impl Formatter {
                     params.iter().map(|param| param.name.clone()).collect();
 
                 // Format body - if it's a block, format it properly
-                let body_str = match body.as_ref() {
-                    Expr::Block(statements) => {
+                let body_str = match &body.kind {
+                    ExprKind::Block(statements) => {
                         let mut block_str = String::from("{\n");
                         for stmt in statements {
                             block_str.push_str(&self.format_statement(stmt, indent_level + 1));
@@ -621,7 +628,7 @@ impl Formatter {
                 // Use arrow syntax for lambdas
                 format!("({}) => {}", param_strs.join(", "), body_str)
             }
-            Expr::Block(statements) => {
+            ExprKind::Block(statements) => {
                 let mut result = String::from("{ ");
                 for stmt in statements {
                     result.push_str(&self.format_statement(stmt, indent_level));
@@ -630,15 +637,15 @@ impl Formatter {
                 result.push('}');
                 result
             }
-            Expr::Underscore => "_".to_string(),
-            Expr::Index { collection, index } => {
+            ExprKind::Underscore => "_".to_string(),
+            ExprKind::Index { collection, index } => {
                 format!(
                     "{}[{}]",
                     self.format_expression(collection, indent_level),
                     self.format_expression(index, indent_level)
                 )
             }
-            Expr::Slice {
+            ExprKind::Slice {
                 collection,
                 start,
                 end,
@@ -658,21 +665,21 @@ impl Formatter {
                     end_str
                 )
             }
-            Expr::SetLiteral(items) => {
+            ExprKind::SetLiteral(items) => {
                 let items_str: Vec<String> = items
                     .iter()
                     .map(|item| self.format_expression(item, indent_level))
                     .collect();
                 format!("{{{}}}", items_str.join(", "))
             }
-            Expr::Pipeline { left, right } => {
+            ExprKind::Pipeline { left, right } => {
                 format!(
                     "{} |> {}",
                     self.format_expression(left, indent_level),
                     self.format_expression(right, indent_level)
                 )
             }
-            Expr::Call { callee, args } => {
+            ExprKind::Call { callee, args } => {
                 let arg_strs: Vec<String> = args
                     .iter()
                     .map(|arg| match arg {
@@ -689,7 +696,7 @@ impl Formatter {
                     arg_strs.join(", ")
                 )
             }
-            Expr::Match { expr, arms } => {
+            ExprKind::Match { expr, arms } => {
                 let mut result = format!(
                     "match ({}) {{\n",
                     self.format_expression(expr, indent_level)
@@ -710,7 +717,7 @@ impl Formatter {
                 result.push('}');
                 result
             }
-            Expr::Await { expr } => {
+            ExprKind::Await { expr } => {
                 format!("await {}", self.format_expression(expr, indent_level))
             }
         }
@@ -819,8 +826,8 @@ impl Formatter {
         result.push_str(") ");
 
         // Add body - format as block
-        match func.body.as_ref() {
-            Stmt::Block(_) => {
+        match &func.body.kind {
+            StmtKind::Block(_) => {
                 let body_formatted = self.format_statement(&func.body, indent_level);
                 result.push_str(body_formatted.trim_start());
             }

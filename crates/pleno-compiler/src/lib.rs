@@ -1,4 +1,7 @@
-use pleno_ast::{Expr, FunctionDecl, FunctionKind, Literal, MapItem, Pattern, Program, Stmt};
+use pleno_ast::{
+    Expr, ExprKind, FunctionDecl, FunctionKind, Literal, MapItem, Pattern, Program, Span, Stmt,
+    StmtKind,
+};
 use pleno_bytecode::{Chunk, FunctionProto, Instruction, Opcode, ParamSpec};
 use pleno_value::Value;
 use std::collections::HashMap;
@@ -118,8 +121,8 @@ impl Compiler {
     }
 
     fn compile_stmt(&mut self, stmt: &Stmt) -> Result<(), CompileError> {
-        match stmt {
-            Stmt::Module { name } => {
+        match &stmt.kind {
+            StmtKind::Module { name } => {
                 if !self.module_mode {
                     return Err(CompileError::new(
                         "module declaration only allowed in modules",
@@ -131,12 +134,12 @@ impl Compiler {
                 self.module_name = Some(name.clone());
                 Ok(())
             }
-            Stmt::Expr(expr) => {
+            StmtKind::Expr(expr) => {
                 let reg = self.compile_expr(expr)?;
                 self.last_expr_register = Some(reg);
                 Ok(())
             }
-            Stmt::Let {
+            StmtKind::Let {
                 name,
                 value,
                 mutable,
@@ -166,7 +169,7 @@ impl Compiler {
                 self.insert_local(name.clone(), reg, *mutable, ty.clone())?;
                 Ok(())
             }
-            Stmt::Assign { name, value } => {
+            StmtKind::Assign { name, value } => {
                 let value_reg = self.compile_expr(value)?;
                 let local = self
                     .resolve_local(name)
@@ -181,7 +184,7 @@ impl Compiler {
                 self.free_temp(value_reg);
                 Ok(())
             }
-            Stmt::AssignProperty {
+            StmtKind::AssignProperty {
                 object,
                 name,
                 value,
@@ -194,7 +197,7 @@ impl Compiler {
                 self.free_temp(object_reg);
                 Ok(())
             }
-            Stmt::AssignIndex {
+            StmtKind::AssignIndex {
                 collection,
                 index,
                 value,
@@ -208,7 +211,7 @@ impl Compiler {
                 self.free_temp(collection_reg);
                 Ok(())
             }
-            Stmt::Block(statements) => {
+            StmtKind::Block(statements) => {
                 self.locals.push(HashMap::new());
                 for stmt in statements {
                     self.compile_stmt(stmt)?;
@@ -216,7 +219,7 @@ impl Compiler {
                 self.pop_scope();
                 Ok(())
             }
-            Stmt::If {
+            StmtKind::If {
                 condition,
                 then_branch,
                 else_branch,
@@ -235,7 +238,7 @@ impl Compiler {
                 }
                 Ok(())
             }
-            Stmt::While { condition, body } => {
+            StmtKind::While { condition, body } => {
                 let loop_start = self.chunk.code.len();
                 let cond_reg = self.compile_expr(condition)?;
                 let jump_to_end = self.emit_jump(Opcode::JumpIfNot, cond_reg);
@@ -251,23 +254,23 @@ impl Compiler {
                 self.patch_loop_jumps(loop_ctx, loop_end)?;
                 Ok(())
             }
-            Stmt::For {
+            StmtKind::For {
                 names,
                 iterable,
                 body,
             } => self.compile_for_stmt(names, iterable, body),
-            Stmt::Try {
+            StmtKind::Try {
                 try_branch,
                 catch_branches,
                 finally_branch,
             } => self.compile_try_stmt(try_branch, catch_branches, finally_branch.as_deref()),
-            Stmt::Throw(expr) => {
+            StmtKind::Throw(expr) => {
                 let reg = self.compile_expr(expr)?;
                 self.emit(Opcode::Throw, reg, 0, 0);
                 self.free_temp(reg);
                 Ok(())
             }
-            Stmt::Import { path, kind } => {
+            StmtKind::Import { path, kind } => {
                 let module_reg = self.registers.allocate()?;
                 let path_idx = self.add_constant(Value::String(path.clone().into()));
                 self.emit(Opcode::Import, module_reg, path_idx, 0);
@@ -296,14 +299,14 @@ impl Compiler {
                 }
                 Ok(())
             }
-            Stmt::Export(stmt) => {
+            StmtKind::Export(stmt) => {
                 if !self.module_mode {
                     return Err(CompileError::new("export is only allowed in modules"));
                 }
-                let export_name = match stmt.as_ref() {
-                    Stmt::Let { name, .. } => name.clone(),
-                    Stmt::Fn { name, .. } => name.clone(),
-                    Stmt::Class { name, .. } => name.clone(),
+                let export_name = match &stmt.kind {
+                    StmtKind::Let { name, .. } => name.clone(),
+                    StmtKind::Fn { name, .. } => name.clone(),
+                    StmtKind::Class { name, .. } => name.clone(),
                     _ => return Err(CompileError::new("invalid export statement")),
                 };
                 self.compile_stmt(stmt)?;
@@ -313,7 +316,7 @@ impl Compiler {
                 });
                 Ok(())
             }
-            Stmt::ExportList(items) => {
+            StmtKind::ExportList(items) => {
                 if !self.module_mode {
                     return Err(CompileError::new("export is only allowed in modules"));
                 }
@@ -325,7 +328,7 @@ impl Compiler {
                 }
                 Ok(())
             }
-            Stmt::Class { name, .. } => {
+            StmtKind::Class { name, .. } => {
                 let class_reg = self.compile_class_declaration(stmt)?;
                 if self.is_top_level {
                     let name_idx = self.add_constant(Value::String(name.clone().into()));
@@ -344,7 +347,7 @@ impl Compiler {
                 }
                 Ok(())
             }
-            Stmt::Fn {
+            StmtKind::Fn {
                 name,
                 params,
                 body,
@@ -380,7 +383,7 @@ impl Compiler {
                 }
                 Ok(())
             }
-            Stmt::Return(expr) => {
+            StmtKind::Return(expr) => {
                 let reg = match expr {
                     Some(expr) => self.compile_expr(expr)?,
                     None => {
@@ -392,14 +395,14 @@ impl Compiler {
                 self.emit(Opcode::Return, reg, 0, 0);
                 Ok(())
             }
-            Stmt::Break => self.compile_break_stmt(),
-            Stmt::Continue => self.compile_continue_stmt(),
+            StmtKind::Break => self.compile_break_stmt(),
+            StmtKind::Continue => self.compile_continue_stmt(),
         }
     }
 
     fn compile_expr(&mut self, expr: &Expr) -> Result<u8, CompileError> {
-        match expr {
-            Expr::Literal(lit) => {
+        match &expr.kind {
+            ExprKind::Literal(lit) => {
                 let reg = self.registers.allocate()?;
                 match lit {
                     Literal::Null => self.emit(Opcode::LoadNull, reg, 0, 0),
@@ -429,7 +432,7 @@ impl Compiler {
                 }
                 Ok(reg)
             }
-            Expr::Binary { left, op, right } => {
+            ExprKind::Binary { left, op, right } => {
                 match op {
                     pleno_ast::BinaryOp::And => self.compile_logical_and(left, right),
                     pleno_ast::BinaryOp::Or => self.compile_logical_or(left, right),
@@ -463,7 +466,7 @@ impl Compiler {
                     }
                 }
             }
-            Expr::Unary { op, expr } => {
+            ExprKind::Unary { op, expr } => {
                 let value_reg = self.compile_expr(expr)?;
                 let dest = self.registers.allocate()?;
                 let opcode = match op {
@@ -474,7 +477,7 @@ impl Compiler {
                 self.free_temp(value_reg);
                 Ok(dest)
             }
-            Expr::Ident(name) => {
+            ExprKind::Ident(name) => {
                 if let Some(local) = self.resolve_local(name) {
                     Ok(local.reg)
                 } else if let Some(index) = self.captures.get(name) {
@@ -488,13 +491,13 @@ impl Compiler {
                     Ok(dest)
                 }
             }
-            Expr::This => self
+            ExprKind::This => self
                 .resolve_local("this")
                 .map(|local| local.reg)
                 .ok_or_else(|| CompileError::new("this used outside of method")),
-            Expr::Super => Err(CompileError::new("super is not supported yet")),
-            Expr::Property { object, name } => {
-                if matches!(**object, Expr::Super) {
+            ExprKind::Super => Err(CompileError::new("super is not supported yet")),
+            ExprKind::Property { object, name } => {
+                if matches!(&object.kind, ExprKind::Super) {
                     let this_reg = self
                         .resolve_local("this")
                         .map(|local| local.reg)
@@ -515,7 +518,7 @@ impl Compiler {
                     Ok(dest)
                 }
             }
-            Expr::SafeProperty { object, name } => {
+            ExprKind::SafeProperty { object, name } => {
                 // Safe property access: obj?.prop returns null if obj is null
                 let object_reg = self.compile_expr(object)?;
                 let dest = self.registers.allocate()?;
@@ -546,7 +549,7 @@ impl Compiler {
 
                 Ok(dest)
             }
-            Expr::Ternary {
+            ExprKind::Ternary {
                 condition,
                 then_branch,
                 else_branch,
@@ -570,7 +573,7 @@ impl Compiler {
                 self.patch_jump(jump_to_end)?;
                 Ok(dest)
             }
-            Expr::Range {
+            ExprKind::Range {
                 start,
                 end,
                 inclusive,
@@ -602,7 +605,7 @@ impl Compiler {
                 self.free_temp(end_reg);
                 Ok(dest)
             }
-            Expr::MapLiteral(entries) => {
+            ExprKind::MapLiteral(entries) => {
                 let dest = self.registers.allocate()?;
                 self.emit(Opcode::NewMap, dest, 0, 0);
                 for item in entries {
@@ -622,7 +625,7 @@ impl Compiler {
                 }
                 Ok(dest)
             }
-            Expr::NamedTupleLiteral(entries) => {
+            ExprKind::NamedTupleLiteral(entries) => {
                 let dest = self.registers.allocate()?;
                 self.emit(Opcode::NewMap, dest, 0, 0);
                 for (name, value_expr) in entries {
@@ -633,12 +636,12 @@ impl Compiler {
                 }
                 Ok(dest)
             }
-            Expr::ArrayLiteral(items) => {
+            ExprKind::ArrayLiteral(items) => {
                 let dest = self.registers.allocate()?;
                 self.emit(Opcode::NewArray, dest, 0, 0);
                 for item in items {
-                    match item {
-                        Expr::Spread(inner) => {
+                    match &item.kind {
+                        ExprKind::Spread(inner) => {
                             let val_reg = self.compile_expr(inner)?;
                             self.emit(Opcode::ArraySpread, dest, val_reg, 0);
                             self.free_temp(val_reg);
@@ -652,7 +655,7 @@ impl Compiler {
                 }
                 Ok(dest)
             }
-            Expr::TupleLiteral(items) => {
+            ExprKind::TupleLiteral(items) => {
                 let dest = self.registers.allocate()?;
                 self.emit(Opcode::NewArray, dest, 0, 0);
                 for item in items {
@@ -662,14 +665,20 @@ impl Compiler {
                 }
                 Ok(dest)
             }
-            Expr::Lambda {
+            ExprKind::Lambda {
                 params,
                 body,
                 return_ty: _,
             } => {
-                let body_stmt = match &**body {
-                    Expr::Block(stmts) => Stmt::Block(stmts.clone()),
-                    _ => Stmt::Return(Some((**body).clone())),
+                let body_stmt = match &body.kind {
+                    ExprKind::Block(stmts) => Stmt {
+                        kind: StmtKind::Block(stmts.clone()),
+                        span: body.span,
+                    },
+                    _ => Stmt {
+                        kind: StmtKind::Return(Some((**body).clone())),
+                        span: body.span,
+                    },
                 };
                 let decl = FunctionDecl {
                     name: "anonymous".to_string(),
@@ -684,7 +693,7 @@ impl Compiler {
                 };
                 self.compile_function(&decl, false, false, None)
             }
-            Expr::Block(stmts) => {
+            ExprKind::Block(stmts) => {
                 self.locals.push(HashMap::new());
                 for stmt in stmts {
                     self.compile_stmt(stmt)?;
@@ -700,12 +709,12 @@ impl Compiler {
                 self.pop_scope();
                 Ok(reg)
             }
-            Expr::SetLiteral(items) => {
+            ExprKind::SetLiteral(items) => {
                 let dest = self.registers.allocate()?;
                 self.emit(Opcode::NewSet, dest, 0, 0);
                 for item in items {
-                    match item {
-                        Expr::Spread(inner) => {
+                    match &item.kind {
+                        ExprKind::Spread(inner) => {
                             let val_reg = self.compile_expr(inner)?;
                             self.emit(Opcode::SetSpread, dest, val_reg, 0);
                             self.free_temp(val_reg);
@@ -719,7 +728,7 @@ impl Compiler {
                 }
                 Ok(dest)
             }
-            Expr::Pipeline { left, right } => {
+            ExprKind::Pipeline { left, right } => {
                 let left_reg = self.compile_expr(left)?;
                 let right_reg = self.compile_expr(right)?;
                 let args_reg = self.registers.allocate()?;
@@ -732,10 +741,10 @@ impl Compiler {
                 self.free_temp(args_reg);
                 Ok(dest)
             }
-            Expr::Underscore => Err(CompileError::new(
+            ExprKind::Underscore => Err(CompileError::new(
                 "underscore is only allowed as a placeholder in calls",
             )),
-            Expr::Index { collection, index } => {
+            ExprKind::Index { collection, index } => {
                 let collection_reg = self.compile_expr(collection)?;
                 let index_reg = self.compile_expr(index)?;
                 let dest = self.registers.allocate()?;
@@ -744,7 +753,7 @@ impl Compiler {
                 self.free_temp(index_reg);
                 Ok(dest)
             }
-            Expr::Slice {
+            ExprKind::Slice {
                 collection,
                 start,
                 end,
@@ -797,11 +806,11 @@ impl Compiler {
                 self.free_temp(args_reg);
                 Ok(dest)
             }
-            Expr::Paren(inner) => self.compile_expr(inner),
-            Expr::Spread(_) => Err(CompileError::new(
+            ExprKind::Paren(inner) => self.compile_expr(inner),
+            ExprKind::Spread(_) => Err(CompileError::new(
                 "spread operator only allowed in collection literals",
             )),
-            Expr::Call { callee, args } => {
+            ExprKind::Call { callee, args } => {
                 let callee_reg = self.compile_expr(callee)?;
                 let has_placeholder = args
                     .iter()
@@ -898,7 +907,7 @@ impl Compiler {
                     Ok(dest)
                 }
             }
-            Expr::Match { expr, arms } => {
+            ExprKind::Match { expr, arms } => {
                 let value_reg = self.compile_expr(expr)?;
                 let dest = self.registers.allocate()?;
                 let mut end_jumps = Vec::new();
@@ -944,7 +953,7 @@ impl Compiler {
                 self.free_temp(value_reg);
                 Ok(dest)
             }
-            Expr::Await { expr } => {
+            ExprKind::Await { expr } => {
                 let expr_reg = self.compile_expr(expr)?;
                 let dest = self.registers.allocate()?;
                 self.emit(Opcode::Await, dest, expr_reg, 0);
@@ -1175,11 +1184,11 @@ impl Compiler {
         iterable: &Expr,
         body: &Stmt,
     ) -> Result<(), CompileError> {
-        if let Expr::Range {
+        if let ExprKind::Range {
             start,
             end,
             inclusive,
-        } = iterable
+        } = &iterable.kind
         {
             if names.len() > 1 {
                 return Err(CompileError::new(
@@ -1192,7 +1201,10 @@ impl Compiler {
                     return self.compile_for_range(name, start, end, *inclusive, body);
                 }
                 (None, Some(end)) => {
-                    let zero = Expr::Literal(Literal::Int(0));
+                    let zero = Expr {
+                        kind: ExprKind::Literal(Literal::Int(0)),
+                        span: iterable.span,
+                    };
                     return self.compile_for_range(name, &zero, end, *inclusive, body);
                 }
                 (Some(start), None) => {
@@ -1205,7 +1217,7 @@ impl Compiler {
                 }
             }
         }
-        if matches!(iterable, Expr::Literal(_)) {
+        if matches!(iterable.kind, ExprKind::Literal(_)) {
             return Err(CompileError::new("for loop expects array, set, or range"));
         }
         if names.len() > 2 {
@@ -1416,7 +1428,10 @@ impl Compiler {
     ) -> Result<(), CompileError> {
         match pattern {
             Pattern::Literal(lit) => {
-                let lit_reg = self.compile_expr(&Expr::Literal(lit.clone()))?;
+                let lit_reg = self.compile_expr(&Expr {
+                    kind: ExprKind::Literal(lit.clone()),
+                    span: Span::new(0, 0),
+                })?;
                 let eq_reg = self.registers.allocate()?;
                 self.emit(Opcode::Eq, eq_reg, value_reg, lit_reg);
                 self.free_temp(lit_reg);
@@ -1758,8 +1773,8 @@ impl Compiler {
     }
 
     fn compile_class_declaration(&mut self, stmt: &Stmt) -> Result<u8, CompileError> {
-        let (name, fields, methods, superclass, nested_classes) = match stmt {
-            Stmt::Class {
+        let (name, fields, methods, superclass, nested_classes) = match &stmt.kind {
+            StmtKind::Class {
                 name,
                 fields,
                 methods,
@@ -1839,9 +1854,9 @@ impl Compiler {
             }
         }
         for nested in nested_classes {
-            if let Stmt::Class {
+            if let StmtKind::Class {
                 name: nested_name, ..
-            } = nested
+            } = &nested.kind
             {
                 // Recursively compile nested class
                 let nested_reg = self.compile_class_declaration(nested)?;
@@ -1858,16 +1873,16 @@ impl Compiler {
     }
 
     fn collect_locals(&self, stmt: &Stmt, locals: &mut HashMap<String, ()>) {
-        match stmt {
-            Stmt::Let { name, .. } => {
+        match &stmt.kind {
+            StmtKind::Let { name, .. } => {
                 locals.insert(name.clone(), ());
             }
-            Stmt::Block(items) => {
+            StmtKind::Block(items) => {
                 for item in items {
                     self.collect_locals(item, locals);
                 }
             }
-            Stmt::If {
+            StmtKind::If {
                 then_branch,
                 else_branch,
                 ..
@@ -1877,14 +1892,14 @@ impl Compiler {
                     self.collect_locals(else_branch, locals);
                 }
             }
-            Stmt::While { body, .. } => self.collect_locals(body, locals),
-            Stmt::For { names, body, .. } => {
+            StmtKind::While { body, .. } => self.collect_locals(body, locals),
+            StmtKind::For { names, body, .. } => {
                 for name in names {
                     locals.insert(name.clone(), ());
                 }
                 self.collect_locals(body, locals)
             }
-            Stmt::Fn { name, .. } => {
+            StmtKind::Fn { name, .. } => {
                 locals.insert(name.clone(), ());
             }
             _ => {}
@@ -1892,22 +1907,22 @@ impl Compiler {
     }
 
     fn collect_idents(&self, stmt: &Stmt, used: &mut HashMap<String, ()>) {
-        match stmt {
-            Stmt::Expr(expr) => self.collect_idents_expr(expr, used),
-            Stmt::Let {
+        match &stmt.kind {
+            StmtKind::Expr(expr) => self.collect_idents_expr(expr, used),
+            StmtKind::Let {
                 value: Some(value), ..
             } => {
                 self.collect_idents_expr(value, used);
             }
-            Stmt::Assign { name, value } => {
+            StmtKind::Assign { name, value } => {
                 used.insert(name.clone(), ());
                 self.collect_idents_expr(value, used);
             }
-            Stmt::AssignProperty { object, value, .. } => {
+            StmtKind::AssignProperty { object, value, .. } => {
                 self.collect_idents_expr(object, used);
                 self.collect_idents_expr(value, used);
             }
-            Stmt::AssignIndex {
+            StmtKind::AssignIndex {
                 collection,
                 index,
                 value,
@@ -1916,7 +1931,7 @@ impl Compiler {
                 self.collect_idents_expr(index, used);
                 self.collect_idents_expr(value, used);
             }
-            Stmt::If {
+            StmtKind::If {
                 condition,
                 then_branch,
                 else_branch,
@@ -1927,40 +1942,40 @@ impl Compiler {
                     self.collect_idents(else_branch, used);
                 }
             }
-            Stmt::While { condition, body } => {
+            StmtKind::While { condition, body } => {
                 self.collect_idents_expr(condition, used);
                 self.collect_idents(body, used);
             }
-            Stmt::For { iterable, body, .. } => {
+            StmtKind::For { iterable, body, .. } => {
                 self.collect_idents_expr(iterable, used);
                 self.collect_idents(body, used);
             }
-            Stmt::Fn { .. } => {}
-            Stmt::Return(Some(expr)) => {
+            StmtKind::Fn { .. } => {}
+            StmtKind::Return(Some(expr)) => {
                 self.collect_idents_expr(expr, used);
             }
-            Stmt::Block(items) => {
+            StmtKind::Block(items) => {
                 for item in items {
                     self.collect_idents(item, used);
                 }
             }
-            Stmt::Class { .. } => {}
+            StmtKind::Class { .. } => {}
             _ => {}
         }
     }
 
     fn collect_idents_expr(&self, expr: &Expr, used: &mut HashMap<String, ()>) {
-        match expr {
-            Expr::Ident(name) => {
+        match &expr.kind {
+            ExprKind::Ident(name) => {
                 used.insert(name.clone(), ());
             }
-            Expr::Unary { expr, .. } => self.collect_idents_expr(expr, used),
-            Expr::Binary { left, right, .. } => {
+            ExprKind::Unary { expr, .. } => self.collect_idents_expr(expr, used),
+            ExprKind::Binary { left, right, .. } => {
                 self.collect_idents_expr(left, used);
                 self.collect_idents_expr(right, used);
             }
-            Expr::Property { object, .. } => self.collect_idents_expr(object, used),
-            Expr::Range { start, end, .. } => {
+            ExprKind::Property { object, .. } => self.collect_idents_expr(object, used),
+            ExprKind::Range { start, end, .. } => {
                 if let Some(start) = start {
                     self.collect_idents_expr(start, used);
                 }
@@ -1968,7 +1983,7 @@ impl Compiler {
                     self.collect_idents_expr(end, used);
                 }
             }
-            Expr::MapLiteral(items) => {
+            ExprKind::MapLiteral(items) => {
                 for item in items {
                     match item {
                         pleno_ast::MapItem::Entry(_, value) => {
@@ -1978,16 +1993,18 @@ impl Compiler {
                     }
                 }
             }
-            Expr::ArrayLiteral(items) | Expr::SetLiteral(items) => {
+            ExprKind::ArrayLiteral(items)
+            | ExprKind::SetLiteral(items)
+            | ExprKind::TupleLiteral(items) => {
                 for item in items {
                     self.collect_idents_expr(item, used);
                 }
             }
-            Expr::Index { collection, index } => {
+            ExprKind::Index { collection, index } => {
                 self.collect_idents_expr(collection, used);
                 self.collect_idents_expr(index, used);
             }
-            Expr::Slice {
+            ExprKind::Slice {
                 collection,
                 start,
                 end,
@@ -2000,7 +2017,7 @@ impl Compiler {
                     self.collect_idents_expr(end_expr, used);
                 }
             }
-            Expr::Call { callee, args } => {
+            ExprKind::Call { callee, args } => {
                 self.collect_idents_expr(callee, used);
                 for arg in args {
                     match arg {
@@ -2014,13 +2031,13 @@ impl Compiler {
                     }
                 }
             }
-            Expr::Match { expr, arms } => {
+            ExprKind::Match { expr, arms } => {
                 self.collect_idents_expr(expr, used);
                 for arm in arms {
                     self.collect_idents_expr(&arm.body, used);
                 }
             }
-            Expr::Pipeline { left, right } => {
+            ExprKind::Pipeline { left, right } => {
                 self.collect_idents_expr(left, used);
                 self.collect_idents_expr(right, used);
             }

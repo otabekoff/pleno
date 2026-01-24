@@ -1159,6 +1159,34 @@ impl VM {
                     };
                     self.registers[base + a] = Value::Int(val - c as i64);
                 }
+                Opcode::MulInt => {
+                    let val = match &self.registers[base + b] {
+                        Value::Int(i) => *i,
+                        _ => return Err(RuntimeError::new("MulInt expects integer")),
+                    };
+                    self.registers[base + a] = Value::Int(val * c as i64);
+                }
+                Opcode::DivInt => {
+                    let val = match &self.registers[base + b] {
+                        Value::Int(i) => *i,
+                        _ => return Err(RuntimeError::new("DivInt expects integer")),
+                    };
+                    if c == 0 {
+                        return Err(RuntimeError::new("division by zero"));
+                    }
+                    self.registers[base + a] = Value::Int(val / c as i64);
+                }
+                Opcode::ModInt => {
+                    let val = match &self.registers[base + b] {
+                        Value::Int(i) => *i,
+                        _ => return Err(RuntimeError::new("ModInt expects integer")),
+                    };
+                    if c == 0 {
+                        return Err(RuntimeError::new("division by zero"));
+                    }
+                    self.registers[base + a] = Value::Int(val % c as i64);
+                }
+
                 Opcode::SetProperty => {
                     let name = match &function.chunk.constants[c] {
                         Value::String(value) => value.as_str().to_string(),
@@ -2114,10 +2142,6 @@ impl VM {
                         _ => return Err(RuntimeError::new("slice expects array or string")),
                     }
                 }
-
-                _ => {
-                    return Err(RuntimeError::new("opcode not implemented"));
-                }
             }
         }
     }
@@ -3036,8 +3060,8 @@ fn apply_offset(ip: usize, offset: i16) -> Result<usize, RuntimeError> {
 
 fn resolve_builtin_method(ty: &str, name: &str) -> Option<NativeFunction> {
     match (ty, name) {
-        ("String", "toUpperCase") => Some(native_string_upper),
-        ("String", "toLowerCase") => Some(native_string_lower),
+        ("String", "toUpperCase") | ("String", "upper") => Some(native_string_upper),
+        ("String", "toLowerCase") | ("String", "lower") => Some(native_string_lower),
         ("String", "trim") => Some(native_string_trim),
         ("String", "split") => Some(native_string_split),
         ("String", "contains") => Some(native_string_contains),

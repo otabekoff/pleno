@@ -168,8 +168,8 @@ impl Linter {
         let mut diagnostics = Vec::new();
 
         fn find_let_declarations(stmt: &Stmt, diagnostics: &mut Vec<LintDiagnostic>) {
-            match stmt {
-                Stmt::Let { name, .. } => {
+            match &stmt.kind {
+                StmtKind::Let { name, .. } => {
                     diagnostics.push(LintDiagnostic {
                         rule_name: "no-unused-vars".to_string(),
                         message: format!("Variable '{}' is declared but possibly unused", name),
@@ -178,12 +178,12 @@ impl Linter {
                         column: 0,
                     });
                 }
-                Stmt::Block(stmts) => {
+                StmtKind::Block(stmts) => {
                     for s in stmts {
                         find_let_declarations(s, diagnostics);
                     }
                 }
-                Stmt::If {
+                StmtKind::If {
                     then_branch,
                     else_branch,
                     ..
@@ -193,9 +193,9 @@ impl Linter {
                         find_let_declarations(eb, diagnostics);
                     }
                 }
-                Stmt::While { body, .. } => find_let_declarations(body, diagnostics),
-                Stmt::For { body, .. } => find_let_declarations(body, diagnostics),
-                Stmt::Fn { body, .. } => {
+                StmtKind::While { body, .. } => find_let_declarations(body, diagnostics),
+                StmtKind::For { body, .. } => find_let_declarations(body, diagnostics),
+                StmtKind::Fn { body, .. } => {
                     find_let_declarations(body, diagnostics);
                 }
                 _ => {}

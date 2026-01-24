@@ -19,7 +19,7 @@ fn division_by_zero_error() {
 
 #[test]
 fn invalid_operands_error() {
-    let err = eval_result("\"hello\" + 1;").unwrap_err();
+    let err = eval_result("true + false;").unwrap_err();
     assert!(err.contains("invalid operands"));
 }
 
