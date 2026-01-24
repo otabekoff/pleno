@@ -1,0 +1,25 @@
+// Test: Recursive Variant Matching
+ 
+fn tree_sum(t) {
+    return match t {
+        case {variant: "Leaf", value: v} => v,
+        case {variant: "Node", left: l, right: r} => tree_sum(l) + tree_sum(r),
+        case _ => 0
+    };
+}
+ 
+let my_tree = {
+    "variant": "Node",
+    "left": {"variant": "Leaf", "value": 10},
+    "right": {
+        "variant": "Node",
+        "left": {"variant": "Leaf", "value": 20},
+        "right": {"variant": "Leaf", "value": 30}
+    }
+};
+ 
+let total = tree_sum(my_tree);
+print("Tree total: " + total);
+if (total == 60) {
+    print("SUCCESS: Recursive variant matching works");
+}

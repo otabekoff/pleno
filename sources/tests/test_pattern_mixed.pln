@@ -1,0 +1,18 @@
+// Test: Mixed Multi-Patterns and Rest
+ 
+let list = [1, 2, 3, 4, 5, 6];
+ 
+match list {
+    case (1, 2, ...rest) => {
+        print("Matched 1, 2. Rest type: " + id(rest));
+        if (rest.length == 4) {
+            print("SUCCESS: Rest pattern length OK");
+        }
+    },
+    case _ => print("FAILURE")
+}
+ 
+match 2 {
+    case 1, 2, 3 => print("SUCCESS: Or pattern works (1, 2, 3) matched 2"),
+    case _ => print("FAILURE")
+}

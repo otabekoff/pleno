@@ -96,7 +96,7 @@ impl<T: ?Sized + GcObject> GcWeak<T> {
 pub struct MarkAndSweepGC {
     roots: Vec<Weak<RefCell<dyn GcObject>>>,
     heap: Vec<Rc<RefCell<dyn GcObject>>>,
-    marked: HashSet<*const dyn GcObject>,
+    marked: HashSet<*const ()>,
     pub allocation_threshold: usize,
 }
 
@@ -127,10 +127,8 @@ impl MarkAndSweepGC {
     }
 
     pub fn collect(&mut self, manual_roots: &[&dyn GcObject]) {
-        // Reset marked set
         self.marked.clear();
 
-        // Mark phase: traverse from permanent roots
         let roots_snapshot = self.roots.clone();
         for root_weak in roots_snapshot {
             if let Some(root_rc) = root_weak.upgrade() {
@@ -138,17 +136,33 @@ impl MarkAndSweepGC {
             }
         }
 
-        // Mark phase: traverse from manual roots (stack, etc.)
         for root in manual_roots {
             root.mark(self);
         }
 
-        // Sweep phase: remove unmarked objects
+        self.sweep();
+    }
+
+    pub fn collect_with<F>(&mut self, marker: F)
+    where
+        F: FnOnce(&mut MarkAndSweepGC),
+    {
+        self.marked.clear();
+
+        let roots_snapshot = self.roots.clone();
+        for root_weak in roots_snapshot {
+            if let Some(root_rc) = root_weak.upgrade() {
+                self.mark_object(&GcRc { inner: root_rc });
+            }
+        }
+
+        marker(self);
+
         self.sweep();
     }
 
     pub fn mark_object(&mut self, obj: &GcRc<dyn GcObject>) {
-        let ptr = obj.inner.as_ptr() as *const dyn GcObject;
+        let ptr = Rc::as_ptr(&obj.inner) as *const ();
 
         if self.marked.contains(&ptr) {
             return;
@@ -156,25 +170,22 @@ impl MarkAndSweepGC {
 
         self.marked.insert(ptr);
 
-        // Mark the object and its references
         obj.inner.borrow().mark(self);
     }
 
     fn sweep(&mut self) {
-        // Break cycles for unmarked objects
         for obj in &self.heap {
-            let ptr = obj.as_ptr() as *const dyn GcObject;
+            let ptr = Rc::as_ptr(obj) as *const ();
             if !self.marked.contains(&ptr) {
                 obj.borrow_mut().clear_refs();
             }
         }
 
         self.heap.retain(|obj| {
-            let ptr = obj.as_ptr() as *const dyn GcObject;
+            let ptr = Rc::as_ptr(obj) as *const ();
             self.marked.contains(&ptr)
         });
 
-        // Clean up dead weak references in roots
         self.roots.retain(|weak| weak.upgrade().is_some());
     }
 
@@ -183,7 +194,6 @@ impl MarkAndSweepGC {
     }
 }
 
-// GC Manager to coordinate garbage collection
 pub struct GCManager {
     pub gc: MarkAndSweepGC,
     pub current_allocation: usize,
@@ -213,6 +223,14 @@ impl GCManager {
 
     pub fn collect_garbage(&mut self, roots: &[&dyn GcObject]) {
         self.gc.collect(roots);
+        self.current_allocation = self.gc.get_heap_size();
+    }
+
+    pub fn collect_garbage_with<F>(&mut self, marker: F)
+    where
+        F: FnOnce(&mut MarkAndSweepGC),
+    {
+        self.gc.collect_with(marker);
         self.current_allocation = self.gc.get_heap_size();
     }
 }

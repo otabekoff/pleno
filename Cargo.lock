@@ -628,6 +628,7 @@ dependencies = [
 name = "pleno-bytecode"
 version = "0.1.0"
 dependencies = [
+ "pleno-common",
  "pleno-value",
 ]
 
@@ -636,6 +637,7 @@ name = "pleno-cli"
 version = "0.1.0"
 dependencies = [
  "pleno-compiler",
+ "pleno-diagnostics",
  "pleno-formatter",
  "pleno-lexer",
  "pleno-package",
@@ -743,6 +745,9 @@ version = "0.1.0"
 [[package]]
 name = "pleno-value"
 version = "0.1.0"
+dependencies = [
+ "pleno-common",
+]
 
 [[package]]
 name = "pleno-vm"

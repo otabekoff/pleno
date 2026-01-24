@@ -11,6 +11,14 @@ export class DateTime {
     public static fn now(): DateTime {
         return DateTime(__native_datetime_now());
     }
+ 
+    public static fn now_ns(): Int {
+        return __native_time_now_ns();
+    }
+ 
+    public static fn sleep(ms: Int) {
+        return __native_sleep(ms);
+    }
 
     public static fn parse(dateStr: String, fmt: String): DateTime {
         return DateTime(__native_datetime_parse(dateStr, fmt));

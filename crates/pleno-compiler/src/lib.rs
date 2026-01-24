@@ -34,7 +34,7 @@ pub struct Compiler {
     module_exports: Vec<ExportItem>,
     module_name: Option<String>,
     source: String,
-    current_line: u32,
+    current_span: pleno_ast::Span,
     next_labels: Vec<String>,
 }
 
@@ -66,7 +66,7 @@ impl Compiler {
             module_exports: Vec::new(),
             module_name: None,
             source,
-            current_line: 1,
+            current_span: pleno_ast::Span::new(0, 0),
             next_labels: Vec::new(),
         }
     }
@@ -134,13 +134,7 @@ impl Compiler {
     }
 
     fn compile_stmt(&mut self, stmt: &Stmt) -> Result<(), CompileError> {
-        // Update current line based on statement start
-        if !self.source.is_empty() && stmt.span.start < self.source.len() {
-            self.current_line = self.source[..stmt.span.start].lines().count() as u32;
-            if self.current_line == 0 {
-                self.current_line = 1;
-            }
-        }
+        self.current_span = stmt.span;
 
         match &stmt.kind {
             StmtKind::Module { name, body } => {
@@ -545,6 +539,7 @@ impl Compiler {
     }
 
     fn compile_expr(&mut self, expr: &Expr) -> Result<u8, CompileError> {
+        self.current_span = expr.span;
         match &expr.kind {
             ExprKind::Literal(lit) => {
                 let reg = self.registers.allocate()?;
@@ -1096,7 +1091,7 @@ impl Compiler {
 
     fn emit(&mut self, opcode: Opcode, a: u8, b: u8, c: u8) {
         self.chunk.code.push(Instruction::new(opcode, a, b, c));
-        self.chunk.lines.push(self.current_line);
+        self.chunk.spans.push(self.current_span);
     }
 
     fn emit_jump(&mut self, opcode: Opcode, reg: u8) -> usize {
@@ -1894,6 +1889,7 @@ impl Compiler {
 
         let is_pure = decl.annotations.iter().any(|a| a.name == "pure");
         self.chunk.functions.push(FunctionProto {
+            name: decl.name.clone(),
             chunk: compiler.chunk,
             arity,
             params: param_specs,
@@ -2016,6 +2012,7 @@ impl Compiler {
             .collect();
 
         self.chunk.functions.push(FunctionProto {
+            name: "<lambda>".to_string(),
             chunk: compiler.chunk,
             arity,
             params: param_specs,

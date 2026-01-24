@@ -1,0 +1,30 @@
+import benchmark from "std:benchmark";
+import time from "std:time";
+ 
+fn slow_work() {
+    let mut sum = 0;
+    for (i in 0..10000) {
+        sum = sum + i;
+    }
+}
+ 
+print("Testing Benchmark module...");
+let duration = benchmark.Benchmark.run("Small Loop", slow_work);
+ 
+if (duration > 0) {
+    print("SUCCESS: Benchmark returned positive duration: " + duration + " ns");
+} else {
+    print("FAILURE: Benchmark returned non-positive duration: " + duration);
+}
+ 
+let start = time.DateTime.now_ns();
+time.DateTime.sleep(10);
+let end = time.DateTime.now_ns();
+let diff = end - start;
+print("10ms sleep measured as: " + diff + " ns (" + (diff / 1000000) + " ms)");
+ 
+if (diff >= 10000000) { // at least 10ms
+    print("SUCCESS: Timing and sleep are consistent!");
+} else {
+    print("FAILURE: Timing/sleep inconsistency. Measurement too low.");
+}

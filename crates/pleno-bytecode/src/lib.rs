@@ -1,3 +1,4 @@
+use pleno_common::Span;
 use pleno_value::Value;
 
 #[repr(u8)]
@@ -123,7 +124,7 @@ pub struct Chunk {
     pub code: Vec<Instruction>,
     pub constants: Vec<Value>,
     pub functions: Vec<FunctionProto>,
-    pub lines: Vec<u32>,
+    pub spans: Vec<Span>,
     pub max_registers: usize,
     pub module_name: Option<String>,
 }
@@ -140,7 +141,7 @@ impl Chunk {
             code: Vec::new(),
             constants: Vec::new(),
             functions: Vec::new(),
-            lines: Vec::new(),
+            spans: Vec::new(),
             max_registers: 0,
             module_name: None,
         }
@@ -149,6 +150,7 @@ impl Chunk {
 
 #[derive(Debug, Clone)]
 pub struct FunctionProto {
+    pub name: String,
     pub chunk: Chunk,
     pub arity: u8,
     pub params: Vec<ParamSpec>,
