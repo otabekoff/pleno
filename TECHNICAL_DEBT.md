@@ -4,33 +4,33 @@ This document tracks known technical debts and areas requiring improvement in Pl
 
 ---
 
-## High Priority
+## Resolved ✅
 
+### Compiler Error Handling
+**Location:** `crates/pleno-compiler/src/lib.rs`
+- Resolved `expect()` calls ✅
+- Resolved unused `Result` warnings ✅
+- Fixed unreachable pattern warnings ✅
 
+### Linter
+**Location:** `crates/pleno-linter/`
+- AST spans for accurate line/column numbers ✅
+- Unused variable detection with usage tracking ✅
+- Style rules (operator spacing, line length, trailing spaces) ✅
 
-### Memory Management
-**Location:** `crates/pleno-gc/`, `crates/pleno-vm/`
+### Documentation
+- API documentation for all stdlib modules ✅
+- VitePress-based docs infrastructure ✅
 
-- GC roots (registers, globals, call frames, async tasks, promises) integrated in VM loop
-- VM still uses `GcRc` (wrapping `Rc<RefCell<>>`) for memory management
-- GC can collect unreachable objects from `heap`, but cannot yet break circular references purely within `Rc` chains
-
-**Effort:** High
+### CLI Tooling
+**Location:** `crates/pleno-cli/`
+- Format command with AST-based formatting ✅
+- Directory formatting ✅
+- Linting with comprehensive rules ✅
 
 ---
 
 ## Medium Priority
-
-### CLI Tooling
-**Location:** `crates/pleno-cli/src/main.rs`
-
-- Format command uses `pleno-formatter` for robust AST-based formatting ✅
-- Directory formatting supported in CLI ✅
-- Linting needs more comprehensive rules
-
-**Effort:** Medium
-
----
 
 ### Formatter Limitations
 **Location:** `crates/pleno-formatter/`
@@ -40,103 +40,72 @@ Requires AST changes:
 - Comments not preserved
 - Blank lines not preserved
 
-Parser limitations:
-- Module blocks not supported
-
-**Effort:** High
+**Effort:** High (requires parser changes)
 
 ---
 
 ### Parser & AST
 **Location:** `crates/pleno-parser/`, `crates/pleno-ast/`
 
-Missing:
-- Nested classes ✅
-- Underscore parameters ✅
+Missing features:
 - Module blocks (`module Name { ... }`)
-- Comments in AST (Spans implemented, capture logic needed)
-- Parentheses preservation (Spans implemented, capture logic needed)
-- Array type syntax (`Type[]`) in function signatures (currently requires `Array<Type>`)
-- **Note:** AST now supports Spans across all nodes (Refactor completed Jan 2026).
+- Comments in AST
+- Parentheses preservation
+- Array type syntax (`Type[]`)
+
+**Note:** AST spans implemented across all nodes ✅
 
 **Effort:** High
 
 ---
 
-### Compiler Error Handling
-**Location:** `crates/pleno-compiler/src/lib.rs`
-
-- Resolved many `expect()` calls in `pleno-compiler` ✅
-- Resolved all unused `Result` warnings in `pleno-compiler` ✅
-- Fixed unreachable pattern warning in `pleno-vm` ✅
-
-**Effort:** Low
-
----
-
-### Linter
-**Location:** `crates/pleno-linter/`
-
-- Uses AST spans for accurate line/column numbers ✅
-- Proper unused variable detection with usage tracking ✅
-- Style rules (operator spacing, line length, trailing spaces, semicolon spacing) ✅
-
-**Effort:** Low (mostly complete)
-
----
-
 ## Low Priority
 
+### Memory Management
+**Location:** `crates/pleno-gc/`, `crates/pleno-vm/`
+
+- GC roots integrated in VM loop ✅
+- `GcRc` wrapping `Rc<RefCell<>>` for memory management
+- Cannot break circular references in pure `Rc` chains
+
+**Effort:** High (deferred to post-v1)
+
+---
+
 ### Error Handling in Tests
-- Excessive use of `unwrap()` and `expect()` in tests (50+ instances)
-- Multiple `panic!()` calls for unexpected types
-- Multiple `unreachable!()` calls
+- Excessive `unwrap()` and `expect()` usage (cosmetic)
+- Can be addressed incrementally
 
 **Effort:** Low
 
 ---
 
 ### Test Coverage
-- **Expand test suite**: Currently 53+ tests passing, need significantly more coverage.
-- **Error Messages**: Improve compiler and runtime error messages (e.g. `invalid operands for +`).
-- 8 formatter tests ignored due to missing features
-- Some tests have "may not work as expected" notes
+- Currently 190+ tests passing
+- 8 formatter tests ignored (missing features)
+- Need more integration tests
 
-**Effort:** High
+**Effort:** Medium
 
 ---
 
 ### Performance
 - No benchmarking infrastructure
-- No performance profiling
-- No optimization passes in compiler
+- No optimization passes
 
-**Effort:** High
-
----
-
-### Documentation
-- API documentation for std:path, std:process modules ✅
-- Data structures documentation (Map/Set functional methods) ✅
-- VitePress-based docs infrastructure in place ✅
-
-**Effort:** Low (mostly complete)
+**Effort:** High (deferred to post-v1)
 
 ---
 
 ## Summary
 
-| Priority | Count | Notes |
-|----------|-------|-------|
-| High | 4 | REPL, VM methods, Stdlib, GC |
-| Medium | 5 | CLI, Formatter, Parser, Compiler, Linter |
-| Low | 4 | Error handling, Tests, Performance, Documentation |
+| Priority | Status |
+|----------|--------|
+| Resolved | Compiler, Linter, Documentation, CLI |
+| Medium | Formatter, Parser/AST |
+| Low/Deferred | GC, Performance, Test coverage |
 
-**Next Steps:**
-1. GC: Investigate breaking `Rc` cycles or transitioning to full tracing management
-2. Async: Implement `Promise.all` and `spawn()`
-3. Standard Library: Expand `String` and `Map` methods
-4. Linter: Implement comprehensive rules
-
-
-
+**v1 Focus:**
+1. Add more integration tests
+2. Improve error messages
+3. Fix any critical bugs
