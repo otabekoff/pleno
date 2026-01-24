@@ -1,21 +1,25 @@
-// Test abstract class instantiation
-
+// Test abstract class instantiation checks
 abstract class Shape {
-    abstract fn area(): Float;
+    abstract fn area();
 }
 
 class Circle extends Shape {
-    private radius: Float;
-    constructor(r: Float) { this.radius = r; }
-    fn area(): Float { return 3.14 * this.radius * this.radius; }
+    r;
+    constructor(r) { this.r = r; }
+    fn area() { return 3.14 * this.r * this.r; }
 }
 
-let c = Circle(5.0);
-print("Circle area: " + c.area());
-
-try {
-    let s = Shape(); // Should error
-    print("ERROR: Should not be able to instantiate Shape");
-} catch (e) {
-    print("Caught expected error: " + e.message);
+fn test_abstract_instantiation() {
+    print("Testing abstract class instantiation...");
+    try {
+        let s = new Shape();
+        print("ERROR: instantiated abstract class!");
+    } catch (e) {
+        print("SUCCESS: Caught error:", e.message);
+    }
 }
+
+test_abstract_instantiation();
+
+// Verify that execution CONTINUES after the error (bug check)
+print("Execution continued after try/catch.");

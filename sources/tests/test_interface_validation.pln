@@ -1,0 +1,86 @@
+// Test Interface Validation
+
+interface Runnable {
+    fn run();
+}
+
+interface Calculator {
+    fn add(a, b);
+    fn subtract(a, b);
+}
+
+// 1. Valid Implementation
+class Runner implements Runnable {
+    fn run() {
+        print("Runner running!");
+    }
+}
+
+class MyCalc implements Calculator {
+    fn add(a, b) { return a + b; }
+    fn subtract(a, b) { return a - b; }
+}
+
+print("Instantiating valid classes...");
+let r = new Runner();
+r.run();
+let c = new MyCalc();
+print("1 + 2 =", c.add(1, 2));
+
+// 2. Missing Method
+interface Logger {
+    fn log(msg);
+}
+
+print("Testing missing method validation...");
+try {
+    // We define class inside try block or just define it globally and catch runtime error upon definition?
+    // In Pleno, class definition executes at runtime. So try block should catch it.
+    // However, class definition is a statement. Can we put class definition in try block?
+    // Pleno supports block statements, so yes.
+    
+    // NOTE: Pleno might not support class definition inside try block depending on scoping?
+    // Classes are usually block scoped or module scoped.
+    // Let's try defining classes in a function to isolate scope.
+    
+    let makeInvalidLogger = fn() {
+        // This is dynamic class definition? No, Pleno class def is statement.
+        // We can't easily conditionally define classes in current syntax if they are declarations.
+        // But let's assume we can wrapper code string and eval? No eval.
+        
+        // Actually, if class definition throws, it throws at definition time.
+        // If I put it in a function, it runs when function runs? No, class def runs when encountered.
+        // So putting it in a function and calling function inside try should work.
+    };
+    
+    // Actually, let's just use a block
+    try {
+        class BadLogger implements Logger {
+            // Missing log method
+            fn other() {}
+        }
+    } catch (e) {
+        print("SUCCESS: Caught missing method error:", e.message);
+    }
+
+} catch (e) {
+    print("Outer catch:", e.message);
+}
+
+// 3. Arity Mismatch
+print("Testing arity mismatch...");
+interface Printer {
+    fn print(msg);
+}
+
+try {
+    class BadPrinter implements Printer {
+        fn print(a, b) { // Wrong arity
+            print(a, b);
+        }
+    }
+} catch (e) {
+    print("SUCCESS: Caught arity mismatch error:", e.message);
+}
+
+print("Interface validation tests completed!");

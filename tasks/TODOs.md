@@ -13,7 +13,7 @@ How our programming language reports errors, shows exact positions and tracing, 
 
 Implement date and time stdlib, and also we need something related to time stdlib and more stdlibs???
 
-Continue with the implementation/fix/bugfix/update of next tasks in TECHNICAL_DEBT.md and ROADMAP.md and if you need any info , specs.md file is ready for you. And make sure to update the files at the end of the jobs those are done. And if completely done tasks and if we don't address them anymore you can remove them.
+Continue with the implementation/fix/bugfix/update of next tasks in TECHNICAL_DEBT.md and ROADMAP.md and if you need any info , specs.md file is ready for you. And make sure to update the files at the end of the jobs those are done. And if completely done tasks and if we don't address them anymore, remove them from ROADMAP.md and TECHNICAL_DEBT.md.
 
 In vscode only highlighting working. When imported modules, ctrl + click is not opening that part of / the file. Also on hovering nothing is being shown on code of .pln. No icon of extension and files of .pln. Also, there is no README for better support.
 
