@@ -19,6 +19,9 @@ In vscode only highlighting working. When imported modules, ctrl + click is not 
 
 Add vscode snippets.
 
+Does each crate is doing their job only. For example stdlib crate should be responsilble for stdlib, but the compile crate may be trying to be dominant and having the stdlib functions inside of it. Is it a good practice? I think no. What do you think? This is one of the example of the thing I wanted to explain you. There might be so many of others. So, find and fix them.
+
+We had a solid specs.md, then while developing based on the specs.md we may have introduced many additional things too. But they are not in the specs.md, I've also divided the specs.md into docs/specs folder into files, you may update those files to be correct. For example not all of the stlibs may not be documented all other data structures we have or there are many things not documented, now it is time to document them all.
 ---
 
 To add new languages to Highlight.js officially, you need to develop a separate 3rd-party language module, package it as a standalone file (like

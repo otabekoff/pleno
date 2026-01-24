@@ -77,10 +77,11 @@ Missing:
 ### Linter
 **Location:** `crates/pleno-linter/`
 
-- Uses placeholder line/column numbers (0, 0)
-- Limited rule coverage (missing semicolon, spacing, style, best practices, unused variable detection)
+- Uses AST spans for accurate line/column numbers ✅
+- Proper unused variable detection with usage tracking ✅
+- Style rules (operator spacing, line length, trailing spaces, semicolon spacing) ✅
 
-**Effort:** Medium
+**Effort:** Low (mostly complete)
 
 ---
 
@@ -115,11 +116,11 @@ Missing:
 ---
 
 ### Documentation
-- API documentation incomplete
-- Missing examples and architecture documentation
-- No docs tooling (generation, API docs)
+- API documentation for std:path, std:process modules ✅
+- Data structures documentation (Map/Set functional methods) ✅
+- VitePress-based docs infrastructure in place ✅
 
-**Effort:** Medium
+**Effort:** Low (mostly complete)
 
 ---
 
