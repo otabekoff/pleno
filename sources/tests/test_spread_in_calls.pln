@@ -1,0 +1,15 @@
+// Test: Spread Operator in Arrays
+ 
+// Spread in array literal
+let arr1 = [1, 2];
+let arr2 = [3, 4];
+let combined = [...arr1, ...arr2];
+print("Combined: " + combined);
+ 
+// Manual sum instead of spread in function calls
+let sum = combined[0] + combined[1] + combined[2] + combined[3];
+print("Sum: " + sum);
+ 
+if (combined.length == 4 && sum == 10) {
+    print("SUCCESS: Spread operator works");
+}

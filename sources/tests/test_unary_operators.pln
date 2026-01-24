@@ -1,0 +1,14 @@
+// Test: Unary Operators
+ 
+let a = 5;
+let b = -a;
+let c = !true;
+let d = !false;
+ 
+print("-5: " + b);
+print("!true: " + c);
+print("!false: " + d);
+ 
+if (b == -5 && c == false && d == true) {
+    print("SUCCESS: Unary operators work");
+}

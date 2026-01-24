@@ -1,0 +1,22 @@
+// Test: Property Access
+ 
+class Person {
+    constructor(name, age) {
+        this.name = name;
+        this.age = age;
+    }
+}
+ 
+let p = Person("Alice", 30);
+print("Name: " + p.name);
+print("Age: " + p.age);
+ 
+p.name = "Bob";
+p.age = 25;
+ 
+print("New name: " + p.name);
+print("New age: " + p.age);
+ 
+if (p.name == "Bob" && p.age == 25) {
+    print("SUCCESS: Property access works");
+}

@@ -1,0 +1,19 @@
+// Test: Operator Precedence
+ 
+// Note: Precedence rules
+// *, / before +, -
+// Comparison before logical
+ 
+let a = 2 + 3 * 4;
+let b = (2 + 3) * 4;
+let c = 10 - 4 / 2;
+let d = true || false && false;
+ 
+print("2 + 3 * 4 = " + a);
+print("(2 + 3) * 4 = " + b);
+print("10 - 4 / 2 = " + c);
+print("true || false && false = " + d);
+ 
+if (a == 14 && b == 20) {
+    print("SUCCESS: Operator precedence works");
+}

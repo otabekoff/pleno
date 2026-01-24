@@ -1,0 +1,25 @@
+// Test: Recursion Edge Cases
+ 
+fn fibonacci(n) {
+    if (n <= 1) {
+        return n;
+    }
+    return fibonacci(n - 1) + fibonacci(n - 2);
+}
+ 
+fn ackermann(m, n) {
+    if (m == 0) {
+        return n + 1;
+    }
+    if (n == 0) {
+        return ackermann(m - 1, 1);
+    }
+    return ackermann(m - 1, ackermann(m, n - 1));
+}
+ 
+print("fib(10): " + fibonacci(10));
+print("ackermann(2, 3): " + ackermann(2, 3));
+ 
+if (fibonacci(10) == 55 && ackermann(2, 3) == 9) {
+    print("SUCCESS: Recursion edge cases work");
+}

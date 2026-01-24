@@ -1,0 +1,23 @@
+// Test: Method Chaining
+ 
+class Builder {
+    constructor() {
+        this.value = "";
+    }
+    
+    fn add(s) {
+        this.value = this.value + s;
+        return this;
+    }
+    
+    fn build() {
+        return this.value;
+    }
+}
+ 
+let result = Builder().add("Hello").add(" ").add("World").build();
+print("Result: " + result);
+ 
+if (result == "Hello World") {
+    print("SUCCESS: Method chaining works");
+}

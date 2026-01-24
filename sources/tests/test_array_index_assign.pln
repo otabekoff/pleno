@@ -1,0 +1,14 @@
+// Test: Array Index Assignment
+ 
+let arr = [1, 2, 3, 4, 5];
+print("Original: " + arr);
+ 
+arr[0] = 10;
+arr[2] = 30;
+arr[4] = 50;
+ 
+print("Modified: " + arr);
+ 
+if (arr[0] == 10 && arr[2] == 30 && arr[4] == 50) {
+    print("SUCCESS: Array index assignment works");
+}

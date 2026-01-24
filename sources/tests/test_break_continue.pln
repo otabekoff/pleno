@@ -1,0 +1,25 @@
+// Test: Break and Continue
+ 
+print("--- Break test ---");
+let mut sum = 0;
+for (i in 0..10) {
+    if (i == 5) {
+        break;
+    }
+    sum = sum + i;
+}
+print("Sum (0-4): " + sum);
+ 
+print("--- Continue test ---");
+let mut evens = 0;
+for (i in 0..10) {
+    if (i % 2 != 0) {
+        continue;
+    }
+    evens = evens + 1;
+}
+print("Even count: " + evens);
+ 
+if (sum == 10 && evens == 5) {
+    print("SUCCESS: Break and continue work");
+}

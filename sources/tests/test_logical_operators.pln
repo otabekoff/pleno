@@ -1,0 +1,15 @@
+// Test: Logical Operators
+ 
+let t = true;
+let f = false;
+ 
+print("true && true: " + (t && t));
+print("true && false: " + (t && f));
+print("false || true: " + (f || t));
+print("false || false: " + (f || f));
+print("!true: " + (!t));
+print("!false: " + (!f));
+ 
+if ((t && t) && !(t && f) && (f || t) && !(f || f)) {
+    print("SUCCESS: Logical operators work");
+}

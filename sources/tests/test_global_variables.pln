@@ -1,0 +1,16 @@
+// Test: Global Variables
+ 
+let global_a = 100;
+let global_b = "hello";
+ 
+fn read_globals() {
+    return global_a + global_b.length;
+}
+ 
+print("global_a: " + global_a);
+print("global_b: " + global_b);
+print("read_globals(): " + read_globals());
+ 
+if (read_globals() == 105) {
+    print("SUCCESS: Global variables work");
+}

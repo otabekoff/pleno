@@ -1,0 +1,16 @@
+// Test: Multiple Parameters
+ 
+fn sum5(a, b, c, d, e) {
+    return a + b + c + d + e;
+}
+ 
+fn concat_all(a, b, c, d, e, f) {
+    return a + b + c + d + e + f;
+}
+ 
+print("sum5(1,2,3,4,5): " + sum5(1, 2, 3, 4, 5));
+print("concat: " + concat_all("a", "b", "c", "d", "e", "f"));
+ 
+if (sum5(1, 2, 3, 4, 5) == 15) {
+    print("SUCCESS: Multiple parameters work");
+}

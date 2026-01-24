@@ -1,0 +1,30 @@
+// Test: Multiple Classes
+ 
+class Circle {
+    constructor(radius) {
+        this.radius = radius;
+    }
+    fn area() {
+        return 3.14159 * this.radius * this.radius;
+    }
+}
+ 
+class Rectangle {
+    constructor(width, height) {
+        this.width = width;
+        this.height = height;
+    }
+    fn area() {
+        return this.width * this.height;
+    }
+}
+ 
+let c = Circle(5);
+let r = Rectangle(4, 6);
+ 
+print("Circle area: " + c.area());
+print("Rectangle area: " + r.area());
+ 
+if (c.area() > 78 && r.area() == 24) {
+    print("SUCCESS: Multiple classes work");
+}

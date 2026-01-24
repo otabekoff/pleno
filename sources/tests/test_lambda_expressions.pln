@@ -1,0 +1,21 @@
+// Test: Lambda Expressions
+ 
+let add = fn(a, b) { return a + b; };
+let square = fn(x) { return x * x; };
+let greet = fn() { return "Hello"; };
+ 
+print("add(2, 3): " + add(2, 3));
+print("square(4): " + square(4));
+print("greet(): " + greet());
+ 
+// Lambda as callback
+let numbers = [1, 2, 3, 4, 5];
+let mut sum = 0;
+for (n in numbers) {
+    sum = sum + square(n);
+}
+print("Sum of squares: " + sum);
+ 
+if (add(2, 3) == 5 && square(4) == 16 && sum == 55) {
+    print("SUCCESS: Lambda expressions work");
+}

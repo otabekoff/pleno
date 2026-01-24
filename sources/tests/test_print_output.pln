@@ -1,0 +1,11 @@
+// Test: Print Output
+ 
+print("Hello");
+print("World");
+print(42);
+print(true);
+print(null);
+print([1, 2, 3]);
+print({"a": 1});
+ 
+print("SUCCESS: Print output works");

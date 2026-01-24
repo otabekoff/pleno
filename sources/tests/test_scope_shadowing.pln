@@ -1,0 +1,20 @@
+// Test: Scope and Shadowing
+ 
+let x = 10;
+print("Outer x: " + x);
+ 
+{
+    let x = 20;
+    print("Inner x: " + x);
+    {
+        let x = 30;
+        print("Innermost x: " + x);
+    }
+    print("Back to inner x: " + x);
+}
+ 
+print("Back to outer x: " + x);
+ 
+if (x == 10) {
+    print("SUCCESS: Scope and shadowing work");
+}

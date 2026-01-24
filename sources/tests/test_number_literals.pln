@@ -1,0 +1,13 @@
+// Test: Number Literals
+ 
+let integer = 42;
+let negative = -123;
+let float_val = 3.14159;
+ 
+print("Integer: " + integer);
+print("Negative: " + negative);
+print("Float: " + float_val);
+ 
+if (integer == 42 && negative == -123) {
+    print("SUCCESS: Number literals work");
+}

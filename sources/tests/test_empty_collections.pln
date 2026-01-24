@@ -1,0 +1,13 @@
+// Test: Empty Collections
+ 
+let empty_arr = [];
+let empty_map = {};
+let empty_set = {};
+ 
+print("Empty array length: " + empty_arr.length);
+print("Empty array: " + empty_arr);
+print("Empty map: " + empty_map);
+ 
+if (empty_arr.length == 0) {
+    print("SUCCESS: Empty collections work");
+}

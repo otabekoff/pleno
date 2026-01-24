@@ -1,0 +1,19 @@
+// Test: String Operations
+ 
+let s = "Hello World";
+ 
+print("Original: " + s);
+print("Length: " + s.length);
+print("Uppercase: " + s.toUpperCase());
+print("Lowercase: " + s.toLowerCase());
+print("Substring: " + s.substring(0, 5));
+print("Contains 'World': " + s.contains("World"));
+print("IndexOf 'o': " + s.indexOf("o"));
+print("Replace: " + s.replace("World", "Pleno"));
+ 
+let parts = s.split(" ");
+print("Split: " + parts);
+ 
+if (s.length == 11 && s.contains("World") && parts.length == 2) {
+    print("SUCCESS: String operations work");
+}

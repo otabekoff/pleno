@@ -1,0 +1,17 @@
+// Test: JSON Standard Library
+ 
+import json from "std:json";
+ 
+let obj = {"name": "Test", "value": 42, "nested": {"ok": true}};
+ 
+let str = json.JSON.stringify(obj);
+print("Stringified: " + str);
+ 
+let parsed = json.JSON.parse(str);
+print("Parsed name: " + parsed["name"]);
+print("Parsed value: " + parsed["value"]);
+print("Parsed nested.ok: " + parsed["nested"]["ok"]);
+ 
+if (parsed["name"] == "Test" && parsed["value"] == 42) {
+    print("SUCCESS: JSON stdlib works");
+}

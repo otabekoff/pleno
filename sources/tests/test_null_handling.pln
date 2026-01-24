@@ -1,0 +1,22 @@
+// Test: Null Handling
+ 
+let val = null;
+ 
+print("val is null: " + (val == null));
+ 
+// Null coalescing would be: val ?? "default"
+// Using ternary as workaround
+let result = val == null ? "default" : val;
+print("Null coalesce: " + result);
+ 
+// Optional chaining simulation
+let obj = {"name": "Alice"};
+let name = obj["name"];
+let missing = obj["age"];
+ 
+print("Name: " + name);
+print("Missing: " + missing);
+ 
+if (val == null && result == "default" && missing == null) {
+    print("SUCCESS: Null handling works");
+}

@@ -1,0 +1,15 @@
+// Test: Nested Function Calls
+ 
+fn add(a, b) { return a + b; }
+fn mul(a, b) { return a * b; }
+fn sub(a, b) { return a - b; }
+ 
+let result = add(mul(2, 3), sub(10, 5));
+print("add(mul(2, 3), sub(10, 5)) = " + result);
+ 
+let nested = add(add(add(1, 2), add(3, 4)), add(5, 6));
+print("Deeply nested: " + nested);
+ 
+if (result == 11 && nested == 21) {
+    print("SUCCESS: Nested function calls work");
+}

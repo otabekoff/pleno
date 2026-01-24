@@ -1,0 +1,15 @@
+// Test: String Slicing
+ 
+let s = "Hello World";
+ 
+print("Original: " + s);
+ 
+let hello = s.substring(0, 5);
+let world = s.substring(6, 11);
+ 
+print("s[0:5]: " + hello);
+print("s[6:11]: " + world);
+ 
+if (hello == "Hello" && world == "World") {
+    print("SUCCESS: String slice works");
+}

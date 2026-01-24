@@ -1,0 +1,11 @@
+// Test: Mixed Type Arithmetic
+ 
+let int_val = 10;
+let float_val = 2.5;
+ 
+print("10 + 2.5 = " + (int_val + float_val));
+print("10 * 2.5 = " + (int_val * float_val));
+ 
+if (int_val + float_val == 12.5) {
+    print("SUCCESS: Mixed type arithmetic works");
+}

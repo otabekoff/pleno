@@ -1,0 +1,19 @@
+// Test: Function as Value
+ 
+fn add(a, b) { return a + b; }
+fn multiply(a, b) { return a * b; }
+ 
+fn apply(func, x, y) {
+    return func(x, y);
+}
+ 
+print("apply(add, 2, 3): " + apply(add, 2, 3));
+print("apply(multiply, 2, 3): " + apply(multiply, 2, 3));
+ 
+let funcs = [add, multiply];
+print("funcs[0](5, 10): " + funcs[0](5, 10));
+print("funcs[1](5, 10): " + funcs[1](5, 10));
+ 
+if (apply(add, 2, 3) == 5 && funcs[1](5, 10) == 50) {
+    print("SUCCESS: Function as value works");
+}

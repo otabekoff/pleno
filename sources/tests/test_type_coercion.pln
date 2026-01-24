@@ -1,0 +1,21 @@
+// Test: Type Coercion
+ 
+// String concatenation with numbers
+let s = "Value: " + 42;
+print(s);
+ 
+// Boolean in string context
+let b = "Bool: " + true;
+print(b);
+ 
+// Null in string context
+let n = "Null: " + null;
+print(n);
+ 
+// Array in string context
+let a = "Array: " + [1, 2, 3];
+print(a);
+ 
+if (s == "Value: 42" && b == "Bool: true") {
+    print("SUCCESS: Type coercion works");
+}

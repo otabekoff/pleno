@@ -1,0 +1,23 @@
+// Test: Time Standard Library
+ 
+import time from "std:time";
+ 
+let now = time.DateTime.now();
+print("Current timestamp: " + now.getTimestamp());
+ 
+let formatted = now.format("%Y-%m-%d");
+print("Formatted: " + formatted);
+ 
+let ns = time.DateTime.now_ns();
+print("Nanoseconds: " + ns);
+ 
+// Sleep test
+let start = time.DateTime.now_ns();
+time.DateTime.sleep(5);
+let end = time.DateTime.now_ns();
+let diff = end - start;
+print("5ms sleep took: " + (diff / 1000000) + "ms");
+ 
+if (ns > 0 && diff >= 5000000) {
+    print("SUCCESS: Time stdlib works");
+}
