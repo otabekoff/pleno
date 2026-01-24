@@ -39,7 +39,8 @@ Via Claude AI generate V2 specs. Upgrades/updates/news/critical and breakign cha
 
 AI model's generation exceeded the maximum output token limit like error might happen and couldn't do some works, or execution tool may have failed in some cases and some changes might not have been applied.
 
-
+Instruction to AI:
+Eyes are coward, hands are heroes. The eye is afraid, but the hand is brave. Fear looks bigger than it really is. It’s not as hard as it looks. Once you start, it’s easier. The hardest part is getting started. Something looks scary or difficult at first, but when you actually start doing it, it turns out to be manageable. And the thing you're escaping will be the thing that you need in most cases. So, don't escape from implementing, refactring and making great results.
 
 ---
 

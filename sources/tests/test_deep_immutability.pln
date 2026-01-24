@@ -1,18 +1,38 @@
-// Test deep immutability - should successfully print but fail on mutation attempts
-fn test_array_read() {
+// Test deep immutability with try/catch - errors should now be catchable
+fn test_array() {
     const deep a = [1, 2, [3, 4]];
     print("Array a:", a);
-    print("a[0]:", a[0]);
-    print("Nested a[2][0]:", a[2][0]);
-    print("Array read test passed!");
+    try {
+        a[0] = 10;
+        print("ERROR: should not reach here!");
+    } catch (e) {
+        print("SUCCESS: Caught immutability error for a[0]:", e.message);
+    }
+    
+    try {
+        a[2][0] = 30;
+        print("ERROR: should not reach here!");
+    } catch (e) {
+        print("SUCCESS: Caught immutability error for a[2][0]:", e.message);
+    }
 }
 
-fn test_map_read() {
+fn test_map() {
     const deep m = {"x": 1, "y": {"z": 2}};
     print("Map m:", m);
-    print("m['x']:", m["x"]);
-    print("Nested m['y']['z']:", m["y"]["z"]);
-    print("Map read test passed!");
+    try {
+        m["x"] = 10;
+        print("ERROR: should not reach here!");
+    } catch (e) {
+        print("SUCCESS: Caught immutability error for m['x']:", e.message);
+    }
+    
+    try {
+        m["y"]["z"] = 30;
+        print("ERROR: should not reach here!");
+    } catch (e) {
+        print("SUCCESS: Caught immutability error for m['y']['z']:", e.message);
+    }
 }
 
 class Point {
@@ -24,19 +44,20 @@ class Point {
     }
 }
 
-fn test_object_read() {
+fn test_object() {
     const deep p = new Point(1, 2);
-    print("Object p.x:", p.x);
-    print("Object p.y:", p.y);
-    print("Object read test passed!");
+    print("Object p:", p.x, p.y);
+    try {
+        p.x = 10;
+        print("ERROR: should not reach here!"); 
+    } catch (e) {
+        print("SUCCESS: Caught immutability error for p.x:", e.message);
+    }
 }
 
-// Run read-only tests (should all pass)
-test_array_read();
-test_map_read();
-test_object_read();
+test_array();
+test_map();
+test_object();
 
 print("");
-print("All read tests passed!");
-print("Deep immutability prevents mutation of const deep values.");
-print("Attempting to modify will cause: 'cannot modify immutable array/map/object'");
+print("All deep immutability tests completed!");
