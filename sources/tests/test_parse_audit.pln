@@ -1,0 +1,3 @@
+fn bad_syntax() {
+    let x = ; // Missing expression
+}

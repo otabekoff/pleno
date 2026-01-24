@@ -7,8 +7,8 @@ This document tracks known technical debts and areas requiring improvement in Pl
 ## Post-v1 Improvements
 
 ### Standard Library
-- Implement `std:http` (Client/Server) using `reqwest`
-- Implement `std:regex` using `regex` crate
+- [x] Implement `std:http` (Client) using `reqwest`
+- [x] Implement `std:regex` using `regex` crate
 - Implement `std:test` assertion framework (currently ad-hoc in tests)
 
 ### Language Features
@@ -32,8 +32,8 @@ This document tracks known technical debts and areas requiring improvement in Pl
 
 | Priority | Status |
 |----------|--------|
-| High | **Completed** (Core VM, Parser, Essential StdLib, Enums) |
-| Medium | **Deferred** (HTTP, Regex, Decorators, If-Expr, Closures fix) |
-| Low | Optimization, Refactoring |
+| High | **Completed** (Core VM, Parser, Essential StdLib, Enums, VM Refactoring) |
+| Medium | **Completed** (HTTP Client, Regex) |
+| Low | Optimization, Further Refactoring |
 
 **v1 Status**: Feature Complete (Essential Scope)

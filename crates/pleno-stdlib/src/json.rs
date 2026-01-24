@@ -1,27 +1,32 @@
-use crate::Value;
+use pleno_value::Value;
 use std::rc::Rc;
 
 pub fn json_parse(
-    vm: &mut dyn crate::VMProvider,
+    vm: &mut dyn pleno_value::VMProvider,
     args: &[Value],
-) -> Result<Value, crate::RuntimeError> {
+) -> Result<Value, pleno_value::RuntimeError> {
     let json_str = match args.first() {
         Some(Value::String(s)) => s.as_str(),
-        _ => return Err(crate::RuntimeError::new("JSON.parse expects string")),
+        _ => return Err(pleno_value::RuntimeError::new("JSON.parse expects string")),
     };
 
     let serde_val: serde_json::Value = match serde_json::from_str(json_str) {
         Ok(v) => v,
-        Err(e) => return Err(crate::RuntimeError::new(format!("JSON parse error: {}", e))),
+        Err(e) => {
+            return Err(pleno_value::RuntimeError::new(format!(
+                "JSON parse error: {}",
+                e
+            )));
+        }
     };
 
     convert_serde_to_value(vm, &serde_val)
 }
 
 fn convert_serde_to_value(
-    vm: &mut dyn crate::VMProvider,
+    vm: &mut dyn pleno_value::VMProvider,
     val: &serde_json::Value,
-) -> Result<Value, crate::RuntimeError> {
+) -> Result<Value, pleno_value::RuntimeError> {
     match val {
         serde_json::Value::Null => Ok(Value::Null),
         serde_json::Value::Bool(b) => Ok(Value::Bool(*b)),
@@ -31,7 +36,9 @@ fn convert_serde_to_value(
             } else if let Some(f) = n.as_f64() {
                 Ok(Value::Float(f))
             } else {
-                Err(crate::RuntimeError::new("Infinite or NaN number in JSON"))
+                Err(pleno_value::RuntimeError::new(
+                    "Infinite or NaN number in JSON",
+                ))
             }
         }
         serde_json::Value::String(s) => Ok(Value::String(Rc::new(s.clone()))),
@@ -57,9 +64,9 @@ fn convert_serde_to_value(
 }
 
 pub fn json_stringify(
-    _vm: &mut dyn crate::VMProvider,
+    _vm: &mut dyn pleno_value::VMProvider,
     args: &[Value],
-) -> Result<Value, crate::RuntimeError> {
+) -> Result<Value, pleno_value::RuntimeError> {
     let val = args.first().unwrap_or(&Value::Null);
     // Rough serialization - better to implement properly later
     // For now, use debug or simple string conversion?
@@ -71,7 +78,7 @@ pub fn json_stringify(
     Ok(Value::String(Rc::new(s)))
 }
 
-fn value_to_json_string(val: &Value) -> Result<String, crate::RuntimeError> {
+fn value_to_json_string(val: &Value) -> Result<String, pleno_value::RuntimeError> {
     match val {
         Value::Null => Ok("null".to_string()),
         Value::Bool(b) => Ok(b.to_string()),

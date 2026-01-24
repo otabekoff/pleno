@@ -1,20 +1,23 @@
-// Test: Math Standard Library
- 
-import math from "std:math";
- 
-print("PI: " + math.Math.PI);
-print("E: " + math.Math.E);
-print("abs(-42): " + math.Math.abs(-42));
-print("floor(3.7): " + math.Math.floor(3.7));
-print("ceil(3.2): " + math.Math.ceil(3.2));
-print("round(3.5): " + math.Math.round(3.5));
-print("pow(2, 10): " + math.Math.pow(2, 10));
-print("sqrt(144): " + math.Math.sqrt(144));
-print("sin(0): " + math.Math.sin(0));
-print("cos(0): " + math.Math.cos(0));
-print("min(5, 3, 8): " + math.Math.min(5, 3, 8));
-print("max(5, 3, 8): " + math.Math.max(5, 3, 8));
- 
-if (math.Math.abs(-42) == 42 && math.Math.sqrt(144) == 12) {
-    print("SUCCESS: Math stdlib works");
-}
+import { Math } from "std:math";
+
+print("Testing std:math");
+
+print("Math.abs(-10):", Math.abs(-10));
+if (Math.abs(-10) != 10) throw "Math.abs failed";
+
+print("Math.min(5, 10):", Math.min(5, 10));
+if (Math.min(5, 10) != 5.0) throw "Math.min failed";
+
+print("Math.max(5, 10):", Math.max(5, 10));
+if (Math.max(5, 10) != 10.0) throw "Math.max failed";
+
+print("Math.floor(3.7):", Math.floor(3.7));
+if (Math.floor(3.7) != 3) throw "Math.floor failed";
+
+print("Math.ceil(3.2):", Math.ceil(3.2));
+if (Math.ceil(3.2) != 4) throw "Math.ceil failed";
+
+print("Math.sqrt(16):", Math.sqrt(16));
+if (Math.sqrt(16) != 4.0) throw "Math.sqrt failed";
+
+print("std:math: PASSED");

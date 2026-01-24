@@ -69,6 +69,7 @@ fn is_complete(input: &str) -> bool {
 
 fn main() -> Result<()> {
     let mut vm = VM::new();
+    pleno_stdlib::register(&mut vm);
     let mut rl = DefaultEditor::new()?;
 
     // Load history if exists
@@ -106,6 +107,7 @@ fn main() -> Result<()> {
                         }
                         ":clear" => {
                             vm = VM::new();
+                            pleno_stdlib::register(&mut vm);
                             println!("VM state cleared.");
                             continue;
                         }

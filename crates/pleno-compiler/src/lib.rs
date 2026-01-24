@@ -208,9 +208,9 @@ impl Compiler {
                     // Update capture
                     self.emit(Opcode::SetCapture, value_reg, index as u8, 0);
                 } else {
-                    // Global assignment
-                    let name_idx = self.add_constant(Value::String(name.clone().into()));
-                    self.emit(Opcode::SetGlobal, value_reg, name_idx, 0);
+                    return Err(
+                        self.error(&format!("unknown local or global: {}", name), stmt.span)
+                    );
                 }
                 self.free_temp(value_reg);
                 Ok(())

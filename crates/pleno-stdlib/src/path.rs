@@ -1,5 +1,5 @@
-use crate::Value;
-use crate::{RuntimeError, VMProvider};
+use pleno_value::Value;
+use pleno_value::{RuntimeError, VMProvider};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
