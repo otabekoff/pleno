@@ -1,0 +1,19 @@
+// Test: Regex Operations via import
+ 
+import regex from "std:regex";
+ 
+let pattern = "^[a-z]+$";
+let text = "hello";
+let text2 = "Hello123";
+ 
+let match1 = regex.Regex.isMatch(pattern, text);
+let match2 = regex.Regex.isMatch(pattern, text2);
+let replaced = regex.Regex.replace("[0-9]+", "item 123 test 456", "X");
+ 
+print("Match 'hello': " + match1);
+print("Match 'Hello123': " + match2);
+print("Replace digits: " + replaced);
+ 
+if (match1 && !match2) {
+    print("SUCCESS: Regex operations work");
+}

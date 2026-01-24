@@ -1,0 +1,28 @@
+// Test: Object Methods
+ 
+class Counter {
+    constructor() {
+        this.count = 0;
+    }
+    fn increment() {
+        this.count = this.count + 1;
+    }
+    fn decrement() {
+        this.count = this.count - 1;
+    }
+    fn getCount() {
+        return this.count;
+    }
+}
+ 
+let c = Counter();
+c.increment();
+c.increment();
+c.increment();
+c.decrement();
+ 
+print("Count: " + c.getCount());
+ 
+if (c.getCount() == 2) {
+    print("SUCCESS: Object methods work");
+}

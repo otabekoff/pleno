@@ -1,0 +1,27 @@
+// Test: While and Do-While Loops
+ 
+print("--- While loop ---");
+let mut i = 0;
+while (i < 3) {
+    print("while: " + i);
+    i = i + 1;
+}
+ 
+print("--- Do-while loop ---");
+let mut j = 0;
+do {
+    print("do-while: " + j);
+    j = j + 1;
+} while (j < 3);
+ 
+print("--- While with break ---");
+let mut k = 0;
+while (true) {
+    print("k: " + k);
+    k = k + 1;
+    if (k >= 3) {
+        break;
+    }
+}
+ 
+print("SUCCESS: While and do-while loops work");

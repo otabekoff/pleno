@@ -1,0 +1,12 @@
+// Test: Set Creation and Iteration
+ 
+let s = {1, 2, 3};
+print("Set: " + s);
+ 
+// Iterate
+print("Iterating:");
+for (v in s) {
+    print("  " + v);
+}
+ 
+print("SUCCESS: Set creation and iteration work");

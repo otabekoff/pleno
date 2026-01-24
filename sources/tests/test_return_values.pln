@@ -1,0 +1,23 @@
+// Test: Return Values
+ 
+fn early_return(x) {
+    if (x < 0) {
+        return "negative";
+    }
+    if (x == 0) {
+        return "zero";
+    }
+    return "positive";
+}
+ 
+fn implicit_return() {
+    42;
+}
+ 
+print("early_return(-5): " + early_return(-5));
+print("early_return(0): " + early_return(0));
+print("early_return(5): " + early_return(5));
+ 
+if (early_return(-5) == "negative" && early_return(0) == "zero") {
+    print("SUCCESS: Return values work");
+}

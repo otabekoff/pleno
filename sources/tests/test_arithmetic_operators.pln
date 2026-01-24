@@ -1,0 +1,23 @@
+// Test: Arithmetic Operators
+ 
+let a = 10;
+let b = 3;
+ 
+print("Addition: " + (a + b));
+print("Subtraction: " + (a - b));
+print("Multiplication: " + (a * b));
+print("Division: " + (a / b));
+print("Modulo: " + (a % b));
+print("Negation: " + (-a));
+ 
+// Integer division
+let intDiv = 10 / 3;
+print("10 / 3 = " + intDiv);
+ 
+// Float division
+let floatDiv = 10.0 / 3.0;
+print("10.0 / 3.0 = " + floatDiv);
+ 
+if (a + b == 13 && a - b == 7 && a * b == 30 && a % b == 1) {
+    print("SUCCESS: Arithmetic operators work");
+}

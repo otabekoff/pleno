@@ -1,0 +1,19 @@
+// Test: Throw and Catch
+ 
+fn divide(a, b) {
+    if (b == 0) {
+        throw "Division by zero";
+    }
+    return a / b;
+}
+ 
+print("10 / 2 = " + divide(10, 2));
+ 
+try {
+    let result = divide(10, 0);
+    print("Result: " + result);
+} catch (e) {
+    print("Caught: " + e);
+}
+ 
+print("SUCCESS: Throw and catch work");

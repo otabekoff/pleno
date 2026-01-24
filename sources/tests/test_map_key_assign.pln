@@ -1,0 +1,13 @@
+// Test: Map Key Assignment
+ 
+let map = {"a": 1, "b": 2};
+print("Original: " + map);
+ 
+map["a"] = 10;
+map["c"] = 3;
+ 
+print("Modified: " + map);
+ 
+if (map["a"] == 10 && map["c"] == 3) {
+    print("SUCCESS: Map key assignment works");
+}

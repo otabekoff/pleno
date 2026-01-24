@@ -1,0 +1,14 @@
+// Test: Nested Loops
+ 
+let mut sum = 0;
+for (i in 0..3) {
+    for (j in 0..3) {
+        sum = sum + i * 3 + j;
+        print("(" + i + ", " + j + ")");
+    }
+}
+print("Sum: " + sum);
+ 
+if (sum == 36) {
+    print("SUCCESS: Nested loops work");
+}

@@ -1,0 +1,28 @@
+// Test: This Reference
+ 
+class Box {
+    constructor(value) {
+        this.value = value;
+    }
+    fn getValue() {
+        return this.value;
+    }
+    fn setValue(v) {
+        this.value = v;
+    }
+    fn getSelf() {
+        return this;
+    }
+}
+ 
+let b = Box(42);
+print("Value: " + b.getValue());
+b.setValue(100);
+print("New value: " + b.getValue());
+ 
+let self = b.getSelf();
+print("Self value: " + self.value);
+ 
+if (b.getValue() == 100 && self.value == 100) {
+    print("SUCCESS: This reference works");
+}

@@ -1,0 +1,23 @@
+// Test: Array Slicing (using substring workaround)
+ 
+let arr = [0, 1, 2, 3, 4, 5];
+ 
+print("Original: " + arr);
+ 
+// Manual slicing
+fn slice_array(arr, start, end) {
+    let mut result = [];
+    let mut i = start;
+    while (i < end) {
+        result.push(arr[i]);
+        i = i + 1;
+    }
+    return result;
+}
+ 
+let sliced = slice_array(arr, 1, 4);
+print("arr[1:4]: " + sliced);
+ 
+if (sliced.length == 3 && sliced[0] == 1 && sliced[2] == 3) {
+    print("SUCCESS: Array slice works");
+}

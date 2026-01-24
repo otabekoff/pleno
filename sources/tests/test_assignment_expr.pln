@@ -1,0 +1,12 @@
+// Test: Assignment Expressions
+ 
+let mut x = 10;
+print("x = 10: " + x);
+ 
+x = 20;
+let y = x;
+print("y = x = 20: y=" + y + ", x=" + x);
+ 
+if (x == 20 && y == 20) {
+    print("SUCCESS: Assignment expressions work");
+}

@@ -1,0 +1,19 @@
+// Test: Compound Assignment
+ 
+let mut x = 10;
+ 
+x = x + 5;
+print("x += 5: " + x);
+ 
+x = x - 3;
+print("x -= 3: " + x);
+ 
+x = x * 2;
+print("x *= 2: " + x);
+ 
+x = x / 4;
+print("x /= 4: " + x);
+ 
+if (x == 6) {
+    print("SUCCESS: Compound assignment works");
+}

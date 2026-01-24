@@ -1,0 +1,30 @@
+// Test: Try-Catch-Finally
+ 
+fn might_fail(should_fail) {
+    if (should_fail) {
+        throw "Intentional error";
+    }
+    return "Success";
+}
+ 
+print("--- Test 1: No error ---");
+try {
+    let result = might_fail(false);
+    print("Result: " + result);
+} catch (e) {
+    print("Error: " + e);
+} finally {
+    print("Finally executed (no error)");
+}
+ 
+print("--- Test 2: With error ---");
+try {
+    let result = might_fail(true);
+    print("Result: " + result);
+} catch (e) {
+    print("Caught: " + e);
+} finally {
+    print("Finally executed (with error)");
+}
+ 
+print("SUCCESS: Try-catch-finally works");

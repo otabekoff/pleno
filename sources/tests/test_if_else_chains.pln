@@ -1,0 +1,25 @@
+// Test: If-Else Chains
+ 
+fn grade(score) {
+    if (score >= 90) {
+        return "A";
+    } else if (score >= 80) {
+        return "B";
+    } else if (score >= 70) {
+        return "C";
+    } else if (score >= 60) {
+        return "D";
+    } else {
+        return "F";
+    }
+}
+ 
+print("95: " + grade(95));
+print("85: " + grade(85));
+print("75: " + grade(75));
+print("65: " + grade(65));
+print("55: " + grade(55));
+ 
+if (grade(95) == "A" && grade(55) == "F") {
+    print("SUCCESS: If-else chains work");
+}

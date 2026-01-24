@@ -1,0 +1,19 @@
+// Test: For Loop Variants
+ 
+print("--- For-in with array ---");
+for (x in [1, 2, 3]) {
+    print(x);
+}
+ 
+print("--- For-in with range ---");
+for (i in 0..5) {
+    print(i);
+}
+ 
+print("--- For-in with map keys ---");
+let m = {"a": 1, "b": 2};
+for (k in m.keys()) {
+    print(k + ": " + m[k]);
+}
+ 
+print("SUCCESS: For loop variants work");

@@ -1,0 +1,23 @@
+// Test: Static Class Members
+ 
+class Counter {
+    static count = 0;
+    
+    constructor() {
+        Counter.count = Counter.count + 1;
+    }
+    
+    public static fn getCount() {
+        return Counter.count;
+    }
+}
+ 
+print("Initial count: " + Counter.getCount());
+let c1 = Counter();
+print("After c1: " + Counter.getCount());
+let c2 = Counter();
+print("After c2: " + Counter.getCount());
+ 
+if (Counter.getCount() == 2) {
+    print("SUCCESS: Static members work");
+}

@@ -1,0 +1,11 @@
+// Test: Boolean Literals
+ 
+let t = true;
+let f = false;
+ 
+print("true: " + t);
+print("false: " + f);
+ 
+if (t && !f) {
+    print("SUCCESS: Boolean literals work");
+}

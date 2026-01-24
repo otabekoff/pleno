@@ -1,0 +1,31 @@
+// Test: Map Operations
+ 
+let map = {"a": 1, "b": 2, "c": 3};
+ 
+// Key access
+print("a: " + map["a"]);
+print("b: " + map["b"]);
+ 
+// Update
+map["a"] = 10;
+print("Updated a: " + map["a"]);
+ 
+// Add new key
+map["d"] = 4;
+print("Added d: " + map["d"]);
+ 
+// Keys iteration
+print("Keys:");
+for (k in map.keys()) {
+    print("  " + k);
+}
+ 
+// Values iteration
+print("Values:");
+for (v in map.values()) {
+    print("  " + v);
+}
+ 
+if (map["a"] == 10 && map["d"] == 4) {
+    print("SUCCESS: Map operations work");
+}

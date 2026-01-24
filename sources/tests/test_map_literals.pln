@@ -1,0 +1,14 @@
+// Test: Map Literals
+ 
+let empty = {};
+let simple = {"a": 1, "b": 2};
+let nested = {"outer": {"inner": 42}};
+ 
+print("Empty: " + empty);
+print("Simple: " + simple);
+print("Nested: " + nested);
+print("Access nested: " + nested["outer"]["inner"]);
+ 
+if (simple["a"] == 1 && nested["outer"]["inner"] == 42) {
+    print("SUCCESS: Map literals work");
+}

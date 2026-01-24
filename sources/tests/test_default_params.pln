@@ -1,0 +1,12 @@
+// Test: Default Parameters
+ 
+fn greet(name, greeting = "Hello") {
+    return greeting + ", " + name + "!";
+}
+ 
+print(greet("Alice"));
+print(greet("Bob", "Hi"));
+ 
+if (greet("Alice") == "Hello, Alice!" && greet("Bob", "Hi") == "Hi, Bob!") {
+    print("SUCCESS: Default parameters work");
+}

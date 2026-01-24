@@ -1,0 +1,16 @@
+// Test: Comparison Operators
+ 
+let a = 5;
+let b = 10;
+let c = 5;
+ 
+print("5 == 5: " + (a == c));
+print("5 != 10: " + (a != b));
+print("5 < 10: " + (a < b));
+print("5 <= 5: " + (a <= c));
+print("10 > 5: " + (b > a));
+print("10 >= 10: " + (b >= b));
+ 
+if (a == c && a != b && a < b && a <= c && b > a && b >= b) {
+    print("SUCCESS: Comparison operators work");
+}

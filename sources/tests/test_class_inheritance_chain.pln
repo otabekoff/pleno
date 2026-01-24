@@ -1,0 +1,24 @@
+// Test: Class Inheritance (Simple)
+ 
+class Animal {
+    constructor(name) {
+        this.name = name;
+    }
+    fn speak() {
+        return "...";
+    }
+}
+ 
+class Dog extends Animal {
+    fn speak() {
+        return "Woof!";
+    }
+}
+ 
+let d = Dog("Buddy");
+print("Name: " + d.name);
+print("Sound: " + d.speak());
+ 
+if (d.name == "Buddy" && d.speak() == "Woof!") {
+    print("SUCCESS: Simple inheritance works");
+}

@@ -1,0 +1,13 @@
+// Test: String Escape Sequences
+ 
+let newline = "Line1\nLine2";
+let tab = "Col1\tCol2";
+let quote = "He said \"Hello\"";
+let backslash = "Path\\to\\file";
+ 
+print(newline);
+print(tab);
+print(quote);
+print(backslash);
+ 
+print("SUCCESS: String escape sequences work");

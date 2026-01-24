@@ -1,0 +1,19 @@
+// Test: String Concatenation
+ 
+let a = "Hello";
+let b = "World";
+let c = a + " " + b;
+ 
+print(c);
+ 
+let d = "Number: " + 42;
+let e = "Bool: " + true;
+let f = "Array: " + [1, 2];
+ 
+print(d);
+print(e);
+print(f);
+ 
+if (c == "Hello World" && d == "Number: 42") {
+    print("SUCCESS: String concatenation works");
+}

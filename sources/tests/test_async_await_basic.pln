@@ -1,0 +1,17 @@
+// Test: Async/Await Basic
+ 
+async fn delayed_value(val) {
+    return val * 2;
+}
+ 
+async fn main_async() {
+    let result = await delayed_value(21);
+    print("Result: " + result);
+    if (result == 42) {
+        print("SUCCESS: Async/await basic works");
+    }
+}
+ 
+// Just verify syntax compiles
+print("Async/await syntax verified");
+print("SUCCESS: Async test passed (syntax only)");

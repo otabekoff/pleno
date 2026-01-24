@@ -1,0 +1,13 @@
+// Test: Parenthesized Expressions
+ 
+let a = (1 + 2) * 3;
+let b = 1 + (2 * 3);
+let c = ((1 + 2) * (3 + 4));
+ 
+print("(1 + 2) * 3 = " + a);
+print("1 + (2 * 3) = " + b);
+print("((1 + 2) * (3 + 4)) = " + c);
+ 
+if (a == 9 && b == 7 && c == 21) {
+    print("SUCCESS: Parenthesized expressions work");
+}

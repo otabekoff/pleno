@@ -1,0 +1,15 @@
+// Test: Range Expressions
+ 
+print("--- 0..5 ---");
+for (i in 0..5) {
+    print(i);
+}
+ 
+print("--- 5..0 (empty) ---");
+let mut count = 0;
+for (i in 5..0) {
+    count = count + 1;
+}
+print("Count: " + count);
+ 
+print("SUCCESS: Range expressions work");

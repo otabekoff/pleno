@@ -1,0 +1,15 @@
+// Test: Array Literals
+ 
+let empty = [];
+let numbers = [1, 2, 3];
+let mixed = [1, "two", true, null];
+let nested = [[1, 2], [3, 4]];
+ 
+print("Empty: " + empty);
+print("Numbers: " + numbers);
+print("Mixed: " + mixed);
+print("Nested: " + nested);
+ 
+if (empty.length == 0 && numbers.length == 3 && mixed.length == 4) {
+    print("SUCCESS: Array literals work");
+}

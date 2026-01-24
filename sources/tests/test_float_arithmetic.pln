@@ -1,0 +1,13 @@
+// Test: Float Arithmetic
+ 
+let a = 3.5;
+let b = 2.0;
+ 
+print("3.5 + 2.0 = " + (a + b));
+print("3.5 - 2.0 = " + (a - b));
+print("3.5 * 2.0 = " + (a * b));
+print("3.5 / 2.0 = " + (a / b));
+ 
+if (a + b == 5.5 && a * b == 7.0) {
+    print("SUCCESS: Float arithmetic works");
+}

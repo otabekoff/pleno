@@ -1,0 +1,21 @@
+// Test: Super Method Calls
+ 
+class Base {
+    fn greet() {
+        return "Hello from Base";
+    }
+}
+ 
+class Child extends Base {
+    fn greet() {
+        return super.greet() + " and Child";
+    }
+}
+ 
+let c = Child();
+let result = c.greet();
+print("Greeting: " + result);
+ 
+if (result == "Hello from Base and Child") {
+    print("SUCCESS: Super method calls work");
+}

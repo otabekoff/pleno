@@ -1,0 +1,31 @@
+// Test: Array Operations
+ 
+let arr = [1, 2, 3, 4, 5];
+ 
+// Push
+arr.push(6);
+print("After push: " + arr);
+ 
+// Pop
+let popped = arr.pop();
+print("Popped: " + popped);
+print("After pop: " + arr);
+ 
+// Length
+print("Length: " + arr.length);
+ 
+// Index access
+print("First: " + arr[0]);
+print("Last: " + arr[arr.length - 1]);
+ 
+// Contains via iteration
+let mut found = false;
+for (x in arr) {
+    if (x == 3) {
+        found = true;
+    }
+}
+ 
+if (found && arr.length == 5 && popped == 6) {
+    print("SUCCESS: Array operations work");
+}

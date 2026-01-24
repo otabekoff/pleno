@@ -1,0 +1,14 @@
+// Test: Integer Arithmetic
+ 
+let a = 10;
+let b = 3;
+ 
+print("10 + 3 = " + (a + b));
+print("10 - 3 = " + (a - b));
+print("10 * 3 = " + (a * b));
+print("10 / 3 = " + (a / b));
+print("10 % 3 = " + (a % b));
+ 
+if (a + b == 13 && a % b == 1) {
+    print("SUCCESS: Integer arithmetic works");
+}

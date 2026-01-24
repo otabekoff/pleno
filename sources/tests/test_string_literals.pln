@@ -1,0 +1,15 @@
+// Test: String Literals
+ 
+let simple = "Hello";
+let with_escapes = "Line1\nLine2\tTab";
+let with_quotes = "He said \"Hello\"";
+let empty = "";
+ 
+print("Simple: " + simple);
+print("With escapes: " + with_escapes);
+print("With quotes: " + with_quotes);
+print("Empty length: " + empty.length);
+ 
+if (simple == "Hello" && empty.length == 0) {
+    print("SUCCESS: String literals work");
+}

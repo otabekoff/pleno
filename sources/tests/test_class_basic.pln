@@ -1,0 +1,20 @@
+// Test: Class Basic
+ 
+class Point {
+    constructor(x, y) {
+        this.x = x;
+        this.y = y;
+    }
+    
+    fn distance() {
+        return (this.x * this.x + this.y * this.y);
+    }
+}
+ 
+let p = Point(3, 4);
+print("Point: (" + p.x + ", " + p.y + ")");
+print("Distance squared: " + p.distance());
+ 
+if (p.x == 3 && p.y == 4 && p.distance() == 25) {
+    print("SUCCESS: Basic class works");
+}
