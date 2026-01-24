@@ -21,10 +21,9 @@ This roadmap stages the remaining implementation work for v1.
 
 ## Stage 10 - Standard Library (partial)
 
-**Completed**: basic stdlib module stubs; JSON module fully implemented; I/O module (files/dirs) fully implemented; HTTP module fully implemented; Math and Regex libraries aligned with specs; Native function bindings for system operations (OS module); Time Standard Library (DateTime, Duration) ✅; `std:path` cross-platform manipulation ✅; `std:process` management ✅
+**Completed**: basic stdlib module stubs; JSON module fully implemented; I/O module (files/dirs) fully implemented; HTTP module fully implemented; Math and Regex libraries aligned with specs; Native function bindings for system operations (OS module); Time Standard Library (DateTime, Duration) ✅; `std:path` cross-platform manipulation ✅; `std:process` management ✅; Advanced collection methods (Map/Set functional API: map, filter, forEach, toArray) ✅
 
 **Remaining**:
-- Advanced collection methods (Map/Set comprehensive API)
 - Standard library documentation generation
 
 ---

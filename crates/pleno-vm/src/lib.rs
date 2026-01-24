@@ -3118,6 +3118,13 @@ fn resolve_builtin_method(ty: &str, name: &str) -> Option<NativeFunction> {
         ("Set", "union") => Some(native_set_union),
         ("Set", "intersection") => Some(native_set_intersection),
         ("Set", "difference") => Some(native_set_difference),
+        ("Set", "toArray") => Some(native_set_to_array),
+        ("Set", "map") => Some(native_set_map),
+        ("Set", "filter") => Some(native_set_filter),
+        ("Set", "forEach") => Some(native_set_for_each),
+        ("Map", "map") => Some(native_map_map),
+        ("Map", "filter") => Some(native_map_filter),
+        ("Map", "forEach") => Some(native_map_for_each),
         // Result methods
         ("Result", "unwrap") => Some(native_result_unwrap),
         ("Result", "unwrapOr") => Some(native_result_unwrap_or),
@@ -4715,4 +4722,171 @@ fn native_set_difference(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Valu
         }
     }
     Ok(Value::Set(vm.get_gc().allocate(result)))
+}
+
+fn native_set_to_array(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    let set = match &args[0] {
+        Value::Set(s) => s,
+        _ => return Err(RuntimeError::new("toArray() expects Set")),
+    };
+    let values: Vec<Value> = set
+        .borrow()
+        .iter()
+        .map(|key| match key {
+            ValueKey::Null => Value::Null,
+            ValueKey::Bool(v) => Value::Bool(*v),
+            ValueKey::Int(v) => Value::Int(*v),
+            ValueKey::Float(bits) => Value::Float(f64::from_bits(*bits)),
+            ValueKey::String(v) => Value::String(Rc::clone(v)),
+        })
+        .collect();
+    Ok(Value::Array(vm.get_gc().allocate(values)))
+}
+
+fn native_set_map(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    let set = match &args[0] {
+        Value::Set(s) => s.clone(),
+        _ => return Err(RuntimeError::new("map() expects Set")),
+    };
+    if args.len() < 2 {
+        return Err(RuntimeError::new("map() expects 1 argument (callback)"));
+    }
+    let callback = args[1].clone();
+    let items: Vec<Value> = set
+        .borrow()
+        .iter()
+        .map(|key| match key {
+            ValueKey::Null => Value::Null,
+            ValueKey::Bool(v) => Value::Bool(*v),
+            ValueKey::Int(v) => Value::Int(*v),
+            ValueKey::Float(bits) => Value::Float(f64::from_bits(*bits)),
+            ValueKey::String(v) => Value::String(Rc::clone(v)),
+        })
+        .collect();
+    let mut results = Vec::with_capacity(items.len());
+    for item in items {
+        let res = vm.call(callback.clone(), vec![item])?;
+        results.push(res);
+    }
+    Ok(Value::Array(vm.get_gc().allocate(results)))
+}
+
+fn native_set_filter(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    let set = match &args[0] {
+        Value::Set(s) => s.clone(),
+        _ => return Err(RuntimeError::new("filter() expects Set")),
+    };
+    if args.len() < 2 {
+        return Err(RuntimeError::new("filter() expects 1 argument (callback)"));
+    }
+    let callback = args[1].clone();
+    let mut result = std::collections::HashSet::new();
+    for key in set.borrow().iter() {
+        let item = match key {
+            ValueKey::Null => Value::Null,
+            ValueKey::Bool(v) => Value::Bool(*v),
+            ValueKey::Int(v) => Value::Int(*v),
+            ValueKey::Float(bits) => Value::Float(f64::from_bits(*bits)),
+            ValueKey::String(v) => Value::String(Rc::clone(v)),
+        };
+        let should_include = vm.call(callback.clone(), vec![item])?;
+        if matches!(should_include, Value::Bool(true)) {
+            result.insert(key.clone());
+        }
+    }
+    Ok(Value::Set(vm.get_gc().allocate(result)))
+}
+
+fn native_set_for_each(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    let set = match &args[0] {
+        Value::Set(s) => s.clone(),
+        _ => return Err(RuntimeError::new("forEach() expects Set")),
+    };
+    if args.len() < 2 {
+        return Err(RuntimeError::new("forEach() expects 1 argument (callback)"));
+    }
+    let callback = args[1].clone();
+    for key in set.borrow().iter() {
+        let item = match key {
+            ValueKey::Null => Value::Null,
+            ValueKey::Bool(v) => Value::Bool(*v),
+            ValueKey::Int(v) => Value::Int(*v),
+            ValueKey::Float(bits) => Value::Float(f64::from_bits(*bits)),
+            ValueKey::String(v) => Value::String(Rc::clone(v)),
+        };
+        vm.call(callback.clone(), vec![item])?;
+    }
+    Ok(Value::Null)
+}
+
+fn native_map_map(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    let map = match &args[0] {
+        Value::Map(m) => m.clone(),
+        _ => return Err(RuntimeError::new("map() expects Map")),
+    };
+    if args.len() < 2 {
+        return Err(RuntimeError::new("map() expects 1 argument (callback)"));
+    }
+    let callback = args[1].clone();
+    let entries: Vec<(String, Value)> = map
+        .borrow()
+        .iter()
+        .map(|(k, v)| (k.clone(), v.clone()))
+        .collect();
+    let mut results = std::collections::HashMap::new();
+    for (key, value) in entries {
+        let res = vm.call(
+            callback.clone(),
+            vec![Value::String(Rc::new(key.clone())), value],
+        )?;
+        results.insert(key, res);
+    }
+    Ok(Value::Map(vm.get_gc().allocate(results)))
+}
+
+fn native_map_filter(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    let map = match &args[0] {
+        Value::Map(m) => m.clone(),
+        _ => return Err(RuntimeError::new("filter() expects Map")),
+    };
+    if args.len() < 2 {
+        return Err(RuntimeError::new("filter() expects 1 argument (callback)"));
+    }
+    let callback = args[1].clone();
+    let entries: Vec<(String, Value)> = map
+        .borrow()
+        .iter()
+        .map(|(k, v)| (k.clone(), v.clone()))
+        .collect();
+    let mut results = std::collections::HashMap::new();
+    for (key, value) in entries {
+        let should_include = vm.call(
+            callback.clone(),
+            vec![Value::String(Rc::new(key.clone())), value.clone()],
+        )?;
+        if matches!(should_include, Value::Bool(true)) {
+            results.insert(key, value);
+        }
+    }
+    Ok(Value::Map(vm.get_gc().allocate(results)))
+}
+
+fn native_map_for_each(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    let map = match &args[0] {
+        Value::Map(m) => m.clone(),
+        _ => return Err(RuntimeError::new("forEach() expects Map")),
+    };
+    if args.len() < 2 {
+        return Err(RuntimeError::new("forEach() expects 1 argument (callback)"));
+    }
+    let callback = args[1].clone();
+    let entries: Vec<(String, Value)> = map
+        .borrow()
+        .iter()
+        .map(|(k, v)| (k.clone(), v.clone()))
+        .collect();
+    for (key, value) in entries {
+        vm.call(callback.clone(), vec![Value::String(Rc::new(key)), value])?;
+    }
+    Ok(Value::Null)
 }
