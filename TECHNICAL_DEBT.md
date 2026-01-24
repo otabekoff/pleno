@@ -54,9 +54,10 @@ Missing:
 - Nested classes ✅
 - Underscore parameters ✅
 - Module blocks (`module Name { ... }`)
-- Comments in AST
-- Parentheses preservation
+- Comments in AST (Spans implemented, capture logic needed)
+- Parentheses preservation (Spans implemented, capture logic needed)
 - Array type syntax (`Type[]`) in function signatures (currently requires `Array<Type>`)
+- **Note:** AST now supports Spans across all nodes (Refactor completed Jan 2026).
 
 **Effort:** High
 
