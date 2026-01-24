@@ -997,6 +997,8 @@ impl Parser {
         self.advance(); // consume 'property'
         let name = match self.advance().kind.clone() {
             TokenKind::Ident(value) => value,
+            TokenKind::KeywordGet => "get".to_string(),
+            TokenKind::KeywordSet => "set".to_string(),
             other => {
                 return Err(ParseError {
                     message: format!("Expected property name, found {other:?}"),
@@ -1151,6 +1153,8 @@ impl Parser {
         let name = match self.advance().kind.clone() {
             TokenKind::Ident(name) => name,
             TokenKind::KeywordMatch => "match".to_string(),
+            TokenKind::KeywordGet => "get".to_string(),
+            TokenKind::KeywordSet => "set".to_string(),
             other => {
                 return Err(ParseError {
                     message: format!("Expected function name, found {other:?}"),
@@ -1959,6 +1963,8 @@ impl Parser {
                 let name = match self.advance().kind.clone() {
                     TokenKind::Ident(name) => name,
                     TokenKind::KeywordMatch => "match".to_string(),
+                    TokenKind::KeywordGet => "get".to_string(),
+                    TokenKind::KeywordSet => "set".to_string(),
                     TokenKind::Int(val) => val.to_string(),
                     other => {
                         return Err(ParseError {

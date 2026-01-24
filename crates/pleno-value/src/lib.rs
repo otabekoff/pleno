@@ -11,6 +11,7 @@ pub trait VMProvider {
     fn resolve_promise(&mut self, id: u64, value: Value);
     fn register_multi_waiter(&mut self, waiter: MultiWaiter);
     fn check_purity(&mut self) -> Result<(), RuntimeError>;
+    fn collect(&mut self);
 }
 
 #[derive(Debug, Clone)]
@@ -221,21 +222,34 @@ pub enum ArrayOpKind {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub struct StackFrame {
+    pub function_name: String,
+    pub span: Option<pleno_common::Span>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub struct RuntimeError {
     pub message: String,
-    pub line: Option<u32>,
+    pub span: Option<pleno_common::Span>,
+    pub stack_trace: Vec<StackFrame>,
 }
 
 impl RuntimeError {
     pub fn new(message: impl Into<String>) -> Self {
         Self {
             message: message.into(),
-            line: None,
+            span: None,
+            stack_trace: Vec::new(),
         }
     }
 
-    pub fn with_line(mut self, line: u32) -> Self {
-        self.line = Some(line);
+    pub fn with_span(mut self, span: pleno_common::Span) -> Self {
+        self.span = Some(span);
+        self
+    }
+
+    pub fn with_stack_trace(mut self, stack_trace: Vec<StackFrame>) -> Self {
+        self.stack_trace = stack_trace;
         self
     }
 }

@@ -1,0 +1,21 @@
+// Benchmarking standard library module
+ 
+export class Benchmark {
+    public static fn run(name, func) {
+        print("Benchmarking " + name + "...");
+        let start = __native_time_now_ns();
+        func();
+        let end = __native_time_now_ns();
+        let duration_ns = end - start;
+        let duration_ms = duration_ns / 1000000;
+        print("Done in " + duration_ms + "ms (" + duration_ns + " ns)");
+        return duration_ns;
+    }
+ 
+    public static fn measure(func) {
+        let start = __native_time_now_ns();
+        func();
+        let end = __native_time_now_ns();
+        return end - start;
+    }
+}

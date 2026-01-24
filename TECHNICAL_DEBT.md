@@ -4,20 +4,6 @@ This document tracks known technical debts and areas requiring improvement in Pl
 
 ---
 
-## High Priority
-
-### Missing Spec Implementations
-**Location:** `crates/pleno-compiler`, `crates/pleno-vm`, `crates/pleno-cli`
-
-Features documented in `specs.md` but missing in codebase:
-- Interface satisfaction validation at compile-time/runtime ✅
-
-### Package Management Completion
-- Complete implementation of `pleno install` (fetch/clone) ✅
-- Proper dependency resolution ✅
-
----
-
 ## Medium Priority
 
 ### Memory Management
@@ -34,7 +20,7 @@ Features documented in `specs.md` but missing in codebase:
 ## Low Priority
 
 ### Error Handling in Tests
-- Excessive `unwrap()` and `expect()` usage (cosmetic)
+- Excessive `unwrap()` and `expect!()` usage (cosmetic)
 - Can be addressed incrementally
 
 ### Performance
@@ -48,11 +34,9 @@ Features documented in `specs.md` but missing in codebase:
 
 | Priority | Status |
 |----------|--------|
-| High | OOP (interface), PM |
+| High | Completed (OOP/PM/Diagnostics) |
 | Medium | GC, Test coverage |
 | Low/Deferred | Performance, Test cleanup |
 
 **v1 Focus:**
-1. Complete core language features (Interface validation)
-2. Finalize Package Management
-3. Reach Release Criteria (250+ tests)
+1. Reach Release Criteria (250+ tests)

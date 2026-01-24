@@ -16,7 +16,6 @@ This roadmap tracks remaining implementation work for v1.
 
 **Remaining**:
 - pleno-common: Currently spans only, could expand to shared utilities
-- pleno-diagnostics: Basic error reporting, could improve messages
 
 ---
 
@@ -24,7 +23,6 @@ This roadmap tracks remaining implementation work for v1.
 
 **Remaining**:
 - **Testing Expansion**: Add more integration tests
-- **Diagnostics**: Improve compiler/VM error messages with source spans
 
 **Deferred (post-v1)**:
 - GC Robustness: Full tracing management

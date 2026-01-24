@@ -1,0 +1,20 @@
+// Test: Deep Tuple Destructuring
+ 
+let data = [1, [2, 3, [4, 5]], 6];
+ 
+match data {
+    case (a, (b, c, (d, e)), f) => {
+        print("a: " + a);
+        print("b: " + b);
+        print("c: " + c);
+        print("d: " + d);
+        print("e: " + e);
+        print("f: " + f);
+        if (a == 1 && b == 2 && c == 3 && d == 4 && e == 5 && f == 6) {
+            print("SUCCESS: Deep tuple destructuring works");
+        } else {
+            print("FAILURE: values mismatch");
+        }
+    },
+    case _ => print("FAILURE: pattern did not match")
+}

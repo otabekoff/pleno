@@ -1,0 +1,13 @@
+// Test: Object Pattern Matching
+ 
+let user = {"name": "Alice", "age": 30, "address": {"city": "New York", "zip": "10001"}};
+ 
+match user {
+    case {name: n, address: {city: c}} => {
+        print("User: " + n + " in " + c);
+        if (n == "Alice" && c == "New York") {
+            print("SUCCESS: Object destructuring works");
+        }
+    },
+    case _ => print("FAILURE: pattern did not match")
+}

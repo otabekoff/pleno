@@ -255,6 +255,7 @@ fn run_single_test(path: &PathBuf, stats: &mut TestStats) {
     };
 
     let is_expected_compile_error = source.contains("// EXPECT_COMPILE_ERROR");
+    let is_expected_runtime_error = source.contains("// EXPECT_RUNTIME_ERROR");
 
     let mut compiler = pleno_compiler::Compiler::new(source);
     let chunk = match compiler.compile(&program) {
@@ -283,13 +284,23 @@ fn run_single_test(path: &PathBuf, stats: &mut TestStats) {
     // Temporarily verify simply by running without error
     match vm.execute(chunk) {
         Ok(_) => {
-            println!("PASSED");
-            stats.passed += 1;
+            if is_expected_runtime_error {
+                println!("FAILED (Expected Runtime Error but succeeded)");
+                stats.failed += 1;
+            } else {
+                println!("PASSED");
+                stats.passed += 1;
+            }
         }
         Err(err) => {
-            println!("FAILED (Runtime Error)");
-            eprintln!("  Runtime error: {}", err.message);
-            stats.failed += 1;
+            if is_expected_runtime_error {
+                println!("PASSED (Expected Runtime Error)");
+                stats.passed += 1;
+            } else {
+                println!("FAILED (Runtime Error)");
+                eprintln!("  Runtime error: {}", err.message);
+                stats.failed += 1;
+            }
         }
     }
 }
@@ -361,7 +372,7 @@ fn run_file(path: &str) {
         }
     };
 
-    let mut compiler = pleno_compiler::Compiler::new(source);
+    let mut compiler = pleno_compiler::Compiler::new(source.clone());
     let chunk = match compiler.compile(&program) {
         Ok(chunk) => chunk,
         Err(err) => {
@@ -374,14 +385,47 @@ fn run_file(path: &str) {
     match vm.execute(chunk) {
         Ok(_) => {}
         Err(err) => {
-            if let Some(line) = err.line {
-                eprintln!("Runtime error at line {}: {}", line, err.message);
+            if let Some(span) = err.span {
+                let diagnostic = pleno_diagnostics::Diagnostic::new(&err.message, span);
+                eprintln!(
+                    "{}",
+                    pleno_diagnostics::DiagnosticReporter::report(&diagnostic, &source)
+                );
             } else {
                 eprintln!("Runtime error: {}", err.message);
+            }
+
+            if !err.stack_trace.is_empty() {
+                eprintln!("\nStack backtrace:");
+                for frame in err.stack_trace {
+                    if let Some(span) = frame.span {
+                        let (line, col) = get_line_col(&source, span.start);
+                        eprintln!("  at {} ({}:{})", frame.function_name, line, col);
+                    } else {
+                        eprintln!("  at {}", frame.function_name);
+                    }
+                }
             }
             process::exit(1);
         }
     }
+}
+
+fn get_line_col(source: &str, offset: usize) -> (usize, usize) {
+    let mut line = 1;
+    let mut col = 1;
+    for (i, c) in source.char_indices() {
+        if i >= offset {
+            break;
+        }
+        if c == '\n' {
+            line += 1;
+            col = 1;
+        } else {
+            col += 1;
+        }
+    }
+    (line, col)
 }
 
 fn format_file(path: &str) {

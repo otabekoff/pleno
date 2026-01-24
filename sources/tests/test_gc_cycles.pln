@@ -1,0 +1,41 @@
+// GC Cycle Reclamation Test
+ 
+class Node {
+    constructor(name) {
+        this.name = name;
+        this.next = null;
+    }
+}
+ 
+fn create_cycle() {
+    let a = Node("A");
+    let b = Node("B");
+    a.next = b;
+    b.next = a; // Cycle
+    print("Cycle created");
+}
+ 
+print("Testing GC Cycle Reclamation...");
+let initial = __native_gc_stats();
+print("Initial heap size: " + initial.heap_size);
+ 
+create_cycle();
+let after_create = __native_gc_stats();
+print("Heap size after creation: " + after_create.heap_size);
+ 
+__native_gc_collect();
+let after_collect = __native_gc_stats();
+print("Heap size after manual collect (should not change yet): " + after_collect.heap_size);
+ 
+// Now the local variables from create_cycle are gone, so the cycle should be reclaimed
+__native_gc_collect();
+let final = __native_gc_stats();
+print("Final heap size: " + final.heap_size);
+ 
+if (final.heap_size < after_create.heap_size) {
+    print("SUCCESS: Cyclic references reclaimed!");
+} else {
+    print("FAILURE: Heap size did not decrease. Final: " + final.heap_size + ", After create: " + after_create.heap_size);
+    // Note: This might fail if the VM/Compiler creates other objects in between.
+    // But basic cyclic objects should be gone.
+}

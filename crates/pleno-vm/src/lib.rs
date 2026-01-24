@@ -187,6 +187,36 @@ impl VMProvider for VM {
         }
         Ok(())
     }
+
+    fn collect(&mut self) {
+        self.gc.collect_garbage_with(|gc| {
+            // Mark all reachable objects
+            for val in self.registers.iter() {
+                val.mark(gc);
+            }
+            for val in self.globals.values() {
+                val.mark(gc);
+            }
+            for val in self.modules.values() {
+                val.mark(gc);
+            }
+            for task in &self.pending_tasks {
+                task.mark(gc);
+            }
+            for promise in self.promises.values() {
+                promise.mark(gc);
+            }
+            for frame in self.suspended_frames.values() {
+                frame.mark(gc);
+            }
+            for waiter in &self.multi_waiters {
+                waiter.mark(gc);
+            }
+            for frame in &self.frames {
+                frame.mark(gc);
+            }
+        });
+    }
 }
 
 impl GcObject for AsyncTask {
@@ -268,6 +298,10 @@ impl VM {
         globals.insert("print".to_string(), Value::NativeFunction(native_print));
         globals.insert("println".to_string(), Value::NativeFunction(native_print));
         globals.insert("id".to_string(), Value::NativeFunction(native_id));
+        globals.insert(
+            "__native_sleep".to_string(),
+            Value::NativeFunction(native_sleep),
+        );
         // Result type constructors
         globals.insert("Ok".to_string(), Value::NativeFunction(native_result_ok));
         globals.insert("Err".to_string(), Value::NativeFunction(native_result_err));
@@ -518,6 +552,18 @@ impl VM {
             "__native_datetime_parse".to_string(),
             Value::NativeFunction(native_datetime_parse),
         );
+        globals.insert(
+            "__native_gc_collect".to_string(),
+            Value::NativeFunction(native_gc_collect),
+        );
+        globals.insert(
+            "__native_gc_stats".to_string(),
+            Value::NativeFunction(native_gc_stats),
+        );
+        globals.insert(
+            "__native_time_now_ns".to_string(),
+            Value::NativeFunction(native_time_now_ns),
+        );
 
         // Async primitives
         globals.insert(
@@ -616,16 +662,33 @@ impl VM {
     }
 
     fn enrich_error(&self, err: &mut RuntimeError) {
-        if err.line.is_none()
+        if err.span.is_none()
             && let Some(frame) = self.frames.last()
             && let Some(func) = self.functions.get(frame.function_index)
         {
-            // IP is already incremented, so look at previous instruction
             let ip = if frame.ip > 0 { frame.ip - 1 } else { 0 };
-            if let Some(line) = func.chunk.lines.get(ip) {
-                *err = err.clone().with_line(*line);
+            if let Some(span) = func.chunk.spans.get(ip) {
+                err.span = Some(*span);
             }
         }
+        if err.stack_trace.is_empty() {
+            err.stack_trace = self.generate_backtrace();
+        }
+    }
+
+    fn generate_backtrace(&self) -> Vec<pleno_value::StackFrame> {
+        let mut trace = Vec::new();
+        for frame in self.frames.iter().rev() {
+            if let Some(func) = self.functions.get(frame.function_index) {
+                let ip = if frame.ip > 0 { frame.ip - 1 } else { 0 };
+                let span = func.chunk.spans.get(ip).copied();
+                trace.push(pleno_value::StackFrame {
+                    function_name: (*func.name).clone(),
+                    span,
+                });
+            }
+        }
+        trace
     }
 
     fn process_tasks(&mut self) -> Result<(), RuntimeError> {
@@ -763,7 +826,7 @@ impl VM {
                         .ok_or_else(|| RuntimeError::new("unknown function prototype"))?;
                     let func_index = self.functions.len();
                     self.functions.push(Function {
-                        name: Rc::new("<fn>".to_string()),
+                        name: Rc::new(proto.name.clone()),
                         chunk: proto.chunk.clone(),
                         arity: proto.arity as usize,
                         params: proto.params.clone(),
@@ -790,7 +853,7 @@ impl VM {
                         .ok_or_else(|| RuntimeError::new("unknown function prototype"))?;
                     let func_index = self.functions.len();
                     self.functions.push(Function {
-                        name: Rc::new("<async fn>".to_string()),
+                        name: Rc::new(proto.name.clone()),
                         chunk: proto.chunk.clone(),
                         arity: proto.arity as usize,
                         params: proto.params.clone(),
@@ -813,7 +876,7 @@ impl VM {
                         .ok_or_else(|| RuntimeError::new("unknown function prototype"))?;
                     let func_index = self.functions.len();
                     self.functions.push(Function {
-                        name: Rc::new("<fn>".to_string()),
+                        name: Rc::new(proto.name.clone()),
                         chunk: proto.chunk.clone(),
                         arity: proto.arity as usize,
                         params: proto.params.clone(),
@@ -3149,6 +3212,15 @@ fn native_os_platform(vm: &mut dyn VMProvider, _args: &[Value]) -> Result<Value,
     Ok(Value::String(Rc::new(std::env::consts::OS.to_string())))
 }
 
+fn native_sleep(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    let ms = match args.first() {
+        Some(Value::Int(m)) => *m as u64,
+        _ => return Err(RuntimeError::new("sleep() expects integer milliseconds")),
+    };
+    std::thread::sleep(std::time::Duration::from_millis(ms));
+    Ok(Value::Null)
+}
+
 fn native_http_get(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
     let url = match args.first() {
         Some(Value::String(s)) => s.as_str(),
@@ -4708,6 +4780,40 @@ fn native_datetime_parse(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Val
     let dt = ChronoDateTime::parse_from_str(date_str, fmt)
         .map_err(|e| RuntimeError::new(format!("date parse error: {}", e)))?;
     Ok(Value::Int(dt.with_timezone(&Utc).timestamp()))
+}
+
+fn native_gc_collect(vm: &mut dyn VMProvider, _args: &[Value]) -> Result<Value, RuntimeError> {
+    vm.collect();
+    Ok(Value::Null)
+}
+
+fn native_gc_stats(vm: &mut dyn VMProvider, _args: &[Value]) -> Result<Value, RuntimeError> {
+    let gc_manager = vm.get_gc();
+    let mut stats_map = HashMap::new();
+    stats_map.insert(
+        "heap_size".to_string(),
+        Value::Int(gc_manager.gc.get_heap_size() as i64),
+    );
+    stats_map.insert(
+        "threshold".to_string(),
+        Value::Int(gc_manager.gc.allocation_threshold as i64),
+    );
+    stats_map.insert(
+        "current_allocation".to_string(),
+        Value::Int(gc_manager.current_allocation as i64),
+    );
+    let gc = vm.get_gc();
+    Ok(Value::Map(
+        gc.allocate(pleno_value::MapState::new(stats_map)),
+    ))
+}
+
+fn native_time_now_ns(_vm: &mut dyn VMProvider, _args: &[Value]) -> Result<Value, RuntimeError> {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|e| RuntimeError::new(format!("time error: {}", e)))?;
+    Ok(Value::Int(now.as_nanos() as i64))
 }
 
 // Map native methods
