@@ -31,7 +31,7 @@ jobs:
             command: build
 
           - name: macOS x86_64
-            os: macos-13
+            os: macos-15
             target: x86_64-apple-darwin
             bin: pleno
             name_suffix: macos-x86_64.tar.gz
@@ -65,8 +65,12 @@ jobs:
           mkdir -p dist
           # Rename binary from pleno-cli to pleno
           cp target/${{ matrix.platform.target }}/release/pleno-cli dist/${{ matrix.platform.bin }}
+          # Include README and LICENSE
+          cp README.md dist/
+          cp LICENSE dist/
           cd dist
-          tar czf ../pleno-${{ github.ref_name }}-${{ matrix.platform.name_suffix }} ${{ matrix.platform.bin }}
+          ls -R # Debugging: List contents
+          tar czf ../pleno-${{ github.ref_name }}-${{ matrix.platform.name_suffix }} *
 
       - name: Prepare Release Artifacts (Windows)
         if: matrix.platform.os == 'windows-latest'
@@ -75,7 +79,10 @@ jobs:
           New-Item -ItemType Directory -Force -Path dist
           # Rename binary from pleno-cli.exe to pleno.exe
           Copy-Item "target/${{ matrix.platform.target }}/release/pleno-cli.exe" "dist/${{ matrix.platform.bin }}"
-          Compress-Archive -Path "dist/${{ matrix.platform.bin }}" -DestinationPath "pleno-${{ github.ref_name }}-${{ matrix.platform.name_suffix }}"
+          Copy-Item "README.md" "dist/"
+          Copy-Item "LICENSE" "dist/"
+          Get-ChildItem -Recurse dist # Debugging
+          Compress-Archive -Path "dist/*" -DestinationPath "pleno-${{ github.ref_name }}-${{ matrix.platform.name_suffix }}"
 
       - name: Upload Release Assets
         uses: softprops/action-gh-release@v2

@@ -9,7 +9,7 @@ fn main() {
     let mut args = env::args().skip(1).peekable();
 
     if args.peek().is_none() {
-        print_help();
+        start_default();
         return;
     }
 
@@ -163,10 +163,30 @@ fn main() {
             });
             debug_ast(&path);
         }
+        "lsp" => {
+            if let Err(e) = pleno_lsp::start() {
+                eprintln!("LSP server error: {}", e);
+                process::exit(1);
+            }
+        }
+        "repl" => {
+            if let Err(e) = pleno_repl::start() {
+                eprintln!("REPL error: {}", e);
+                process::exit(1);
+            }
+        }
         _ => {
             // Default: treat as file path and run it
             run_file(&command);
         }
+    }
+}
+
+// Fallback if no args provided: run REPL
+fn start_default() {
+    if let Err(e) = pleno_repl::start() {
+        eprintln!("REPL error: {}", e);
+        process::exit(1);
     }
 }
 
@@ -522,53 +542,14 @@ fn lint_single_file(path: &PathBuf) {
         }
     };
 
-    let mut issues = Vec::new();
+    // Use pleno_linter crate
+    let issues = pleno_linter::lint(&source);
 
-    // Lex and check for issues
-    let tokens = match pleno_lexer::lex(&source) {
-        Ok(tokens) => tokens,
-        Err(err) => {
-            issues.push(format!(
-                "Lex error at {}..{}: {}",
-                err.span.start, err.span.end, err.message
-            ));
-            // Continue to try parsing
-            vec![]
-        }
-    };
-
-    if tokens.is_empty() && !issues.is_empty() {
-        for issue in issues {
-            eprintln!("{}", issue);
-        }
+    if issues.is_empty() {
+        println!("No linting issues found in {}", path.display());
+    } else {
+        println!("{}", pleno_linter::format_diagnostics(&issues));
         process::exit(1);
-    }
-
-    // Parse and check for issues
-    let mut parser = pleno_parser::Parser::new(tokens);
-    match parser.parse_program() {
-        Ok(_program) => {
-            // Basic linting checks
-            // TODO: Add more linting rules
-            if issues.is_empty() {
-                println!("No linting issues found in {}", path.display());
-            } else {
-                for issue in issues {
-                    eprintln!("{}", issue);
-                }
-                process::exit(1);
-            }
-        }
-        Err(err) => {
-            issues.push(format!(
-                "Parse error at {}..{}: {}",
-                err.span.start, err.span.end, err.message
-            ));
-            for issue in issues {
-                eprintln!("{}", issue);
-            }
-            process::exit(1);
-        }
     }
 }
 
@@ -644,7 +625,10 @@ fn print_help() {
           format <path>      Format Pleno files\n\
           lint <path>        Lint Pleno files\n\
           check <file.pln>   Type check a Pleno file\n\
-          test <path>        Run tests in file or directory\n\n\
+          check <file.pln>   Type check a Pleno file\n\
+          test <path>        Run tests in file or directory\n\
+          repl               Start the interactive REPL\n\
+          lsp                Start the Language Server\n\n\
         Options:\n\
           -h, --help         Show this help message\n\
           -v, --version      Show version information\n\n\
@@ -653,6 +637,9 @@ fn print_help() {
           pleno format src/\n\
           pleno lint main.pln\n\
           pleno check main.pln\n\
-          pleno test sources/tests"
+          pleno check main.pln\n\
+          pleno test sources/tests\n\
+          pleno repl         Start the interactive REPL\n\
+          pleno lsp          Start the Language Server"
     );
 }

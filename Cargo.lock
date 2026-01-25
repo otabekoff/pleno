@@ -640,8 +640,11 @@ dependencies = [
  "pleno-diagnostics",
  "pleno-formatter",
  "pleno-lexer",
+ "pleno-linter",
+ "pleno-lsp",
  "pleno-package",
  "pleno-parser",
+ "pleno-repl",
  "pleno-stdlib",
  "pleno-vm",
 ]

@@ -13,3 +13,6 @@ pleno-formatter = { workspace = true }
 pleno-package = { workspace = true }
 pleno-diagnostics = { workspace = true }
 pleno-stdlib = { workspace = true }
+pleno-lsp = { workspace = true }
+pleno-repl = { workspace = true }
+pleno-linter = { workspace = true }
