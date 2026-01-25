@@ -32,7 +32,7 @@
         "**/.hg": true,
         "**/.DS_Store": true,
         "**/Thumbs.db": true,
-        "**/node_modules": true,
+        // "**/node_modules": true,
         // "**/target": true,
         // "**/build": true,
         // "**/dist": true,
@@ -49,6 +49,9 @@
     },
     "[jsonc]": {
         "editor.defaultFormatter": "vscode.json-language-features"
+    },
+    "[css]": {
+        "editor.defaultFormatter": "vscode.css-language-features"
     },
     // "material-icon-theme.files.associations": {
     //     "*.pln": "database",

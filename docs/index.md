@@ -28,11 +28,15 @@ features:
     details: "Native support for async/await and robust concurrency primitives right from the start."
 ---
 
-<!--
 <style>
+/*
 :root {
   --vp-home-hero-name-color: transparent;
   --vp-home-hero-name-background: -webkit-linear-gradient(120deg, #38b296 30%, #1a705d);
 }
+*/
+
+.image-bg {
+  opacity: 50%;
+}
 </style>
--->

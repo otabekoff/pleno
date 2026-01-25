@@ -6,6 +6,7 @@
       "dependencies": {
         "cosmiconfig-typescript-loader": "^6.2.0",
         "jiti": "1.21.0",
+        "shiki": "^3.21.0",
       },
       "devDependencies": {
         "@commitlint/cli": "^20.3.1",
