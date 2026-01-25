@@ -1,0 +1,54 @@
+{
+    "editor.formatOnSave": true,
+    "editor.defaultFormatter": "rust-lang.rust-analyzer",
+    "rust-analyzer.checkOnSave.command": "clippy",
+    "rust-analyzer.checkOnSave.extraArgs": [],
+    "rust-analyzer.checkOnSave.enable": true,
+    "rust-analyzer.checkOnSave.allTargets": true,
+    "rust-analyzer.checkOnSave.allFeatures": true,
+    "rust-analyzer.checkOnSave.threshold": "All",
+    "rust-analyzer.checkOnSave.message": "Clippy found some issues",
+    "rust-analyzer.checkOnSave.suppress": false,
+    "rust-analyzer.checkOnSave.run": "always",
+
+    "files.associations": {
+        "*.rs": "rust"
+    },
+    "explorer.fileNesting.enabled": true,
+    "explorer.fileNesting.expand": true,
+    "explorer.fileNesting.patterns": {
+        "*.ts": "${capture}.js",
+        "*.js": "${capture}.js.map, ${capture}.min.js, ${capture}.d.ts",
+        "*.jsx": "${capture}.js",
+        "*.tsx": "${capture}.ts",
+        "tsconfig.json": "tsconfig.*.json",
+        "package.json": "package-lock.json, yarn.lock, pnpm-lock.yaml, bun.lockb, bun.lock",
+        "Cargo.toml": "Cargo.lock",
+        "README.md": "README.*.md, CHANGELOG.md, CODE_OF_CONDUCT.md, CONTRIBUTING.md, SECURITY.md, LICENSE",
+        ".gitignore": ".gitattributes, commitlint.config.cjs"
+    },
+    "files.exclude": {
+        "**/.git": true,
+        "**/.svn": true,
+        "**/.hg": true,
+        "**/.DS_Store": true,
+        "**/Thumbs.db": true,
+        "**/node_modules": true,
+        "**/target": true,
+        "**/build": true,
+        "**/dist": true,
+        "**/.orchids/": true,
+        "**/.vscode/": true,
+        "**/.github/": true,
+        "**/.zed/": true,
+    },
+    "[xml]": {
+        "editor.defaultFormatter": "redhat.vscode-xml"
+    },
+    "[json]": {
+        "editor.defaultFormatter": "vscode.json-language-features"
+    },
+    "[jsonc]": {
+        "editor.defaultFormatter": "vscode.json-language-features"
+    }
+}
