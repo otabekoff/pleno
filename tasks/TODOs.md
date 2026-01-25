@@ -7,11 +7,6 @@ Expand test suite and error messages
 
 Continue with the implementation/fix/bugfix/update of next tasks in TECHNICAL_DEBT.md and ROADMAP.md and if you need any info , specs.md file is ready for you. And make sure to update the files at the end of the jobs those are done. And if completely done tasks and if we don't address them anymore, remove them from ROADMAP.md and TECHNICAL_DEBT.md.
 
-In vscode only highlighting working. When imported modules, ctrl + click is not opening that part of / the file. Also on hovering nothing is being shown on code of .pln. No icon of extension and files of .pln. Also, there is no README for better support.
-
-Add vscode snippets.
-
-
 We had a solid specs.md, then while developing based on the specs.md we may have introduced many additional things too. But they are not in the specs.md, I've also divided the specs.md into docs/specs folder into files, you may update those files to be correct. For example not all of the stlibs may not be documented all other data structures we have or there are many things not documented, now it is time to document them all.
 
 Review tests. Add more tests. Meaningful tests.

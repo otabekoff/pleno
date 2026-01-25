@@ -14,7 +14,14 @@ help:
 	@echo "  docs-build     Build static documentation"
 	@echo "  docs-preview   Preview the built documentation"
 	@echo "  package        Package the binary into a compressed archive"
+	@echo "  install        Install binaries to user path (Windows)"
+	@echo "  all            Run format, lint, test, and build"
 	@echo "  clean          Remove build artifacts"
+
+all: format lint test build
+
+install:
+	pwsh -File tasks/install.ps1
 
 repl:
 	cargo run -p pleno-repl
