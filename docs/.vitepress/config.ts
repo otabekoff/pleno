@@ -13,6 +13,7 @@ const plenoGrammar = JSON.parse(
 export default defineConfig({
   title: "Pleno",
   description: "Clarity, Safety, Expressiveness",
+  base: "/pleno/",
   srcDir: '.',
   ignoreDeadLinks: true,
   themeConfig: {
