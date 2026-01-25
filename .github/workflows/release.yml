@@ -9,22 +9,76 @@ permissions:
   contents: write
 
 jobs:
-  build:
-    runs-on: ubuntu-latest
+  build-and-release:
+    name: Release - ${{ matrix.platform.name }}
+    runs-on: ${{ matrix.platform.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        platform:
+          - name: Linux x86_64
+            os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            bin: pleno
+            name_suffix: linux-x86_64.tar.gz
+            command: build
+
+          - name: Windows x86_64
+            os: windows-latest
+            target: x86_64-pc-windows-msvc
+            bin: pleno.exe
+            name_suffix: windows-x86_64.zip
+            command: build
+
+          - name: macOS x86_64
+            os: macos-13
+            target: x86_64-apple-darwin
+            bin: pleno
+            name_suffix: macos-x86_64.tar.gz
+            command: build
+
+          - name: macOS ARM64
+            os: macos-latest
+            target: aarch64-apple-darwin
+            bin: pleno
+            name_suffix: macos-aarch64.tar.gz
+            command: build
+
     steps:
       - uses: actions/checkout@v4
+
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.platform.target }}
+
       - name: Cache
         uses: Swatinem/rust-cache@v2
-      - name: Build
-        run: cargo build --release -p pleno-cli
-      - name: Package
+
+      - name: Build Binary
+        run: cargo build --release --target ${{ matrix.platform.target }} -p pleno-cli
+
+      - name: Prepare Release Artifacts (Unix)
+        if: matrix.platform.os != 'windows-latest'
+        shell: bash
         run: |
           mkdir -p dist
-          cp target/release/pleno-cli dist/
-          tar czf pleno-${{ github.ref_name }}-linux-x86_64.tar.gz -C dist .
-      - name: Release
+          # Rename binary from pleno-cli to pleno
+          cp target/${{ matrix.platform.target }}/release/pleno-cli dist/${{ matrix.platform.bin }}
+          cd dist
+          tar czf ../pleno-${{ github.ref_name }}-${{ matrix.platform.name_suffix }} ${{ matrix.platform.bin }}
+
+      - name: Prepare Release Artifacts (Windows)
+        if: matrix.platform.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist
+          # Rename binary from pleno-cli.exe to pleno.exe
+          Copy-Item "target/${{ matrix.platform.target }}/release/pleno-cli.exe" "dist/${{ matrix.platform.bin }}"
+          Compress-Archive -Path "dist/${{ matrix.platform.bin }}" -DestinationPath "pleno-${{ github.ref_name }}-${{ matrix.platform.name_suffix }}"
+
+      - name: Upload Release Assets
         uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/')
         with:
-          files: pleno-${{ github.ref_name }}-linux-x86_64.tar.gz
+          files: pleno-${{ github.ref_name }}-${{ matrix.platform.name_suffix }}

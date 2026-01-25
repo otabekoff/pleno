@@ -243,8 +243,8 @@ fn test_null_coalescing_formatting() {
 
 #[test]
 fn test_set_formatting() {
-    let input = "let set={1,2,3,4};";
-    let expected = "let set = {1, 2, 3, 4};\n";
+    let input = "let my_set={1,2,3,4};";
+    let expected = "let my_set = {1, 2, 3, 4};\n";
     let result = format_code(input, &FormatOptions::default()).unwrap();
     assert_eq!(result, expected);
 }

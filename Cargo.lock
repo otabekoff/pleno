@@ -705,6 +705,7 @@ dependencies = [
 name = "pleno-lsp"
 version = "0.1.0"
 dependencies = [
+ "pleno-ast",
  "pleno-lexer",
  "pleno-parser",
  "serde_json",

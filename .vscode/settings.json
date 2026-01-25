@@ -10,7 +10,6 @@
     "rust-analyzer.checkOnSave.message": "Clippy found some issues",
     "rust-analyzer.checkOnSave.suppress": false,
     "rust-analyzer.checkOnSave.run": "always",
-
     "files.associations": {
         "*.rs": "rust"
     },
@@ -34,12 +33,12 @@
         "**/.DS_Store": true,
         "**/Thumbs.db": true,
         "**/node_modules": true,
-        "**/target": true,
-        "**/build": true,
-        "**/dist": true,
+        // "**/target": true,
+        // "**/build": true,
+        // "**/dist": true,
         "**/.orchids/": true,
-        "**/.vscode/": true,
-        "**/.github/": true,
+        // "**/.vscode/": true,
+        // "**/.github/": true,
         "**/.zed/": true,
     },
     "[xml]": {
@@ -50,5 +49,12 @@
     },
     "[jsonc]": {
         "editor.defaultFormatter": "vscode.json-language-features"
-    }
+    },
+    // "material-icon-theme.files.associations": {
+    //     "*.pln": "database",
+    // },
+    // "material-icon-theme.folders.associations": {
+    //     "pleno": "pleno",
+    //     ".pleno": "pleno",
+    // }
 }
