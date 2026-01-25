@@ -6,16 +6,31 @@ import {
     ServerOptions,
     TransportKind
 } from 'vscode-languageclient/node';
+import { injectPlenoIcons } from './iconInjector';
 
 let client: LanguageClient;
 
 export function activate(context: vscode.ExtensionContext) {
+    // Try to inject icon theme patches
+    injectPlenoIcons(context);
+
     // LSP Server setup
-    // For development, we point to the target directory. 
-    // In production, the binary should be bundled.
-    let serverModule = context.asAbsolutePath(
-        path.join('..', '..', 'target', 'release', 'pleno-lsp')
-    );
+    // 1. Try to use 'pleno-lsp' from PATH
+    // 2. Fallback to local 'target/release/pleno-lsp' (development)
+
+    const command = process.platform === 'win32' ? 'where' : 'which';
+    let serverPath = 'pleno-lsp';
+    
+    try {
+        require('child_process').execSync(`${command} pleno-lsp`);
+    } catch {
+       // Not in PATH, use local fallback
+       serverPath = context.asAbsolutePath(
+         path.join('..', '..', 'target', 'release', 'pleno-lsp')
+       );
+    }
+    
+    let serverModule = serverPath;
 
     // If the extension is launched in debug mode then the debug server options are used
     // Otherwise the run options are used

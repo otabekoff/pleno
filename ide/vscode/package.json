@@ -4,7 +4,7 @@
   "description": "Pleno Programming Language Support Extension for VSCode with Syntax highlighting for Pleno (.pln)",
   "version": "0.0.1",
   "publisher": "pleno",
-  "icon": "resources/logo.png",
+  "icon": "resources/icon.png",
   "engines": {
     "vscode": "^1.100.0"
   },
@@ -22,7 +22,8 @@
     "watch": "tsc -watch -p ./",
     "pretest": "npm run compile && npm run lint",
     "lint": "eslint src --ext ts",
-    "test": "node ./out/test/runTest.js"
+    "test": "node ./out/test/runTest.js",
+    "pack": "vsce package && antigravity --install-extension pleno-language-0.0.1.vsix"
   },
   "devDependencies": {
     "@types/node": "25.x",
@@ -33,6 +34,7 @@
     "typescript": "^5.9.3"
   },
   "activationEvents": [
+    "*",
     "onCommand:markdown.showPreview",
     "onCommand:markdown.showPreviewToSide"
   ],
@@ -45,9 +47,23 @@
           "pleno"
         ],
         "extensions": [
-          ".pln"
+          ".pln",
+          ".pl",
+          ".pleno"
         ],
         "configuration": "./language-configuration.json"
+      }
+    ],
+    "iconThemes": [
+      {
+        "id": "pleno",
+        "label": "Pleno",
+        "path": "./resources/file-icons.json"
+      },
+      {
+        "id": "pleno-material",
+        "label": "Pleno (Material)",
+        "path": "./resources/file-icons-material.json"
       }
     ],
     "grammars": [
