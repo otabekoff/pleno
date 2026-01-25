@@ -1,71 +1,77 @@
-# Pleno VSCode Extension
+# Pleno Language Support for VS Code
 
-## Packaging
-
-Use `vsce` when ready to package and publish.
+Official VS Code extension for the [Pleno programming language](https://github.com/otabekoff/pleno) - a modern, expressive language designed for simplicity and power.
 
 ## Features
 
-- **Syntax Highlighting**: Comprehensive highlighting for Pleno source files (`.pln`).
-- **Markdown Support**: 
-  - Syntax highlighting inside Markdown fenced code blocks (```pleno).
-  - Highlighting in Markdown Preview (zero dependencies required).
-- **Language Features**: Support for comments, brackets, and auto-closing pairs.
+### Syntax Highlighting
+Full syntax highlighting support for `.pln` files, including:
+- Keywords, operators, and control flow
+- Functions, classes, and interfaces
+- Strings, numbers, and comments
+- Type annotations
 
-For example if there is an image subfolder under your extension project workspace:
+### Code Snippets
+Quick insertion of common Pleno constructs:
+| Prefix | Description |
+|--------|-------------|
+| `fn` | Function declaration |
+| `fnr` | Function with return type |
+| `class` | Class declaration |
+| `classex` | Class with extends |
+| `interface` | Interface declaration |
+| `enum` | Enum declaration |
+| `for` | For-in loop |
+| `forr` | For range loop |
+| `while` | While loop |
+| `if` / `ife` | If / If-else statement |
+| `match` | Match expression |
+| `import` | Import statement |
+| `try` | Try-catch block |
+| `let` / `const` / `mut` | Variable declarations |
 
-\!\[feature X\]\(images/feature-x.png\)
+### Language Server (LSP)
+- **Diagnostics**: Real-time syntax error reporting
+- **Go to Definition**: Navigate to function, class, and variable definitions (works across files!)
+- **Hover Information**: View symbol kind and signature on hover
 
-> Tip: Many popular extensions utilize animations. This is an excellent way to show off your extension! We recommend short, focused animations that are easy to follow.
+### Markdown Support
+Syntax highlighting in Markdown fenced code blocks using ` ```pleno ` or ` ```pln `.
 
-## Requirements
+### File Icons
+Custom file icons for `.pln` files (requires selecting "Pleno File Icons" in File Icon Theme settings).
 
-If you have any requirements or dependencies, add a section describing those and how to install and configure them.
+## Installation
 
-## Extension Settings
+### 1. Install Libraries (LSP)
+To get the full experience (diagnostics, hover, go-to-definition), you need to install the Pleno binaries.
 
-Include if your extension adds any VS Code settings through the `contributes.configuration` extension point.
+1.  Clone the repository.
+2.  Run the installer:
+    ```powershell
+    magke install
+    # OR 
+    pwsh -File tasks/install.ps1
+    ```
+    This builds the tools and adds them to your `%USERPROFILE%\.pleno\bin` in PATH.
 
-For example:
+### 2. Install Extension
+1.  Run `npm install` and `npm run pack` in `ide/vscode`.
+2.  Install the generated `.vsix` in VS Code.
 
-This extension contributes the following settings:
+## Configuration
 
-* `myExtension.enable`: Enable/disable this extension.
-* `myExtension.thing`: Set to `blah` to do something.
+The extension automatically looks for `pleno-lsp` in your system PATH. If not found, it tries to use the local development build in `target/release`.
 
-## Known Issues
+To enable Pleno file icons:
+3. Select "Pleno File Icons" in "Preferences: File Icon Theme".
 
-Calling out known issues can help limit users opening duplicate issues against your extension.
+## Links
 
-## Release Notes
+- [Pleno Repository](https://github.com/otabekoff/pleno)
+- [Language Specification](https://github.com/otabekoff/pleno/blob/main/specs.md)
+- [Report Issues](https://github.com/otabekoff/pleno/issues)
 
-Users appreciate release notes as you update your extension.
+## License
 
-### 1.0.0
-
-Initial release of ...
-
-### 1.0.1
-
-Fixed issue #.
-
-### 1.1.0
-
-Added features X, Y, and Z.
-
----
-
-## Working with Markdown
-
-You can author your README using Visual Studio Code. Here are some useful editor keyboard shortcuts:
-
-* Split the editor (`Cmd+\` on macOS or `Ctrl+\` on Windows and Linux).
-* Toggle preview (`Shift+Cmd+V` on macOS or `Shift+Ctrl+V` on Windows and Linux).
-* Press `Ctrl+Space` (Windows, Linux, macOS) to see a list of Markdown snippets.
-
-## For more information
-
-* [Visual Studio Code's Markdown Support](http://code.visualstudio.com/docs/languages/markdown)
-* [Markdown Syntax Reference](https://help.github.com/articles/markdown-basics/)
-
-**Enjoy!**
+MIT

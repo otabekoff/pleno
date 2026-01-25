@@ -1,0 +1,205 @@
+{
+    "Function Declaration": {
+        "prefix": "fn",
+        "body": [
+            "fn ${1:name}(${2:params}) {",
+            "\t$0",
+            "}"
+        ],
+        "description": "Pleno function declaration"
+    },
+    "Function with Return Type": {
+        "prefix": "fnr",
+        "body": [
+            "fn ${1:name}(${2:params}) -> ${3:ReturnType} {",
+            "\t$0",
+            "}"
+        ],
+        "description": "Pleno function with return type"
+    },
+    "Async Function": {
+        "prefix": "async",
+        "body": [
+            "async fn ${1:name}(${2:params}) {",
+            "\t$0",
+            "}"
+        ],
+        "description": "Pleno async function declaration"
+    },
+    "Class Declaration": {
+        "prefix": "class",
+        "body": [
+            "class ${1:Name} {",
+            "\tconstructor(${2:params}) {",
+            "\t\t$0",
+            "\t}",
+            "}"
+        ],
+        "description": "Pleno class declaration"
+    },
+    "Class with Extends": {
+        "prefix": "classex",
+        "body": [
+            "class ${1:Name} extends ${2:Parent} {",
+            "\tconstructor(${3:params}) {",
+            "\t\tsuper(${4:args});",
+            "\t\t$0",
+            "\t}",
+            "}"
+        ],
+        "description": "Pleno class with extends"
+    },
+    "Interface Declaration": {
+        "prefix": "interface",
+        "body": [
+            "interface ${1:Name} {",
+            "\t$0",
+            "}"
+        ],
+        "description": "Pleno interface declaration"
+    },
+    "Enum Declaration": {
+        "prefix": "enum",
+        "body": [
+            "enum ${1:Name} {",
+            "\t${2:Variant1},",
+            "\t${3:Variant2}",
+            "}"
+        ],
+        "description": "Pleno enum declaration"
+    },
+    "Let Variable": {
+        "prefix": "let",
+        "body": [
+            "let ${1:name} = ${2:value};"
+        ],
+        "description": "Pleno let variable declaration"
+    },
+    "Let with Type": {
+        "prefix": "lett",
+        "body": [
+            "let ${1:name}: ${2:Type} = ${3:value};"
+        ],
+        "description": "Pleno let with type annotation"
+    },
+    "Const Variable": {
+        "prefix": "const",
+        "body": [
+            "const ${1:NAME} = ${2:value};"
+        ],
+        "description": "Pleno const declaration"
+    },
+    "Mutable Variable": {
+        "prefix": "mut",
+        "body": [
+            "mut ${1:name} = ${2:value};"
+        ],
+        "description": "Pleno mutable variable declaration"
+    },
+    "If Statement": {
+        "prefix": "if",
+        "body": [
+            "if ${1:condition} {",
+            "\t$0",
+            "}"
+        ],
+        "description": "Pleno if statement"
+    },
+    "If-Else Statement": {
+        "prefix": "ife",
+        "body": [
+            "if ${1:condition} {",
+            "\t$2",
+            "} else {",
+            "\t$0",
+            "}"
+        ],
+        "description": "Pleno if-else statement"
+    },
+    "For Loop": {
+        "prefix": "for",
+        "body": [
+            "for ${1:item} in ${2:collection} {",
+            "\t$0",
+            "}"
+        ],
+        "description": "Pleno for-in loop"
+    },
+    "For Range Loop": {
+        "prefix": "forr",
+        "body": [
+            "for ${1:i} in ${2:0}..${3:10} {",
+            "\t$0",
+            "}"
+        ],
+        "description": "Pleno for range loop"
+    },
+    "While Loop": {
+        "prefix": "while",
+        "body": [
+            "while ${1:condition} {",
+            "\t$0",
+            "}"
+        ],
+        "description": "Pleno while loop"
+    },
+    "Match Expression": {
+        "prefix": "match",
+        "body": [
+            "match ${1:value} {",
+            "\t${2:pattern} => {",
+            "\t\t$0",
+            "\t}",
+            "}"
+        ],
+        "description": "Pleno match expression"
+    },
+    "Import Statement": {
+        "prefix": "import",
+        "body": [
+            "import ${1:module};"
+        ],
+        "description": "Pleno import statement"
+    },
+    "Import From": {
+        "prefix": "importfrom",
+        "body": [
+            "import { ${1:items} } from \"${2:module}\";"
+        ],
+        "description": "Pleno import from statement"
+    },
+    "Try-Catch": {
+        "prefix": "try",
+        "body": [
+            "try {",
+            "\t$1",
+            "} catch ${2:error} {",
+            "\t$0",
+            "}"
+        ],
+        "description": "Pleno try-catch block"
+    },
+    "Print": {
+        "prefix": "print",
+        "body": [
+            "print(${1:value});"
+        ],
+        "description": "Pleno print statement"
+    },
+    "Println": {
+        "prefix": "println",
+        "body": [
+            "println(${1:value});"
+        ],
+        "description": "Pleno println statement"
+    },
+    "Constructor": {
+        "prefix": "constructor",
+        "body": [
+            "constructor(${1:params}) {",
+            "\t$0",
+            "}"
+        ],
+        "description": "Pleno constructor"
+    }
+}

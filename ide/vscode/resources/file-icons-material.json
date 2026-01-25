@@ -1,0 +1,27 @@
+{
+    "extends": "material-icon-theme",
+    "iconDefinitions": {
+        "pleno-file": {
+            "iconPath": "./file-icon.svg"
+        },
+        "pleno-folder": {
+            "iconPath": "./folder-icon.svg"
+        },
+        "pleno-folder-open": {
+            "iconPath": "./folder-icon-open.svg"
+        }
+    },
+    "fileExtensions": {
+        "pln": "pleno-file",
+        "pl": "pleno-file",
+        "pleno": "pleno-file"
+    },
+    "folderNames": {
+        "pleno": "pleno-folder",
+        ".pleno": "pleno-folder"
+    },
+    "folderNamesExpanded": {
+        "pleno": "pleno-folder-open",
+        ".pleno": "pleno-folder-open"
+    }
+}
