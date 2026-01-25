@@ -26,5 +26,9 @@
     "*.rs": [
       "sh -c \"cargo fmt --all\""
     ]
+  },
+  "dependencies": {
+    "cosmiconfig-typescript-loader": "^6.2.0",
+    "jiti": "1.21.0"
   }
 }
