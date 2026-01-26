@@ -1,0 +1,21 @@
+import { describe, test, assert } from "std:test";
+
+describe("Calculator Test", fn() {
+    test("basic addition", fn() {
+        assert.equal(1 + 1, 2);
+    });
+
+    test("basic subtraction", fn() {
+        assert.equal(5 - 2, 3);
+    });
+
+    test("assert true", fn() {
+        assert.true(true);
+    });
+
+    test("exception handling", fn() {
+        assert.throws(fn() {
+            throw Error("Expected error");
+        });
+    });
+});

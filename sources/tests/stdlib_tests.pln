@@ -1,0 +1,31 @@
+import http from "std:http";
+import time from "std:time";
+import { JSON } from "std:json";
+import { File } from "std:io";
+import path from "std:path";
+
+print("--- Testing std:json ---");
+let data = { name: "Pleno", ver: 1 };
+let jsonStr = JSON.stringify(data);
+print(jsonStr);
+let parsed = JSON.parse(jsonStr);
+print(parsed.name);
+
+print("\n--- Testing std:time ---");
+let now = time.now();
+print("Timestamp type is Number: " + (now > 0));
+let formatted = time.format(now, "%Y");
+print("Year: " + formatted);
+
+print("\n--- Testing std:path ---");
+let p = path.join("foo", "bar.txt");
+print("Joined: " + p);
+print("Ext: " + path.extname(p));
+
+print("\n--- Testing std:http Router/Server (Stub) ---");
+let router = http.Router();
+router.get("/", fn(req, res) {});
+let server = http.Server(router);
+print("Router/Server created successfully.");
+
+// Skipped actual listen/blocking calls for automated tests

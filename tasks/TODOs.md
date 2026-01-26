@@ -1,17 +1,29 @@
 
 ## Priority: Standard Library & GC Integration
 
-See `TECHNICAL_DEBT.md` for the full list of technical debt items.
+http://localhost:5173/pleno/specs/ is showing next page to introduction which is itself, and causing loop on docs.
+
+See `TECHNICAL_DEBT.md` for the full list of technical debt items. Update it. Now we need to search the project, the comments, and find all leakages, unimplemented stuffs, and write all the technical debts in technical debt file.
+
+make the project clean and organized. Of course mainly project root. And review README.md and make it a programming language README for open source.
+
+Review CODE_OF_CONDUCT, CONTRIBUTING< LICENSE, SECURITY markdown fiels too. We need ARCHITECTURE and such files too.
+
+Also update README.dev.md.
+
+Let's have new roadmap for V2. 
+
+Let's review whole the docs and make it great.
+
+
 
 Expand test suite and error messages
 
 Continue with the implementation/fix/bugfix/update of next tasks in TECHNICAL_DEBT.md and ROADMAP.md and if you need any info , specs.md file is ready for you. And make sure to update the files at the end of the jobs those are done. And if completely done tasks and if we don't address them anymore, remove them from ROADMAP.md and TECHNICAL_DEBT.md.
 
-We had a solid specs.md, then while developing based on the specs.md we may have introduced many additional things too. But they are not in the specs.md, I've also divided the specs.md into docs/specs folder into files, you may update those files to be correct. For example not all of the stlibs may not be documented all other data structures we have or there are many things not documented, now it is time to document them all.
+Ok continue with @SPECS_LOG.md  and if you need you can use @specs.md  for reference
 
-Review tests. Add more tests. Meaningful tests.
-
-Check all the parts of the specs.md or docs/specs and are they done, if not add them to technical debt and roadmap. Also find the technical debts which we introduced while implementing towards the finished roadmap.md and fixing the old technical_debts.md files. Now, we have lots of them. Also they might be mentioned in comments too. Find and list them in new technical debts file.
+Check problems tab
 
 How we can optimize the code?
 

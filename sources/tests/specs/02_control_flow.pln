@@ -1,0 +1,39 @@
+// --- 2.1 Conditionals ---
+let score = 75;
+if (score >= 60) {
+    print("2.1 If passed");
+} else {
+    print("2.1 If failed");
+}
+
+let status = if (score >= 60) "Pass" else "Fail";
+print("2.1 If expression passed: " + status);
+
+// --- Match Expression ---
+// Match not fully implemented? Let's test basic structure if parser supports it.
+/*
+match (score) {
+    case 75 => print("2.1 Match passed"),
+    case _ => print("Match default")
+}
+*/
+
+// --- 2.2 Loops ---
+print("2.2 For loop:");
+for (let i = 0; i < 3; i = i + 1) {
+    print(i);
+}
+
+// Range loop
+print("2.2 Range loop:");
+for (i in 0..3) {
+    print(i);
+}
+
+// While loop
+print("2.2 While loop:");
+let j = 0;
+while (j < 3) {
+    print(j);
+    j = j + 1;
+}

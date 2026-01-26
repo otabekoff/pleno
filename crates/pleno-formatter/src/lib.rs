@@ -683,6 +683,14 @@ impl Formatter {
                     self.format_expression(expr, indent_level)
                 )
             }
+            StmtKind::Enum(decl) => {
+                let mut result = format!("{}enum {} {{\n", current_indent, decl.name);
+                for variant in &decl.variants {
+                    result.push_str(&format!("{}    {},\n", current_indent, variant.name));
+                }
+                result.push_str(&format!("{}}}\n", current_indent));
+                result
+            }
         };
         result + &stmt_str
     }
@@ -700,25 +708,14 @@ impl Formatter {
                 };
                 format!("{}{}", op_str, self.format_expression(expr, indent_level))
             }
-            ExprKind::Ternary {
-                condition,
-                then_branch,
-                else_branch,
-            } => {
-                format!(
-                    "{} ? {} : {}",
-                    self.format_expression(condition, indent_level),
-                    self.format_expression(then_branch, indent_level),
-                    self.format_expression(else_branch, indent_level)
-                )
-            }
             ExprKind::If {
                 condition,
                 then_branch,
                 else_branch,
             } => {
+                // Format as ternary style: condition ? then : else
                 format!(
-                    "if ({}) {} else {}",
+                    "{} ? {} : {}",
                     self.format_expression(condition, indent_level),
                     self.format_expression(then_branch, indent_level),
                     self.format_expression(else_branch, indent_level)

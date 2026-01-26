@@ -1,3 +1,4 @@
+use serde::{Deserialize, Serialize};
 use std::cell::{Ref, RefCell, RefMut};
 use std::collections::HashSet;
 use std::fmt;
@@ -11,6 +12,7 @@ pub trait GcObject {
 }
 
 // Wrapper for reference-counted objects that can be garbage collected
+#[derive(Serialize, Deserialize)]
 pub struct GcRc<T: ?Sized + GcObject> {
     pub(crate) inner: Rc<RefCell<T>>,
 }

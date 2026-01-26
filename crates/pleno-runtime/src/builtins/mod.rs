@@ -5,7 +5,6 @@ pub mod map;
 pub mod math;
 pub mod misc;
 pub mod os;
-pub mod promise;
 pub mod regex;
 pub mod result_option;
 pub mod string;

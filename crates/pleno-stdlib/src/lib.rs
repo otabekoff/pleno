@@ -6,7 +6,9 @@ pub mod json;
 pub mod math;
 pub mod path;
 pub mod process;
+pub mod promise;
 pub mod regex;
+pub mod test;
 pub mod time;
 
 use pleno_value::{MapState, VMProvider, Value};
@@ -99,11 +101,57 @@ pub fn register(vm: &mut dyn VMProvider) {
         "exists".to_string(),
         Value::NativeFunction(io::io_file_exists),
     );
+    file_obj.insert(
+        "append".to_string(),
+        Value::NativeFunction(io::io_file_append),
+    );
+    file_obj.insert(
+        "delete".to_string(),
+        Value::NativeFunction(io::io_file_delete),
+    );
+
+    let mut dir_obj = HashMap::new();
+    dir_obj.insert(
+        "create".to_string(),
+        Value::NativeFunction(io::io_directory_create),
+    );
+    dir_obj.insert(
+        "exists".to_string(),
+        Value::NativeFunction(io::io_directory_exists),
+    );
+    dir_obj.insert(
+        "delete".to_string(),
+        Value::NativeFunction(io::io_directory_delete),
+    );
+    dir_obj.insert(
+        "list".to_string(),
+        Value::NativeFunction(io::io_directory_list),
+    );
+    dir_obj.insert(
+        "listFiles".to_string(),
+        Value::NativeFunction(io::io_directory_list_files),
+    );
+    dir_obj.insert(
+        "listDirectories".to_string(),
+        Value::NativeFunction(io::io_directory_list_directories),
+    );
+    dir_obj.insert(
+        "createRecursive".to_string(),
+        Value::NativeFunction(io::io_directory_create_recursive),
+    );
+    dir_obj.insert(
+        "deleteRecursive".to_string(),
+        Value::NativeFunction(io::io_directory_delete_recursive),
+    );
 
     let mut io_module = HashMap::new();
     io_module.insert(
         "File".to_string(),
         Value::Map(gc.allocate(MapState::new(file_obj))),
+    );
+    io_module.insert(
+        "Directory".to_string(),
+        Value::Map(gc.allocate(MapState::new(dir_obj))),
     );
     modules.insert(
         "std:io".to_string(),
@@ -170,6 +218,14 @@ pub fn register(vm: &mut dyn VMProvider) {
         "delete".to_string(),
         Value::NativeFunction(http::http_delete),
     );
+    http_module.insert(
+        "Router".to_string(),
+        Value::NativeFunction(http::http_router),
+    );
+    http_module.insert(
+        "Server".to_string(),
+        Value::NativeFunction(http::http_server),
+    );
     modules.insert(
         "std:http".to_string(),
         Value::Map(gc.allocate(MapState::new(http_module))),
@@ -196,6 +252,49 @@ pub fn register(vm: &mut dyn VMProvider) {
     modules.insert(
         "std:regex".to_string(),
         Value::Map(gc.allocate(MapState::new(regex_module))),
+    );
+
+    // std:test
+    let mut assert_obj = HashMap::new();
+    assert_obj.insert(
+        "equal".to_string(),
+        Value::NativeFunction(test::assert_equal),
+    );
+    assert_obj.insert(
+        "notEqual".to_string(),
+        Value::NativeFunction(test::assert_not_equal),
+    );
+    assert_obj.insert("true".to_string(), Value::NativeFunction(test::assert_true));
+    assert_obj.insert(
+        "false".to_string(),
+        Value::NativeFunction(test::assert_false),
+    );
+    assert_obj.insert(
+        "throws".to_string(),
+        Value::NativeFunction(test::assert_throws),
+    );
+
+    let mut test_module = HashMap::new();
+    test_module.insert(
+        "describe".to_string(),
+        Value::NativeFunction(test::test_describe),
+    );
+    test_module.insert("test".to_string(), Value::NativeFunction(test::test_test));
+    test_module.insert(
+        "beforeEach".to_string(),
+        Value::NativeFunction(test::test_before_each),
+    );
+    test_module.insert(
+        "afterEach".to_string(),
+        Value::NativeFunction(test::test_after_each),
+    );
+    test_module.insert(
+        "assert".to_string(),
+        Value::Map(gc.allocate(MapState::new(assert_obj))),
+    );
+    modules.insert(
+        "std:test".to_string(),
+        Value::Map(gc.allocate(MapState::new(test_module))),
     );
 
     // Register each module in the VM

@@ -103,7 +103,7 @@ impl Parser {
             TokenKind::KeywordThrow => self.parse_throw_stmt(),
             TokenKind::KeywordImport => self.parse_import_stmt(),
             TokenKind::KeywordExport => self.parse_export_stmt(annotations),
-            TokenKind::Enum => self.parse_enum_declaration(annotations),
+            TokenKind::KeywordEnum => self.parse_enum_declaration(annotations),
             TokenKind::KeywordClass => self.parse_class_stmt(annotations, false),
             TokenKind::KeywordAbstract => {
                 self.advance();
@@ -1561,7 +1561,7 @@ impl Parser {
             self.expect(TokenKind::Colon, "Expected ':' in ternary operator")?;
             let else_branch = self.parse_expr()?;
             return Ok(self.wrap_expr(
-                ExprKind::Ternary {
+                ExprKind::If {
                     condition: Box::new(expr),
                     then_branch: Box::new(then_branch),
                     else_branch: Box::new(else_branch),
@@ -2753,7 +2753,7 @@ impl Parser {
         annotations: Vec<pleno_ast::Annotation>,
     ) -> Result<Stmt, ParseError> {
         let start_span = self.peek_span();
-        self.expect(TokenKind::Enum, "Expected 'enum'")?;
+        self.expect(TokenKind::KeywordEnum, "Expected 'enum'")?;
 
         let name = match self.advance().kind.clone() {
             TokenKind::Ident(value) => value,
@@ -2767,31 +2767,14 @@ impl Parser {
 
         self.expect(TokenKind::LBrace, "Expected '{' after enum name")?;
 
-        let mut static_fields = Vec::new();
+        let mut variants = Vec::new();
 
-        // Enum variants
-        let mut discriminator = 0;
         while !self.matches(&TokenKind::RBrace) {
-            // Check if end of enum body
-            if self.check(&TokenKind::RBrace) {
-                break;
-            }
-
-            // Check for methods separator
-            if self.matches(&TokenKind::Semicolon) {
-                // Consume until brace for now as we don't fully support methods inside enum desugaring yet
-                while !self.matches(&TokenKind::RBrace) && !self.is_at_end() {
-                    self.advance();
-                }
-                break;
-            }
-
-            // Parse variant
-            let variant_name = if matches!(self.peek_kind(), TokenKind::Ident(_)) {
-                match &self.advance().kind {
-                    TokenKind::Ident(name) => name.clone(),
-                    _ => unreachable!(),
-                }
+            // Check for variant name
+            let variant_name = if let TokenKind::Ident(name) = self.peek_kind() {
+                let name = name.clone();
+                self.advance();
+                name
             } else {
                 return Err(ParseError {
                     message: "Expected enum variant name".to_string(),
@@ -2799,33 +2782,22 @@ impl Parser {
                 });
             };
 
-            // Optional value assignment: Variant = 1
-            let value = if self.matches(&TokenKind::Equal) {
-                Some(self.parse_expr()?)
+            // Optional parameters: Variant(Int, String)
+            let params = if self.matches(&TokenKind::LParen) {
+                let params = self.parse_param_list()?;
+                self.expect(TokenKind::RParen, "Expected ')' after variant parameters")?;
+                Some(params)
             } else {
                 None
             };
 
-            let field_value = value.unwrap_or(pleno_ast::Expr {
-                kind: pleno_ast::ExprKind::Literal(pleno_ast::Literal::Int(discriminator)),
-                span: start_span,
-            });
-            discriminator += 1;
-
-            static_fields.push(pleno_ast::FieldDecl {
+            variants.push(pleno_ast::EnumVariant {
                 name: variant_name,
-                ty: None,
-                default: Some(field_value),
-                is_static: true,
-                is_const: true, // Enum variants are constants
-                visibility: Some(pleno_ast::Visibility::Public),
-                annotations: Vec::new(),
+                params,
             });
 
-            if !self.matches(&TokenKind::Comma) {
-                if self.check(&TokenKind::RBrace) || self.check(&TokenKind::Semicolon) {
-                    continue;
-                }
+            if !self.matches(&TokenKind::Comma) && !self.check(&TokenKind::RBrace) {
+                // Allow optional comma, but require either comma or }
                 return Err(ParseError {
                     message: "Expected ',' or '}' after enum variant".to_string(),
                     span: self.peek_span(),
@@ -2833,20 +2805,12 @@ impl Parser {
             }
         }
 
-        // Create the class
         Ok(self.wrap_stmt(
-            StmtKind::Class {
+            StmtKind::Enum(pleno_ast::EnumDecl {
                 name,
-                generics: Vec::new(),
-                superclass: None,
-                fields: static_fields, // variants are static fields
-                methods: Vec::new(),
-                nested_classes: Vec::new(),
-                properties: Vec::new(),
+                variants,
                 annotations,
-                is_abstract: false,
-                implements: Vec::new(),
-            },
+            }),
             start_span,
         ))
     }

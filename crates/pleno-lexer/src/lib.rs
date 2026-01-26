@@ -53,6 +53,7 @@ pub enum TokenKind {
     KeywordGet,
     KeywordSet,
     KeywordDeep,
+    KeywordEnum,
     LParen,
     RParen,
     LBrace,
@@ -98,9 +99,6 @@ pub enum TokenKind {
     Comment(String, CommentKind),
     Ampersand,
     Eof,
-    Abstract,
-    Type,
-    Enum,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -391,7 +389,7 @@ pub fn lex(source: &str) -> Result<Vec<Token>, LexError> {
                     "await" => TokenKind::KeywordAwait,
                     "do" => TokenKind::KeywordDo,
                     "abstract" => TokenKind::KeywordAbstract,
-                    "enum" => TokenKind::Enum,
+                    "enum" => TokenKind::KeywordEnum,
                     "interface" => TokenKind::KeywordInterface,
                     "implements" => TokenKind::KeywordImplements,
                     "property" => TokenKind::KeywordProperty,

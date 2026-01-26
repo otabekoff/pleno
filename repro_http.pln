@@ -1,0 +1,17 @@
+import { Server, Router } from "std:http";
+
+print("Creating Router...");
+let router = Router();
+print("Router created.");
+
+router.get("/", fn(req, res) {
+    print("GET handler registered");
+});
+
+print("Creating Server...");
+let server = Server(router);
+print("Server created.");
+
+server.listen(8080, fn() {
+    print("Server running on port 8080");
+});

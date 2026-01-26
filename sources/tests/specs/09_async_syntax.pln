@@ -1,0 +1,12 @@
+// --- 9.1 Async/Await Syntax ---
+async fn fetchData(url: String): String {
+    // let response = await httpGet(url); // Await expression syntax support?
+    return "data";
+}
+
+print("9.1 Async Fn Syntax: Parsed");
+
+// --- 9.2 Promises ---
+// Check if generic type syntax is allowed in variable decl
+// let promise: Promise<Int> = ...;
+// Not verifying runtime, just syntax.

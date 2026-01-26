@@ -1,8 +1,9 @@
 use pleno_common::Span;
 use pleno_value::Value;
+use serde::{Deserialize, Serialize};
 
 #[repr(u8)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Opcode {
     Move,
     LoadConst,
@@ -96,7 +97,7 @@ pub enum Opcode {
     SetCapture,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Instruction(u32);
 
 impl Instruction {
@@ -122,7 +123,7 @@ impl Instruction {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Chunk {
     pub code: Vec<Instruction>,
     pub constants: Vec<Value>,
@@ -151,7 +152,7 @@ impl Chunk {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FunctionProto {
     pub name: String,
     pub chunk: Chunk,
@@ -161,7 +162,7 @@ pub struct FunctionProto {
     pub is_pure: bool,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ParamSpec {
     pub name: String,
     pub has_default: bool,

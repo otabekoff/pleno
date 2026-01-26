@@ -1,0 +1,17 @@
+// --- 11. Decorators ---
+@decorator
+fn logged(target: Function): Function {
+    return target;
+}
+
+@logged
+fn calculate(x: Int): Int {
+    return x * 2;
+}
+
+@serializable
+class User {
+    public name: String;
+}
+
+print("11. Decorators Syntax: Parsed");

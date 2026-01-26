@@ -1,0 +1,23 @@
+// --- 10.1 Generic Functions ---
+fn identity<T>(value: T): T {
+    return value;
+}
+
+print("10.1 Generic Fn Syntax: Parsed");
+
+// --- 10.2 Generic Classes ---
+class Box<T> {
+    private value: T;
+    constructor(value: T) {
+        this.value = value;
+    }
+}
+
+print("10.2 Generic Class Syntax: Parsed");
+
+// --- 10.4 Generic Interfaces ---
+interface Container<T> {
+    fn add(item: T): Void;
+}
+
+print("10.4 Generic Interface Syntax: Parsed");

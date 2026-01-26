@@ -25,6 +25,8 @@ This document tracks known technical debts and areas requiring improvement in Pl
 ### Tooling
 - Error messages: Improve span reporting and suggestions.
 - LSP: Complete implementation for IDE support.
+- **StdLib Design**: Standardize on Object-Oriented vs Module-based API. Current implementation is mixed (Module-based `std:time` vs Class-based `File`).
+- **Documentation**: Verify all stdlib modules are fully documented (e.g. `std:io` buffer methods).
 
 ---
 

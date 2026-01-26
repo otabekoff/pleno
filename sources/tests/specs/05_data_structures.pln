@@ -1,0 +1,11 @@
+// --- 5.1 Arrays ---
+let numbers = [1, 2, 3];
+numbers.push(4);
+print("5.1 Array push: " + numbers.length);
+print("5.1 Array access: " + numbers[0]);
+
+// --- 5.2 Maps ---
+let scores = {"math": 95, "english": 88};
+scores.put("science", 92);
+print("5.2 Map get: " + scores.get("math"));
+print("5.2 Map size: " + scores.size());

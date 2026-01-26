@@ -461,7 +461,7 @@ fn collect_usages_from_expr(expr: &Expr, usages: &mut HashSet<String>) {
         ExprKind::Lambda { body, .. } => {
             collect_usages_from_expr(body, usages);
         }
-        ExprKind::Ternary {
+        ExprKind::If {
             condition,
             then_branch,
             else_branch,

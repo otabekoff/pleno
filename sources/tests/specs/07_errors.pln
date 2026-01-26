@@ -1,0 +1,37 @@
+// --- 7.1 Try-Catch ---
+print("7.1 Try-Catch:");
+try {
+    throw Error("Something went wrong");
+} catch (e) {
+    print("Caught error: " + e.message);
+} finally {
+    print("Finally block executed");
+}
+
+// --- 7.2 Custom Exceptions ---
+print("\n7.2 Custom Exceptions:");
+// Check if class inheritance from Error works
+class MyError extends Error {
+    constructor(msg: String) {
+        super(msg);
+    }
+}
+try {
+    throw MyError("Custom error");
+} catch (e) {
+    print("Caught custom: " + e.message);
+}
+
+// --- 7.3 Result / 7.4 Option ---
+print("\n7.3 Result / 7.4 Option Type:");
+let opt = Some(42);
+match (opt) {
+    case Some(x) => print("Found: " + x),
+    case None => print("None")
+}
+
+let res = Ok("success");
+if (res.isOk()) {
+    print("Result is Ok: " + res.unwrap());
+}
+

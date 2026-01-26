@@ -125,11 +125,6 @@ pub enum ExprKind {
     Await {
         expr: Box<Expr>,
     },
-    Ternary {
-        condition: Box<Expr>,
-        then_branch: Box<Expr>,
-        else_branch: Box<Expr>,
-    },
     Spread(Box<Expr>),
     Paren(Box<Expr>),
     If {
@@ -255,6 +250,7 @@ pub enum StmtKind {
         extends: Vec<String>,
         annotations: Vec<Annotation>,
     },
+    Enum(EnumDecl),
     Fn {
         name: String,
         generics: Vec<GenericParam>,
@@ -332,6 +328,19 @@ pub struct PropertyDecl {
     pub is_static: bool,
     pub visibility: Option<Visibility>,
     pub annotations: Vec<Annotation>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct EnumDecl {
+    pub name: String,
+    pub variants: Vec<EnumVariant>,
+    pub annotations: Vec<Annotation>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct EnumVariant {
+    pub name: String,
+    pub params: Option<Vec<Param>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
