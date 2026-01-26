@@ -691,6 +691,9 @@ impl Formatter {
                 result.push_str(&format!("{}}}\n", current_indent));
                 result
             }
+            StmtKind::TypeAlias { name, ty } => {
+                format!("{}type {} = {};\n", current_indent, name, ty)
+            }
         };
         result + &stmt_str
     }
@@ -801,7 +804,10 @@ impl Formatter {
                         format!("{}: {}", key, self.format_expression(value, indent_level))
                     })
                     .collect();
-                format!("({})", pairs.join(", "))
+                format!("#({})", pairs.join(", "))
+            }
+            ExprKind::Is { left, ty } => {
+                format!("{} is {}", self.format_expression(left, indent_level), ty)
             }
             ExprKind::ArrayLiteral(items) => {
                 let items_str: Vec<String> = items
@@ -1003,8 +1009,8 @@ impl Formatter {
                 let items: Vec<String> = patterns.iter().map(|p| self.format_pattern(p)).collect();
                 format!("{}({})", name, items.join(", "))
             }
-            Pattern::Object(props) => {
-                let items: Vec<String> = props
+            Pattern::Object(props, rest) => {
+                let mut items: Vec<String> = props
                     .iter()
                     .map(|(name, p)| {
                         if let Pattern::Ident(ident_name) = p
@@ -1015,6 +1021,9 @@ impl Formatter {
                         format!("{}: {}", name, self.format_pattern(p))
                     })
                     .collect();
+                if let Some(r) = rest {
+                    items.push(self.format_pattern(r));
+                }
                 format!("{{ {} }}", items.join(", "))
             }
             Pattern::Type(ty, binding) => match binding {

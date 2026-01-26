@@ -1,19 +1,54 @@
-// Test: Regex Operations via import
- 
-import regex from "std:regex";
- 
-let pattern = "^[a-z]+$";
-let text = "hello";
-let text2 = "Hello123";
- 
-let match1 = regex.Regex.isMatch(pattern, text);
-let match2 = regex.Regex.isMatch(pattern, text2);
-let replaced = regex.Regex.replace("[0-9]+", "item 123 test 456", "X");
- 
-print("Match 'hello': " + match1);
-print("Match 'Hello123': " + match2);
-print("Replace digits: " + replaced);
- 
-if (match1 && !match2) {
-    print("SUCCESS: Regex operations work");
+import { Regex } from "std:regex";
+
+print("Testing Regular Expressions...");
+
+// 1. Constructor and test()
+let re = Regex(r"\d+");
+if (re.test("123")) {
+    print("SUCCESS: re.test('123') is true");
+} else {
+    print("FAILURE: re.test('123') is false");
 }
+
+if (!re.test("abc")) {
+    print("SUCCESS: re.test('abc') is false");
+} else {
+    print("FAILURE: re.test('abc') is true");
+}
+
+// 2. match()
+let re2 = Regex(r"item (\d+)");
+let m = re2.match("item 42");
+if (m != null && m.length == 2 && m[0] == "item 42" && m[1] == "42") {
+    print("SUCCESS: re.match('item 42') matched captures correctly");
+} else {
+    print("FAILURE: re.match('item 42') output: " + m);
+}
+
+// 3. findAll()
+let re3 = Regex(r"\d");
+let all = re3.findAll("1 2 3");
+if (all.length == 3 && all[0].length == 1 && all[1][0] == "2") {
+    print("SUCCESS: re.findAll('1 2 3') found all matches");
+} else {
+    print("FAILURE: re.findAll('1 2 3') output: " + all);
+}
+
+// 4. replace()
+let re4 = Regex(r"(\w+)@(\w+)");
+let result = re4.replace("user@host", "REPLACED");
+if (result == "REPLACED") {
+    print("SUCCESS: re.replace('user@host', 'REPLACED')");
+} else {
+    print("FAILURE: re.replace output: " + result);
+}
+
+let result2 = re4.replace("contact user@host today", "$1 at $2");
+// Note: Rust regex replace uses $1, $2 for capture groups
+if (result2 == "contact user at host today") {
+    print("SUCCESS: re.replace with group references");
+} else {
+    print("FAILURE: re.replace with groups output: " + result2);
+}
+
+print("Regex tests completed!");

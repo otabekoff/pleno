@@ -54,6 +54,8 @@ pub enum TokenKind {
     KeywordSet,
     KeywordDeep,
     KeywordEnum,
+    KeywordType,
+    KeywordIs,
     LParen,
     RParen,
     LBrace,
@@ -349,6 +351,29 @@ pub fn lex(source: &str) -> Result<Vec<Token>, LexError> {
                     span: Span::new(start, end),
                 }
             }
+            _ if ch == 'r' && matches!(chars.peek(), Some((_, '"'))) => {
+                chars.next(); // consume '"'
+                let mut value = String::new();
+                let mut terminated = false;
+                while let Some((idx, next_ch)) = chars.next() {
+                    if next_ch == '"' {
+                        terminated = true;
+                        tokens.push(Token {
+                            kind: TokenKind::String(value),
+                            span: Span::new(start, idx + 1),
+                        });
+                        break;
+                    }
+                    value.push(next_ch);
+                }
+                if !terminated {
+                    return Err(LexError {
+                        message: "Unterminated raw string literal".to_string(),
+                        span: Span::new(start, start + 1),
+                    });
+                }
+                continue;
+            }
             _ if is_ident_start(ch) => {
                 let (ident, end) = lex_ident(source, start, ch, &mut chars);
                 let kind = match ident.as_str() {
@@ -390,6 +415,8 @@ pub fn lex(source: &str) -> Result<Vec<Token>, LexError> {
                     "do" => TokenKind::KeywordDo,
                     "abstract" => TokenKind::KeywordAbstract,
                     "enum" => TokenKind::KeywordEnum,
+                    "type" => TokenKind::KeywordType,
+                    "is" => TokenKind::KeywordIs,
                     "interface" => TokenKind::KeywordInterface,
                     "implements" => TokenKind::KeywordImplements,
                     "property" => TokenKind::KeywordProperty,

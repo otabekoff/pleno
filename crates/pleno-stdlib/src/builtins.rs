@@ -123,10 +123,14 @@ pub fn register_builtins(vm: &mut dyn VMProvider) {
 
     // Types
     for ty in &[
-        "Int", "Float", "Bool", "String", "Array", "Map", "Set", "Object", "Null", "Any",
+        "Int", "Float", "Bool", "String", "Array", "Map", "Object", "Null", "Any",
     ] {
         vm.register_global(ty.to_string(), Value::String(Rc::new(ty.to_string())));
     }
+    vm.register_global(
+        "Set".to_string(),
+        Value::NativeFunction(native_set_constructor),
+    );
 
     // Internal hook for time
     vm.register_global(
@@ -205,6 +209,9 @@ pub fn resolve_builtin_method(ty: &str, name: &str) -> Option<pleno_value::Nativ
         ("Set", "filter") => Some(native_set_filter),
         ("Set", "forEach") => Some(native_set_for_each),
         ("Set", "toArray") => Some(native_set_to_array),
+        ("Set", "union") => Some(native_set_union),
+        ("Set", "intersection") => Some(native_set_intersection),
+        ("Set", "difference") => Some(native_set_difference),
         ("Result", "unwrap") => Some(native_result_unwrap),
         ("Result", "unwrapOr") => Some(native_result_unwrap_or),
         ("Result", "expect") => Some(native_result_expect),
@@ -220,6 +227,10 @@ pub fn resolve_builtin_method(ty: &str, name: &str) -> Option<pleno_value::Nativ
         ("Mutex", "unlock") => Some(crate::concurrency::native_mutex_unlock),
         ("Channel", "send") => Some(crate::concurrency::native_channel_send),
         ("Channel", "recv") => Some(crate::concurrency::native_channel_recv),
+        ("Regex", "test") => Some(crate::regex::regex_test),
+        ("Regex", "match") => Some(crate::regex::regex_match),
+        ("Regex", "findAll") => Some(crate::regex::regex_find_all),
+        ("Regex", "replace") => Some(crate::regex::regex_replace),
         _ => None,
     }
 }
@@ -1192,4 +1203,77 @@ fn native_set_to_array(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value,
         })
         .collect();
     Ok(Value::Array(vm.get_gc().allocate(ArrayState::new(values))))
+}
+
+fn native_set_union(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    let set1 = match &args[0] {
+        Value::Set(s) => s.borrow().clone(),
+        _ => return Err(RuntimeError::new("expected set")),
+    };
+    let set2 = match args.get(1) {
+        Some(Value::Set(s)) => s.borrow(),
+        _ => return Err(RuntimeError::new("union expects a set")),
+    };
+    let mut result = set1;
+    for item in set2.iter() {
+        result.insert(item.clone());
+    }
+    Ok(Value::Set(vm.get_gc().allocate(result)))
+}
+
+fn native_set_intersection(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    let set1 = match &args[0] {
+        Value::Set(s) => s.borrow(),
+        _ => return Err(RuntimeError::new("expected set")),
+    };
+    let set2 = match args.get(1) {
+        Some(Value::Set(s)) => s.borrow(),
+        _ => return Err(RuntimeError::new("intersection expects a set")),
+    };
+    let mut result = std::collections::HashSet::new();
+    for item in set1.iter() {
+        if set2.contains(item) {
+            result.insert(item.clone());
+        }
+    }
+    Ok(Value::Set(vm.get_gc().allocate(result)))
+}
+
+fn native_set_difference(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    let set1 = match &args[0] {
+        Value::Set(s) => s.borrow(),
+        _ => return Err(RuntimeError::new("expected set")),
+    };
+    let set2 = match args.get(1) {
+        Some(Value::Set(s)) => s.borrow(),
+        _ => return Err(RuntimeError::new("difference expects a set")),
+    };
+    let mut result = std::collections::HashSet::new();
+    for item in set1.iter() {
+        if !set2.contains(item) {
+            result.insert(item.clone());
+        }
+    }
+    Ok(Value::Set(vm.get_gc().allocate(result)))
+}
+
+fn native_set_constructor(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    let mut result = std::collections::HashSet::new();
+    if let Some(arg) = args.first() {
+        match arg {
+            Value::Array(arr) => {
+                for val in arr.borrow().iter() {
+                    let key = ValueKey::try_from_value(val)
+                        .ok_or_else(|| RuntimeError::new("invalid value for set"))?;
+                    result.insert(key);
+                }
+            }
+            Value::Set(s) => {
+                result = s.borrow().clone();
+            }
+            Value::Null => {}
+            _ => return Err(RuntimeError::new("Set constructor expects array or set")),
+        }
+    }
+    Ok(Value::Set(vm.get_gc().allocate(result)))
 }

@@ -1,0 +1,8 @@
+// Simplified Pattern Match Test
+let v = {"variant": "A", "value": 1};
+match (v) {
+    case A(x) => {
+        print(x);
+    }
+}
+print("Done");

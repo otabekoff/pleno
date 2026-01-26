@@ -1,6 +1,13 @@
 use pleno_ast::{Comment, Expr, ExprKind, Literal, Program, Span, Stmt, StmtKind};
 use pleno_lexer::{Token, TokenKind};
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BracedKind {
+    Set,
+    Map,
+    Block,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct ParseError {
     pub message: String,
@@ -116,6 +123,7 @@ impl Parser {
                 }
             }
             TokenKind::KeywordInterface => self.parse_interface_stmt(annotations),
+            TokenKind::KeywordType => self.parse_type_alias_stmt(),
             TokenKind::KeywordDo => self.parse_do_while_stmt(),
             TokenKind::KeywordAsync => {
                 if matches!(self.peek_n_kind(1), Some(TokenKind::KeywordFn)) {
@@ -213,6 +221,7 @@ impl Parser {
                 }
                 if self.matches(&TokenKind::Semicolon)
                     || matches!(self.peek_kind(), TokenKind::RBrace | TokenKind::Eof)
+                    || matches!(expr.kind, ExprKind::Match { .. } | ExprKind::Block(_))
                 {
                     Ok(self.wrap_stmt(StmtKind::Expr(expr), start_span))
                 } else {
@@ -1540,6 +1549,10 @@ impl Parser {
     fn parse_block_stmt(&mut self) -> Result<Stmt, ParseError> {
         let start_span = self.peek_span();
         self.expect(TokenKind::LBrace, "Expected '{' to start block")?;
+        self.parse_braced_block_content(start_span)
+    }
+
+    fn parse_braced_block_content(&mut self, start_span: Span) -> Result<Stmt, ParseError> {
         let mut statements = Vec::new();
         while !self.is_at_end() && self.peek_kind() != &TokenKind::RBrace {
             statements.push(self.parse_stmt()?);
@@ -1641,25 +1654,36 @@ impl Parser {
     }
 
     fn parse_equality(&mut self) -> Result<Expr, ParseError> {
-        let mut expr = self.parse_comparison()?;
-        let start_span = expr.span;
-        loop {
-            let op = if self.matches(&TokenKind::EqualEqual) {
-                Some(pleno_ast::BinaryOp::Equal)
-            } else if self.matches(&TokenKind::BangEqual) {
-                Some(pleno_ast::BinaryOp::NotEqual)
-            } else {
-                None
+        let mut expr = self.parse_is_expr()?;
+        while self.matches(&TokenKind::EqualEqual) || self.matches(&TokenKind::BangEqual) {
+            let op = match self.previous().kind {
+                TokenKind::EqualEqual => pleno_ast::BinaryOp::Equal,
+                TokenKind::BangEqual => pleno_ast::BinaryOp::NotEqual,
+                _ => unreachable!(),
             };
-            let Some(op) = op else { break };
-            let right = self.parse_comparison()?;
+            let right = self.parse_is_expr()?;
             expr = self.wrap_expr(
                 ExprKind::Binary {
                     left: Box::new(expr),
                     op,
                     right: Box::new(right),
                 },
-                start_span,
+                self.previous_span(),
+            );
+        }
+        Ok(expr)
+    }
+
+    fn parse_is_expr(&mut self) -> Result<Expr, ParseError> {
+        let mut expr = self.parse_comparison()?;
+        if self.matches(&TokenKind::KeywordIs) {
+            let ty = self.parse_type()?;
+            expr = self.wrap_expr(
+                ExprKind::Is {
+                    left: Box::new(expr),
+                    ty,
+                },
+                self.previous_span(),
             );
         }
         Ok(expr)
@@ -1958,10 +1982,19 @@ impl Parser {
                 if matches!(self.peek_kind(), TokenKind::RBrace) {
                     self.expect(TokenKind::RBrace, "Expected '}' after map literal")?;
                     Ok(self.wrap_expr(ExprKind::MapLiteral(Vec::new()), start_span))
-                } else if self.lookahead_is_set_literal()? {
-                    self.parse_set_literal(start_span)
                 } else {
-                    self.parse_map_literal(start_span)
+                    match self.lookahead_braced_kind()? {
+                        BracedKind::Set => self.parse_set_literal(start_span),
+                        BracedKind::Map => self.parse_map_literal(start_span),
+                        BracedKind::Block => {
+                            let block = self.parse_braced_block_content(start_span)?;
+                            if let StmtKind::Block(stmts) = block.kind {
+                                Ok(self.wrap_expr(ExprKind::Block(stmts), block.span))
+                            } else {
+                                unreachable!()
+                            }
+                        }
+                    }
                 }
             }
             TokenKind::LBracket => {
@@ -2307,7 +2340,7 @@ impl Parser {
         Ok(self.wrap_expr(ExprKind::SetLiteral(entries), start_span))
     }
 
-    fn lookahead_is_set_literal(&mut self) -> Result<bool, ParseError> {
+    fn lookahead_braced_kind(&mut self) -> Result<BracedKind, ParseError> {
         let mut depth = 1usize;
         let mut i = self.index;
         while let Some(token) = self.tokens.get(i) {
@@ -2319,16 +2352,21 @@ impl Parser {
                         break;
                     }
                 }
-                TokenKind::Colon if depth == 1 => return Ok(false), // Map literal
-                TokenKind::Semicolon if depth == 1 => return Ok(false), // Block
-                TokenKind::KeywordReturn if depth == 1 => return Ok(false), // Block
-                TokenKind::KeywordLet if depth == 1 => return Ok(false), // Block
+                TokenKind::Colon if depth == 1 => return Ok(BracedKind::Map),
+                TokenKind::Semicolon if depth == 1 => return Ok(BracedKind::Block),
+                TokenKind::KeywordReturn if depth == 1 => return Ok(BracedKind::Block),
+                TokenKind::KeywordLet if depth == 1 => return Ok(BracedKind::Block),
+                TokenKind::KeywordIf if depth == 1 => return Ok(BracedKind::Block),
+                TokenKind::KeywordFor if depth == 1 => return Ok(BracedKind::Block),
+                TokenKind::KeywordWhile if depth == 1 => return Ok(BracedKind::Block),
                 _ => {}
             }
             i += 1;
         }
 
-        Ok(true)
+        // If it looks like { x } it's ambiguous but we prefer Set in expression position
+        // unless it's obviously a block.
+        Ok(BracedKind::Set)
     }
 
     fn parse_match_expr(&mut self, start_span: Span) -> Result<Expr, ParseError> {
@@ -2417,8 +2455,32 @@ impl Parser {
             }
             TokenKind::LBrace => {
                 let mut patterns = Vec::new();
+                let mut rest = None;
                 if !matches!(self.peek_kind(), TokenKind::RBrace) {
                     loop {
+                        if matches!(self.peek_kind(), TokenKind::DotDot | TokenKind::Ellipsis) {
+                            self.advance();
+                            let name = if matches!(self.peek_kind(), TokenKind::Ident(_)) {
+                                match &self.advance().kind {
+                                    TokenKind::Ident(name) => Some(name.clone()),
+                                    _ => unreachable!(),
+                                }
+                            } else {
+                                None
+                            };
+                            rest = Some(Box::new(pleno_ast::Pattern::Rest(name)));
+                            if self.matches(&TokenKind::Comma) {
+                                if !matches!(self.peek_kind(), TokenKind::RBrace) {
+                                    return Err(ParseError {
+                                        message: "Rest pattern must be the last element"
+                                            .to_string(),
+                                        span: self.previous_span(),
+                                    });
+                                }
+                            }
+                            break;
+                        }
+
                         let field_name = match &self.advance().kind {
                             TokenKind::Ident(name) => name.clone(),
                             other => {
@@ -2446,7 +2508,23 @@ impl Parser {
                     }
                 }
                 self.expect(TokenKind::RBrace, "Expected '}' after object pattern")?;
-                Ok(pleno_ast::Pattern::Object(patterns))
+                Ok(pleno_ast::Pattern::Object(patterns, rest))
+            }
+            TokenKind::LBracket => {
+                let mut items = Vec::new();
+                if !matches!(self.peek_kind(), TokenKind::RBracket) {
+                    loop {
+                        items.push(self.parse_pattern()?);
+                        if !self.matches(&TokenKind::Comma) {
+                            break;
+                        }
+                        if matches!(self.peek_kind(), TokenKind::RBracket) {
+                            break;
+                        }
+                    }
+                }
+                self.expect(TokenKind::RBracket, "Expected ']' after array pattern")?;
+                Ok(pleno_ast::Pattern::Tuple(items))
             }
             TokenKind::LParen => {
                 let mut items = Vec::new();
@@ -2584,10 +2662,58 @@ impl Parser {
         self.index >= self.tokens.len()
     }
 
+    fn parse_type_alias_stmt(&mut self) -> Result<Stmt, ParseError> {
+        let start_span = self.peek_span();
+        self.advance(); // type
+        let name = match self.advance().kind.clone() {
+            TokenKind::Ident(value) => value,
+            other => {
+                return Err(ParseError {
+                    message: format!("Expected type name after 'type', found {other:?}"),
+                    span: self.previous_span(),
+                });
+            }
+        };
+        self.expect(TokenKind::Equal, "Expected '=' after type alias name")?;
+        let ty = self.parse_type()?;
+        self.expect(TokenKind::Semicolon, "Expected ';' after type alias")?;
+        Ok(self.wrap_stmt(StmtKind::TypeAlias { name, ty }, start_span))
+    }
+
     fn parse_type(&mut self) -> Result<String, ParseError> {
-        // Check for function type: (Int, Int) => String
+        self.parse_union_type()
+    }
+
+    fn parse_union_type(&mut self) -> Result<String, ParseError> {
+        let mut types = vec![self.parse_intersection_type()?];
+        while self.matches(&TokenKind::Pipe) {
+            types.push(self.parse_intersection_type()?);
+        }
+        if types.len() == 1 {
+            Ok(types.into_iter().next().unwrap())
+        } else {
+            Ok(types.join(" | "))
+        }
+    }
+
+    fn parse_intersection_type(&mut self) -> Result<String, ParseError> {
+        let mut types = vec![self.parse_base_type()?];
+        while self.matches(&TokenKind::Ampersand) {
+            types.push(self.parse_base_type()?);
+        }
+        if types.len() == 1 {
+            Ok(types.into_iter().next().unwrap())
+        } else {
+            Ok(types.join(" & "))
+        }
+    }
+
+    fn parse_base_type(&mut self) -> Result<String, ParseError> {
+        // Check for function type or grouping: (Int, Int) => String or (Int | String)
         if self.check(&TokenKind::LParen) {
+            let start = self.peek_span();
             self.advance(); // consume '('
+
             let mut params = Vec::new();
             if !self.check(&TokenKind::RParen) {
                 loop {
@@ -2598,70 +2724,73 @@ impl Parser {
                     break;
                 }
             }
-            self.expect(
-                TokenKind::RParen,
-                "Expected ')' after function type parameters",
-            )?;
-            self.expect(TokenKind::FatArrow, "Expected '=>' in function type")?;
-            let return_ty = self.parse_type()?;
-            return Ok(format!("({}) => {}", params.join(", "), return_ty));
-        }
+            self.expect(TokenKind::RParen, "Expected ')' after type")?;
 
-        // Parse union types: Int | String | Float
-        let mut types = Vec::new();
-        loop {
-            let mut type_str = match self.advance().kind.clone() {
-                TokenKind::Ident(name) => name,
-                other => {
+            if self.matches(&TokenKind::FatArrow) {
+                let return_ty = self.parse_type()?;
+                return Ok(format!("({}) => {}", params.join(", "), return_ty));
+            } else {
+                // Grouping: (Int | String)
+                if params.len() != 1 {
                     return Err(ParseError {
-                        message: format!("Expected type name, found {other:?}"),
-                        span: self.previous_span(),
+                        message: "Invalid type grouping".to_string(),
+                        span: start,
                     });
                 }
-            };
-
-            // Check for generic: Promise<Int>
-            if self.matches(&TokenKind::Less) {
-                type_str.push('<');
-                loop {
-                    type_str.push_str(&self.parse_type()?);
-                    if self.matches(&TokenKind::Comma) {
-                        type_str.push_str(", ");
-                        continue;
-                    }
-                    break;
-                }
-                self.expect(
-                    TokenKind::Greater,
-                    "Expected '>' after generic type arguments",
-                )?;
-                type_str.push('>');
+                let type_str = params.into_iter().next().unwrap();
+                return self.parse_type_postfix(type_str);
             }
+        }
 
+        let mut type_str = match self.advance().kind.clone() {
+            TokenKind::Ident(name) => name,
+            TokenKind::Null => "Null".to_string(),
+            other => {
+                return Err(ParseError {
+                    message: format!("Expected type name, found {other:?}"),
+                    span: self.previous_span(),
+                });
+            }
+        };
+
+        // Check for generic: Promise<Int>
+        if self.matches(&TokenKind::Less) {
+            type_str.push('<');
+            loop {
+                type_str.push_str(&self.parse_type()?);
+                if self.matches(&TokenKind::Comma) {
+                    type_str.push_str(", ");
+                    continue;
+                }
+                break;
+            }
+            self.expect(
+                TokenKind::Greater,
+                "Expected '>' after generic type arguments",
+            )?;
+            type_str.push('>');
+        }
+
+        self.parse_type_postfix(type_str)
+    }
+
+    fn parse_type_postfix(&mut self, mut type_str: String) -> Result<String, ParseError> {
+        loop {
             // Check for optional: Int?
             if self.matches(&TokenKind::Question) {
                 type_str.push('?');
+                continue;
             }
 
             // Check for array: Int[]
-            while self.matches(&TokenKind::LBracket) {
+            if self.matches(&TokenKind::LBracket) {
                 self.expect(TokenKind::RBracket, "Expected ']' after '[' in type")?;
                 type_str.push_str("[]");
+                continue;
             }
-
-            types.push(type_str);
-
-            // Check for union: |
-            if !self.matches(&TokenKind::Pipe) {
-                break;
-            }
+            break;
         }
-
-        if types.len() == 1 {
-            Ok(types.into_iter().next().unwrap())
-        } else {
-            Ok(types.join(" | "))
-        }
+        Ok(type_str)
     }
 
     fn parse_lambda_expr(

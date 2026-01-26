@@ -36,6 +36,7 @@ pub struct Compiler {
     source: String,
     current_span: pleno_ast::Span,
     next_labels: Vec<String>,
+    type_aliases: HashMap<String, String>,
 }
 
 #[derive(Debug, Clone)]
@@ -68,6 +69,7 @@ impl Compiler {
             source,
             current_span: pleno_ast::Span::new(0, 0),
             next_labels: Vec::new(),
+            type_aliases: HashMap::new(),
         }
     }
 
@@ -153,6 +155,10 @@ impl Compiler {
                     }
                     self.module_name = Some(name.clone());
                 }
+                Ok(())
+            }
+            StmtKind::TypeAlias { name, ty } => {
+                self.type_aliases.insert(name.clone(), ty.clone());
                 Ok(())
             }
             StmtKind::Expr(expr) => {
@@ -777,6 +783,75 @@ impl Compiler {
                 self.patch_jump(end_jump)?;
 
                 Ok(result_reg)
+            }
+            ExprKind::Is { left, ty } => {
+                let val_reg = self.compile_expr(left)?;
+                let (base_types, is_optional) = self.parse_type_string(ty);
+                let dest = self.registers.allocate()?;
+
+                // If optional and null, it's true
+                let mut success_jumps = Vec::new();
+                if is_optional {
+                    let is_null_reg = self.registers.allocate()?;
+                    self.emit(Opcode::LoadNull, is_null_reg, 0, 0);
+                    self.emit(Opcode::Eq, is_null_reg, val_reg, is_null_reg);
+                    let jump_success = self.emit_jump(Opcode::JumpIf, is_null_reg);
+                    success_jumps.push(jump_success);
+                    self.free_temp(is_null_reg);
+                }
+
+                // groups logic
+                for group in base_types {
+                    let mut next_group_jumps = Vec::new();
+                    for ty_name in group {
+                        let type_reg = self.registers.allocate()?;
+                        let name_idx = self.add_constant(Value::String(ty_name.clone().into()));
+                        self.emit(Opcode::GetGlobal, type_reg, name_idx, 0);
+
+                        let is_primitive_null_reg = self.registers.allocate()?;
+                        self.emit(Opcode::LoadNull, is_primitive_null_reg, 0, 0);
+                        self.emit(
+                            Opcode::Eq,
+                            is_primitive_null_reg,
+                            type_reg,
+                            is_primitive_null_reg,
+                        );
+                        let skip_primitive_load =
+                            self.emit_jump(Opcode::JumpIfNot, is_primitive_null_reg);
+                        self.emit(Opcode::LoadConst, type_reg, name_idx, 0);
+                        self.patch_jump(skip_primitive_load)?;
+                        self.free_temp(is_primitive_null_reg);
+
+                        let is_match_reg = self.registers.allocate()?;
+                        self.emit(Opcode::Is, is_match_reg, val_reg, type_reg);
+                        let jump_fail = self.emit_jump(Opcode::JumpIfNot, is_match_reg);
+                        next_group_jumps.push(jump_fail);
+                        self.free_temp(is_match_reg);
+                        self.free_temp(type_reg);
+                    }
+                    // If we get here, the entire AND group matched
+                    let jump_success = self.emit_jump(Opcode::Jump, 0);
+                    success_jumps.push(jump_success);
+
+                    // Patch fails for this group to start of next group
+                    for jump in next_group_jumps {
+                        self.patch_jump(jump)?;
+                    }
+                }
+
+                // If we get here, none matched
+                self.emit(Opcode::LoadFalse, dest, 0, 0);
+                let jump_end = self.emit_jump(Opcode::Jump, 0);
+
+                // Success case
+                for jump in success_jumps {
+                    self.patch_jump(jump)?;
+                }
+                self.emit(Opcode::LoadTrue, dest, 0, 0);
+
+                self.patch_jump(jump_end)?;
+                self.free_temp(val_reg);
+                Ok(dest)
             }
             ExprKind::Lambda {
                 params,
@@ -1758,11 +1833,22 @@ impl Compiler {
                 // Match elements
                 for (i, p) in patterns.iter().enumerate() {
                     if let Pattern::Rest(name) = p {
-                        let start_reg = self.registers.allocate()?;
-                        self.emit(Opcode::LoadInt, start_reg, i as u8, 0);
+                        let args_reg = self.registers.allocate()?;
+                        self.emit(Opcode::NewArray, args_reg, 0, 0);
+
+                        let start_val_reg = self.registers.allocate()?;
+                        self.emit(Opcode::LoadInt, start_val_reg, i as u8, 0);
+                        self.emit(Opcode::ArrayAppend, args_reg, start_val_reg, 0);
+                        self.free_temp(start_val_reg);
+
+                        let end_val_reg = self.registers.allocate()?;
+                        self.emit(Opcode::LoadNull, end_val_reg, 0, 0);
+                        self.emit(Opcode::ArrayAppend, args_reg, end_val_reg, 0);
+                        self.free_temp(end_val_reg);
+
                         let rest_reg = self.registers.allocate()?;
-                        self.emit(Opcode::Slice, rest_reg, value_reg, start_reg);
-                        self.free_temp(start_reg);
+                        self.emit(Opcode::Slice, rest_reg, value_reg, args_reg);
+                        self.free_temp(args_reg);
                         if let Some(name_str) = name {
                             self.insert_local(name_str.clone(), rest_reg, false, None)?;
                         } else {
@@ -1813,7 +1899,6 @@ impl Compiler {
                 fail_jumps.push(self.emit_jump(Opcode::JumpIfNot, eq_reg));
                 self.free_temp(eq_reg);
 
-                // For now, assume single argument variant stores value in "value"
                 if patterns.len() == 1 {
                     let val_name_idx =
                         self.add_constant(Value::String(Rc::new("value".to_string())));
@@ -1822,12 +1907,17 @@ impl Compiler {
                     self.compile_pattern(&patterns[0], val_reg, fail_jumps)?;
                     self.free_temp(val_reg);
                 } else if !patterns.is_empty() {
-                    return Err(CompileError::new(
-                        "Multi-argument variant patterns not yet supported",
-                    ));
+                    for (i, p) in patterns.iter().enumerate() {
+                        let name = format!("value{}", i);
+                        let name_idx = self.add_constant(Value::String(Rc::new(name)));
+                        let val_reg = self.registers.allocate()?;
+                        self.emit(Opcode::GetProperty, val_reg, value_reg, name_idx);
+                        self.compile_pattern(p, val_reg, fail_jumps)?;
+                        self.free_temp(val_reg);
+                    }
                 }
             }
-            Pattern::Object(props) => {
+            Pattern::Object(props, rest) => {
                 // Check if it's a map first
                 let map_str_idx = self.add_constant(Value::String(Rc::new("Map".to_string())));
                 let map_str_reg = self.registers.allocate()?;
@@ -1844,6 +1934,24 @@ impl Compiler {
                     self.emit(Opcode::GetProperty, prop_reg, value_reg, name_idx);
                     self.compile_pattern(p, prop_reg, fail_jumps)?;
                     self.free_temp(prop_reg);
+                }
+
+                if let Some(rest_p) = rest {
+                    let rest_map_reg = self.registers.allocate()?;
+                    self.emit(Opcode::NewMap, rest_map_reg, 0, 0);
+                    self.emit(Opcode::MapSpread, rest_map_reg, value_reg, 0);
+
+                    // Remove already matched keys
+                    for (name, _) in props {
+                        let name_idx = self.add_constant(Value::String(Rc::new(name.clone())));
+                        let name_reg = self.registers.allocate()?;
+                        self.emit(Opcode::LoadConst, name_reg, name_idx, 0);
+                        self.emit(Opcode::MapRemove, rest_map_reg, name_reg, 0);
+                        self.free_temp(name_reg);
+                    }
+
+                    self.compile_pattern(rest_p, rest_map_reg, fail_jumps)?;
+                    self.free_temp(rest_map_reg);
                 }
             }
             Pattern::Type(name, binding) => {
@@ -1886,10 +1994,12 @@ impl Compiler {
                     self.patch_jump(s)?;
                 }
             }
-            Pattern::Rest(_) => {
-                return Err(CompileError::new(
-                    "Rest pattern not inside a tuple or array",
-                ));
+            Pattern::Rest(name) => {
+                if let Some(name_str) = name {
+                    let reg = self.registers.allocate()?;
+                    self.emit(Opcode::Move, reg, value_reg, 0);
+                    self.insert_local(name_str.clone(), reg, false, None)?;
+                }
             }
         }
         Ok(())
@@ -2700,73 +2810,98 @@ impl Compiler {
             self.emit_type_check_for_types(reg, &base_types, ty_name)?;
 
             self.patch_jump(ok_jump)?;
-        } else if base_types.len() > 1 {
-            // Union type: check if value matches any of the types
-            self.emit_type_check_for_types(reg, &base_types, ty_name)?;
+            Ok(())
         } else {
-            // Single type check
-            self.emit_type_check_for_types(reg, &base_types, ty_name)?;
+            self.emit_type_check_for_types(reg, &base_types, ty_name)
         }
-
-        Ok(())
     }
 
-    fn parse_type_string(&self, ty_name: &str) -> (Vec<String>, bool) {
-        // Check for optional type: Int?
-        if let Some(stripped) = ty_name.strip_suffix('?') {
-            let base = stripped.trim().to_string();
-            return (vec![base], true);
+    fn parse_type_string(&self, ty_name: &str) -> (Vec<Vec<String>>, bool) {
+        let mut name = ty_name.trim();
+        let mut is_optional = false;
+        if name.ends_with('?') {
+            is_optional = true;
+            name = name.strip_suffix('?').unwrap().trim();
         }
 
-        // Check for union type: Int | String | Float
-        if ty_name.contains('|') {
-            let types: Vec<String> = ty_name.split('|').map(|s| s.trim().to_string()).collect();
-            return (types, false);
+        // Expand alias if it exists
+        let expanded = self
+            .type_aliases
+            .get(name)
+            .map(|s| s.as_str())
+            .unwrap_or(name);
+
+        // Split by Union (|)
+        let parts: Vec<&str> = expanded.split('|').collect();
+        let mut union_types = Vec::new();
+
+        for part in parts {
+            // Split by Intersection (&)
+            let intersections: Vec<String> = part
+                .split('&')
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect();
+            if !intersections.is_empty() {
+                union_types.push(intersections);
+            }
         }
 
-        // Single type
-        (vec![ty_name.to_string()], false)
+        (union_types, is_optional)
     }
 
     fn emit_type_check_for_types(
         &mut self,
         reg: u8,
-        types: &[String],
+        types: &[Vec<String>],
         original_ty_name: &str,
     ) -> Result<(), CompileError> {
         if types.is_empty() {
             return Ok(());
         }
 
-        // For union types, check each type and jump to success if any matches
-        let mut type_checks = Vec::new();
+        // types is OR of ANDs: (A & B) | (C & D)
+        let mut success_jumps = Vec::new();
         let mut temp_regs = Vec::new();
 
-        for ty_name in types.iter() {
-            let type_reg = self.registers.allocate()?;
-            temp_regs.push(type_reg);
+        for group in types {
+            let mut next_group_jumps = Vec::new();
 
-            let name_idx = self.add_constant(Value::String(ty_name.clone().into()));
-            self.emit(Opcode::GetGlobal, type_reg, name_idx, 0);
+            for ty_name in group {
+                let type_reg = self.registers.allocate()?;
+                temp_regs.push(type_reg);
 
-            let is_null_reg = self.registers.allocate()?;
-            self.emit(Opcode::LoadNull, is_null_reg, 0, 0);
-            self.emit(Opcode::Eq, is_null_reg, type_reg, is_null_reg);
-            let skip_primitive_load = self.emit_jump(Opcode::JumpIfNot, is_null_reg);
-            self.emit(Opcode::LoadConst, type_reg, name_idx, 0);
-            self.patch_jump(skip_primitive_load)?;
-            self.free_temp(is_null_reg);
+                let name_idx = self.add_constant(Value::String(ty_name.clone().into()));
+                self.emit(Opcode::GetGlobal, type_reg, name_idx, 0);
 
-            let is_match_reg = self.registers.allocate()?;
-            temp_regs.push(is_match_reg);
-            self.emit(Opcode::Is, is_match_reg, reg, type_reg);
+                let is_null_reg = self.registers.allocate()?;
+                self.emit(Opcode::LoadNull, is_null_reg, 0, 0);
+                self.emit(Opcode::Eq, is_null_reg, type_reg, is_null_reg);
+                let skip_primitive_load = self.emit_jump(Opcode::JumpIfNot, is_null_reg);
+                self.emit(Opcode::LoadConst, type_reg, name_idx, 0);
+                self.patch_jump(skip_primitive_load)?;
+                self.free_temp(is_null_reg);
 
-            // If this type matches, jump to success
-            let match_jump = self.emit_jump(Opcode::JumpIf, is_match_reg);
-            type_checks.push(match_jump);
+                let is_match_reg = self.registers.allocate()?;
+                temp_regs.push(is_match_reg);
+                self.emit(Opcode::Is, is_match_reg, reg, type_reg);
+
+                // If this specific type in the AND block fails, jump to the next OR group
+                let fail_jump = self.emit_jump(Opcode::JumpIfNot, is_match_reg);
+                next_group_jumps.push(fail_jump);
+            }
+
+            // If we reached here, all types in the group matched
+            let success_jump = self.emit_jump(Opcode::Jump, 0);
+            success_jumps.push(success_jump);
+
+            // Path all fail jumps for this group to start of NEXT group
+            for jump in next_group_jumps {
+                self.patch_jump(jump)?;
+            }
         }
 
-        // If we get here, none of the types matched
+        // If we get here, none of the groups matched
         // Throw type error - use original type name to preserve optional/union syntax
         let error_msg = format!("Type error: expected {}, found ", original_ty_name);
         let msg_idx = self.add_constant(Value::String(error_msg.into()));
@@ -2781,12 +2916,12 @@ impl Compiler {
 
         self.emit(Opcode::Throw, final_msg_reg, 0, 0);
 
-        // Patch all match jumps to skip error
-        let ok_jump = self.emit_jump(Opcode::Jump, 0);
-        for check_jump in type_checks {
-            self.patch_jump(check_jump)?;
+        // Patch all success jumps to skip error
+        let final_ok_jump = self.emit_jump(Opcode::Jump, 0);
+        for jump in success_jumps {
+            self.patch_jump(jump)?;
         }
-        self.patch_jump(ok_jump)?;
+        self.patch_jump(final_ok_jump)?;
 
         // Free temp registers
         for temp_reg in temp_regs {

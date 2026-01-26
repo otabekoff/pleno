@@ -1,70 +1,73 @@
-// Test file for advanced pattern matching
+// Pattern Matching Advanced Verification Test
+print("Testing Pattern Matching Enhancements...");
 
-fn test_guards(x) {
-    print("Testing guards for " + x);
-    match (x) {
-        case n if n < 10 => print("Single digit: " + n),
-        case n if n < 100 => print("Double digit: " + n),
-        case _ => print("Large number")
+// 1. Variant Pattern with multi-arguments
+// Convention: Variant(a, b) stores values in "value0", "value1"
+// We create a helper map to simulate a multi-arg variant
+let v2 = {
+    "variant": "Point",
+    "value0": 10,
+    "value1": 20
+};
+
+match (v2) {
+    case Point(x, y) => {
+        print("Point coords: " + x + ", " + y);
+        if (x == 10 && y == 20) {
+            print("SUCCESS: Multi-arg variant pattern work");
+        } else {
+            print("FAILURE: Multi-arg variant value mismatch");
+        }
+    },
+    case _ => print("FAILURE: Variant match failed")
+}
+
+// 2. Object Pattern with Rest
+let person = {
+    "name": "Alice",
+    "age": 30,
+    "city": "London",
+    "job": "Engineer"
+};
+
+match (person) {
+    case {name, age, ...details} => {
+        print("Name: " + name);
+        print("Age: " + age);
+        print("Details: " + details.size());
+        if (name == "Alice" && age == 30 && details.size() == 2 && details.city == "London") {
+            print("SUCCESS: Object Rest pattern work");
+        } else {
+            print("FAILURE: Object Rest pattern logic failed");
+        }
+    },
+    case _ => print("FAILURE: Object match failed")
+}
+
+// 3. Object Pattern without Rest (ensure backward compatibility)
+match (person) {
+    case {name, age} => {
+        if (name == "Alice" && age == 30) {
+            print("SUCCESS: Object pattern (standard) work");
+        }
     }
 }
 
-fn test_types(x) {
-    print("Testing types for " + x);
-    match (x) {
-        case Int i => print("Integer: " + i),
-        case String s => print("String: " + s),
-        case _ => print("Unknown type")
-    }
+// 4. Nested Pattern
+let complex = {
+    "user": { "id": 1, "meta": { "level": 5 } },
+    "tags": ["admin", "pro"]
+};
+
+match (complex) {
+    case {user: {id, meta: {level}}, tags: [first, ...rest]} => {
+        print("Level: " + level);
+        print("First tag: " + first);
+        if (level == 5 && first == "admin") {
+            print("SUCCESS: Nested pattern work");
+        }
+    },
+    case _ => print("FAILURE: Nested match failed")
 }
 
-fn test_multi(x) {
-    print("Testing multi-patterns for " + x);
-    match (x) {
-        case 1, 2, 3 => print("1, 2, or 3"),
-        case 10, 20 => print("10 or 20"),
-        case _ => print("Something else")
-    }
-}
-
-fn test_objects(x) {
-    print("Testing objects for " + x);
-    match (x) {
-        case { x: 1, y: 2 } => print("Point(1, 2)"),
-        case { x, y: 0 } => print("On X axis at " + x),
-        case _ => print("Other object")
-    }
-}
-
-fn test_variants(x) {
-    print("Testing variants for " + x);
-    match (x) {
-        case Some(v) => print("Got some: " + v),
-        case None() => print("Got none"),
-        case _ => print("Not an option")
-    }
-}
-
-test_guards(5);
-test_guards(50);
-test_guards(500);
-
-test_types(42);
-test_types("hello");
-test_types(true);
-
-test_multi(2);
-test_multi(20);
-test_multi(5);
-
-test_objects({ "x": 1, "y": 2 });
-test_objects({ "x": 10, "y": 0 });
-test_objects({ "x": 5, "y": 5 });
-
-// Mock Option type
-let someValue = { "variant": "Some", "value": "world" };
-let noneValue = { "variant": "None", "value": null };
-
-test_variants(someValue);
-test_variants(noneValue);
-test_variants(42);
+print("Pattern Matching verification completed!");

@@ -95,6 +95,7 @@ pub enum Opcode {
     ArrayExtend,
     CallSuper,
     SetCapture,
+    MapRemove,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
