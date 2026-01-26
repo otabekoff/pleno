@@ -234,20 +234,8 @@ pub fn register(vm: &mut dyn VMProvider) {
     // std:regex
     let mut regex_module = HashMap::new();
     regex_module.insert(
-        "isMatch".to_string(),
-        Value::NativeFunction(regex::regex_is_match),
-    );
-    regex_module.insert(
-        "match".to_string(),
-        Value::NativeFunction(regex::regex_match),
-    );
-    regex_module.insert(
-        "findAll".to_string(),
-        Value::NativeFunction(regex::regex_find_all),
-    );
-    regex_module.insert(
-        "replace".to_string(),
-        Value::NativeFunction(regex::regex_replace),
+        "Regex".to_string(),
+        Value::NativeFunction(regex::regex_constructor),
     );
     modules.insert(
         "std:regex".to_string(),

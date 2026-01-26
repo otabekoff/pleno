@@ -132,6 +132,10 @@ pub enum ExprKind {
         then_branch: Box<Expr>,
         else_branch: Box<Expr>,
     },
+    Is {
+        left: Box<Expr>,
+        ty: String,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -155,7 +159,7 @@ pub enum Pattern {
     Rest(Option<String>),
     Underscore,
     Variant(String, Vec<Pattern>),
-    Object(Vec<(String, Pattern)>),
+    Object(Vec<(String, Pattern)>, Option<Box<Pattern>>),
     Type(String, Option<String>),
     Or(Vec<Pattern>),
 }
@@ -273,6 +277,10 @@ pub enum StmtKind {
         stmt: Box<Stmt>,
     },
     Block(Vec<Stmt>),
+    TypeAlias {
+        name: String,
+        ty: String,
+    },
     Expr(Expr),
 }
 

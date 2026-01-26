@@ -1,50 +1,63 @@
-use pleno_value::{ArrayState, Value};
+use pleno_value::{ArrayState, MapState, RuntimeError, VMProvider, Value};
+use std::collections::HashMap;
 use std::rc::Rc;
 
-pub fn regex_is_match(
-    _vm: &mut dyn pleno_value::VMProvider,
-    args: &[Value],
-) -> Result<Value, pleno_value::RuntimeError> {
-    if args.len() < 2 {
-        return Err(pleno_value::RuntimeError::new(
-            "isMatch() requires pattern and text",
-        ));
-    }
-    let pattern = match &args[0] {
-        Value::String(s) => s.as_str(),
-        _ => return Err(pleno_value::RuntimeError::new("pattern must be string")),
+pub fn regex_constructor(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    let pattern = match args.first() {
+        Some(Value::String(s)) => s.clone(),
+        _ => {
+            return Err(RuntimeError::new(
+                "Regex constructor expects pattern string",
+            ));
+        }
     };
-    let text = match &args[1] {
-        Value::String(s) => s.as_str(),
-        _ => return Err(pleno_value::RuntimeError::new("text must be string")),
+
+    let mut map = HashMap::new();
+    map.insert(
+        "variant".to_string(),
+        Value::String(Rc::new("Regex".to_string())),
+    );
+    map.insert("pattern".to_string(), Value::String(pattern));
+
+    Ok(Value::Map(vm.get_gc().allocate(MapState::new(map))))
+}
+
+pub fn regex_test(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    let this = match args.first() {
+        Some(Value::Map(m)) => m.borrow(),
+        _ => return Err(RuntimeError::new("Regex.test: invalid receiver")),
+    };
+    let pattern = match this.get("pattern") {
+        Some(Value::String(s)) => s.as_str(),
+        _ => return Err(RuntimeError::new("Regex instance missing pattern")),
+    };
+    let text = match args.get(1) {
+        Some(Value::String(s)) => s.as_str(),
+        _ => return Err(RuntimeError::new("Regex.test expects text string")),
     };
 
     let re = regex::Regex::new(pattern)
-        .map_err(|e| pleno_value::RuntimeError::new(format!("invalid regex: {}", e)))?;
+        .map_err(|e| RuntimeError::new(format!("invalid regex: {}", e)))?;
     Ok(Value::Bool(re.is_match(text)))
 }
 
-pub fn regex_match(
-    vm: &mut dyn pleno_value::VMProvider,
-    args: &[Value],
-) -> Result<Value, pleno_value::RuntimeError> {
+pub fn regex_match(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
     let gc = vm.get_gc();
-    if args.len() < 2 {
-        return Err(pleno_value::RuntimeError::new(
-            "match() requires pattern and text",
-        ));
-    }
-    let pattern = match &args[0] {
-        Value::String(s) => s.as_str(),
-        _ => return Err(pleno_value::RuntimeError::new("pattern must be string")),
+    let this = match args.first() {
+        Some(Value::Map(m)) => m.borrow(),
+        _ => return Err(RuntimeError::new("Regex.match: invalid receiver")),
     };
-    let text = match &args[1] {
-        Value::String(s) => s.as_str(),
-        _ => return Err(pleno_value::RuntimeError::new("text must be string")),
+    let pattern = match this.get("pattern") {
+        Some(Value::String(s)) => s.as_str(),
+        _ => return Err(RuntimeError::new("Regex instance missing pattern")),
+    };
+    let text = match args.get(1) {
+        Some(Value::String(s)) => s.as_str(),
+        _ => return Err(RuntimeError::new("Regex.match expects text string")),
     };
 
     let re = regex::Regex::new(pattern)
-        .map_err(|e| pleno_value::RuntimeError::new(format!("invalid regex: {}", e)))?;
+        .map_err(|e| RuntimeError::new(format!("invalid regex: {}", e)))?;
     match re.captures(text) {
         Some(caps) => {
             let mut groups = Vec::new();
@@ -60,27 +73,23 @@ pub fn regex_match(
     }
 }
 
-pub fn regex_find_all(
-    vm: &mut dyn pleno_value::VMProvider,
-    args: &[Value],
-) -> Result<Value, pleno_value::RuntimeError> {
+pub fn regex_find_all(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
     let gc = vm.get_gc();
-    if args.len() < 2 {
-        return Err(pleno_value::RuntimeError::new(
-            "findAll() requires pattern and text",
-        ));
-    }
-    let pattern = match &args[0] {
-        Value::String(s) => s.as_str(),
-        _ => return Err(pleno_value::RuntimeError::new("pattern must be string")),
+    let this = match args.first() {
+        Some(Value::Map(m)) => m.borrow(),
+        _ => return Err(RuntimeError::new("Regex.findAll: invalid receiver")),
     };
-    let text = match &args[1] {
-        Value::String(s) => s.as_str(),
-        _ => return Err(pleno_value::RuntimeError::new("text must be string")),
+    let pattern = match this.get("pattern") {
+        Some(Value::String(s)) => s.as_str(),
+        _ => return Err(RuntimeError::new("Regex instance missing pattern")),
+    };
+    let text = match args.get(1) {
+        Some(Value::String(s)) => s.as_str(),
+        _ => return Err(RuntimeError::new("Regex.findAll expects text string")),
     };
 
     let re = regex::Regex::new(pattern)
-        .map_err(|e| pleno_value::RuntimeError::new(format!("invalid regex: {}", e)))?;
+        .map_err(|e| RuntimeError::new(format!("invalid regex: {}", e)))?;
     let mut matches = Vec::new();
 
     for caps in re.captures_iter(text) {
@@ -96,30 +105,30 @@ pub fn regex_find_all(
     Ok(Value::Array(gc.allocate(ArrayState::new(matches))))
 }
 
-pub fn regex_replace(
-    _vm: &mut dyn pleno_value::VMProvider,
-    args: &[Value],
-) -> Result<Value, pleno_value::RuntimeError> {
-    if args.len() < 3 {
-        return Err(pleno_value::RuntimeError::new(
-            "replace() requires pattern, text, and replacement",
-        ));
-    }
-    let pattern = match &args[0] {
-        Value::String(s) => s.as_str(),
-        _ => return Err(pleno_value::RuntimeError::new("pattern must be string")),
+pub fn regex_replace(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    let this = match args.first() {
+        Some(Value::Map(m)) => m.borrow(),
+        _ => return Err(RuntimeError::new("Regex.replace: invalid receiver")),
     };
-    let text = match &args[1] {
-        Value::String(s) => s.as_str(),
-        _ => return Err(pleno_value::RuntimeError::new("text must be string")),
+    let pattern = match this.get("pattern") {
+        Some(Value::String(s)) => s.as_str(),
+        _ => return Err(RuntimeError::new("Regex instance missing pattern")),
     };
-    let replacement = match &args[2] {
-        Value::String(s) => s.as_str(),
-        _ => return Err(pleno_value::RuntimeError::new("replacement must be string")),
+    let text = match args.get(1) {
+        Some(Value::String(s)) => s.as_str(),
+        _ => return Err(RuntimeError::new("Regex.replace expects text string")),
+    };
+    let replacement = match args.get(2) {
+        Some(Value::String(s)) => s.as_str(),
+        _ => {
+            return Err(RuntimeError::new(
+                "Regex.replace expects replacement string",
+            ));
+        }
     };
 
     let re = regex::Regex::new(pattern)
-        .map_err(|e| pleno_value::RuntimeError::new(format!("invalid regex: {}", e)))?;
+        .map_err(|e| RuntimeError::new(format!("invalid regex: {}", e)))?;
     let result = re.replace_all(text, replacement);
     Ok(Value::String(Rc::new(result.to_string())))
 }

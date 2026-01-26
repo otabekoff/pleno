@@ -1,0 +1,69 @@
+// Set Verification Test
+print("Testing Set Features...");
+
+// 1. Literal initialization
+let s1 = {1, 2, 3};
+print("s1 size: " + s1.size());
+if (s1.size() == 3) {
+    print("SUCCESS: Set literal work");
+} else {
+    print("FAILURE: Set literal size mismatch");
+}
+
+// 2. Constructor
+let s2 = Set([3, 4, 5]);
+print("s2 size: " + s2.size());
+if (s2.size() == 3) {
+    print("SUCCESS: Set constructor work");
+} else {
+    print("FAILURE: Set constructor size mismatch");
+}
+
+// 3. Union
+let s_union = s1.union(s2);
+print("Union size: " + s_union.size());
+// {1, 2, 3, 4, 5}
+if (s_union.size() == 5 && s_union.contains(1) && s_union.contains(5)) {
+    print("SUCCESS: Union work");
+} else {
+    print("FAILURE: Union failed");
+}
+
+// 4. Intersection
+let s_inter = s1.intersection(s2);
+print("Intersection size: " + s_inter.size());
+// {3}
+if (s_inter.size() == 1 && s_inter.contains(3)) {
+    print("SUCCESS: Intersection work");
+} else {
+    print("FAILURE: Intersection failed");
+}
+
+// 5. Difference
+let s_diff = s1.difference(s2);
+print("Difference size: " + s_diff.size());
+// {1, 2}
+if (s_diff.size() == 2 && s_diff.contains(1) && s_diff.contains(2) && !s_diff.contains(3)) {
+    print("SUCCESS: Difference work");
+} else {
+    print("FAILURE: Difference failed");
+}
+
+// 6. Mutation
+s1.add(10);
+if (s1.contains(10)) {
+    print("SUCCESS: Set add work");
+}
+s1.remove(1);
+if (!s1.contains(1)) {
+    print("SUCCESS: Set remove work");
+}
+
+// 7. Conversions
+let arr = s2.toArray();
+print("As array: " + arr.length);
+if (arr.length == 3) {
+    print("SUCCESS: toArray work");
+}
+
+print("Set verification completed!");

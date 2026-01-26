@@ -709,6 +709,23 @@ impl VM {
                         _ => return Err(RuntimeError::new("map spread expects map values")),
                     }
                 }
+                Opcode::MapRemove => {
+                    let key_val = self.registers[base + b].clone();
+                    let name = match key_val {
+                        Value::String(s) => s.as_str().to_string(),
+                        _ => return Err(RuntimeError::new("map remove key must be string")),
+                    };
+                    match &self.registers[base + a] {
+                        Value::Map(map) => {
+                            if map.borrow().is_immutable {
+                                self.throw_runtime_error("cannot modify immutable map")?;
+                                continue;
+                            }
+                            map.borrow_mut().entries.remove(&name);
+                        }
+                        _ => return Err(RuntimeError::new("map remove expects map")),
+                    }
+                }
                 Opcode::SetSpread => {
                     if self.functions[frame.function_index].is_pure {
                         self.throw_runtime_error("pure function cannot have side effects")?;
@@ -970,31 +987,91 @@ impl VM {
                                 | ("Null", Value::Null)
                                 | ("Any", _)
                         ),
-                        Value::Class(_target_class) => {
-                            match value {
-                                Value::Class(instance_class) => {
-                                    // Check inheritance chain
-                                    // TODO: proper inheritance check
-                                    // For now just check exact module + name match of class definition
-                                    let _current = Some(instance_class.clone());
-                                    let _found = false;
-                                    // Simple check: compare Rc pointers
-                                    // But instances are distinct from definitions if allocated differently?
-                                    // No, Value::Class holds the class definition (or instance?)
-                                    // Wait, Value::Class is an INSTANCE or DEFINITION?
-                                    // Usually "instance" is Value::Object (if map based) or Value::Instance?
-                                    // VM implementation uses Value::Map for instances of classes desugared?
-                                    // Or does it have separate Value::Instance?
-                                    // Let's assume strict equality for now or fix later if specs need instanceof
-                                    // Re-reading VM structure: Value::Class holds ClassState (definition).
-                                    // Instances are Value::Object (if implemented) or Value::Map?
-                                    // Specs say: "class Person ... let p = Person(...)". p is an Instance.
-                                    // We need to check if p is instance of Person.
-                                    // For now, let's assume we fixed primitive bug.
+                        Value::Class(target_class) => match value {
+                            Value::Object(obj) => {
+                                if let Some(instance_class) = &obj.borrow().class {
+                                    let mut current = Some(instance_class.clone());
+                                    let mut found = false;
+                                    while let Some(cls) = current {
+                                        if cls.as_ptr() == target_class.as_ptr() {
+                                            found = true;
+                                            break;
+                                        }
+                                        current = cls.borrow().superclass.clone();
+                                    }
+                                    found
+                                } else {
                                     false
                                 }
-                                _ => false,
                             }
+                            Value::Class(instance_class) => {
+                                let mut current = Some(instance_class.clone());
+                                let mut found = false;
+                                while let Some(cls) = current {
+                                    if cls.as_ptr() == target_class.as_ptr() {
+                                        found = true;
+                                        break;
+                                    }
+                                    current = cls.borrow().superclass.clone();
+                                }
+                                found
+                            }
+                            _ => false,
+                        },
+                        Value::Interface(target_iface) => {
+                            // Check if value (object or class) satisfies the interface
+                            // 1. Nominal check (if it explicitly implements it)
+                            // 2. Structural check (if it has the required methods)
+
+                            fn satisfies_interface(
+                                val: &Value,
+                                iface: &pleno_value::Interface,
+                            ) -> bool {
+                                // 1. Identify methods available on the value
+                                match val {
+                                    Value::Object(obj) => {
+                                        let obj = obj.borrow();
+                                        // Check if class implements interface nominally
+                                        if let Some(cls) = &obj.class {
+                                            let mut current = Some(cls.clone());
+                                            while let Some(c) = current {
+                                                for imp in &c.borrow().implements {
+                                                    if let Value::Interface(i) = imp {
+                                                        if i.borrow().name == iface.name {
+                                                            return true;
+                                                        }
+                                                    }
+                                                }
+                                                current = c.borrow().superclass.clone();
+                                            }
+                                        }
+
+                                        // Structural check
+                                        for (name, _sig) in &iface.methods {
+                                            // Check if object has method
+                                            // Methods are in class
+                                            let mut found = false;
+                                            if let Some(cls) = &obj.class {
+                                                let mut current = Some(cls.clone());
+                                                while let Some(c) = current {
+                                                    if c.borrow().methods.contains_key(name) {
+                                                        found = true;
+                                                        break;
+                                                    }
+                                                    current = c.borrow().superclass.clone();
+                                                }
+                                            }
+                                            if !found {
+                                                return false;
+                                            }
+                                        }
+                                        true
+                                    }
+                                    _ => false,
+                                }
+                            }
+
+                            satisfies_interface(value, &target_iface.borrow())
                         }
                         _ => false, // Invalid type operand
                     };
@@ -1202,6 +1279,17 @@ impl VM {
                                     self.registers[base + a] = Value::BoundNativeMethod {
                                         receiver: Box::new(Value::Map(map.clone())),
                                         function: resolve_builtin_method(self, "Promise", &name)
+                                            .unwrap(),
+                                    };
+                                    continue;
+                                } else if variant.as_str() == "Regex"
+                                    && resolve_builtin_method(self, "Regex", &name).is_some()
+                                {
+                                    // Regex type with method
+                                    drop(map_ref);
+                                    self.registers[base + a] = Value::BoundNativeMethod {
+                                        receiver: Box::new(Value::Map(map.clone())),
+                                        function: resolve_builtin_method(self, "Regex", &name)
                                             .unwrap(),
                                     };
                                     continue;

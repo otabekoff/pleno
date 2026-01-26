@@ -15,6 +15,7 @@ Let's have new roadmap for V2.
 
 Let's review whole the docs and make it great.
 
+To release production ready v1, what should we do?
 
 
 Expand test suite and error messages
