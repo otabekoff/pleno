@@ -9,9 +9,15 @@ pub fn register_builtins(vm: &mut dyn VMProvider) {
     vm.register_global("print".to_string(), Value::NativeFunction(native_print));
     vm.register_global("println".to_string(), Value::NativeFunction(native_print));
     vm.register_global("id".to_string(), Value::NativeFunction(native_id));
+    vm.register_global("typeof".to_string(), Value::NativeFunction(native_typeof));
     vm.register_global(
         "__native_sleep".to_string(),
         Value::NativeFunction(native_sleep),
+    );
+
+    vm.register_global(
+        "Error".to_string(),
+        Value::NativeFunction(native_error_constructor),
     );
 
     // Result type constructors
@@ -34,7 +40,7 @@ pub fn register_builtins(vm: &mut dyn VMProvider) {
 
     vm.register_global(
         "Promise".to_string(),
-        Value::NativeFunction(native_promise_constructor),
+        Value::NativeFunction(crate::promise::promise_constructor),
     );
 
     // Modules registered as globals for backward compatibility
@@ -102,12 +108,15 @@ pub fn register_builtins(vm: &mut dyn VMProvider) {
     let mut promise_obj_map = HashMap::new();
     promise_obj_map.insert(
         "__call__".to_string(),
-        Value::NativeFunction(native_promise_constructor),
+        Value::NativeFunction(crate::promise::promise_constructor),
     );
-    promise_obj_map.insert("all".to_string(), Value::NativeFunction(native_promise_all));
+    promise_obj_map.insert(
+        "all".to_string(),
+        Value::NativeFunction(crate::promise::promise_all),
+    );
     promise_obj_map.insert(
         "race".to_string(),
-        Value::NativeFunction(native_promise_race),
+        Value::NativeFunction(crate::promise::promise_race),
     );
     let promise_val = Value::Map(vm.get_gc().allocate(MapState::new(promise_obj_map)));
     vm.register_global("Promise".to_string(), promise_val);
@@ -206,7 +215,7 @@ pub fn resolve_builtin_method(ty: &str, name: &str) -> Option<pleno_value::Nativ
         ("Option", "expect") => Some(native_option_expect),
         ("Option", "isSome") => Some(native_option_is_some),
         ("Option", "isNone") => Some(native_option_is_none),
-        ("Promise", "then") => Some(native_promise_then),
+        ("Promise", "then") => Some(crate::promise::promise_then),
         ("Mutex", "lock") => Some(crate::concurrency::native_mutex_lock),
         ("Mutex", "unlock") => Some(crate::concurrency::native_mutex_unlock),
         ("Channel", "send") => Some(crate::concurrency::native_channel_send),
@@ -242,6 +251,11 @@ fn native_print(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, Runtim
 
 fn native_id(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
     Ok(args.first().cloned().unwrap_or(Value::Null))
+}
+
+fn native_typeof(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    let val = args.first().unwrap_or(&Value::Null);
+    Ok(Value::String(Rc::new(val.type_name().to_string())))
 }
 
 fn native_sleep(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
@@ -324,6 +338,24 @@ fn native_option_some(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, 
     res.insert(
         "value".to_string(),
         args.first().cloned().unwrap_or(Value::Null),
+    );
+    Ok(Value::Map(gc.allocate(MapState::new(res))))
+}
+
+fn native_error_constructor(
+    vm: &mut dyn VMProvider,
+    args: &[Value],
+) -> Result<Value, RuntimeError> {
+    let gc = vm.get_gc();
+    let mut res = HashMap::new();
+    res.insert(
+        "message".to_string(),
+        args.first().cloned().unwrap_or(Value::Null),
+    );
+    // Also add variant for potential pattern matching
+    res.insert(
+        "variant".to_string(),
+        Value::String(Rc::new("Error".to_string())),
     );
     Ok(Value::Map(gc.allocate(MapState::new(res))))
 }
@@ -905,30 +937,7 @@ fn native_option_is_none(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Val
     ))
 }
 
-fn native_promise_constructor(
-    vm: &mut dyn VMProvider,
-    _args: &[Value],
-) -> Result<Value, RuntimeError> {
-    let gc = vm.get_gc();
-    let mut p = HashMap::new();
-    p.insert(
-        "variant".to_string(),
-        Value::String(Rc::new("Pending".to_string())),
-    );
-    p.insert("value".to_string(), Value::Null);
-    Ok(Value::Map(gc.allocate(MapState::new(p))))
-}
-fn native_promise_then(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
-    Ok(args.get(1).cloned().unwrap_or(Value::Null))
-}
-fn native_promise_all(_vm: &mut dyn VMProvider, _args: &[Value]) -> Result<Value, RuntimeError> {
-    // Basic stub for All
-    Ok(Value::Null)
-}
-fn native_promise_race(_vm: &mut dyn VMProvider, _args: &[Value]) -> Result<Value, RuntimeError> {
-    // Basic stub for Race
-    Ok(Value::Null)
-}
+// Stubs removed, using crate::promise::*
 
 fn native_map_map(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
     let map = match &args[0] {

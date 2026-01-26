@@ -1,0 +1,10 @@
+
+interface Drawable {
+    draw(x: Int, y: Int): Null
+}
+
+class Square implements Drawable {
+    // Missing draw method
+}
+
+print("Should not reach here");

@@ -317,12 +317,46 @@ impl VM {
         for task in tasks {
             // Update Promise map if it exists
             if let Some(Value::Map(map)) = self.promises.remove(&task.promise_id) {
-                map.borrow_mut().insert(
-                    "variant".to_string(),
-                    Value::String(Rc::new("Resolved".to_string())),
-                );
-                map.borrow_mut()
-                    .insert("value".to_string(), task.value.clone());
+                {
+                    let mut b = map.borrow_mut();
+                    b.insert(
+                        "variant".to_string(),
+                        Value::String(Rc::new("Resolved".to_string())),
+                    );
+                    b.insert("value".to_string(), task.value.clone());
+                }
+
+                // Handle chained callbacks (.then)
+                let callbacks = {
+                    let b = map.borrow();
+                    b.get("callbacks").cloned()
+                };
+
+                if let Some(Value::Array(arr)) = callbacks {
+                    let elements = arr.borrow().elements.clone();
+                    for cb_info_val in elements {
+                        if let Value::Array(info) = cb_info_val {
+                            let info_borrow = info.borrow();
+                            let info_elements = &info_borrow.elements;
+                            if info_elements.len() >= 2 {
+                                let callback = info_elements[0].clone();
+                                if let Value::Int(child_id) = info_elements[1] {
+                                    // Execute callback(value) and resolve child promise
+                                    match self.call(callback, vec![task.value.clone()]) {
+                                        Ok(res) => self.resolve_promise(child_id as u64, res),
+                                        Err(e) => {
+                                            // Basic error propagation to child
+                                            self.resolve_promise(
+                                                child_id as u64,
+                                                Value::String(Rc::new(e.message)),
+                                            );
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
 
             if let Some(suspended) = self.suspended_frames.remove(&task.promise_id) {
@@ -531,6 +565,12 @@ impl VM {
                     }
                 }
                 Opcode::SetCapture => {
+                    if self.functions[frame.function_index].is_pure {
+                        self.throw_runtime_error(
+                            "pure function cannot have side effects (captured state)",
+                        )?;
+                        continue;
+                    }
                     let idx = b;
                     let value = self.registers[base + a].clone();
                     if let Some(state) = &frame.closure_state {
@@ -569,7 +609,55 @@ impl VM {
                     self.registers[base + a] =
                         Value::Array(self.gc.allocate(ArrayState::new(Vec::new())));
                 }
+                Opcode::NewSet => {
+                    self.registers[base + a] =
+                        Value::Set(self.gc.allocate(std::collections::HashSet::new()));
+                }
+                Opcode::SetAdd => {
+                    if self.functions[frame.function_index].is_pure {
+                        self.throw_runtime_error("pure function cannot have side effects")?;
+                        continue;
+                    }
+                    let value = self.registers[base + b].clone();
+                    match &self.registers[base + a] {
+                        Value::Set(set) => {
+                            let key = value_to_key(&value)?;
+                            set.borrow_mut().insert(key);
+                        }
+                        _ => return Err(RuntimeError::new("set add on non-set value")),
+                    }
+                }
+                Opcode::SetHas => {
+                    let value = self.registers[base + b].clone();
+                    match &self.registers[base + a] {
+                        Value::Set(set) => {
+                            let key = value_to_key(&value)?;
+                            let has = set.borrow().contains(&key);
+                            self.registers[base + a] = Value::Bool(has);
+                        }
+                        _ => return Err(RuntimeError::new("set has on non-set value")),
+                    }
+                }
+                Opcode::SetLen => match &self.registers[base + b] {
+                    Value::Set(set) => {
+                        let len = set.borrow().len() as i64;
+                        self.registers[base + a] = Value::Int(len);
+                    }
+                    _ => return Err(RuntimeError::new("set len on non-set value")),
+                },
+                Opcode::SetValues => match &self.registers[base + b] {
+                    Value::Set(set) => {
+                        let values: Vec<Value> = set.borrow().iter().map(key_to_value).collect();
+                        self.registers[base + a] =
+                            Value::Array(self.gc.allocate(ArrayState::new(values)));
+                    }
+                    _ => return Err(RuntimeError::new("set values on non-set value")),
+                },
                 Opcode::ArrayAppend => {
+                    if self.functions[frame.function_index].is_pure {
+                        self.throw_runtime_error("pure function cannot have side effects")?;
+                        continue;
+                    }
                     let value = self.registers[base + b].clone();
                     match &self.registers[base + a] {
                         Value::Array(array) => {
@@ -583,6 +671,10 @@ impl VM {
                     }
                 }
                 Opcode::ArraySpread => {
+                    if self.functions[frame.function_index].is_pure {
+                        self.throw_runtime_error("pure function cannot have side effects")?;
+                        continue;
+                    }
                     let value = self.registers[base + b].clone();
                     match (&self.registers[base + a], value) {
                         (Value::Array(target), Value::Array(source)) => {
@@ -599,6 +691,10 @@ impl VM {
                     }
                 }
                 Opcode::MapSpread => {
+                    if self.functions[frame.function_index].is_pure {
+                        self.throw_runtime_error("pure function cannot have side effects")?;
+                        continue;
+                    }
                     let value = self.registers[base + b].clone();
                     match (&self.registers[base + a], value) {
                         (Value::Map(target), Value::Map(source)) => {
@@ -614,6 +710,10 @@ impl VM {
                     }
                 }
                 Opcode::SetSpread => {
+                    if self.functions[frame.function_index].is_pure {
+                        self.throw_runtime_error("pure function cannot have side effects")?;
+                        continue;
+                    }
                     let value = self.registers[base + b].clone();
                     match (&self.registers[base + a], value) {
                         (Value::Set(target), Value::Set(source)) => {
@@ -625,6 +725,10 @@ impl VM {
                     }
                 }
                 Opcode::ArrayExtend => {
+                    if self.functions[frame.function_index].is_pure {
+                        self.throw_runtime_error("pure function cannot have side effects")?;
+                        continue;
+                    }
                     let value = self.registers[base + b].clone();
                     match (&self.registers[base + a], value) {
                         (Value::Array(target), Value::Array(source)) => {
@@ -636,61 +740,14 @@ impl VM {
                         _ => return Err(RuntimeError::new("array extend expects array values")),
                     }
                 }
-
-                Opcode::NewSet => {
-                    self.registers[base + a] =
-                        Value::Set(self.gc.allocate(std::collections::HashSet::new()));
-                }
-                Opcode::SetAdd => {
-                    let value = self.registers[base + b].clone();
-                    let key = ValueKey::try_from_value(&value)
-                        .ok_or_else(|| RuntimeError::new("unsupported set element type"))?;
-                    match &self.registers[base + a] {
-                        Value::Set(set) => {
-                            set.borrow_mut().insert(key);
-                        }
-                        _ => return Err(RuntimeError::new("set add on non-set value")),
-                    }
-                }
-                Opcode::SetHas => {
-                    let value = self.registers[base + c].clone();
-                    let key = ValueKey::try_from_value(&value)
-                        .ok_or_else(|| RuntimeError::new("unsupported set element type"))?;
-                    let exists = match &self.registers[base + b] {
-                        Value::Set(set) => set.borrow().contains(&key),
-                        _ => return Err(RuntimeError::new("set has on non-set value")),
-                    };
-                    self.registers[base + a] = Value::Bool(exists);
-                }
-                Opcode::SetLen => {
-                    let len = match &self.registers[base + b] {
-                        Value::Set(set) => set.borrow().len() as i64,
-                        _ => return Err(RuntimeError::new("set length on non-set value")),
-                    };
-                    self.registers[base + a] = Value::Int(len);
-                }
-                Opcode::SetValues => {
-                    let values = match &self.registers[base + b] {
-                        Value::Set(set) => set
-                            .borrow()
-                            .iter()
-                            .map(|value| match value {
-                                ValueKey::Null => Value::Null,
-                                ValueKey::Bool(value) => Value::Bool(*value),
-                                ValueKey::Int(value) => Value::Int(*value),
-                                ValueKey::Float(value) => Value::Float(f64::from_bits(*value)),
-                                ValueKey::String(value) => Value::String(Rc::clone(value)),
-                            })
-                            .collect::<Vec<_>>(),
-                        _ => return Err(RuntimeError::new("set values on non-set value")),
-                    };
-                    self.registers[base + a] =
-                        Value::Array(self.gc.allocate(ArrayState::new(values)));
-                }
                 Opcode::NewObject => {
                     self.registers[base + a] = Value::Object(self.gc.allocate(Object::new(None)));
                 }
                 Opcode::SetField => {
+                    if self.functions[frame.function_index].is_pure {
+                        self.throw_runtime_error("pure function cannot have side effects")?;
+                        continue;
+                    }
                     let name = match &function.chunk.constants[c] {
                         Value::String(value) => value.as_str().to_string(),
                         _ => return Err(RuntimeError::new("field name must be string")),
@@ -1781,9 +1838,13 @@ impl VM {
 
                                         // Check methods
                                         for (name, sig) in &interface_borrow.methods {
-                                            if let Some(method_info) =
-                                                class_borrow.methods.get(name)
-                                            {
+                                            let method_info = if sig.is_static {
+                                                resolve_static_method(&class, name)
+                                            } else {
+                                                resolve_method(&class, name)
+                                            };
+
+                                            if let Some(method_info) = method_info {
                                                 if let Some(func) =
                                                     self.functions.get(method_info.function)
                                                 {
@@ -1791,10 +1852,13 @@ impl VM {
                                                     if !sig.is_static {
                                                         expected_arity += 1;
                                                     }
+                                                    if sig.is_async {
+                                                        expected_arity += 1;
+                                                    }
 
                                                     if func.arity != expected_arity {
                                                         validation_error = Some(format!(
-                                                            "Class '{}' implements interface '{}' incorrectly: method '{}' requires {} args, found {}",
+                                                            "Class '{}' implements interface '{}' incorrectly: method '{}' requires {} args (including implicit ones), found {}",
                                                             class_borrow.name,
                                                             interface_borrow.name,
                                                             name,
@@ -1803,33 +1867,62 @@ impl VM {
                                                         ));
                                                         break 'interface_loop;
                                                     }
+
+                                                    if func.is_async != sig.is_async {
+                                                        validation_error = Some(format!(
+                                                            "Class '{}' implements interface '{}' incorrectly: method '{}' async status mismatch",
+                                                            class_borrow.name,
+                                                            interface_borrow.name,
+                                                            name
+                                                        ));
+                                                        break 'interface_loop;
+                                                    }
                                                 }
                                             } else {
                                                 validation_error = Some(format!(
-                                                    "Class '{}' missing method '{}' required by interface '{}'",
-                                                    class_borrow.name, name, interface_borrow.name
+                                                    "Class '{}' missing {}method '{}' required by interface '{}'",
+                                                    class_borrow.name,
+                                                    if sig.is_static { "static " } else { "" },
+                                                    name,
+                                                    interface_borrow.name
                                                 ));
                                                 break 'interface_loop;
                                             }
                                         }
 
                                         // Check getters
-                                        for name in interface_borrow.getters.keys() {
-                                            if !class_borrow.getters.contains_key(name) {
+                                        for (name, sig) in &interface_borrow.getters {
+                                            let getter_info = if sig.is_static {
+                                                resolve_static_getter(&class, name)
+                                            } else {
+                                                resolve_getter(&class, name)
+                                            };
+                                            if getter_info.is_none() {
                                                 validation_error = Some(format!(
-                                                    "Class '{}' missing getter '{}' required by interface '{}'",
-                                                    class_borrow.name, name, interface_borrow.name
+                                                    "Class '{}' missing {}getter '{}' required by interface '{}'",
+                                                    class_borrow.name,
+                                                    if sig.is_static { "static " } else { "" },
+                                                    name,
+                                                    interface_borrow.name
                                                 ));
                                                 break 'interface_loop;
                                             }
                                         }
 
                                         // Check setters
-                                        for name in interface_borrow.setters.keys() {
-                                            if !class_borrow.setters.contains_key(name) {
+                                        for (name, sig) in &interface_borrow.setters {
+                                            let setter_info = if sig.is_static {
+                                                resolve_static_setter(&class, name)
+                                            } else {
+                                                resolve_setter(&class, name)
+                                            };
+                                            if setter_info.is_none() {
                                                 validation_error = Some(format!(
-                                                    "Class '{}' missing setter '{}' required by interface '{}'",
-                                                    class_borrow.name, name, interface_borrow.name
+                                                    "Class '{}' missing {}setter '{}' required by interface '{}'",
+                                                    class_borrow.name,
+                                                    if sig.is_static { "static " } else { "" },
+                                                    name,
+                                                    interface_borrow.name
                                                 ));
                                                 break 'interface_loop;
                                             }
@@ -1849,10 +1942,22 @@ impl VM {
                     }
                 }
                 Opcode::Freeze => {
+                    if self.functions[frame.function_index].is_pure {
+                        self.throw_runtime_error(
+                            "pure function cannot have side effects (freeze)",
+                        )?;
+                        continue;
+                    }
                     let value = self.registers[base + a].clone();
                     self.freeze_value(&value);
                 }
                 Opcode::SetSuper => {
+                    if self.functions[frame.function_index].is_pure {
+                        self.throw_runtime_error(
+                            "pure function cannot have side effects (class mutation)",
+                        )?;
+                        continue;
+                    }
                     let superclass = match &self.registers[base + b] {
                         Value::Class(class) => class.clone(),
                         _ => return Err(RuntimeError::new("superclass must be class")),
@@ -1864,13 +1969,27 @@ impl VM {
                         _ => return Err(RuntimeError::new("set super on non-class value")),
                     }
                 }
-                Opcode::SetAbstract => match &mut self.registers[base + a] {
-                    Value::Class(class) => {
-                        class.borrow_mut().is_abstract = true;
+                Opcode::SetAbstract => {
+                    if self.functions[frame.function_index].is_pure {
+                        self.throw_runtime_error(
+                            "pure function cannot have side effects (class mutation)",
+                        )?;
+                        continue;
                     }
-                    _ => return Err(RuntimeError::new("set abstract on non-class value")),
-                },
+                    match &mut self.registers[base + a] {
+                        Value::Class(class) => {
+                            class.borrow_mut().is_abstract = true;
+                        }
+                        _ => return Err(RuntimeError::new("set abstract on non-class value")),
+                    }
+                }
                 Opcode::SetStatic => {
+                    if self.functions[frame.function_index].is_pure {
+                        self.throw_runtime_error(
+                            "pure function cannot have side effects (class mutation)",
+                        )?;
+                        continue;
+                    }
                     let static_map = match &self.registers[base + b] {
                         Value::Map(map) => map.borrow().entries.clone(),
                         _ => return Err(RuntimeError::new("static methods must be map")),
@@ -1895,6 +2014,12 @@ impl VM {
                     }
                 }
                 Opcode::SetGetters => {
+                    if self.functions[frame.function_index].is_pure {
+                        self.throw_runtime_error(
+                            "pure function cannot have side effects (class mutation)",
+                        )?;
+                        continue;
+                    }
                     let getters_map = match &self.registers[base + b] {
                         Value::Map(map) => map.borrow().entries.clone(),
                         _ => return Err(RuntimeError::new("getters must be map")),
@@ -1919,6 +2044,12 @@ impl VM {
                     }
                 }
                 Opcode::SetSetters => {
+                    if self.functions[frame.function_index].is_pure {
+                        self.throw_runtime_error(
+                            "pure function cannot have side effects (class mutation)",
+                        )?;
+                        continue;
+                    }
                     let setters_map = match &self.registers[base + b] {
                         Value::Map(map) => map.borrow().entries.clone(),
                         _ => return Err(RuntimeError::new("setters must be map")),
@@ -1943,6 +2074,12 @@ impl VM {
                     }
                 }
                 Opcode::SetStaticGetters => {
+                    if self.functions[frame.function_index].is_pure {
+                        self.throw_runtime_error(
+                            "pure function cannot have side effects (class mutation)",
+                        )?;
+                        continue;
+                    }
                     let getters_map = match &self.registers[base + b] {
                         Value::Map(map) => map.borrow().entries.clone(),
                         _ => return Err(RuntimeError::new("static getters must be map")),
@@ -1971,6 +2108,12 @@ impl VM {
                     }
                 }
                 Opcode::SetStaticSetters => {
+                    if self.functions[frame.function_index].is_pure {
+                        self.throw_runtime_error(
+                            "pure function cannot have side effects (class mutation)",
+                        )?;
+                        continue;
+                    }
                     let setters_map = match &self.registers[base + b] {
                         Value::Map(map) => map.borrow().entries.clone(),
                         _ => return Err(RuntimeError::new("static setters must be map")),
@@ -1999,6 +2142,12 @@ impl VM {
                     }
                 }
                 Opcode::SetFieldVisibility => {
+                    if self.functions[frame.function_index].is_pure {
+                        self.throw_runtime_error(
+                            "pure function cannot have side effects (class mutation)",
+                        )?;
+                        continue;
+                    }
                     let name = match &function.chunk.constants[b] {
                         Value::String(value) => value.as_str().to_string(),
                         _ => return Err(RuntimeError::new("field name must be string")),
@@ -2016,6 +2165,12 @@ impl VM {
                     }
                 }
                 Opcode::SetStaticFieldVisibility => {
+                    if self.functions[frame.function_index].is_pure {
+                        self.throw_runtime_error(
+                            "pure function cannot have side effects (class mutation)",
+                        )?;
+                        continue;
+                    }
                     let name = match &function.chunk.constants[b] {
                         Value::String(value) => value.as_str().to_string(),
                         _ => return Err(RuntimeError::new("field name must be string")),
@@ -2863,4 +3018,18 @@ fn resolve_module_path(
 
 fn resolve_builtin_method(vm: &VM, ty: &str, name: &str) -> Option<NativeFunction> {
     vm.builtin_resolver.and_then(|resolver| resolver(ty, name))
+}
+
+fn value_to_key(value: &Value) -> Result<ValueKey, RuntimeError> {
+    ValueKey::try_from_value(value).ok_or_else(|| RuntimeError::new("unhashable type"))
+}
+
+fn key_to_value(key: &ValueKey) -> Value {
+    match key {
+        ValueKey::Null => Value::Null,
+        ValueKey::Bool(b) => Value::Bool(*b),
+        ValueKey::Int(i) => Value::Int(*i),
+        ValueKey::Float(f) => Value::Float(f64::from_bits(*f)),
+        ValueKey::String(s) => Value::String(Rc::clone(s)),
+    }
 }

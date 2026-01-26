@@ -1,0 +1,7 @@
+// --- 12. Memory & Performance ---
+// Ownership Hints (move, &, &mut)
+// Lazy Evaluation (lazy)
+// Memory Pooling (@pooled)
+
+// These are likely deferred. This file serves as a placeholder.
+print("12. Memory Features: Skipped (Deferred)");

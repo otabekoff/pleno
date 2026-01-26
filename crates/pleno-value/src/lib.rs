@@ -1,6 +1,7 @@
 pub mod gc;
 
 use gc::{GcObject, GcRc, MarkAndSweepGC};
+use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
@@ -17,13 +18,13 @@ pub trait VMProvider {
     fn set_builtin_resolver(&mut self, resolver: fn(&str, &str) -> Option<NativeFunction>);
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum MultiWaiterMode {
     All,
     Race,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MultiWaiter {
     pub promise_id: u64,
     pub dependencies: Vec<u64>,
@@ -43,7 +44,40 @@ impl GcObject for MultiWaiter {
 pub type NativeFunction =
     fn(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError>;
 
-#[derive(Debug, Clone)]
+// Helper to provide default for Skipped Fields
+#[allow(dead_code)]
+fn default_native_function() -> Option<NativeFunction> {
+    None
+}
+
+#[allow(dead_code)]
+fn skip_native_function<S>(_nf: &Option<NativeFunction>, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    serializer.serialize_none()
+}
+
+#[allow(dead_code)]
+fn deserialize_native_function<'de, D>(deserializer: D) -> Result<Option<NativeFunction>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let _ = Option::<()>::deserialize(deserializer)?;
+    Ok(None)
+}
+
+fn dummy_native_function(_: &mut dyn VMProvider, _: &[Value]) -> Result<Value, RuntimeError> {
+    Err(RuntimeError::new(
+        "deserialized native function calls are not supported",
+    ))
+}
+
+fn default_native_function_val() -> NativeFunction {
+    dummy_native_function
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Value {
     Null,
     Missing,
@@ -67,9 +101,10 @@ pub enum Value {
         visibility: MethodVisibility,
     },
     Closure(GcRc<ClosureState>),
-    NativeFunction(NativeFunction),
+    NativeFunction(#[serde(skip, default = "default_native_function_val")] NativeFunction),
     BoundNativeMethod {
         receiver: Box<Value>,
+        #[serde(skip, default = "default_native_function_val")]
         function: NativeFunction,
     },
     Map(GcRc<MapState>),
@@ -115,20 +150,49 @@ impl Value {
     pub fn is_null(&self) -> bool {
         matches!(self, Value::Null)
     }
+
+    pub fn type_name(&self) -> &'static str {
+        match self {
+            Value::Null => "Null",
+            Value::Missing => "Missing",
+            Value::Bool(_) => "Bool",
+            Value::Int(_) => "Int",
+            Value::Float(_) => "Float",
+            Value::String(_) => "String",
+            Value::Range(_) => "Range",
+            Value::Class(_) => "Class",
+            Value::Interface(_) => "Interface",
+            Value::Function(_) => "Function",
+            Value::BoundMethod { .. } => "Method",
+            Value::StaticMethod { .. } => "StaticMethod",
+            Value::Closure(_) => "Closure",
+            Value::NativeFunction(_) => "NativeFunction",
+            Value::BoundNativeMethod { .. } => "NativeMethod",
+            Value::Map(_) => "Map",
+            Value::Array(_) => "Array",
+            Value::Set(_) => "Set",
+            Value::Object(_) => "Object",
+            Value::Partial { .. } => "Partial",
+            Value::ArrayOp { .. } => "ArrayOp",
+            Value::Mutex(_) => "Mutex",
+            Value::Channel(_) => "Channel",
+        }
+    }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MutexState {
     pub locked: bool,
     pub waiters: Vec<usize>, // Promise IDs waiting for lock
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChannelState {
     pub buffer: std::collections::VecDeque<Value>,
     pub capacity: usize,
-    pub send_waiters: Vec<(usize, Value)>, // (Promise ID, Value to send)
-    pub recv_waiters: Vec<usize>,          // Promise IDs waiting for value
+    #[serde(skip)]
+    pub send_waiters: Vec<(usize, Value)>, // (Promise ID, Value to send) - cannot serialize easily due to tuple
+    pub recv_waiters: Vec<usize>, // Promise IDs waiting for value
 }
 
 impl GcObject for MutexState {
@@ -179,6 +243,12 @@ impl GcObject for Value {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ArrayState {
+    pub elements: Vec<Value>,
+    pub is_immutable: bool,
+}
+
 impl GcObject for ArrayState {
     fn mark(&self, gc: &mut MarkAndSweepGC) {
         for v in &self.elements {
@@ -189,6 +259,12 @@ impl GcObject for ArrayState {
     fn clear_refs(&mut self) {
         self.elements.clear();
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct MapState {
+    pub entries: HashMap<String, Value>,
+    pub is_immutable: bool,
 }
 
 impl GcObject for MapState {
@@ -210,20 +286,20 @@ impl GcObject for HashSet<ValueKey> {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum ArrayOpKind {
     Map,
     Filter,
     Reduce,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct StackFrame {
     pub function_name: String,
     pub span: Option<pleno_common::Span>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RuntimeError {
     pub message: String,
     pub span: Option<pleno_common::Span>,
@@ -250,14 +326,14 @@ impl RuntimeError {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Range {
     pub start: Option<i64>,
     pub end: Option<i64>,
     pub inclusive: bool,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MethodSignature {
     pub name: String,
     pub arity: usize,
@@ -265,7 +341,7 @@ pub struct MethodSignature {
     pub is_async: bool,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Interface {
     pub name: Rc<String>,
     pub methods: HashMap<String, MethodSignature>,
@@ -277,12 +353,13 @@ impl GcObject for Interface {
     fn mark(&self, _gc: &mut MarkAndSweepGC) {}
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Class {
     pub name: Rc<String>,
     pub methods: HashMap<String, MethodInfo>,
     pub static_methods: HashMap<String, MethodInfo>,
     pub constructor: Option<usize>,
+    #[serde(skip, default)]
     pub native_constructor: Option<NativeFunction>,
     pub superclass: Option<GcRc<Class>>,
     pub static_fields: HashMap<String, Value>,
@@ -348,7 +425,7 @@ impl PartialEq for Class {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum MethodVisibility {
     Public,
     Private,
@@ -356,7 +433,7 @@ pub enum MethodVisibility {
     Internal,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MethodInfo {
     pub function: usize,
     pub visibility: MethodVisibility,
@@ -541,12 +618,6 @@ impl std::fmt::Display for Value {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub struct ArrayState {
-    pub elements: Vec<Value>,
-    pub is_immutable: bool,
-}
-
 impl ArrayState {
     pub fn new(elements: Vec<Value>) -> Self {
         Self {
@@ -584,7 +655,8 @@ impl IntoIterator for ArrayState {
         self.elements.into_iter()
     }
 }
-#[derive(Debug, Clone)]
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ClosureState {
     pub function: usize,
     pub captures: Vec<Value>,
@@ -610,12 +682,6 @@ impl<'a> IntoIterator for &'a ArrayState {
     fn into_iter(self) -> Self::IntoIter {
         self.elements.iter()
     }
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct MapState {
-    pub entries: HashMap<String, Value>,
-    pub is_immutable: bool,
 }
 
 impl MapState {
@@ -664,7 +730,7 @@ impl<'a> IntoIterator for &'a MapState {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Object {
     pub class: Option<GcRc<Class>>,
     pub fields: HashMap<String, Value>,
@@ -689,53 +755,7 @@ impl Object {
     }
 }
 
-impl Value {
-    pub fn type_name(&self) -> &'static str {
-        match self {
-            Value::Null => "Null",
-            Value::Missing => "Missing",
-            Value::Bool(_) => "Bool",
-            Value::Int(_) => "Int",
-            Value::Float(_) => "Float",
-            Value::String(_) => "String",
-            Value::Range(_) => "Range",
-            Value::Class(_) => "Class",
-            Value::Interface(_) => "Interface",
-            Value::Function(_) => "Function",
-            Value::BoundMethod { .. } => "Method",
-            Value::StaticMethod { .. } => "StaticMethod",
-            Value::Closure(_) => "Closure",
-            Value::NativeFunction(_) => "NativeFunction",
-            Value::BoundNativeMethod { .. } => "NativeMethod",
-            Value::Map(_) => "Map",
-            Value::Array(_) => "Array",
-            Value::Set(_) => "Set",
-            Value::Object(_) => "Object",
-            Value::Partial { .. } => "Partial",
-            Value::ArrayOp { .. } => "ArrayOp",
-            Value::Mutex(_) => "Mutex",
-            Value::Channel(_) => "Channel",
-        }
-    }
-}
-
-impl GcObject for Object {
-    fn mark(&self, gc: &mut MarkAndSweepGC) {
-        if let Some(c) = &self.class {
-            gc.mark_object(&c.to_gc_object());
-        }
-        for v in self.fields.values() {
-            v.mark(gc);
-        }
-    }
-
-    fn clear_refs(&mut self) {
-        self.class = None;
-        self.fields.clear();
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum ValueKey {
     Null,
     Bool(bool),
@@ -754,5 +774,21 @@ impl ValueKey {
             Value::String(value) => Some(ValueKey::String(Rc::clone(value))),
             _ => None,
         }
+    }
+}
+
+impl GcObject for Object {
+    fn mark(&self, gc: &mut MarkAndSweepGC) {
+        if let Some(c) = &self.class {
+            gc.mark_object(&c.to_gc_object());
+        }
+        for v in self.fields.values() {
+            v.mark(gc);
+        }
+    }
+
+    fn clear_refs(&mut self) {
+        self.class = None;
+        self.fields.clear();
     }
 }

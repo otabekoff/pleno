@@ -1,0 +1,22 @@
+
+interface Drawable {
+    draw(x: Int, y: Int): Null
+}
+
+class Circle implements Drawable {
+    draw(x, y) {
+        print("Drawing circle at " + x + ", " + y);
+    }
+}
+
+let c = Circle();
+c.draw(10, 20);
+
+// This should fail if we uncomment it and the VM validates correctly
+/*
+class Square implements Drawable {
+    // Missing draw method
+}
+*/
+
+print("Interface verification successful");

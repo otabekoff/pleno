@@ -587,6 +587,17 @@ impl Compiler {
                 self.free_temp(methods_reg);
                 Ok(())
             }
+            StmtKind::Enum(decl) => {
+                let enum_reg = self.compile_enum_declaration(decl)?;
+                if self.is_top_level {
+                    let name_idx = self.add_constant(Value::String(decl.name.clone().into()));
+                    self.emit(Opcode::SetGlobal, enum_reg, name_idx, 0);
+                    self.free_temp(enum_reg);
+                } else {
+                    self.insert_local(decl.name.clone(), enum_reg, false, None)?;
+                }
+                Ok(())
+            }
         }
     }
 
@@ -739,33 +750,6 @@ impl Compiler {
                 self.patch_jump(jump_past_null)?;
 
                 Ok(dest)
-            }
-            ExprKind::Ternary {
-                condition,
-                then_branch,
-                else_branch,
-            } => {
-                let cond_reg = self.compile_expr(condition)?;
-                let else_jump = self.emit_jump(Opcode::JumpIfNot, cond_reg);
-                self.free_temp(cond_reg);
-
-                let result_reg = self.registers.allocate()?;
-
-                let then_reg = self.compile_expr(then_branch)?;
-                self.emit(Opcode::Move, result_reg, then_reg, 0);
-                self.free_temp(then_reg);
-
-                let end_jump = self.emit_jump(Opcode::Jump, 0);
-
-                self.patch_jump(else_jump)?;
-
-                let else_reg = self.compile_expr(else_branch)?;
-                self.emit(Opcode::Move, result_reg, else_reg, 0);
-                self.free_temp(else_reg);
-
-                self.patch_jump(end_jump)?;
-
-                Ok(result_reg)
             }
             ExprKind::If {
                 condition,
@@ -2426,6 +2410,29 @@ impl Compiler {
         }
         self.free_temp(methods_reg);
         self.free_temp(static_reg);
+        Ok(class_reg)
+    }
+
+    fn compile_enum_declaration(&mut self, decl: &pleno_ast::EnumDecl) -> Result<u8, CompileError> {
+        let class_reg = self.registers.allocate()?;
+        let name_idx = self.add_constant(Value::String(decl.name.clone().into()));
+        self.emit(Opcode::DefineClass, class_reg, name_idx, 0);
+
+        // For now, compile each variant as a static field
+        // Future: full first-class Enum variants with data
+        for (i, variant) in decl.variants.iter().enumerate() {
+            let variant_idx = self.add_constant(Value::String(variant.name.clone().into()));
+
+            // For now, variants are just their discriminator (Int) if no params
+            // If they have params, they should be "constructors" of some sort,
+            // but we'll stick to simple discriminators for the MVP.
+            let value_reg = self.registers.allocate()?;
+            self.emit(Opcode::LoadInt, value_reg, i as u8, 0);
+
+            self.emit(Opcode::SetProperty, value_reg, class_reg, variant_idx);
+            self.free_temp(value_reg);
+        }
+
         Ok(class_reg)
     }
 

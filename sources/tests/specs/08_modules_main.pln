@@ -1,0 +1,6 @@
+import Utils from "./utils.pln"; // Relative import? Or "modules/utils.pln"?
+// Spec says: import "path/to/module.pln"; OR import ModuleName from ...
+
+print("8. Modules:");
+print("Imported PI: " + Utils.PI);
+print("Imported Fn: " + Utils.add(10, 20));

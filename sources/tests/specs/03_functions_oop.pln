@@ -1,0 +1,36 @@
+// --- 3. Functions ---
+fn greet(name: String): String {
+    return "Hello, " + name;
+}
+print("3.1 Function passed: " + greet("Alice"));
+
+// Lambda
+let square = |x| => x * x;
+print("3.7 Lambda passed: " + square(5));
+
+// --- 4. OOP ---
+class Person {
+    private name: String;
+    public active: Bool;
+
+    constructor(name: String) {
+        this.name = name;
+        this.active = true;
+    }
+
+    public fn getName(): String {
+        return this.name;
+    }
+}
+
+let p = Person("Bob");
+print("4.1 Class passed: " + p.getName());
+// print(p.name); // Should fail if private is enforced
+
+class Employee extends Person {
+    constructor(name: String) {
+        super(name);
+    }
+}
+let e = Employee("Charlie");
+print("4.3 Inheritance passed: " + e.getName());

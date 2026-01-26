@@ -90,7 +90,7 @@ impl DiagnosticReporter {
 
         // Underline
         let line_num_str = format!("{}", line_num);
-        let padding_width = std::cmp::max(3, line_num_str.len()) + 3 + col_num - 1;
+        let padding_width = 1 + std::cmp::max(3, line_num_str.len()) + 3 + col_num - 1;
         let padding = " ".repeat(padding_width);
         let length = diagnostic.span.end - diagnostic.span.start;
         let underline = "^".repeat(std::cmp::max(1, length));

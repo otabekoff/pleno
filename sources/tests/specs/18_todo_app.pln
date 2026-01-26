@@ -1,0 +1,49 @@
+import { File } from "std:io";
+import { JSON } from "std:json";
+
+// Mock Todo class (since properties might not be fully auto-generated)
+class Todo {
+    public title: String;
+    public completed: Bool;
+
+    constructor(title: String) {
+        this.title = title;
+        this.completed = false;
+    }
+}
+
+class TodoManager {
+    private todos: Todo[];
+    private file: String;
+
+    constructor() {
+        this.todos = [];
+        this.file = "todos.json";
+        // this.load(); // Skip load for test to avoid file I/O errors on missing file
+    }
+
+    fn add(title: String) {
+        let todo = Todo(title);
+        this.todos.push(todo);
+        print("Added: " + title);
+    }
+
+    fn list() {
+        if (this.todos.isEmpty()) {
+            print("No todos yet!");
+            return;
+        }
+        // for (index, todo in this.todos) { ... } // Index iter support?
+        // Fallback to simple loop
+        for (todo in this.todos) {
+             print("[ ] " + todo.title);
+        }
+    }
+}
+
+print("18.3 Todo App Start");
+let manager = TodoManager();
+manager.add("Buy milk");
+manager.add("Walk dog");
+manager.list();
+print("18.3 Todo App End");

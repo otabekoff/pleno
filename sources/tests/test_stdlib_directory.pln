@@ -1,0 +1,72 @@
+import { Directory } from "std:io";
+
+print("Testing Directory operations...");
+
+let testDir = "test_dir_temp";
+let nestedDir = "test_dir_temp/a/b/c";
+
+// Clean state
+if (Directory.exists(testDir)) {
+    Directory.deleteRecursive(testDir);
+}
+
+// 1. Create and Exists
+Directory.create(testDir);
+if (Directory.exists(testDir)) {
+    print("SUCCESS: Directory.create and Directory.exists");
+} else {
+    print("FAILURE: Directory.create or Directory.exists");
+}
+
+// 2. Recursive Create
+Directory.createRecursive(nestedDir);
+if (Directory.exists(nestedDir)) {
+    print("SUCCESS: Directory.createRecursive");
+} else {
+    print("FAILURE: Directory.createRecursive");
+}
+
+// 3. List
+let list = Directory.list(testDir);
+print("Content of " + testDir + ": " + list.length + " items");
+// Should contain "a"
+
+let mut foundA = false;
+for (item in list) {
+    if (item == "a") { foundA = true; }
+}
+if (foundA) {
+    print("SUCCESS: Directory.list contains nested 'a'");
+} else {
+    print("FAILURE: Directory.list");
+}
+
+// 4. listFiles / listDirectories
+// Create a file
+import { File } from "std:io";
+File.write(testDir + "/test_file.txt", "hello");
+
+let files = Directory.listFiles(testDir);
+let dirs = Directory.listDirectories(testDir);
+
+let mut hasFile = false;
+for (f in files) if (f == "test_file.txt") hasFile = true;
+
+let mut hasDir = false;
+for (d in dirs) if (d == "a") hasDir = true;
+
+if (hasFile && hasDir && files.length == 1 && dirs.length == 1) {
+    print("SUCCESS: Directory.listFiles and listDirectories");
+} else {
+    print("FAILURE: listFiles/listDirectories: files=" + files.length + " dirs=" + dirs.length);
+}
+
+// 5. Delete Recursive
+Directory.deleteRecursive(testDir);
+if (!Directory.exists(testDir)) {
+    print("SUCCESS: Directory.deleteRecursive");
+} else {
+    print("FAILURE: Directory.deleteRecursive");
+}
+
+print("Directory tests completed!");

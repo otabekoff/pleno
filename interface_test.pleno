@@ -1,0 +1,22 @@
+interface IRunnable {
+    run(args: String): Result;
+}
+
+class Runner implements IRunnable {
+    // Missing 'run' - should fail during registration
+}
+
+try {
+    let r = Runner();
+} catch (e) {
+    println("Caught expected interface error: " + e.message);
+}
+
+class CorrectRunner implements IRunnable {
+    run(args: String) {
+        return Ok(args);
+    }
+}
+
+let cr = CorrectRunner();
+println("CorrectRunner created successfully");

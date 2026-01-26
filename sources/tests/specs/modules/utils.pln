@@ -1,0 +1,7 @@
+module Utils;
+
+export fn add(a: Int, b: Int): Int {
+    return a + b;
+}
+
+export const PI = 3.14;

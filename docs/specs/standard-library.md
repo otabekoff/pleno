@@ -126,76 +126,60 @@ let jsonStr = JSON.stringify(obj);
 let prettyJson = JSON.stringify(obj, indent: 2);
 ```
 
-### 13.6 HTTP Client
-
+### 13.6 HTTP
 ```pleno
-import { Http } from "std:http";
+import http from "std:http";
+import { JSON } from "std:json";
+
+// --- HTTP Client ---
 
 // GET request
-async fn fetchData() {
-    let response = await Http.get("https://api.example.com/data");
-    
-    if (response.status == 200) {
-        let data = JSON.parse(response.body);
-        return data;
-    } else {
-        throw Error("Request failed: " + response.status);
-    }
-}
+let responseBody = http.get("https://api.example.com/data");
+let data = JSON.parse(responseBody);
 
 // POST request
-async fn createUser(user: User) {
-    let response = await Http.post(
-        "https://api.example.com/users",
-        body: JSON.stringify(user),
-        headers: {
-            "Content-Type": "application/json"
-        }
-    );
-    
-    return JSON.parse(response.body);
-}
+let newUser = { name: "Alice" };
+let resp = http.post("https://api.example.com/users", JSON.stringify(newUser));
 
 // Other methods
-await Http.put(url, body: data);
-await Http.delete(url);
-await Http.patch(url, body: data);
+http.put("url", "body");
+http.delete("url");
+
+// --- HTTP Server ---
+
+let router = http.Router();
+
+router.get("/", fn(req, res) {
+    println("Received request");
+});
+
+router.post("/api/data", fn(req, res) {
+    println("Received data");
+});
+
+let server = http.Server(router);
+// server.listen(8080); // Blocking call
 ```
 
 ### 13.7 Date & Time
-
 ```pleno
-import { DateTime, Duration } from "std:time";
+import time from "std:time";
 
-// Current date/time
-let now = DateTime.now();
-print(now.year);         // 2026
-print(now.month);        // 1-12
-print(now.day);          // 1-31
-print(now.hour);         // 0-23
-print(now.minute);       // 0-59
-print(now.second);       // 0-59
-
-// Create specific date
-let date = DateTime(2026, 1, 22, 14, 30, 0);
+// Current Unix timestamp (float seconds)
+let now = time.now();
+print(now);
 
 // Formatting
-now.format("YYYY-MM-DD HH:mm:ss");
-now.format("DD/MM/YYYY");
-now.toISO();  // ISO 8601 format
+let dateStr = time.format(now, "%Y-%m-%d %H:%M:%S"); // "2026-01-22 14:30:00"
 
 // Parsing
-let parsed = DateTime.parse("2026-01-22", format: "YYYY-MM-DD");
+let timestamp = time.parse("2026-01-22", "%Y-%m-%d");
 
-// Duration
-let duration = Duration.hours(2);
-let future = now.add(duration);
-let past = now.subtract(Duration.days(7));
-
-// Comparison
-if (date1 > date2) {
-    print("date1 is later");
-}
+// Struct access
+let parts = time.parts(now);
+print(parts.year);
+print(parts.month);
+print(parts.second);
 ```
 
 ### 13.8 Regular Expressions
@@ -230,56 +214,50 @@ if (match) {
 ### 13.9 Path Operations
 
 ```pleno
-import Path from "std:path";
+import path from "std:path";
 
 // Join path components
-let fullPath = Path.join("folder", "subfolder", "file.txt");
-// "folder/subfolder/file.txt" (Unix) or "folder\subfolder\file.txt" (Windows)
+let fullPath = path.join("folder", "subfolder", "file.txt");
 
 // Get directory name
-Path.dirname("/home/user/file.txt");  // "/home/user"
+path.dirname("/home/user/file.txt");
 
 // Get file name
-Path.basename("/home/user/file.txt");  // "file.txt"
+path.basename("/home/user/file.txt");
 
 // Get extension
-Path.extname("document.pdf");  // ".pdf"
+path.extname("document.pdf");
 
 // Check existence
-Path.exists("config.json");     // true/false
-Path.isFile("config.json");     // true if file
-Path.isDir("src");              // true if directory
+path.exists("config.json");
+path.isFile("config.json");
+path.isDir("src");
 
 // Resolve to absolute path
-Path.resolve("./relative/path");  // "/absolute/path/to/relative/path"
+path.resolve("./relative/path");
 
-// Path separator (platform-specific)
-Path.separator;  // "/" on Unix, "\" on Windows
+// Path separator
+path.separator;
 ```
 
 ### 13.10 Process Management
 
 ```pleno
-import Process from "std:process";
+import process from "std:process";
 
 // Get current working directory
-let cwd = Process.cwd();
-print(cwd);  // "/home/user/project"
+let cwd = process.cwd();
 
 // Get command line arguments
-let args = Process.args();
-// ["pleno", "script.pln", "--verbose"]
+let args = process.args();
 
 // Get environment variable
-let home = Process.env("HOME");
-let path = Process.env("PATH");
+let home = process.env("HOME");
 
 // Get process ID
-let pid = Process.pid();
-print(pid);  // 12345
+let pid = process.pid();
 
 // Exit with status code
-Process.exit(0);  // Success
-Process.exit(1);  // Error
+process.exit(0);
 ```
 

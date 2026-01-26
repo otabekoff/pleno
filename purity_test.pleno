@@ -1,0 +1,16 @@
+@pure
+fn test_purity() {
+    let a = [1, 2];
+    a.push(3); // This should FAIL if 'a' is external, but wait, 'a' is local.
+}
+
+@pure
+fn mutate_global() {
+    print("hello"); // This should FAIL.
+}
+
+try {
+    mutate_global();
+} catch (e) {
+    println("Caught expected purity error: " + e.message);
+}

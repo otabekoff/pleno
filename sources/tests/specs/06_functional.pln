@@ -1,0 +1,41 @@
+// --- 6.1 First-Class Functions ---
+let operation = fn(x: Int, y: Int): Int => x + y;
+fn applyTwice(f: (Int) => Int, x: Int): Int {
+    return f(f(x));
+}
+fn makeMultiplier(factor: Int): (Int) => Int {
+    return |x| => x * factor;
+}
+
+print("6.1 First-class functions: " + applyTwice(|x| => x * 2, 5)); // 20
+let double = makeMultiplier(2);
+print("6.1 Returned function: " + double(5)); // 10
+
+// --- 6.2 Pure Functions ---
+// @pure fn calculateArea(w: Float, h: Float): Float { return w * h; }
+// print("6.2 Pure functions: Skipped (Attribute likely unimplemented)");
+
+// --- 6.3 Immutable Data ---
+// const immutable list = [1, 2, 3];
+// let newList = list.with(4);
+// print("6.3 Immutable Data: Skipped");
+
+// --- 6.4 Pipeline Operator ---
+/*
+let result = [1, 2, 3]
+    |> filter(|x| => x % 2 != 0)
+    |> map(|x| => x * 2);
+print("6.4 Pipeline: Unimplemented");
+*/
+
+// --- 6.6 Pattern Matching on Data ---
+/*
+fn processData(data: Any) {
+    match (data) {
+        case [] => print("Empty"),
+        case [head, ...tail] => print("List"),
+        case _ => print("Other")
+    }
+}
+*/
+print("6.6 Data Pattern Matching: Skipped (Match is basic)");

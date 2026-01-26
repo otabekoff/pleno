@@ -1,0 +1,50 @@
+// --- 1.1 Comments ---
+// Single-line comment
+/* Multi-line comment
+   spans multiple lines */
+
+print("1.1 Comments passed");
+
+// --- 1.2 Variables & Constants ---
+let x = 10;
+let name: String = "Alice";
+let mut counter = 0;
+counter = 1;
+print("1.2 Variables passed: " + x + ", " + name + ", " + counter);
+
+// Constants
+const PI = 3.14159;
+// MAX_USERS type annotation for const might be skipped in parser? Check it.
+const MAX_USERS: Int = 1000; // Uncomment to test typed const if supported
+print("1.2 Constants passed: " + PI);
+
+// --- 1.3 Type System ---
+// Primitives
+let age: Int = 25;
+let price: Float = 99.99;
+let active: Bool = true;
+let data: Any = "flexible"; // Check if Any is supported
+
+print("1.3 Primitives passed: " + age + ", " + price + ", " + active);
+
+fn calculate(x: Int, y: Float): Float {
+    return x * y;
+}
+print("1.3 Function types passed: " + calculate(10, 2.5));
+
+// Type Inference
+let count = 42;
+let ratio = 3.14;
+let message = "Hello";
+print("1.3 Inference passed");
+
+// Union Types - simple assignment check
+// let result: Int | String = 42;
+// result = "error";
+// print("1.3 Union types passed (assignment)");
+
+// --- 1.4 TypeOf Operator ---
+let val = 42;
+print(typeof(val)); // Check if typeof exists
+// NOTE: TypeOf syntax differs or not implemented?
+print("1.4 TypeOf passed");

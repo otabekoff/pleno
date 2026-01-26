@@ -175,6 +175,20 @@ fn main() {
                 process::exit(1);
             }
         }
+        "compile" => {
+            let path = args.next().unwrap_or_else(|| {
+                eprintln!("Error: 'compile' requires a file path");
+                process::exit(1);
+            });
+            compile_file(&path);
+        }
+        "watch" => {
+            let path = args.next().unwrap_or_else(|| {
+                eprintln!("Error: 'watch' requires a file path");
+                process::exit(1);
+            });
+            watch_file(&path);
+        }
         _ => {
             // Default: treat as file path and run it
             run_file(&command);
@@ -611,6 +625,123 @@ fn check_file(path: &str) {
         }
         Err(err) => {
             eprintln!("Compile error: {}", err.message);
+            process::exit(1);
+        }
+    }
+}
+
+fn watch_file(path: &str) {
+    use notify::{Config, RecommendedWatcher, RecursiveMode, Watcher};
+    use std::sync::mpsc::channel;
+
+    let path = PathBuf::from(path);
+    if !path.exists() {
+        eprintln!("Error: File '{}' not found", path.display());
+        process::exit(1);
+    }
+
+    println!("Watching {} for changes...", path.display());
+    run_file(&path.to_string_lossy());
+
+    let (tx, rx) = channel();
+
+    // Create a watcher object, delivering debounced events.
+    // The notification back-end is selected based on the platform.
+    let mut watcher: RecommendedWatcher = Watcher::new(tx, Config::default()).unwrap();
+
+    // Watch the parent directory to catch atomic saves/renames
+    let watch_target = if path.is_dir() {
+        path.clone()
+    } else {
+        path.parent().unwrap_or(&path).to_path_buf()
+    };
+
+    if let Err(e) = watcher.watch(&watch_target, RecursiveMode::NonRecursive) {
+        eprintln!("Error watching file: {}", e);
+        process::exit(1);
+    }
+
+    loop {
+        match rx.recv() {
+            Ok(Ok(_event)) => {
+                // Determine if we should clear screen and run
+                // Simple debounce: drain channel
+                // Ideally check event paths, but for now re-run on any folder change
+                // if it matches our file.
+                // Assuming simple workflow for now: clear, run.
+
+                // Read all pending events to debounce
+                while rx.try_recv().is_ok() {}
+
+                print!("\x1B[2J\x1B[1;1H"); // Clear screen
+                println!("File changed. Re-running...");
+                run_file(&path.to_string_lossy());
+            }
+            Ok(Err(e)) => println!("watch error: {:?}", e),
+            Err(e) => println!("watch error: {:?}", e),
+        }
+    }
+}
+
+fn compile_file(path: &str) {
+    let source = match fs::read_to_string(path) {
+        Ok(contents) => contents,
+        Err(err) => {
+            eprintln!("Failed to read {}: {err}", path);
+            process::exit(1);
+        }
+    };
+
+    let tokens = match pleno_lexer::lex(&source) {
+        Ok(tokens) => tokens,
+        Err(err) => {
+            eprintln!(
+                "Lex error at {}..{}: {}",
+                err.span.start, err.span.end, err.message
+            );
+            process::exit(1);
+        }
+    };
+
+    let mut parser = pleno_parser::Parser::new(tokens);
+    let program = match parser.parse_program() {
+        Ok(program) => program,
+        Err(err) => {
+            eprintln!(
+                "Parse error at {}..{}: {}",
+                err.span.start, err.span.end, err.message
+            );
+            process::exit(1);
+        }
+    };
+
+    let mut compiler = pleno_compiler::Compiler::new(source);
+    let chunk = match compiler.compile(&program) {
+        Ok(chunk) => chunk,
+        Err(err) => {
+            eprintln!("Compile error: {}", err.message);
+            process::exit(1);
+        }
+    };
+
+    let output_path = std::path::Path::new(path).with_extension("plc");
+    let file = match fs::File::create(&output_path) {
+        Ok(f) => f,
+        Err(err) => {
+            eprintln!(
+                "Failed to create output file {}: {err}",
+                output_path.display()
+            );
+            process::exit(1);
+        }
+    };
+
+    match bincode::serialize_into(file, &chunk) {
+        Ok(_) => {
+            println!("Compiled {} -> {}", path, output_path.display());
+        }
+        Err(err) => {
+            eprintln!("Failed to write bytecode: {}", err);
             process::exit(1);
         }
     }

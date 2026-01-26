@@ -34,6 +34,7 @@ export default defineConfig({
         text: 'Getting Started',
         items: [
           { text: 'Introduction', link: '/specs/index' },
+          { text: 'Installation', link: '/specs/installation' },
           { text: 'Bytecode VM Design', link: '/specs/bytecode_vm' },
         ]
       },
