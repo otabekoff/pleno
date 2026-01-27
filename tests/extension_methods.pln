@@ -1,23 +1,24 @@
-class Person {
-    name: String;
-    constructor(name: String) {
-        this.name = name;
+extend Array {
+    fn first() {
+        return this[0];
+    }
+    
+    fn last() {
+        return this[this.len - 1];
     }
 }
 
-extend Person {
-    fn greet() {
-        print("Hello, my name is " + this.name);
-    }
-}
-
-let p = new Person("Alice");
-p.greet();
+let arr = [1, 2, 3, 4, 5];
+print("Array expansion test:");
+print("First: " + arr.first());
+print("Last: " + arr.last());
 
 extend String {
-    fn shout() {
-        return "HELLO: " + this + "!!!";
+    fn shouting() {
+        return this.toUpperCase() + "!!!";
     }
 }
 
-print("hello".shout());
+let s = "hello";
+print("String expansion test:");
+print(s.shouting());

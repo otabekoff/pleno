@@ -191,19 +191,16 @@ pub fn register(vm: &mut dyn VMProvider) {
     );
 
     // std:math
-    let mut math_obj = HashMap::new();
-    math_obj.insert("abs".to_string(), Value::NativeFunction(math::math_abs));
-    math_obj.insert("min".to_string(), Value::NativeFunction(math::math_min));
-    math_obj.insert("max".to_string(), Value::NativeFunction(math::math_max));
-    math_obj.insert("floor".to_string(), Value::NativeFunction(math::math_floor));
-    math_obj.insert("ceil".to_string(), Value::NativeFunction(math::math_ceil));
-    math_obj.insert("sqrt".to_string(), Value::NativeFunction(math::math_sqrt));
-
     let mut math_module = HashMap::new();
-    math_module.insert(
-        "Math".to_string(),
-        Value::Map(gc.allocate(MapState::new(math_obj))),
-    );
+    math_module.insert("abs".to_string(), Value::NativeFunction(math::math_abs));
+    math_module.insert("min".to_string(), Value::NativeFunction(math::math_min));
+    math_module.insert("max".to_string(), Value::NativeFunction(math::math_max));
+    math_module.insert("floor".to_string(), Value::NativeFunction(math::math_floor));
+    math_module.insert("ceil".to_string(), Value::NativeFunction(math::math_ceil));
+    math_module.insert("sqrt".to_string(), Value::NativeFunction(math::math_sqrt));
+    math_module.insert("PI".to_string(), Value::Float(std::f64::consts::PI));
+    math_module.insert("E".to_string(), Value::Float(std::f64::consts::E));
+
     modules.insert(
         "std:math".to_string(),
         Value::Map(gc.allocate(MapState::new(math_module))),

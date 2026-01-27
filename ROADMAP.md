@@ -17,6 +17,10 @@ The following features from `specs.md` are deferred to v1.x or v2:
 
 ## v1 Release Criteria
 
+- [x] **Concurrency Fix**: `spawn` is now truly asynchronous and leverages the VM task system.
+- [x] **Functional Globals**: Implemented `map`, `filter`, and `reduce` in the global scope to support pipeline syntax.
+- [x] **Math Module Flattening**: `std:math` functions are now accessible directly (e.g., `import { sqrt } from "std:math"`).
+- [x] **VM Exception Safety**: Implemented `run_depths` to prevent frame underflow during exception unwinding.
 - [x] Core language features implemented (including Enums, Classes, Functions)
 - [x] Essential Standard Library (`io`, `json`, `process`, `path`, `time`)
 - [x] Documentation complete

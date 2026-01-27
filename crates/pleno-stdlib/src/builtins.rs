@@ -16,6 +16,15 @@ pub fn register_builtins(vm: &mut dyn VMProvider) {
         "__native_sleep".to_string(),
         Value::NativeFunction(native_sleep),
     );
+    vm.register_global("map".to_string(), Value::NativeFunction(native_global_map));
+    vm.register_global(
+        "filter".to_string(),
+        Value::NativeFunction(native_global_filter),
+    );
+    vm.register_global(
+        "reduce".to_string(),
+        Value::NativeFunction(native_global_reduce),
+    );
 
     vm.register_global(
         "Error".to_string(),
@@ -525,7 +534,7 @@ fn native_async_spawn(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, 
     }
     let callee = args[0].clone();
     let call_args = args[1..].to_vec();
-    vm.call(callee, call_args)
+    vm.spawn(callee, call_args)
 }
 
 fn native_gc_collect(vm: &mut dyn VMProvider, _args: &[Value]) -> Result<Value, RuntimeError> {
@@ -549,6 +558,44 @@ fn native_gc_stats(vm: &mut dyn VMProvider, _args: &[Value]) -> Result<Value, Ru
         Value::Int(gc_manager.current_allocation as i64),
     );
     Ok(Value::Map(vm.get_gc().allocate(MapState::new(stats_map))))
+}
+
+fn native_global_map(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    if args.is_empty() {
+        return Err(RuntimeError::new("map expects collection"));
+    }
+    match &args[0] {
+        Value::Array(_) => native_array_map(vm, args),
+        Value::Map(_) => native_map_map(vm, args),
+        Value::Set(_) => native_set_map(vm, args),
+        _ => Err(RuntimeError::new(
+            "map expects collection (Array, Map, or Set)",
+        )),
+    }
+}
+
+fn native_global_filter(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    if args.is_empty() {
+        return Err(RuntimeError::new("filter expects collection"));
+    }
+    match &args[0] {
+        Value::Array(_) => native_array_filter(vm, args),
+        Value::Map(_) => native_map_filter(vm, args),
+        Value::Set(_) => native_set_filter(vm, args),
+        _ => Err(RuntimeError::new(
+            "filter expects collection (Array, Map, or Set)",
+        )),
+    }
+}
+
+fn native_global_reduce(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    if args.is_empty() {
+        return Err(RuntimeError::new("reduce expects collection"));
+    }
+    match &args[0] {
+        Value::Array(_) => native_array_reduce(vm, args),
+        _ => Err(RuntimeError::new("reduce expects Array")),
+    }
 }
 
 // Result/Option constructors

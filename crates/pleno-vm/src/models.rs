@@ -9,6 +9,8 @@ use std::rc::Rc;
 pub struct AsyncTask {
     pub promise_id: u64,
     pub value: Value,
+    pub callee: Option<Value>,
+    pub args: Option<Vec<Value>>,
     pub is_async: bool,
     pub is_resolved: bool,
 }
@@ -16,6 +18,14 @@ pub struct AsyncTask {
 impl GcObject for AsyncTask {
     fn mark(&self, gc: &mut MarkAndSweepGC) {
         self.value.mark(gc);
+        if let Some(callee) = &self.callee {
+            callee.mark(gc);
+        }
+        if let Some(args) = &self.args {
+            for arg in args {
+                arg.mark(gc);
+            }
+        }
     }
 }
 

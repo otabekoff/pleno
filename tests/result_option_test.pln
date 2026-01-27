@@ -1,0 +1,28 @@
+fn divide(a, b) {
+    if (b == 0) {
+        return Err("Division by zero");
+    }
+    return Ok(a / b);
+}
+
+fn findUser(id) {
+    if (id == 1) {
+        return Some("Alice");
+    }
+    return None;
+}
+
+let res1 = divide(10, 2);
+let res2 = divide(10, 0);
+let u1 = findUser(1);
+let u2 = findUser(2);
+
+print("Result method test:");
+print("isOk(res1): " + res1.isOk());
+print("isErr(res2): " + res2.isErr());
+print("res1.unwrap(): " + res1.unwrap());
+
+print("Option method test:");
+print("isSome(u1): " + u1.isSome());
+print("isNone(u2): " + u2.isNone());
+print("u1.unwrap(): " + u1.unwrap());

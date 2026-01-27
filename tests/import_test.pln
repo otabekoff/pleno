@@ -1,0 +1,11 @@
+import math from "std:math";
+import { join } from "std:path";
+
+print("Math test:");
+print("sqrt(16) = " + math.sqrt(16));
+
+print("Path test:");
+print("join('a', 'b') = " + join("a", "b"));
+
+// Test custom module
+// Let's create a local file first

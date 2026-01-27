@@ -1,0 +1,9 @@
+spawn(fn() {
+    print("Spawned task started");
+    __native_sleep(100);
+    print("Spawned task finished");
+});
+
+print("Main task continues");
+__native_sleep(200);
+print("Main task finished");

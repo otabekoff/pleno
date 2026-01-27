@@ -1,0 +1,15 @@
+import { describe, test, assert } from "std:test";
+
+print("Top-level assert type: " + typeof(assert));
+
+describe("Arithmetic", fn() {
+    print("Inside describe assert type: " + typeof(assert));
+    test("addition", fn() {
+        print("Inside test assert type: " + typeof(assert));
+        assert.equal(1 + 1, 2);
+    });
+    
+    test("failing assertion", fn() {
+        assert.equal(1 + 1, 3);
+    });
+});

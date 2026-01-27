@@ -34,6 +34,7 @@ pub struct VM {
     pub next_promise_id: u64,
     pub multi_waiters: Vec<MultiWaiter>,
     pub builtin_resolver: Option<fn(&str, &str) -> Option<NativeFunction>>,
+    pub run_depths: Vec<usize>,
 }
 
 #[derive(Debug, Clone)]
@@ -141,9 +142,24 @@ impl VMProvider for VM {
         self.pending_tasks.push(AsyncTask {
             promise_id: id,
             value,
+            callee: None,
+            args: None,
             is_async: true,
             is_resolved: true,
         });
+    }
+
+    fn spawn(&mut self, callee: Value, args: Vec<Value>) -> Result<Value, RuntimeError> {
+        let (id, promise) = self.create_promise();
+        self.pending_tasks.push(AsyncTask {
+            promise_id: id,
+            value: Value::Null,
+            callee: Some(callee),
+            args: Some(args),
+            is_async: true,
+            is_resolved: false,
+        });
+        Ok(promise)
     }
 
     fn register_multi_waiter(&mut self, waiter: MultiWaiter) {
@@ -227,6 +243,7 @@ impl VM {
             next_promise_id: 1,
             multi_waiters: Vec::new(),
             builtin_resolver: None,
+            run_depths: Vec::new(),
         }
     }
 
@@ -316,6 +333,21 @@ impl VM {
     fn process_tasks(&mut self) -> Result<(), RuntimeError> {
         let tasks: Vec<_> = self.pending_tasks.drain(..).collect();
         for task in tasks {
+            if !task.is_resolved {
+                if let Some(callee) = task.callee {
+                    let args = task.args.unwrap_or_default();
+                    match self.call(callee, args) {
+                        Ok(res) => self.resolve_promise(task.promise_id, res),
+                        Err(e) => {
+                            self.resolve_promise(
+                                task.promise_id,
+                                Value::String(Rc::new(e.message)),
+                            );
+                        }
+                    }
+                }
+                continue;
+            }
             // Update Promise map if it exists
             if let Some(Value::Map(map)) = self.promises.remove(&task.promise_id) {
                 {
@@ -414,6 +446,13 @@ impl VM {
     }
 
     fn run_until(&mut self, depth: usize) -> Result<Value, RuntimeError> {
+        self.run_depths.push(depth);
+        let res = self.run_until_internal(depth);
+        self.run_depths.pop();
+        res
+    }
+
+    fn run_until_internal(&mut self, depth: usize) -> Result<Value, RuntimeError> {
         loop {
             let roots = VmRoots {
                 registers: &self.registers,
@@ -1996,6 +2035,8 @@ impl VM {
                                 self.pending_tasks.push(AsyncTask {
                                     promise_id: id,
                                     value: result.clone(),
+                                    callee: None,
+                                    args: None,
                                     is_async: true,
                                     is_resolved: true,
                                 });
@@ -2754,206 +2795,10 @@ impl VM {
                 Opcode::Call => {
                     let callee = self.registers[base + b].clone();
                     let args = match &self.registers[base + c] {
-                        Value::Array(array) => array.borrow().clone(),
+                        Value::Array(array) => array.borrow().elements.clone(),
                         _ => return Err(RuntimeError::new("call expects args array")),
                     };
-                    let mut current_callee = callee;
-                    loop {
-                        match current_callee.clone() {
-                            Value::Partial {
-                                function,
-                                args: saved_args,
-                                placeholders,
-                            } => {
-                                let mut merged_args = saved_args.clone();
-                                let mut new_arg_idx = 0;
-                                for &placeholder_idx in &placeholders {
-                                    if new_arg_idx < args.len() {
-                                        merged_args[placeholder_idx] = args[new_arg_idx].clone();
-                                        new_arg_idx += 1;
-                                    }
-                                }
-                                while new_arg_idx < args.len() {
-                                    merged_args.push(args[new_arg_idx].clone());
-                                    new_arg_idx += 1;
-                                }
-                                self.call_function(
-                                    function,
-                                    None,
-                                    &merged_args,
-                                    base + a,
-                                    None,
-                                    None,
-                                    None,
-                                    false,
-                                )?;
-                                break;
-                            }
-                            Value::Function(handle) => {
-                                self.call_function(
-                                    handle,
-                                    None,
-                                    &args,
-                                    base + a,
-                                    None,
-                                    None,
-                                    None,
-                                    false,
-                                )?;
-                                break;
-                            }
-                            Value::Closure(state) => {
-                                let borrowed = state.borrow();
-                                self.call_function(
-                                    borrowed.function,
-                                    None,
-                                    &args,
-                                    base + a,
-                                    None,
-                                    Some(state.clone()),
-                                    None,
-                                    false,
-                                )?;
-                                break;
-                            }
-                            Value::NativeFunction(func) => {
-                                match func(self, &args) {
-                                    Ok(result) => {
-                                        self.registers[base + a] = result;
-                                    }
-                                    Err(err) => {
-                                        self.throw_runtime_error(&err.message)?;
-                                    }
-                                }
-                                break;
-                            }
-                            Value::BoundNativeMethod { receiver, function } => {
-                                let mut merged_args = vec![*receiver];
-                                merged_args.extend(args.elements.clone());
-                                match function(self, &merged_args) {
-                                    Ok(result) => {
-                                        self.registers[base + a] = result;
-                                    }
-                                    Err(err) => {
-                                        self.throw_runtime_error(&err.message)?;
-                                    }
-                                }
-                                break;
-                            }
-                            Value::BoundMethod {
-                                receiver,
-                                function,
-                                owner,
-                                ..
-                            } => {
-                                self.call_function(
-                                    function,
-                                    Some(*receiver.clone()),
-                                    &args,
-                                    base + a,
-                                    None,
-                                    None,
-                                    Some(owner),
-                                    false,
-                                )?;
-                                break;
-                            }
-                            Value::StaticMethod {
-                                function, owner, ..
-                            } => {
-                                self.call_function(
-                                    function,
-                                    None,
-                                    &args,
-                                    base + a,
-                                    None,
-                                    None,
-                                    Some(owner),
-                                    false,
-                                )?;
-                                break;
-                            }
-                            Value::Class(class) => {
-                                if class.borrow().is_abstract {
-                                    self.throw_runtime_error(&format!(
-                                        "cannot instantiate abstract class '{}'",
-                                        class.borrow().name
-                                    ))?;
-                                    break;
-                                }
-                                let object =
-                                    self.gc.allocate(Object::new(Some(class.clone()), None));
-                                if let Some(handle) = class.borrow().constructor {
-                                    self.call_function(
-                                        handle,
-                                        Some(Value::Object(object.clone())),
-                                        &args,
-                                        base + a,
-                                        Some(Value::Object(object.clone())),
-                                        None,
-                                        Some(class.clone()),
-                                        false,
-                                    )?;
-                                } else {
-                                    self.registers[base + a] = Value::Object(object);
-                                }
-                                break;
-                            }
-                            Value::BoundClass { class, type_args } => {
-                                if class.borrow().is_abstract {
-                                    self.throw_runtime_error(&format!(
-                                        "cannot instantiate abstract class '{}'",
-                                        class.borrow().name
-                                    ))?;
-                                    break;
-                                }
-                                let object = self.gc.allocate(Object::new(
-                                    Some(class.clone()),
-                                    Some(type_args.clone()),
-                                ));
-                                if let Some(handle) = class.borrow().constructor {
-                                    self.call_function(
-                                        handle,
-                                        Some(Value::Object(object.clone())),
-                                        &args,
-                                        base + a,
-                                        Some(Value::Object(object.clone())),
-                                        None,
-                                        Some(class.clone()),
-                                        false,
-                                    )?;
-                                } else {
-                                    self.registers[base + a] = Value::Object(object);
-                                }
-                                break;
-                            }
-                            Value::Map(map) => {
-                                let callable = map.borrow().entries.get("__call__").cloned();
-                                if let Some(callable) = callable {
-                                    current_callee = callable;
-                                    continue;
-                                } else {
-                                    return Err(RuntimeError::new("value is not callable"));
-                                }
-                            }
-                            Value::VariantConstructor {
-                                enum_type,
-                                variant_name,
-                            } => {
-                                let elements = match &self.registers[base + c] {
-                                    Value::Array(arr) => arr.borrow().elements.clone(),
-                                    _ => return Err(RuntimeError::new("call expects args array")),
-                                };
-                                self.registers[base + a] = Value::Variant {
-                                    enum_name: enum_type.borrow().name.clone(),
-                                    variant_name: variant_name.clone(),
-                                    data: elements,
-                                };
-                                break;
-                            }
-                            _ => return Err(RuntimeError::new("value is not callable")),
-                        }
-                    }
+                    self.call_any_value(callee, args, base + a)?;
                 }
 
                 Opcode::CallNamed => {
@@ -2984,11 +2829,9 @@ impl VM {
                 }
                 Opcode::Partial => {
                     let callee = self.registers[base + b].clone();
-                    let func_index = match callee {
-                        Value::Function(idx) => idx,
-                        Value::Closure(state) => state.borrow().function,
-                        _ => return Err(RuntimeError::new("partial callee must be a function")),
-                    };
+                    if !self.is_callable(&callee) {
+                        return Err(RuntimeError::new("partial callee must be a function"));
+                    }
                     let args_meta = match &self.registers[base + c] {
                         Value::Array(arr) => arr.borrow().clone(),
                         _ => return Err(RuntimeError::new("partial metadata must be an array")),
@@ -3002,7 +2845,7 @@ impl VM {
                         args.push(val);
                     }
                     self.registers[base + a] = Value::Partial {
-                        function: func_index,
+                        callee: Box::new(callee),
                         args,
                         placeholders,
                     };
@@ -3624,7 +3467,9 @@ impl VM {
     }
 
     fn unwind_to_handler(&mut self, error_value: Value) -> Result<(), RuntimeError> {
-        while let Some(mut frame) = self.frames.pop() {
+        let stop_depth = self.run_depths.last().cloned().unwrap_or(0);
+        while self.frames.len() > stop_depth {
+            let mut frame = self.frames.pop().unwrap();
             if let Some(handler) = frame.exception_handlers.pop() {
                 frame.ip = handler.catch_ip;
                 self.registers[handler.base + handler.error_reg] = error_value;
@@ -3688,6 +3533,176 @@ impl VM {
         self.unwind_to_handler(error_val)
     }
 
+    fn is_callable(&self, value: &Value) -> bool {
+        match value {
+            Value::Function(_)
+            | Value::Closure(_)
+            | Value::NativeFunction(_)
+            | Value::BoundNativeMethod { .. }
+            | Value::BoundMethod { .. }
+            | Value::Class(_)
+            | Value::BoundClass { .. }
+            | Value::VariantConstructor { .. }
+            | Value::Partial { .. } => true,
+            Value::Map(map) => map.borrow().get("__call__").is_some(),
+            _ => false,
+        }
+    }
+
+    fn call_any_value(
+        &mut self,
+        callee: Value,
+        args: Vec<Value>,
+        return_reg_idx: usize,
+    ) -> Result<(), RuntimeError> {
+        match callee {
+            Value::Function(handle) => {
+                self.call_function(handle, None, &args, return_reg_idx, None, None, None, false)?;
+            }
+            Value::Closure(state) => {
+                let borrowed = state.borrow();
+                self.call_function(
+                    borrowed.function,
+                    None,
+                    &args,
+                    return_reg_idx,
+                    None,
+                    Some(state.clone()),
+                    None,
+                    false,
+                )?;
+            }
+            Value::NativeFunction(func) => match func(self, &args) {
+                Ok(result) => {
+                    self.registers[return_reg_idx] = result;
+                }
+                Err(err) => {
+                    self.throw_runtime_error(&err.message)?;
+                }
+            },
+            Value::BoundNativeMethod { receiver, function } => {
+                let mut merged_args = vec![*receiver.clone()];
+                merged_args.extend(args);
+                match function(self, &merged_args) {
+                    Ok(result) => {
+                        self.registers[return_reg_idx] = result;
+                    }
+                    Err(err) => {
+                        self.throw_runtime_error(&err.message)?;
+                    }
+                }
+            }
+            Value::BoundMethod {
+                receiver,
+                function,
+                owner,
+                ..
+            } => {
+                self.call_function(
+                    function,
+                    Some(*receiver.clone()),
+                    &args,
+                    return_reg_idx,
+                    None,
+                    None,
+                    Some(owner),
+                    false,
+                )?;
+            }
+            Value::Class(class) => {
+                if class.borrow().is_abstract {
+                    return Err(RuntimeError::new(format!(
+                        "cannot instantiate abstract class '{}'",
+                        class.borrow().name
+                    )));
+                }
+                let object = self.gc.allocate(Object::new(Some(class.clone()), None));
+                let val = Value::Object(object.clone());
+                if let Some(handle) = class.borrow().constructor {
+                    self.call_function(
+                        handle,
+                        Some(val.clone()),
+                        &args,
+                        return_reg_idx,
+                        Some(val),
+                        None,
+                        Some(class.clone()),
+                        false,
+                    )?;
+                } else {
+                    self.registers[return_reg_idx] = val;
+                }
+            }
+            Value::BoundClass { class, type_args } => {
+                if class.borrow().is_abstract {
+                    return Err(RuntimeError::new(format!(
+                        "cannot instantiate abstract class '{}'",
+                        class.borrow().name
+                    )));
+                }
+                let object = self
+                    .gc
+                    .allocate(Object::new(Some(class.clone()), Some(type_args.clone())));
+                let val = Value::Object(object.clone());
+                if let Some(handle) = class.borrow().constructor {
+                    self.call_function(
+                        handle,
+                        Some(val.clone()),
+                        &args,
+                        return_reg_idx,
+                        Some(val),
+                        None,
+                        Some(class.clone()),
+                        false,
+                    )?;
+                } else {
+                    self.registers[return_reg_idx] = val;
+                }
+            }
+            Value::VariantConstructor {
+                enum_type,
+                variant_name,
+            } => {
+                let mut data = Vec::new();
+                data.extend(args);
+                let variant = Value::Variant {
+                    enum_name: Rc::clone(&enum_type.borrow().name),
+                    variant_name: Rc::clone(&variant_name),
+                    data,
+                };
+                self.registers[return_reg_idx] = variant;
+            }
+            Value::Partial {
+                callee,
+                args: saved_args,
+                placeholders,
+            } => {
+                let mut merged_args = saved_args.clone();
+                let mut new_arg_idx = 0;
+                for &placeholder_idx in &placeholders {
+                    if new_arg_idx < args.len() {
+                        merged_args[placeholder_idx] = args[new_arg_idx].clone();
+                        new_arg_idx += 1;
+                    }
+                }
+                while new_arg_idx < args.len() {
+                    merged_args.push(args[new_arg_idx].clone());
+                    new_arg_idx += 1;
+                }
+                self.call_any_value(*callee.clone(), merged_args, return_reg_idx)?;
+            }
+            Value::Map(map) => {
+                let callable = map.borrow().get("__call__").cloned();
+                if let Some(callable) = callable {
+                    self.call_any_value(callable, args, return_reg_idx)?;
+                } else {
+                    return Err(RuntimeError::new("value is not callable"));
+                }
+            }
+            _ => return Err(RuntimeError::new("value is not callable")),
+        }
+        Ok(())
+    }
     fn execute_module(&mut self, path: &str) -> Result<Value, RuntimeError> {
         if let Some(mod_val) = self.modules.get(path) {
             return Ok(mod_val.clone());
