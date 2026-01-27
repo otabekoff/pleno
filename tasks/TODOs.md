@@ -17,6 +17,9 @@ Let's review whole the docs and make it great.
 
 To release production ready v1, what should we do?
 
+To earn at a stage where we can write compiler of Pleno with itself, what should we do?
+
+Run becnchmarks.
 
 Expand test suite and error messages
 

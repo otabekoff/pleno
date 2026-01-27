@@ -1,0 +1,24 @@
+class Box<T> {
+  value: T;
+  constructor(v: T) {
+    this.value = v;
+  }
+}
+
+let b1 = Box<Int>(42);
+print("b1 is Box<Int>:", b1 is Box<Int>);
+print("b1 is Box<String>:", b1 is Box<String>);
+
+class List<T> {}
+let l1 = List<Int>();
+print("l1 is List<Int>:", l1 is List<Int>);
+print("l1 is List<Any>:", l1 is List<Any>);
+
+// Nested generics
+class Container<T> {
+    content: T;
+    constructor(c: T) { this.content = c; }
+}
+let c1 = Container<Box<Int>>(b1);
+print("c1 is Container<Box<Int>>:", c1 is Container<Box<Int>>);
+print("c1 is Container<Box<String>>:", c1 is Container<Box<String>>);

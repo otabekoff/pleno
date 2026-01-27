@@ -534,6 +534,7 @@ impl Compiler {
                         FunctionKind::Method => "method",
                         FunctionKind::Getter => "getter",
                         FunctionKind::Setter => "setter",
+                        FunctionKind::Operator(_) => "operator",
                     };
                     let type_reg = self.registers.allocate()?;
                     let type_idx =
@@ -804,23 +805,7 @@ impl Compiler {
                 for group in base_types {
                     let mut next_group_jumps = Vec::new();
                     for ty_name in group {
-                        let type_reg = self.registers.allocate()?;
-                        let name_idx = self.add_constant(Value::String(ty_name.clone().into()));
-                        self.emit(Opcode::GetGlobal, type_reg, name_idx, 0);
-
-                        let is_primitive_null_reg = self.registers.allocate()?;
-                        self.emit(Opcode::LoadNull, is_primitive_null_reg, 0, 0);
-                        self.emit(
-                            Opcode::Eq,
-                            is_primitive_null_reg,
-                            type_reg,
-                            is_primitive_null_reg,
-                        );
-                        let skip_primitive_load =
-                            self.emit_jump(Opcode::JumpIfNot, is_primitive_null_reg);
-                        self.emit(Opcode::LoadConst, type_reg, name_idx, 0);
-                        self.patch_jump(skip_primitive_load)?;
-                        self.free_temp(is_primitive_null_reg);
+                        let type_reg = self.emit_reified_type(&ty_name)?;
 
                         let is_match_reg = self.registers.allocate()?;
                         self.emit(Opcode::Is, is_match_reg, val_reg, type_reg);
@@ -851,6 +836,23 @@ impl Compiler {
 
                 self.patch_jump(jump_end)?;
                 self.free_temp(val_reg);
+                Ok(dest)
+            }
+            ExprKind::Specialize { left, type_args } => {
+                let left_reg = self.compile_expr(left)?;
+                let args_reg = self.registers.allocate()?;
+                self.emit(Opcode::NewArray, args_reg, 0, 0);
+
+                for ty_name in type_args {
+                    let type_reg = self.emit_reified_type(ty_name)?;
+                    self.emit(Opcode::ArrayAppend, args_reg, type_reg, 0);
+                    self.free_temp(type_reg);
+                }
+
+                let dest = self.registers.allocate()?;
+                self.emit(Opcode::Specialize, dest, left_reg, args_reg);
+                self.free_temp(left_reg);
+                self.free_temp(args_reg);
                 Ok(dest)
             }
             ExprKind::Lambda {
@@ -916,11 +918,11 @@ impl Compiler {
             }
             ExprKind::NamedTupleLiteral(entries) => {
                 let dest = self.registers.allocate()?;
-                self.emit(Opcode::NewMap, dest, 0, 0);
+                self.emit(Opcode::NewTuple, dest, 0, 0);
                 for (name, value_expr) in entries {
                     let value_reg = self.compile_expr(value_expr)?;
                     let name_idx = self.add_constant(Value::String(name.clone().into()));
-                    self.emit(Opcode::SetProperty, value_reg, dest, name_idx);
+                    self.emit(Opcode::TupleNamedAppend, dest, value_reg, name_idx);
                     self.free_temp(value_reg);
                 }
                 Ok(dest)
@@ -946,10 +948,10 @@ impl Compiler {
             }
             ExprKind::TupleLiteral(items) => {
                 let dest = self.registers.allocate()?;
-                self.emit(Opcode::NewArray, dest, 0, 0);
+                self.emit(Opcode::NewTuple, dest, 0, 0);
                 for item in items {
                     let value_reg = self.compile_expr(item)?;
-                    self.emit(Opcode::ArrayAppend, dest, value_reg, 0);
+                    self.emit(Opcode::TupleAppend, dest, value_reg, 0);
                     self.free_temp(value_reg);
                 }
                 Ok(dest)
@@ -1693,78 +1695,65 @@ impl Compiler {
     ) -> Result<(), CompileError> {
         self.locals.push(HashMap::new());
         let source_reg = self.compile_expr(iterable)?;
-        let collection_reg = self.registers.allocate()?;
-        let opcode = if names.len() > 1 {
-            Opcode::IterEntries
-        } else {
-            Opcode::IterValues
-        };
-        self.emit(opcode, collection_reg, source_reg, 0);
-        self.free_temp(source_reg);
-        let collection_name = format!("$for_collection_{}", self.loop_counter);
-        self.loop_counter += 1;
-        self.insert_local(collection_name, collection_reg, false, None)?;
+        let iter_reg = self.registers.allocate()?;
 
-        let index_reg = self.registers.allocate()?;
-        self.emit(Opcode::LoadInt, index_reg, 0, 0);
-        let index_name = format!("$for_index_{}", self.loop_counter);
+        let is_entries = names.len() > 1;
+        self.emit(
+            Opcode::GetIterator,
+            iter_reg,
+            source_reg,
+            if is_entries { 1 } else { 0 },
+        );
+        self.free_temp(source_reg);
+
+        let iter_name = format!("$for_iterator_{}", self.loop_counter);
         self.loop_counter += 1;
-        self.insert_local(index_name, index_reg, true, None)?;
+        self.insert_local(iter_name, iter_reg, false, None)?;
+
+        let missing_reg = self.registers.allocate()?;
+        self.emit(Opcode::LoadMissing, missing_reg, 0, 0);
 
         let loop_start = self.chunk.code.len();
-        let len_reg = self.registers.allocate()?;
-        self.emit(Opcode::ArrayLen, len_reg, collection_reg, 0);
-        let cond_reg = self.registers.allocate()?;
-        self.emit(Opcode::Lt, cond_reg, index_reg, len_reg);
-        let jump_to_end = self.emit_jump(Opcode::JumpIfNot, cond_reg);
-        self.free_temp(cond_reg);
-        self.free_temp(len_reg);
-
         let item_reg = self.registers.allocate()?;
-        self.emit(Opcode::GetIndex, item_reg, collection_reg, index_reg);
+        self.emit(Opcode::IterNext, item_reg, iter_reg, 0);
+
+        let is_done_reg = self.registers.allocate()?;
+        self.emit(Opcode::Eq, is_done_reg, item_reg, missing_reg);
+        let jump_to_end = self.emit_jump(Opcode::JumpIf, is_done_reg);
+        self.free_temp(is_done_reg);
 
         if names.len() == 1 {
             self.insert_local(names[0].clone(), item_reg, true, None)?;
         } else {
-            let key_reg = self.registers.allocate()?;
-            let zero_reg = self.registers.allocate()?;
-            self.emit(Opcode::LoadInt, zero_reg, 0, 0);
-            self.emit(Opcode::GetIndex, key_reg, item_reg, zero_reg);
-            self.insert_local(names[0].clone(), key_reg, true, None)?;
-
-            let val_reg = self.registers.allocate()?;
-            let one_reg = self.registers.allocate()?;
-            self.emit(Opcode::LoadInt, one_reg, 1, 0);
-            self.emit(Opcode::GetIndex, val_reg, item_reg, one_reg);
-            self.insert_local(names[1].clone(), val_reg, true, None)?;
-
-            self.free_temp(zero_reg);
-            self.free_temp(one_reg);
+            for (i, name) in names.iter().enumerate() {
+                let val_reg = self.registers.allocate()?;
+                let idx_reg = self.registers.allocate()?;
+                self.emit(Opcode::LoadInt, idx_reg, i as u8, 0);
+                self.emit(Opcode::GetIndex, val_reg, item_reg, idx_reg);
+                self.free_temp(idx_reg);
+                self.insert_local(name.clone(), val_reg, true, None)?;
+            }
             self.free_temp(item_reg);
         }
 
         self.push_loop(None);
         self.compile_stmt(body)?;
+
         let continue_target = self.chunk.code.len();
         if let Some(ctx) = self.loop_stack.last_mut() {
             ctx.continue_target = Some(continue_target);
         }
 
-        let one_reg = self.registers.allocate()?;
-        self.emit(Opcode::LoadInt, one_reg, 1, 0);
-        let sum_reg = self.registers.allocate()?;
-        self.emit(Opcode::Add, sum_reg, index_reg, one_reg);
-        self.emit(Opcode::Move, index_reg, sum_reg, 0);
-        self.free_temp(one_reg);
-        self.free_temp(sum_reg);
-
         self.emit_loop(loop_start)?;
         self.patch_jump(jump_to_end)?;
+
         let loop_end = self.chunk.code.len();
         let loop_ctx = self
             .pop_loop()
             .ok_or_else(|| CompileError::new("loop stack underflow"))?;
         self.patch_loop_jumps(loop_ctx, loop_end)?;
+
+        self.free_temp(missing_reg);
         self.pop_scope();
         Ok(())
     }
@@ -1794,15 +1783,31 @@ impl Compiler {
             }
             Pattern::Underscore => {}
             Pattern::Tuple(patterns) => {
-                // Check if Array (Pleno uses Array for tuples)
+                // Check if Tuple or Array
+                let tuple_str_idx = self.add_constant(Value::String(Rc::new("Tuple".to_string())));
+                let tuple_str_reg = self.registers.allocate()?;
+                self.emit(Opcode::LoadConst, tuple_str_reg, tuple_str_idx, 0);
+
                 let array_str_idx = self.add_constant(Value::String(Rc::new("Array".to_string())));
                 let array_str_reg = self.registers.allocate()?;
                 self.emit(Opcode::LoadConst, array_str_reg, array_str_idx, 0);
+
+                let is_tuple_reg = self.registers.allocate()?;
+                self.emit(Opcode::Is, is_tuple_reg, value_reg, tuple_str_reg);
+
                 let is_array_reg = self.registers.allocate()?;
                 self.emit(Opcode::Is, is_array_reg, value_reg, array_str_reg);
+
+                let is_either_reg = self.registers.allocate()?;
+                self.emit(Opcode::Or, is_either_reg, is_tuple_reg, is_array_reg);
+
+                self.free_temp(tuple_str_reg);
                 self.free_temp(array_str_reg);
-                fail_jumps.push(self.emit_jump(Opcode::JumpIfNot, is_array_reg));
+                self.free_temp(is_tuple_reg);
                 self.free_temp(is_array_reg);
+
+                fail_jumps.push(self.emit_jump(Opcode::JumpIfNot, is_either_reg));
+                self.free_temp(is_either_reg);
 
                 // Check length
                 let len_reg = self.registers.allocate()?;
@@ -2278,6 +2283,7 @@ impl Compiler {
     fn compile_class_declaration(&mut self, stmt: &Stmt) -> Result<u8, CompileError> {
         let (
             name,
+            generics,
             fields,
             methods,
             superclass,
@@ -2288,7 +2294,7 @@ impl Compiler {
         ) = match &stmt.kind {
             StmtKind::Class {
                 name,
-                generics: _,
+                generics,
                 fields,
                 methods,
                 superclass,
@@ -2299,6 +2305,7 @@ impl Compiler {
                 properties,
             } => (
                 name,
+                generics,
                 fields,
                 methods,
                 superclass,
@@ -2322,6 +2329,8 @@ impl Compiler {
         self.emit(Opcode::NewMap, static_getters_reg, 0, 0);
         let static_setters_reg = self.registers.allocate()?;
         self.emit(Opcode::NewMap, static_setters_reg, 0, 0);
+        let operators_reg = self.registers.allocate()?;
+        self.emit(Opcode::NewMap, operators_reg, 0, 0);
 
         for method in methods {
             let is_method = !method.is_static;
@@ -2350,6 +2359,7 @@ impl Compiler {
                         (setters_reg, method.name.clone())
                     }
                 }
+                FunctionKind::Operator(ref op) => (operators_reg, op.clone()),
             };
 
             let meta_reg = self.registers.allocate()?;
@@ -2375,6 +2385,21 @@ impl Compiler {
         let class_reg = self.registers.allocate()?;
         let name_idx = self.add_constant(Value::String(name.clone().into()));
         self.emit(Opcode::DefineClass, class_reg, name_idx, methods_reg);
+
+        if !generics.is_empty() {
+            let params_reg = self.registers.allocate()?;
+            self.emit(Opcode::NewArray, params_reg, 0, 0);
+            for g in generics {
+                let name_idx = self.add_constant(Value::String(std::rc::Rc::new(g.name.clone())));
+                let name_reg = self.registers.allocate()?;
+                self.emit(Opcode::LoadConst, name_reg, name_idx, 0);
+                self.emit(Opcode::ArrayAppend, params_reg, name_reg, 0);
+                self.free_temp(name_reg);
+            }
+            self.emit(Opcode::SetTypeParams, class_reg, params_reg, 0);
+            self.free_temp(params_reg);
+        }
+
         self.emit(Opcode::SetStatic, class_reg, static_reg, 0);
         if is_abstract {
             self.emit(Opcode::SetAbstract, class_reg, 0, 0);
@@ -2469,11 +2494,13 @@ impl Compiler {
         self.emit(Opcode::SetSetters, class_reg, setters_reg, 0);
         self.emit(Opcode::SetStaticGetters, class_reg, static_getters_reg, 0);
         self.emit(Opcode::SetStaticSetters, class_reg, static_setters_reg, 0);
+        self.emit(Opcode::SetOperators, class_reg, operators_reg, 0);
 
         self.free_temp(getters_reg);
         self.free_temp(setters_reg);
         self.free_temp(static_getters_reg);
         self.free_temp(static_setters_reg);
+        self.free_temp(operators_reg);
         if let Some(superclass) = superclass {
             let super_reg = self.registers.allocate()?;
             let super_idx = self.add_constant(Value::String(superclass.clone().into()));
@@ -2816,6 +2843,28 @@ impl Compiler {
         }
     }
 
+    fn split_aware(&self, s: &str, sep: char) -> Vec<String> {
+        let mut parts = Vec::new();
+        let mut current = String::new();
+        let mut depth = 0;
+        for c in s.chars() {
+            if c == sep && depth == 0 {
+                parts.push(current.trim().to_string());
+                current = String::new();
+            } else {
+                if c == '<' {
+                    depth += 1;
+                }
+                if c == '>' {
+                    depth -= 1;
+                }
+                current.push(c);
+            }
+        }
+        parts.push(current.trim().to_string());
+        parts.into_iter().filter(|s| !s.is_empty()).collect()
+    }
+
     fn parse_type_string(&self, ty_name: &str) -> (Vec<Vec<String>>, bool) {
         let mut name = ty_name.trim();
         let mut is_optional = false;
@@ -2831,23 +2880,60 @@ impl Compiler {
             .map(|s| s.as_str())
             .unwrap_or(name);
 
-        // Split by Union (|)
-        let parts: Vec<&str> = expanded.split('|').collect();
+        let union_parts = self.split_aware(expanded, '|');
         let mut union_types = Vec::new();
 
-        for part in parts {
-            // Split by Intersection (&)
-            let intersections: Vec<String> = part
-                .split('&')
-                .map(|s| s.trim().to_string())
-                .filter(|s| !s.is_empty())
-                .collect();
+        for part in union_parts {
+            let intersections = self.split_aware(&part, '&');
             if !intersections.is_empty() {
                 union_types.push(intersections);
             }
         }
 
         (union_types, is_optional)
+    }
+
+    fn emit_reified_type(&mut self, ty_name: &str) -> Result<u8, CompileError> {
+        let ty_name = ty_name.trim();
+        if let Some(start_idx) = ty_name.find('<') {
+            let base_name = ty_name[..start_idx].trim();
+            let args_str = &ty_name[start_idx + 1..ty_name.len() - 1]; // Assuming it ends with >
+            let args = self.split_aware(args_str, ',');
+
+            let base_reg = self.registers.allocate()?;
+            let name_idx =
+                self.add_constant(Value::String(std::rc::Rc::new(base_name.to_string())));
+            self.emit(Opcode::GetGlobal, base_reg, name_idx, 0);
+
+            let args_reg = self.registers.allocate()?;
+            self.emit(Opcode::NewArray, args_reg, 0, 0);
+            for arg_name in args {
+                let arg_type_reg = self.emit_reified_type(&arg_name)?;
+                self.emit(Opcode::ArrayAppend, args_reg, arg_type_reg, 0);
+                self.free_temp(arg_type_reg);
+            }
+
+            let dest = self.registers.allocate()?;
+            self.emit(Opcode::Specialize, dest, base_reg, args_reg);
+            self.free_temp(base_reg);
+            self.free_temp(args_reg);
+            Ok(dest)
+        } else {
+            let type_reg = self.registers.allocate()?;
+            let name_idx = self.add_constant(Value::String(std::rc::Rc::new(ty_name.to_string())));
+            self.emit(Opcode::GetGlobal, type_reg, name_idx, 0);
+
+            // Handle primitives if global is null
+            let is_null_reg = self.registers.allocate()?;
+            self.emit(Opcode::LoadNull, is_null_reg, 0, 0);
+            self.emit(Opcode::Eq, is_null_reg, type_reg, is_null_reg);
+            let skip_primitive_load = self.emit_jump(Opcode::JumpIfNot, is_null_reg);
+            self.emit(Opcode::LoadConst, type_reg, name_idx, 0);
+            self.patch_jump(skip_primitive_load)?;
+            self.free_temp(is_null_reg);
+
+            Ok(type_reg)
+        }
     }
 
     fn emit_type_check_for_types(
@@ -2868,19 +2954,8 @@ impl Compiler {
             let mut next_group_jumps = Vec::new();
 
             for ty_name in group {
-                let type_reg = self.registers.allocate()?;
+                let type_reg = self.emit_reified_type(ty_name)?;
                 temp_regs.push(type_reg);
-
-                let name_idx = self.add_constant(Value::String(ty_name.clone().into()));
-                self.emit(Opcode::GetGlobal, type_reg, name_idx, 0);
-
-                let is_null_reg = self.registers.allocate()?;
-                self.emit(Opcode::LoadNull, is_null_reg, 0, 0);
-                self.emit(Opcode::Eq, is_null_reg, type_reg, is_null_reg);
-                let skip_primitive_load = self.emit_jump(Opcode::JumpIfNot, is_null_reg);
-                self.emit(Opcode::LoadConst, type_reg, name_idx, 0);
-                self.patch_jump(skip_primitive_load)?;
-                self.free_temp(is_null_reg);
 
                 let is_match_reg = self.registers.allocate()?;
                 temp_regs.push(is_match_reg);

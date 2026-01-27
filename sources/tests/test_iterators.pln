@@ -1,0 +1,76 @@
+// test_iterators.pln
+
+println("--- Array Iteration ---");
+let arr = [1, 2, 3];
+for (x in arr) {
+    println(x);
+}
+
+println("--- Array Entries Iteration ---");
+for (i, x in arr) {
+    println(i + ": " + x);
+}
+
+println("--- Map Iteration (Keys) ---");
+let m = {"a": 1, "b": 2};
+for (k in m) {
+    println(k);
+}
+
+println("--- Map Entries Iteration ---");
+for (k, v in m) {
+    println(k + " => " + v);
+}
+
+println("--- Set Iteration ---");
+let s = new Set();
+s.add(10);
+s.add(20);
+for (x in s) {
+    println(x);
+}
+
+println("--- Range Iteration ---");
+for (i in 1..5) {
+    println(i);
+}
+
+println("--- Custom Object Iterator ---");
+class Counter {
+    _start;
+    _end;
+    
+    constructor(start, end) {
+        this._start = start;
+        this._end = end;
+    }
+    
+    fn iterator() {
+        return CounterIterator(this._start, this._end);
+    }
+}
+
+class CounterIterator {
+    _current;
+    _end;
+    
+    constructor(current, end) {
+        this._current = current;
+        this._end = end;
+    }
+    
+    fn next() {
+        if (this._current <= this._end) {
+            let val = this._current;
+            this._current = this._current + 1;
+            return val;
+        }
+        return stopIteration();
+    }
+}
+
+println("--- Custom Counter ---");
+let c = Counter(1, 3);
+for (x in c) {
+    println(x);
+}

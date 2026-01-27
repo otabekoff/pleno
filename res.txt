@@ -1,0 +1,21 @@
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 1.43s
+     Running `D:\project\rust\rust\zed\target\debug\pleno-cli.exe d:\pleno\tests\reified_generics.pleno`
+check_is_instance: val=Object(GcRc { ptr: 0x17cd565fec0 }), ty=BoundClass { class: GcRc { ptr: 0x17cd568af60 }, type_args: [String("Int")] }
+check_type_compatible: val=String("Int"), target=String("Int")
+b1 is Box<Int>: true
+check_is_instance: val=Object(GcRc { ptr: 0x17cd565fec0 }), ty=BoundClass { class: GcRc { ptr: 0x17cd568af60 }, type_args: [String("String")] }
+check_type_compatible: val=String("Int"), target=String("String")
+b1 is Box<String>: false
+check_is_instance: val=Object(GcRc { ptr: 0x17cd568c060 }), ty=BoundClass { class: GcRc { ptr: 0x17cd568d7b0 }, type_args: [String("Int")] }
+check_type_compatible: val=String("Int"), target=String("Int")
+l1 is List<Int>: true
+check_is_instance: val=Object(GcRc { ptr: 0x17cd568c060 }), ty=BoundClass { class: GcRc { ptr: 0x17cd568d7b0 }, type_args: [String("Any")] }
+check_type_compatible: val=String("Int"), target=String("Any")
+l1 is List<Any>: true
+check_is_instance: val=Object(GcRc { ptr: 0x17cd568e120 }), ty=BoundClass { class: GcRc { ptr: 0x17cd568e1e0 }, type_args: [BoundClass { class: GcRc { ptr: 0x17cd568af60 }, type_args: [String("Int")] }] }
+check_type_compatible: val=BoundClass { class: GcRc { ptr: 0x17cd568af60 }, type_args: [String("Int")] }, target=BoundClass { class: GcRc { ptr: 0x17cd568af60 }, type_args: [String("Int")] }
+c1 is Container<Box<Int>>: true
+check_is_instance: val=Object(GcRc { ptr: 0x17cd568e120 }), ty=BoundClass { class: GcRc { ptr: 0x17cd568e1e0 }, type_args: [BoundClass { class: GcRc { ptr: 0x17cd568af60 }, type_args: [String("String")] }] }
+check_type_compatible: val=BoundClass { class: GcRc { ptr: 0x17cd568af60 }, type_args: [String("Int")] }, target=BoundClass { class: GcRc { ptr: 0x17cd568af60 }, type_args: [String("String")] }
+check_type_compatible: val=String("Int"), target=String("String")
+c1 is Container<Box<String>>: false

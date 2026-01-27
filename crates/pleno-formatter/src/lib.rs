@@ -943,6 +943,13 @@ impl Formatter {
             ExprKind::Await { expr } => {
                 format!("await {}", self.format_expression(expr, indent_level))
             }
+            ExprKind::Specialize { left, type_args } => {
+                format!(
+                    "{}<{}>",
+                    self.format_expression(left, indent_level),
+                    type_args.join(", ")
+                )
+            }
         }
     }
 

@@ -1,0 +1,27 @@
+   Compiling reqwest v0.12.28
+   Compiling pleno-vm v0.1.0 (D:\pleno\crates\pleno-vm)
+error[E0433]: failed to resolve: use of undeclared type `TupleState`
+   --> crates\pleno-vm\src\lib.rs:674:33
+    |
+674 |                     let tuple = TupleState::new(Vec::new(), None);
+    |                                 ^^^^^^^^^^ use of undeclared type `TupleState`
+    |
+help: consider importing this struct
+    |
+  1 + use pleno_value::TupleState;
+    |
+
+error[E0433]: failed to resolve: use of undeclared type `TupleState`
+    --> crates\pleno-vm\src\lib.rs:2617:45
+     |
+2617 | ...                   let new_tuple = TupleState::new(slice, None);
+     |                                       ^^^^^^^^^^ use of undeclared type `TupleState`
+     |
+help: consider importing this struct
+     |
+   1 + use pleno_value::TupleState;
+     |
+
+For more information about this error, try `rustc --explain E0433`.
+error: could not compile `pleno-vm` (lib) due to 2 previous errors
+warning: build failed, waiting for other jobs to finish...

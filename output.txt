@@ -1,0 +1,23 @@
+   Compiling pleno-vm v0.1.0 (D:\pleno\crates\pleno-vm)
+   Compiling pleno-repl v0.1.0 (D:\pleno\crates\pleno-repl)
+   Compiling pleno-cli v0.1.0 (D:\pleno\crates\pleno-cli)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 37.89s
+     Running `D:\project\rust\rust\zed\target\debug\pleno-cli.exe d:\pleno\tests\reified_generics.pleno`
+check_is_instance: val=Object(GcRc { ptr: 0x2088f9a16a0 }), ty=BoundClass { class: GcRc { ptr: 0x2088f9cd330 }, type_args: [String("Int")] }
+check_type_compatible: val=String("Int"), target=String("Int")
+b1 is Box<Int>: true
+check_is_instance: val=Object(GcRc { ptr: 0x2088f9a16a0 }), ty=BoundClass { class: GcRc { ptr: 0x2088f9cd330 }, type_args: [String("String")] }
+check_type_compatible: val=String("Int"), target=String("String")
+b1 is Box<String>: false
+check_is_instance: val=Object(GcRc { ptr: 0x2088f9cc560 }), ty=BoundClass { class: GcRc { ptr: 0x2088f9cddc0 }, type_args: [String("Int")] }
+check_type_compatible: val=String("Int"), target=String("Int")
+l1 is List<Int>: true
+check_is_instance: val=Object(GcRc { ptr: 0x2088f9cc560 }), ty=BoundClass { class: GcRc { ptr: 0x2088f9cddc0 }, type_args: [String("Any")] }
+check_type_compatible: val=String("Int"), target=String("Any")
+l1 is List<Any>: true
+check_is_instance: val=Object(GcRc { ptr: 0x2088f9c6780 }), ty=BoundClass { class: GcRc { ptr: 0x2088f9ce190 }, type_args: [BoundClass { class: GcRc { ptr: 0x2088f9cd330 }, type_args: [String("Int")] }] }
+check_type_compatible: val=String("Box<Int>"), target=BoundClass { class: GcRc { ptr: 0x2088f9cd330 }, type_args: [String("Int")] }
+c1 is Container<Box<Int>>: false
+check_is_instance: val=Object(GcRc { ptr: 0x2088f9c6780 }), ty=BoundClass { class: GcRc { ptr: 0x2088f9ce190 }, type_args: [BoundClass { class: GcRc { ptr: 0x2088f9cd330 }, type_args: [String("String")] }] }
+check_type_compatible: val=String("Box<Int>"), target=BoundClass { class: GcRc { ptr: 0x2088f9cd330 }, type_args: [String("String")] }
+c1 is Container<Box<String>>: false

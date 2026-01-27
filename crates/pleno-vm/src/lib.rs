@@ -1,7 +1,7 @@
 use pleno_bytecode::{Chunk, Opcode, ParamSpec};
 use pleno_value::{
     ArrayState, Class, ClosureState, MapState, MultiWaiter, MultiWaiterMode, NativeFunction,
-    Object, Range, RuntimeError, VMProvider, Value, ValueKey,
+    Object, Range, RuntimeError, TupleState, VMProvider, Value, ValueKey,
     gc::{GcObject, GcRc},
 };
 use std::collections::HashMap;
@@ -450,6 +450,94 @@ impl VM {
             let base = frame.base;
 
             match opcode {
+                Opcode::GetIterator => {
+                    let source = self.registers[base + b].clone();
+                    let name = if c == 1 {
+                        "entries".to_string()
+                    } else {
+                        "iterator".to_string()
+                    };
+                    let func_reg = base + a;
+
+                    // Look up iterator method
+                    if let Some(native) = resolve_builtin_method(self, &source.type_name(), &name) {
+                        match native(self, &[source]) {
+                            Ok(iter) => {
+                                self.registers[base + a] = iter;
+                            }
+                            Err(err) => {
+                                self.throw_runtime_error(&err.message)?;
+                            }
+                        }
+                    } else if let Value::Object(obj) = &source {
+                        if let Some(class) = &obj.borrow().class {
+                            if let Some(method_info) = class.borrow().methods.get(&name) {
+                                self.call_function(
+                                    method_info.function,
+                                    Some(obj.clone()),
+                                    &[],
+                                    func_reg,
+                                    None,
+                                    None,
+                                    Some(method_info.owner.clone()),
+                                    false,
+                                )?;
+                                continue;
+                            }
+                        }
+                        return Err(RuntimeError::new(&format!(
+                            "property '{}' not found on Object",
+                            name
+                        )));
+                    } else {
+                        return Err(RuntimeError::new(&format!(
+                            "type '{}' is not iterable",
+                            source.type_name()
+                        )));
+                    }
+                }
+                Opcode::IterNext => {
+                    let iter = self.registers[base + b].clone();
+                    let name = "next".to_string();
+                    let func_reg = base + a;
+
+                    // Look up next method
+                    if let Some(native) = resolve_builtin_method(self, &iter.type_name(), &name) {
+                        match native(self, &[iter]) {
+                            Ok(val) => {
+                                self.registers[base + a] = val;
+                            }
+                            Err(err) => {
+                                self.throw_runtime_error(&err.message)?;
+                            }
+                        }
+                    } else if let Value::Object(obj) = &iter {
+                        if let Some(class) = &obj.borrow().class {
+                            if let Some(method_info) = class.borrow().methods.get(&name) {
+                                self.call_function(
+                                    method_info.function,
+                                    Some(obj.clone()),
+                                    &[],
+                                    func_reg,
+                                    None,
+                                    None,
+                                    Some(method_info.owner.clone()),
+                                    false,
+                                )?;
+                                continue;
+                            }
+                        }
+                        return Err(RuntimeError::new(&format!(
+                            "property '{}' not found on Object",
+                            name
+                        )));
+                    } else {
+                        return Err(RuntimeError::new(&format!(
+                            "type '{}' is not an iterator",
+                            iter.type_name()
+                        )));
+                    }
+                }
                 Opcode::Move => {
                     self.registers[base + a] = self.registers[base + b].clone();
                 }
@@ -667,7 +755,39 @@ impl VM {
                             }
                             array.borrow_mut().elements.push(value);
                         }
-                        _ => return Err(RuntimeError::new("array append on non-array value")),
+                        _ => return Err(RuntimeError::new("array append expects array")),
+                    }
+                }
+                Opcode::NewTuple => {
+                    let tuple = TupleState::new(Vec::new(), None);
+                    self.registers[base + a] = Value::Tuple(self.gc.allocate(tuple));
+                }
+                Opcode::TupleAppend => {
+                    let val = self.registers[base + b].clone();
+                    match &self.registers[base + a] {
+                        Value::Tuple(t) => {
+                            t.borrow_mut().elements.push(val);
+                        }
+                        _ => return Err(RuntimeError::new("tuple append expects tuple")),
+                    }
+                }
+                Opcode::TupleNamedAppend => {
+                    let name = match &function.chunk.constants[c] {
+                        Value::String(s) => s.as_str().to_string(),
+                        _ => return Err(RuntimeError::new("tuple property name must be string")),
+                    };
+                    let value = self.registers[base + b].clone();
+                    match &self.registers[base + a] {
+                        Value::Tuple(t) => {
+                            let mut t = t.borrow_mut();
+                            let idx = t.elements.len();
+                            t.elements.push(value);
+                            if t.names.is_none() {
+                                t.names = Some(HashMap::new());
+                            }
+                            t.names.as_mut().unwrap().insert(name, idx);
+                        }
+                        _ => return Err(RuntimeError::new("tuple named append expects tuple")),
                     }
                 }
                 Opcode::ArraySpread => {
@@ -758,7 +878,8 @@ impl VM {
                     }
                 }
                 Opcode::NewObject => {
-                    self.registers[base + a] = Value::Object(self.gc.allocate(Object::new(None)));
+                    self.registers[base + a] =
+                        Value::Object(self.gc.allocate(Object::new(None, None)));
                 }
                 Opcode::SetField => {
                     if self.functions[frame.function_index].is_pure {
@@ -923,7 +1044,10 @@ impl VM {
                 Opcode::ArrayLen => {
                     let len = match &self.registers[base + b] {
                         Value::Array(array) => array.borrow().elements.len() as i64,
-                        _ => return Err(RuntimeError::new("array length on non-array value")),
+                        Value::Tuple(tuple) => tuple.borrow().elements.len() as i64,
+                        _ => {
+                            return Err(RuntimeError::new("array length on non-array/tuple value"));
+                        }
                     };
                     self.registers[base + a] = Value::Int(len);
                 }
@@ -972,109 +1096,7 @@ impl VM {
                 Opcode::Is => {
                     let value = &self.registers[base + b];
                     let type_val = &self.registers[base + c];
-
-                    let result = match type_val {
-                        Value::String(s) => matches!(
-                            (s.as_str(), value),
-                            ("Int", Value::Int(_))
-                                | ("Float", Value::Float(_))
-                                | ("Bool", Value::Bool(_))
-                                | ("String", Value::String(_))
-                                | ("Array", Value::Array(_))
-                                | ("Map", Value::Map(_))
-                                | ("Set", Value::Set(_))
-                                | ("Object", Value::Map(_) | Value::Class(_)) // Object matches maps/classes
-                                | ("Null", Value::Null)
-                                | ("Any", _)
-                        ),
-                        Value::Class(target_class) => match value {
-                            Value::Object(obj) => {
-                                if let Some(instance_class) = &obj.borrow().class {
-                                    let mut current = Some(instance_class.clone());
-                                    let mut found = false;
-                                    while let Some(cls) = current {
-                                        if cls.as_ptr() == target_class.as_ptr() {
-                                            found = true;
-                                            break;
-                                        }
-                                        current = cls.borrow().superclass.clone();
-                                    }
-                                    found
-                                } else {
-                                    false
-                                }
-                            }
-                            Value::Class(instance_class) => {
-                                let mut current = Some(instance_class.clone());
-                                let mut found = false;
-                                while let Some(cls) = current {
-                                    if cls.as_ptr() == target_class.as_ptr() {
-                                        found = true;
-                                        break;
-                                    }
-                                    current = cls.borrow().superclass.clone();
-                                }
-                                found
-                            }
-                            _ => false,
-                        },
-                        Value::Interface(target_iface) => {
-                            // Check if value (object or class) satisfies the interface
-                            // 1. Nominal check (if it explicitly implements it)
-                            // 2. Structural check (if it has the required methods)
-
-                            fn satisfies_interface(
-                                val: &Value,
-                                iface: &pleno_value::Interface,
-                            ) -> bool {
-                                // 1. Identify methods available on the value
-                                match val {
-                                    Value::Object(obj) => {
-                                        let obj = obj.borrow();
-                                        // Check if class implements interface nominally
-                                        if let Some(cls) = &obj.class {
-                                            let mut current = Some(cls.clone());
-                                            while let Some(c) = current {
-                                                for imp in &c.borrow().implements {
-                                                    if let Value::Interface(i) = imp {
-                                                        if i.borrow().name == iface.name {
-                                                            return true;
-                                                        }
-                                                    }
-                                                }
-                                                current = c.borrow().superclass.clone();
-                                            }
-                                        }
-
-                                        // Structural check
-                                        for (name, _sig) in &iface.methods {
-                                            // Check if object has method
-                                            // Methods are in class
-                                            let mut found = false;
-                                            if let Some(cls) = &obj.class {
-                                                let mut current = Some(cls.clone());
-                                                while let Some(c) = current {
-                                                    if c.borrow().methods.contains_key(name) {
-                                                        found = true;
-                                                        break;
-                                                    }
-                                                    current = c.borrow().superclass.clone();
-                                                }
-                                            }
-                                            if !found {
-                                                return false;
-                                            }
-                                        }
-                                        true
-                                    }
-                                    _ => false,
-                                }
-                            }
-
-                            satisfies_interface(value, &target_iface.borrow())
-                        }
-                        _ => false, // Invalid type operand
-                    };
+                    let result = self.check_is_instance(value, type_val);
                     self.registers[base + a] = Value::Bool(result);
                 }
                 Opcode::TypeOf => {
@@ -1501,6 +1523,20 @@ impl VM {
                                 Value::Null
                             }
                         }
+                        Value::Tuple(tuple) => {
+                            let t = tuple.borrow();
+                            if let Ok(idx) = name.parse::<usize>() {
+                                t.elements.get(idx).cloned().unwrap_or(Value::Null)
+                            } else if let Some(names) = &t.names {
+                                if let Some(&idx) = names.get(&name) {
+                                    t.elements.get(idx).cloned().unwrap_or(Value::Null)
+                                } else {
+                                    Value::Null
+                                }
+                            } else {
+                                Value::Null
+                            }
+                        }
                         _ => {
                             if name == "len" || name == "length" {
                                 return Err(RuntimeError::new("array length on non-array value"));
@@ -1599,6 +1635,15 @@ impl VM {
                             }
                             self.registers[base + a] = array_borrow[idx].clone();
                         }
+                        (Value::Tuple(tuple), Value::Int(idx)) => {
+                            let idx = idx as usize;
+                            let t = tuple.borrow();
+                            if idx >= t.elements.len() {
+                                self.throw_runtime_error("tuple index out of bounds")?;
+                                continue;
+                            }
+                            self.registers[base + a] = t.elements[idx].clone();
+                        }
                         (Value::Map(map), Value::String(key)) => {
                             self.registers[base + a] = map
                                 .borrow()
@@ -1651,6 +1696,24 @@ impl VM {
                 Opcode::Add => {
                     let left = self.registers[base + b].clone();
                     let right = self.registers[base + c].clone();
+                    // Check for operator overloading on Object
+                    if let Value::Object(obj) = &left {
+                        if let Some(class) = &obj.borrow().class {
+                            if let Some(op_info) = class.borrow().operators.get("+") {
+                                self.call_function(
+                                    op_info.function,
+                                    Some(obj.clone()),
+                                    &[right],
+                                    base + a,
+                                    None,
+                                    None,
+                                    Some(op_info.owner.clone()),
+                                    false,
+                                )?;
+                                continue;
+                            }
+                        }
+                    }
                     self.registers[base + a] = add_values(left, right)?;
                 }
                 Opcode::Sub => {
@@ -1661,6 +1724,24 @@ impl VM {
                 Opcode::Mul => {
                     let left = self.registers[base + b].clone();
                     let right = self.registers[base + c].clone();
+                    // Check for operator overloading on Object
+                    if let Value::Object(obj) = &left {
+                        if let Some(class) = &obj.borrow().class {
+                            if let Some(op_info) = class.borrow().operators.get("*") {
+                                self.call_function(
+                                    op_info.function,
+                                    Some(obj.clone()),
+                                    &[right],
+                                    base + a,
+                                    None,
+                                    None,
+                                    Some(op_info.owner.clone()),
+                                    false,
+                                )?;
+                                continue;
+                            }
+                        }
+                    }
                     self.registers[base + a] = mul_values(left, right)?;
                 }
                 Opcode::Div => {
@@ -1807,6 +1888,7 @@ impl VM {
                         name: Rc::new(name),
                         methods: HashMap::new(),
                         static_methods: HashMap::new(),
+                        operators: HashMap::new(),
                         constructor: None,
                         native_constructor: None,
                         superclass: None,
@@ -1820,6 +1902,7 @@ impl VM {
                         module: module.clone(),
                         is_abstract: false,
                         implements: Vec::new(),
+                        type_params: Vec::new(),
                     });
 
                     // Now parse methods with class reference
@@ -2029,6 +2112,55 @@ impl VM {
                         _ => return Err(RuntimeError::new("SetImplements on non-class value")),
                     }
                 }
+                Opcode::SetTypeParams => {
+                    let class_val = self.registers[base + a].clone();
+                    let params_val = match &self.registers[base + b] {
+                        Value::Array(arr) => arr.borrow().elements.clone(),
+                        _ => {
+                            return Err(RuntimeError::new(
+                                "SetTypeParams expects array of parameter names",
+                            ));
+                        }
+                    };
+                    let params = params_val
+                        .into_iter()
+                        .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                        .collect::<Vec<_>>();
+
+                    match class_val {
+                        Value::Class(class) => {
+                            class.borrow_mut().type_params = params;
+                        }
+                        _ => return Err(RuntimeError::new("SetTypeParams on non-class value")),
+                    }
+                }
+                Opcode::Specialize => {
+                    let class_val = self.registers[base + b].clone();
+                    let args = match &self.registers[base + c] {
+                        Value::Array(arr) => arr.borrow().elements.clone(),
+                        _ => {
+                            return Err(RuntimeError::new(
+                                "Specialize expects array of type arguments",
+                            ));
+                        }
+                    };
+
+                    match class_val {
+                        Value::Class(class) => {
+                            self.registers[base + a] = Value::BoundClass {
+                                class,
+                                type_args: args,
+                            };
+                        }
+                        Value::BoundClass { class, .. } => {
+                            self.registers[base + a] = Value::BoundClass {
+                                class,
+                                type_args: args,
+                            };
+                        }
+                        _ => return Err(RuntimeError::new("Specialize on non-class value")),
+                    }
+                }
                 Opcode::Freeze => {
                     if self.functions[frame.function_index].is_pure {
                         self.throw_runtime_error(
@@ -2229,6 +2361,40 @@ impl VM {
                         }
                     }
                 }
+                Opcode::SetOperators => {
+                    if self.functions[frame.function_index].is_pure {
+                        self.throw_runtime_error(
+                            "pure function cannot have side effects (class mutation)",
+                        )?;
+                        continue;
+                    }
+                    let operators_map = match &self.registers[base + b] {
+                        Value::Map(map) => map.borrow().entries.clone(),
+                        _ => return Err(RuntimeError::new("operators must be map")),
+                    };
+                    let mut operators = HashMap::new();
+                    let (class_ref, module) = match &self.registers[base + a] {
+                        Value::Class(class) => {
+                            let borrowed = class.borrow();
+                            (class.clone(), borrowed.module.clone())
+                        }
+                        _ => {
+                            return Err(RuntimeError::new("set operators on non-class value"));
+                        }
+                    };
+                    for (op_name, value) in operators_map {
+                        let info = parse_method_info(value, &class_ref, module.as_ref())?;
+                        operators.insert(op_name, info);
+                    }
+                    match &mut self.registers[base + a] {
+                        Value::Class(class) => {
+                            class.borrow_mut().operators = operators;
+                        }
+                        _ => {
+                            return Err(RuntimeError::new("set operators on non-class value"));
+                        }
+                    }
+                }
                 Opcode::SetFieldVisibility => {
                     if self.functions[frame.function_index].is_pure {
                         self.throw_runtime_error(
@@ -2408,7 +2574,36 @@ impl VM {
                                     ))?;
                                     break;
                                 }
-                                let object = self.gc.allocate(Object::new(Some(class.clone())));
+                                let object =
+                                    self.gc.allocate(Object::new(Some(class.clone()), None));
+                                if let Some(handle) = class.borrow().constructor {
+                                    self.call_function(
+                                        handle,
+                                        Some(object.clone()),
+                                        &args,
+                                        base + a,
+                                        Some(Value::Object(object.clone())),
+                                        None,
+                                        Some(class.clone()),
+                                        false,
+                                    )?;
+                                } else {
+                                    self.registers[base + a] = Value::Object(object);
+                                }
+                                break;
+                            }
+                            Value::BoundClass { class, type_args } => {
+                                if class.borrow().is_abstract {
+                                    self.throw_runtime_error(&format!(
+                                        "cannot instantiate abstract class '{}'",
+                                        class.borrow().name
+                                    ))?;
+                                    break;
+                                }
+                                let object = self.gc.allocate(Object::new(
+                                    Some(class.clone()),
+                                    Some(type_args.clone()),
+                                ));
                                 if let Some(handle) = class.borrow().constructor {
                                     self.call_function(
                                         handle,
@@ -2544,6 +2739,15 @@ impl VM {
                             self.registers[base + a] =
                                 Value::Array(self.gc.allocate(ArrayState::new(slice)));
                         }
+                        Value::Tuple(tuple) => {
+                            let t = tuple.borrow();
+                            let len = t.elements.len() as i64;
+                            let start = resolve_index(start, len, 0);
+                            let end = resolve_index(end, len, len);
+                            let slice = t.elements[start..end].to_vec();
+                            let new_tuple = TupleState::new(slice, None);
+                            self.registers[base + a] = Value::Tuple(self.gc.allocate(new_tuple));
+                        }
                         Value::String(s) => {
                             let len = s.len() as i64;
                             let start = resolve_index(start, len, 0);
@@ -2560,6 +2764,189 @@ impl VM {
 }
 
 impl VM {
+    fn check_is_instance(&self, value: &Value, type_val: &Value) -> bool {
+        match type_val {
+            Value::String(s) => matches!(
+                (s.as_str(), value),
+                ("Int", Value::Int(_))
+                    | ("Float", Value::Float(_))
+                    | ("Bool", Value::Bool(_))
+                    | ("String", Value::String(_))
+                    | ("Array", Value::Array(_))
+                    | ("Map", Value::Map(_))
+                    | ("Set", Value::Set(_))
+                    | ("Object", Value::Map(_) | Value::Object(_))
+                    | ("Null", Value::Null)
+                    | ("Any", _)
+            ),
+            Value::Class(target_class) => match value {
+                Value::Object(obj) => {
+                    if let Some(instance_class) = &obj.borrow().class {
+                        let mut current = Some(instance_class.clone());
+                        let mut found = false;
+                        while let Some(cls) = current {
+                            if cls.as_ptr() == target_class.as_ptr() {
+                                found = true;
+                                break;
+                            }
+                            current = cls.borrow().superclass.clone();
+                        }
+                        found
+                    } else {
+                        false
+                    }
+                }
+                Value::Class(instance_class) => {
+                    let mut current = Some(instance_class.clone());
+                    let mut found = false;
+                    while let Some(cls) = current {
+                        if cls.as_ptr() == target_class.as_ptr() {
+                            found = true;
+                            break;
+                        }
+                        current = cls.borrow().superclass.clone();
+                    }
+                    found
+                }
+                _ => false,
+            },
+            Value::BoundClass {
+                class: target_class,
+                type_args: target_args,
+            } => match value {
+                Value::Object(obj) => {
+                    let borrowed = obj.borrow();
+                    if let Some(instance_class) = &borrowed.class {
+                        let mut current = Some(instance_class.clone());
+                        let mut found = false;
+                        while let Some(cls) = current {
+                            if cls.as_ptr() == target_class.as_ptr() {
+                                found = true;
+                                break;
+                            }
+                            current = cls.borrow().superclass.clone();
+                        }
+                        if !found {
+                            return false;
+                        }
+                        if let Some(instance_args) = &borrowed.type_args {
+                            if instance_args.len() != target_args.len() {
+                                return false;
+                            }
+                            for (a, b) in instance_args.iter().zip(target_args.iter()) {
+                                if !self.check_type_compatible(a, b) {
+                                    return false;
+                                }
+                            }
+                            true
+                        } else {
+                            false
+                        }
+                    } else {
+                        false
+                    }
+                }
+                _ => false,
+            },
+            Value::Interface(target_iface) => match value {
+                Value::Object(obj) => {
+                    let obj = obj.borrow();
+                    let iface = target_iface.borrow();
+                    // Check nominal
+                    if let Some(cls) = &obj.class {
+                        let mut current = Some(cls.clone());
+                        while let Some(c) = current {
+                            for imp in &c.borrow().implements {
+                                if let Value::Interface(i) = imp {
+                                    if i.borrow().name == iface.name {
+                                        return true;
+                                    }
+                                }
+                            }
+                            current = c.borrow().superclass.clone();
+                        }
+                    }
+                    // Check structural
+                    for (name, _sig) in &iface.methods {
+                        let mut found = false;
+                        if let Some(cls) = &obj.class {
+                            let mut current = Some(cls.clone());
+                            while let Some(c) = current {
+                                if c.borrow().methods.contains_key(name) {
+                                    found = true;
+                                    break;
+                                }
+                                current = c.borrow().superclass.clone();
+                            }
+                        }
+                        if !found {
+                            return false;
+                        }
+                    }
+                    true
+                }
+                _ => false,
+            },
+            _ => false,
+        }
+    }
+
+    fn check_type_compatible(&self, val_type: &Value, target_type: &Value) -> bool {
+        if val_type == target_type {
+            return true;
+        }
+
+        match target_type {
+            Value::String(s) => {
+                if s.as_str() == "Any" {
+                    return true;
+                }
+                match val_type {
+                    Value::String(vs) => vs.as_str() == s.as_str(),
+                    Value::Class(cls) => cls.borrow().name.as_str() == s.as_str(),
+                    _ => false,
+                }
+            }
+            Value::Class(target_class) => match val_type {
+                Value::Class(instance_class) => {
+                    let mut current = Some(instance_class.clone());
+                    while let Some(cls) = current {
+                        if cls.as_ptr() == target_class.as_ptr() {
+                            return true;
+                        }
+                        current = cls.borrow().superclass.clone();
+                    }
+                    false
+                }
+                _ => false,
+            },
+            Value::BoundClass {
+                class: target_class,
+                type_args: target_args,
+            } => match val_type {
+                Value::BoundClass {
+                    class: instance_class,
+                    type_args: instance_args,
+                } => {
+                    if instance_class.as_ptr() != target_class.as_ptr() {
+                        return false;
+                    }
+                    if instance_args.len() != target_args.len() {
+                        return false;
+                    }
+                    for (a, b) in instance_args.iter().zip(target_args.iter()) {
+                        if !self.check_type_compatible(a, b) {
+                            return false;
+                        }
+                    }
+                    true
+                }
+                _ => false,
+            },
+            _ => false,
+        }
+    }
+
     #[allow(clippy::too_many_arguments)]
     fn call_function(
         &mut self,
@@ -2730,7 +3117,37 @@ impl VM {
                 Ok(())
             }
             Value::Class(class) => {
-                let object = self.gc.allocate(Object::new(Some(class.clone())));
+                let object = self.gc.allocate(Object::new(Some(class.clone()), None));
+                if let Some(handle) = class.borrow().constructor {
+                    let _function = self
+                        .functions
+                        .get(handle)
+                        .ok_or_else(|| RuntimeError::new("unknown function handle"))?;
+                    let args = self.build_named_args(handle, true, &positional, &named)?;
+                    let mut final_args = vec![Value::Object(object.clone())];
+                    final_args.extend(args);
+                    let override_value = Some(Value::Object(object.clone()));
+                    self.call_function(
+                        handle,
+                        Some(object),
+                        &final_args,
+                        return_reg,
+                        override_value,
+                        None,
+                        Some(class.clone()),
+                        true,
+                    )
+                } else if positional.is_empty() && named.is_empty() {
+                    self.registers[return_reg] = Value::Object(object);
+                    Ok(())
+                } else {
+                    Err(RuntimeError::new("constructor not defined for named args"))
+                }
+            }
+            Value::BoundClass { class, type_args } => {
+                let object = self
+                    .gc
+                    .allocate(Object::new(Some(class.clone()), Some(type_args.clone())));
                 if let Some(handle) = class.borrow().constructor {
                     let _function = self
                         .functions

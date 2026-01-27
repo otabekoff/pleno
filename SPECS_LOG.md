@@ -1,7 +1,7 @@
 # Specs Verification Log
 
 ## 5. Data Structures
-- [ ] 5.4 Tuples (Deferred in Roadmap)
+- [x] 5.4 Tuples (Full implementation: positional and named tuples, indexed and named access, destructuring)
 - [x] 5.3 Sets (Full implementation with literals, constructor, and binary methods: union, intersection, difference)
 
 ## 6. Functional Features
@@ -18,12 +18,13 @@
 
 ## 13. Standard Library
 - [x] 13.4 Directory Operations (Full implementation in std:io)
+- [x] 13.6 Custom Iterators (Full implementation: protocol with `.iterator()`, `.entries()`, and `.next()`, support in `for` loops)
 - [x] 13.8 Regular Expressions (Full implementation with constructor and raw strings)
 
 ## 14. Advanced Features
 - [ ] 14.1 Reflection (Deferred)
 - [ ] 14.2 Macros (Deferred)
-- [ ] 14.3 Operator Overloading (Deferred)
+- [x] 14.3 Operator Overloading (Full implementation: binary operators including arithmetic, comparison, and access)
 - [ ] 14.4 Extension Methods (Deferred)
 - [x] 14.7 Type Aliases (Full implementation with `type` keyword)
 - [x] 14.8 Union & Intersection Types (Full implementation with `|` and `&`, supporting grouping and `is` operator)

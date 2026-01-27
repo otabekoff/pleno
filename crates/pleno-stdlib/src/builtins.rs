@@ -1,5 +1,7 @@
 use crate::concurrency::*;
-use pleno_value::{ArrayState, MapState, RuntimeError, VMProvider, Value, ValueKey};
+use pleno_value::{
+    ArrayState, IteratorState, MapState, RuntimeError, TupleState, VMProvider, Value, ValueKey,
+};
 use std::collections::HashMap;
 use std::io::Write;
 use std::rc::Rc;
@@ -154,6 +156,237 @@ pub fn register_builtins(vm: &mut dyn VMProvider) {
         "Channel".to_string(),
         Value::NativeFunction(native_channel_new),
     );
+    vm.register_global(
+        "stopIteration".to_string(),
+        Value::NativeFunction(native_stop_iteration),
+    );
+}
+
+fn native_stop_iteration(_vm: &mut dyn VMProvider, _args: &[Value]) -> Result<Value, RuntimeError> {
+    Ok(Value::Missing)
+}
+
+fn native_iterator_next(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    if args.is_empty() {
+        return Err(RuntimeError::new("expected iterator"));
+    }
+    match &args[0] {
+        Value::Iterator(iter) => {
+            let mut state = iter.borrow_mut();
+            match &mut *state {
+                IteratorState::Array {
+                    array,
+                    index,
+                    is_entries,
+                } => {
+                    let arr = array.borrow();
+                    if *index < arr.elements.len() {
+                        let val = arr.elements[*index].clone();
+                        let result = if *is_entries {
+                            let key_val = Value::Int(*index as i64);
+                            Value::Tuple(
+                                vm.get_gc()
+                                    .allocate(TupleState::new(vec![key_val, val], None)),
+                            )
+                        } else {
+                            val
+                        };
+                        *index += 1;
+                        Ok(result)
+                    } else {
+                        Ok(Value::Missing)
+                    }
+                }
+                IteratorState::Tuple { tuple, index } => {
+                    let t = tuple.borrow();
+                    if *index < t.elements.len() {
+                        let val = t.elements[*index].clone();
+                        *index += 1;
+                        Ok(val)
+                    } else {
+                        Ok(Value::Missing)
+                    }
+                }
+                IteratorState::Range { range, current } => {
+                    let end = range.end.unwrap_or(i64::MAX);
+                    if *current < end || (range.inclusive && *current == end) {
+                        let val = Value::Int(*current);
+                        *current += 1;
+                        Ok(val)
+                    } else {
+                        Ok(Value::Missing)
+                    }
+                }
+                IteratorState::Object { .. } => Err(RuntimeError::new(
+                    "nested object iterator not supported in native next()",
+                )),
+                IteratorState::Map {
+                    map,
+                    keys,
+                    index,
+                    is_entries,
+                } => {
+                    if *index < keys.len() {
+                        let key_str = &keys[*index];
+                        let val = if *is_entries {
+                            let key_val = Value::String(Rc::new(key_str.clone()));
+                            let value_val =
+                                map.borrow().get(key_str).cloned().unwrap_or(Value::Null);
+                            Value::Tuple(
+                                vm.get_gc()
+                                    .allocate(TupleState::new(vec![key_val, value_val], None)),
+                            )
+                        } else {
+                            Value::String(Rc::new(key_str.clone()))
+                        };
+                        *index += 1;
+                        Ok(val)
+                    } else {
+                        Ok(Value::Missing)
+                    }
+                }
+                IteratorState::Set { values, index, .. } => {
+                    if *index < values.len() {
+                        let key = &values[*index];
+                        let val = match key {
+                            ValueKey::Null => Value::Null,
+                            ValueKey::Bool(b) => Value::Bool(*b),
+                            ValueKey::Int(i) => Value::Int(*i),
+                            ValueKey::Float(f) => Value::Float(f64::from_bits(*f)),
+                            ValueKey::String(s) => Value::String(Rc::clone(s)),
+                        };
+                        *index += 1;
+                        Ok(val)
+                    } else {
+                        Ok(Value::Missing)
+                    }
+                }
+            }
+        }
+        _ => Err(RuntimeError::new("next() called on non-iterator")),
+    }
+}
+
+fn native_array_iterator(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    if args.is_empty() {
+        return Err(RuntimeError::new("expected array"));
+    }
+    match &args[0] {
+        Value::Array(array) => {
+            let state = IteratorState::Array {
+                array: array.clone(),
+                index: 0,
+                is_entries: false,
+            };
+            Ok(Value::Iterator(vm.get_gc().allocate(state)))
+        }
+        _ => Err(RuntimeError::new("iterator() called on non-array")),
+    }
+}
+
+fn native_tuple_iterator(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    if args.is_empty() {
+        return Err(RuntimeError::new("expected tuple"));
+    }
+    match &args[0] {
+        Value::Tuple(tuple) => {
+            let state = IteratorState::Tuple {
+                tuple: tuple.clone(),
+                index: 0,
+            };
+            Ok(Value::Iterator(vm.get_gc().allocate(state)))
+        }
+        _ => Err(RuntimeError::new("iterator() called on non-tuple")),
+    }
+}
+
+fn native_range_iterator(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    if args.is_empty() {
+        return Err(RuntimeError::new("expected range"));
+    }
+    match &args[0] {
+        Value::Range(range) => {
+            let state = IteratorState::Range {
+                range: range.clone(),
+                current: range.start.unwrap_or(0),
+            };
+            Ok(Value::Iterator(vm.get_gc().allocate(state)))
+        }
+        _ => Err(RuntimeError::new("iterator() called on non-range")),
+    }
+}
+
+fn native_array_entries(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    if args.is_empty() {
+        return Err(RuntimeError::new("expected array"));
+    }
+    match &args[0] {
+        Value::Array(array) => {
+            let state = IteratorState::Array {
+                array: array.clone(),
+                index: 0,
+                is_entries: true,
+            };
+            Ok(Value::Iterator(vm.get_gc().allocate(state)))
+        }
+        _ => Err(RuntimeError::new("entries() called on non-array")),
+    }
+}
+
+fn native_map_iterator(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    if args.is_empty() {
+        return Err(RuntimeError::new("expected map"));
+    }
+    match &args[0] {
+        Value::Map(map) => {
+            let keys = map.borrow().keys().cloned().collect::<Vec<_>>();
+            let state = IteratorState::Map {
+                map: map.clone(),
+                keys,
+                index: 0,
+                is_entries: false,
+            };
+            Ok(Value::Iterator(vm.get_gc().allocate(state)))
+        }
+        _ => Err(RuntimeError::new("iterator() called on non-map")),
+    }
+}
+
+fn native_map_entries(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    if args.is_empty() {
+        return Err(RuntimeError::new("expected map"));
+    }
+    match &args[0] {
+        Value::Map(map) => {
+            let keys = map.borrow().keys().cloned().collect::<Vec<_>>();
+            let state = IteratorState::Map {
+                map: map.clone(),
+                keys,
+                index: 0,
+                is_entries: true,
+            };
+            Ok(Value::Iterator(vm.get_gc().allocate(state)))
+        }
+        _ => Err(RuntimeError::new("entries() called on non-map")),
+    }
+}
+
+fn native_set_iterator(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    if args.is_empty() {
+        return Err(RuntimeError::new("expected set"));
+    }
+    match &args[0] {
+        Value::Set(set) => {
+            let values = set.borrow().iter().cloned().collect::<Vec<_>>();
+            let state = IteratorState::Set {
+                set: set.clone(),
+                values,
+                index: 0,
+            };
+            Ok(Value::Iterator(vm.get_gc().allocate(state)))
+        }
+        _ => Err(RuntimeError::new("iterator() called on non-set")),
+    }
 }
 
 pub fn resolve_builtin_method(ty: &str, name: &str) -> Option<pleno_value::NativeFunction> {
@@ -231,6 +464,14 @@ pub fn resolve_builtin_method(ty: &str, name: &str) -> Option<pleno_value::Nativ
         ("Regex", "match") => Some(crate::regex::regex_match),
         ("Regex", "findAll") => Some(crate::regex::regex_find_all),
         ("Regex", "replace") => Some(crate::regex::regex_replace),
+        ("Array", "iterator") => Some(native_array_iterator),
+        ("Array", "entries") => Some(native_array_entries),
+        ("Map", "iterator") => Some(native_map_iterator),
+        ("Map", "entries") => Some(native_map_entries),
+        ("Set", "iterator") => Some(native_set_iterator),
+        ("Tuple", "iterator") => Some(native_tuple_iterator),
+        ("Range", "iterator") => Some(native_range_iterator),
+        ("Iterator", "next") => Some(native_iterator_next),
         _ => None,
     }
 }
