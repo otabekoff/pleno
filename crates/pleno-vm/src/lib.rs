@@ -1,7 +1,8 @@
 use pleno_bytecode::{Chunk, Opcode, ParamSpec};
 use pleno_value::{
-    ArrayState, Class, ClosureState, MapState, MultiWaiter, MultiWaiterMode, NativeFunction,
-    Object, Range, RuntimeError, TupleState, VMProvider, Value, ValueKey,
+    ArrayState, Class, ClosureState, EnumType, EnumVariantDef, MapState, MultiWaiter,
+    MultiWaiterMode, NativeFunction, Object, Range, RuntimeError, TupleState, VMProvider, Value,
+    ValueKey,
     gc::{GcObject, GcRc},
 };
 use std::collections::HashMap;
@@ -77,7 +78,7 @@ impl VMProvider for VM {
             } => {
                 self.call_function(
                     function,
-                    Some(receiver),
+                    Some(*receiver.clone()),
                     &args,
                     return_reg,
                     None,
@@ -460,7 +461,10 @@ impl VM {
                     let func_reg = base + a;
 
                     // Look up iterator method
-                    if let Some(native) = resolve_builtin_method(self, &source.type_name(), &name) {
+                    if let Some(native) = self
+                        .builtin_resolver
+                        .and_then(|r| r(&source.type_name(), &name))
+                    {
                         match native(self, &[source]) {
                             Ok(iter) => {
                                 self.registers[base + a] = iter;
@@ -474,7 +478,7 @@ impl VM {
                             if let Some(method_info) = class.borrow().methods.get(&name) {
                                 self.call_function(
                                     method_info.function,
-                                    Some(obj.clone()),
+                                    Some(Value::Object(obj.clone())),
                                     &[],
                                     func_reg,
                                     None,
@@ -502,7 +506,10 @@ impl VM {
                     let func_reg = base + a;
 
                     // Look up next method
-                    if let Some(native) = resolve_builtin_method(self, &iter.type_name(), &name) {
+                    if let Some(native) = self
+                        .builtin_resolver
+                        .and_then(|r| r(&iter.type_name(), &name))
+                    {
                         match native(self, &[iter]) {
                             Ok(val) => {
                                 self.registers[base + a] = val;
@@ -516,7 +523,7 @@ impl VM {
                             if let Some(method_info) = class.borrow().methods.get(&name) {
                                 self.call_function(
                                     method_info.function,
-                                    Some(obj.clone()),
+                                    Some(Value::Object(obj.clone())),
                                     &[],
                                     func_reg,
                                     None,
@@ -1195,7 +1202,7 @@ impl VM {
                                     }
                                     self.call_function(
                                         info.function,
-                                        Some(object.clone()),
+                                        Some(Value::Object(object.clone())),
                                         &[value],
                                         base + a,
                                         None,
@@ -1266,52 +1273,73 @@ impl VM {
                         _ => return Err(RuntimeError::new("property name must be string")),
                     };
                     let current_class = frame.current_class.as_ref().cloned();
-                    let value = match &self.registers[base + b] {
+                    let value = self.registers[base + b].clone();
+                    let value = match value {
                         Value::Map(map) => {
                             let map_ref = map.borrow();
                             if let Some(Value::String(variant)) = map_ref.get("variant") {
                                 if (variant.as_str() == "Ok" || variant.as_str() == "Err")
-                                    && resolve_builtin_method(self, "Result", &name).is_some()
+                                    && self
+                                        .builtin_resolver
+                                        .and_then(|r| r("Result", &name))
+                                        .is_some()
                                 {
                                     // Result type with method
                                     drop(map_ref);
                                     self.registers[base + a] = Value::BoundNativeMethod {
                                         receiver: Box::new(Value::Map(map.clone())),
-                                        function: resolve_builtin_method(self, "Result", &name)
+                                        function: self
+                                            .builtin_resolver
+                                            .and_then(|r| r("Result", &name))
                                             .unwrap(),
                                     };
                                     continue;
                                 } else if (variant.as_str() == "Some" || variant.as_str() == "None")
-                                    && resolve_builtin_method(self, "Option", &name).is_some()
+                                    && self
+                                        .builtin_resolver
+                                        .and_then(|r| r("Option", &name))
+                                        .is_some()
                                 {
                                     // Option type with method
                                     drop(map_ref);
                                     self.registers[base + a] = Value::BoundNativeMethod {
                                         receiver: Box::new(Value::Map(map.clone())),
-                                        function: resolve_builtin_method(self, "Option", &name)
+                                        function: self
+                                            .builtin_resolver
+                                            .and_then(|r| r("Option", &name))
                                             .unwrap(),
                                     };
                                     continue;
                                 } else if (variant.as_str() == "Pending"
                                     || variant.as_str() == "Resolved")
-                                    && resolve_builtin_method(self, "Promise", &name).is_some()
+                                    && self
+                                        .builtin_resolver
+                                        .and_then(|r| r("Promise", &name))
+                                        .is_some()
                                 {
                                     // Promise type with method
                                     drop(map_ref);
                                     self.registers[base + a] = Value::BoundNativeMethod {
                                         receiver: Box::new(Value::Map(map.clone())),
-                                        function: resolve_builtin_method(self, "Promise", &name)
+                                        function: self
+                                            .builtin_resolver
+                                            .and_then(|r| r("Promise", &name))
                                             .unwrap(),
                                     };
                                     continue;
                                 } else if variant.as_str() == "Regex"
-                                    && resolve_builtin_method(self, "Regex", &name).is_some()
+                                    && self
+                                        .builtin_resolver
+                                        .and_then(|r| r("Regex", &name))
+                                        .is_some()
                                 {
                                     // Regex type with method
                                     drop(map_ref);
                                     self.registers[base + a] = Value::BoundNativeMethod {
                                         receiver: Box::new(Value::Map(map.clone())),
-                                        function: resolve_builtin_method(self, "Regex", &name)
+                                        function: self
+                                            .builtin_resolver
+                                            .and_then(|r| r("Regex", &name))
                                             .unwrap(),
                                     };
                                     continue;
@@ -1323,13 +1351,58 @@ impl VM {
 
                             if let Some(val) = val {
                                 val
-                            } else if let Some(func) = resolve_builtin_method(self, "Map", &name) {
+                            } else if let Some(func) =
+                                self.builtin_resolver.and_then(|r| r("Map", &name))
+                            {
                                 Value::BoundNativeMethod {
                                     receiver: Box::new(Value::Map(map.clone())),
                                     function: func,
                                 }
+                            } else if let Some(Value::Class(cls)) =
+                                self.globals.get("__Extension_Map")
+                            {
+                                if let Some(info) = resolve_method(cls, &name) {
+                                    if !can_access_method(
+                                        &info,
+                                        current_class.as_ref(),
+                                        frame.current_module.as_ref(),
+                                    ) {
+                                        return Err(RuntimeError::new("method access denied"));
+                                    }
+                                    Value::BoundMethod {
+                                        receiver: Box::new(Value::Map(map.clone())),
+                                        function: info.function,
+                                        owner: info.owner.clone(),
+                                        visibility: info.visibility,
+                                    }
+                                } else {
+                                    Value::Null
+                                }
                             } else {
                                 Value::Null
+                            }
+                        }
+                        Value::Enum(enum_type) => {
+                            let et = enum_type.borrow();
+                            if let Some(def) = et.variants.get(&name) {
+                                if def.param_count == 0 {
+                                    self.registers[base + a] = Value::Variant {
+                                        enum_name: et.name.clone(),
+                                        variant_name: Rc::new(name),
+                                        data: Vec::new(),
+                                    };
+                                } else {
+                                    self.registers[base + a] = Value::VariantConstructor {
+                                        enum_type: enum_type.clone(),
+                                        variant_name: Rc::new(name),
+                                    };
+                                }
+                                continue;
+                            } else {
+                                return Err(RuntimeError::new(&format!(
+                                    "Enum '{}' has no variant '{}'",
+                                    et.name, name
+                                )));
                             }
                         }
                         Value::Object(object) => {
@@ -1346,7 +1419,7 @@ impl VM {
                                     }
                                     self.call_function(
                                         info.function,
-                                        Some(object.clone()),
+                                        Some(Value::Object(object.clone())),
                                         &[],
                                         base + a,
                                         None,
@@ -1379,7 +1452,7 @@ impl VM {
                                         return Err(RuntimeError::new("method access denied"));
                                     }
                                     Value::BoundMethod {
-                                        receiver: object.clone(),
+                                        receiver: Box::new(Value::Object(object.clone())),
                                         function: info.function,
                                         owner: info.owner.clone(),
                                         visibility: info.visibility,
@@ -1392,7 +1465,7 @@ impl VM {
                             }
                         }
                         Value::Class(class) => {
-                            if let Some(info) = resolve_static_getter(class, &name) {
+                            if let Some(info) = resolve_static_getter(&class, &name) {
                                 if !can_access_method(
                                     &info,
                                     current_class.as_ref(),
@@ -1435,7 +1508,10 @@ impl VM {
                                 class.borrow().static_fields.get(&name).cloned()
                             {
                                 value
-                            } else if let Some(info) = resolve_static_method(class, &name) {
+                            } else if let Some(info) = {
+                                let class_ref = &class;
+                                resolve_static_method(class_ref, &name)
+                            } {
                                 if !can_access_method(
                                     &info,
                                     current_class.as_ref(),
@@ -1455,10 +1531,32 @@ impl VM {
                         Value::Set(set) => {
                             if name == "len" {
                                 Value::Int(set.borrow().len() as i64)
-                            } else if let Some(func) = resolve_builtin_method(self, "Set", &name) {
+                            } else if let Some(func) =
+                                self.builtin_resolver.and_then(|r| r("Set", &name))
+                            {
                                 Value::BoundNativeMethod {
                                     receiver: Box::new(Value::Set(set.clone())),
                                     function: func,
+                                }
+                            } else if let Some(Value::Class(cls)) =
+                                self.globals.get("__Extension_Set")
+                            {
+                                if let Some(info) = resolve_method(cls, &name) {
+                                    if !can_access_method(
+                                        &info,
+                                        current_class.as_ref(),
+                                        frame.current_module.as_ref(),
+                                    ) {
+                                        return Err(RuntimeError::new("method access denied"));
+                                    }
+                                    Value::BoundMethod {
+                                        receiver: Box::new(Value::Set(set.clone())),
+                                        function: info.function,
+                                        owner: info.owner.clone(),
+                                        visibility: info.visibility,
+                                    }
+                                } else {
+                                    Value::Null
                                 }
                             } else {
                                 Value::Null
@@ -1467,11 +1565,32 @@ impl VM {
                         Value::Array(array) => {
                             if name == "len" || name == "length" {
                                 Value::Int(array.borrow().len() as i64)
-                            } else if let Some(func) = resolve_builtin_method(self, "Array", &name)
+                            } else if let Some(func) =
+                                self.builtin_resolver.and_then(|r| r("Array", &name))
                             {
                                 Value::BoundNativeMethod {
                                     receiver: Box::new(Value::Array(array.clone())),
                                     function: func,
+                                }
+                            } else if let Some(Value::Class(cls)) =
+                                self.globals.get("__Extension_Array")
+                            {
+                                if let Some(info) = resolve_method(cls, &name) {
+                                    if !can_access_method(
+                                        &info,
+                                        current_class.as_ref(),
+                                        frame.current_module.as_ref(),
+                                    ) {
+                                        return Err(RuntimeError::new("method access denied"));
+                                    }
+                                    Value::BoundMethod {
+                                        receiver: Box::new(Value::Array(array.clone())),
+                                        function: info.function,
+                                        owner: info.owner.clone(),
+                                        visibility: info.visibility,
+                                    }
+                                } else {
+                                    Value::Null
                                 }
                             } else {
                                 Value::Null
@@ -1480,11 +1599,32 @@ impl VM {
                         Value::String(s) => {
                             if name == "len" || name == "length" {
                                 Value::Int(s.len() as i64)
-                            } else if let Some(func) = resolve_builtin_method(self, "String", &name)
+                            } else if let Some(func) =
+                                self.builtin_resolver.and_then(|r| r("String", &name))
                             {
                                 Value::BoundNativeMethod {
-                                    receiver: Box::new(Value::String(Rc::clone(s))),
+                                    receiver: Box::new(Value::String(s.clone())),
                                     function: func,
+                                }
+                            } else if let Some(Value::Class(cls)) =
+                                self.globals.get("__Extension_String")
+                            {
+                                if let Some(info) = resolve_method(cls, &name) {
+                                    if !can_access_method(
+                                        &info,
+                                        current_class.as_ref(),
+                                        frame.current_module.as_ref(),
+                                    ) {
+                                        return Err(RuntimeError::new("method access denied"));
+                                    }
+                                    Value::BoundMethod {
+                                        receiver: Box::new(Value::String(s.clone())),
+                                        function: info.function,
+                                        owner: info.owner.clone(),
+                                        visibility: info.visibility,
+                                    }
+                                } else {
+                                    Value::Null
                                 }
                             } else {
                                 Value::Null
@@ -1493,7 +1633,8 @@ impl VM {
                         Value::ArrayOp { kind: _, array } => {
                             if name == "len" || name == "length" {
                                 Value::Int(array.borrow().len() as i64)
-                            } else if let Some(func) = resolve_builtin_method(self, "Array", &name)
+                            } else if let Some(func) =
+                                self.builtin_resolver.and_then(|r| r("Array", &name))
                             {
                                 Value::BoundNativeMethod {
                                     receiver: Box::new(Value::Array(array.clone())),
@@ -1504,7 +1645,9 @@ impl VM {
                             }
                         }
                         Value::Mutex(m) => {
-                            if let Some(func) = resolve_builtin_method(self, "Mutex", &name) {
+                            if let Some(func) =
+                                self.builtin_resolver.and_then(|r| r("Mutex", &name))
+                            {
                                 Value::BoundNativeMethod {
                                     receiver: Box::new(Value::Mutex(m.clone())),
                                     function: func,
@@ -1514,7 +1657,9 @@ impl VM {
                             }
                         }
                         Value::Channel(c) => {
-                            if let Some(func) = resolve_builtin_method(self, "Channel", &name) {
+                            if let Some(func) =
+                                self.builtin_resolver.and_then(|r| r("Channel", &name))
+                            {
                                 Value::BoundNativeMethod {
                                     receiver: Box::new(Value::Channel(c.clone())),
                                     function: func,
@@ -1532,6 +1677,26 @@ impl VM {
                                     t.elements.get(idx).cloned().unwrap_or(Value::Null)
                                 } else {
                                     Value::Null
+                                }
+                            } else {
+                                Value::Null
+                            }
+                        }
+                        Value::Variant {
+                            enum_name,
+                            variant_name,
+                            data,
+                        } => {
+                            if let Some(func) =
+                                self.builtin_resolver.and_then(|r| r("Variant", &name))
+                            {
+                                Value::BoundNativeMethod {
+                                    receiver: Box::new(Value::Variant {
+                                        enum_name: enum_name.clone(),
+                                        variant_name: variant_name.clone(),
+                                        data: data.clone(),
+                                    }),
+                                    function: func,
                                 }
                             } else {
                                 Value::Null
@@ -1578,7 +1743,7 @@ impl VM {
                     let info = resolve_method(&superclass, &name)
                         .ok_or_else(|| RuntimeError::new("unknown super method"))?;
                     self.registers[base + a] = Value::BoundMethod {
-                        receiver,
+                        receiver: Box::new(Value::Object(receiver)),
                         function: info.function,
                         owner: info.owner.clone(),
                         visibility: info.visibility,
@@ -1609,7 +1774,7 @@ impl VM {
                     if let Some(info) = constructor {
                         self.call_function(
                             info.function,
-                            Some(this_obj.clone()),
+                            Some(Value::Object(this_obj.clone())),
                             &args,
                             base + a,
                             None, // No return value needed
@@ -1702,7 +1867,7 @@ impl VM {
                             if let Some(op_info) = class.borrow().operators.get("+") {
                                 self.call_function(
                                     op_info.function,
-                                    Some(obj.clone()),
+                                    Some(pleno_value::Value::Object(obj.clone())),
                                     &[right],
                                     base + a,
                                     None,
@@ -1730,7 +1895,7 @@ impl VM {
                             if let Some(op_info) = class.borrow().operators.get("*") {
                                 self.call_function(
                                     op_info.function,
-                                    Some(obj.clone()),
+                                    Some(Value::Object(obj.clone())),
                                     &[right],
                                     base + a,
                                     None,
@@ -2395,6 +2560,148 @@ impl VM {
                         }
                     }
                 }
+                Opcode::DefineEnum => {
+                    let name = match &function.chunk.constants[b] {
+                        Value::String(s) => s.clone(),
+                        _ => return Err(RuntimeError::new("DefineEnum expects string constant")),
+                    };
+                    let module = frame.current_module.as_ref().map(Rc::clone);
+                    let enum_type = self.gc.allocate(EnumType {
+                        name,
+                        variants: HashMap::new(),
+                        module,
+                    });
+                    self.registers[base + a] = Value::Enum(enum_type);
+                }
+                Opcode::AddVariant => {
+                    let enum_val = self.registers[base + a].clone();
+                    let variant_name = match &function.chunk.constants[b] {
+                        Value::String(s) => s.clone(),
+                        _ => return Err(RuntimeError::new("AddVariant expects string constant")),
+                    };
+                    let param_count = instruction.c() as usize;
+
+                    match enum_val {
+                        Value::Enum(enum_type) => {
+                            let mut et = enum_type.borrow_mut();
+                            let index = et.variants.len();
+                            et.variants.insert(
+                                variant_name.to_string(),
+                                EnumVariantDef { index, param_count },
+                            );
+                        }
+                        _ => return Err(RuntimeError::new("AddVariant on non-enum value")),
+                    }
+                }
+                Opcode::ConstructVariant => {
+                    let enum_val = self.registers[base + b].clone();
+                    let variant_name = match &function.chunk.constants[c] {
+                        Value::String(s) => s.clone(),
+                        _ => {
+                            return Err(RuntimeError::new(
+                                "ConstructVariant expects variant name string",
+                            ));
+                        }
+                    };
+
+                    match enum_val {
+                        Value::Enum(enum_type) => {
+                            self.registers[base + a] = Value::Variant {
+                                enum_name: enum_type.borrow().name.clone(),
+                                variant_name: variant_name.clone(),
+                                data: Vec::new(), // This opcode is for simple variants or we use Call for parameterized ones
+                            };
+                        }
+                        _ => return Err(RuntimeError::new("ConstructVariant on non-enum value")),
+                    }
+                }
+                Opcode::MatchVariant => {
+                    let val = self.registers[base + b].clone();
+                    let name = match &function.chunk.constants[c] {
+                        Value::String(s) => s.as_str(),
+                        _ => return Err(RuntimeError::new("MatchVariant expects string constant")),
+                    };
+
+                    let is_match = match val {
+                        Value::Variant { variant_name, .. } => variant_name.as_str() == name,
+                        _ => false,
+                    };
+                    self.registers[base + a] = Value::Bool(is_match);
+                }
+                Opcode::GetVariantField => {
+                    let val = self.registers[base + b].clone();
+                    let index = instruction.c() as usize;
+
+                    match val {
+                        Value::Variant { data, .. } => {
+                            if index < data.len() {
+                                self.registers[base + a] = data[index].clone();
+                            } else {
+                                return Err(RuntimeError::new("Variant index out of bounds"));
+                            }
+                        }
+                        _ => return Err(RuntimeError::new("GetVariantField on non-variant value")),
+                    }
+                }
+                Opcode::AddMethod => {
+                    if self.functions[frame.function_index].is_pure {
+                        self.throw_runtime_error(
+                            "pure function cannot have side effects (class mutation)",
+                        )?;
+                        continue;
+                    }
+                    let func_val = self.registers[base + a].clone();
+                    let class_val = self.registers[base + b].clone();
+                    let name = match &function.chunk.constants[c] {
+                        Value::String(value) => value.as_str().to_string(),
+                        _ => return Err(RuntimeError::new("method name must be string")),
+                    };
+
+                    let (class_ref, module) = match class_val {
+                        Value::Class(class) => {
+                            let borrowed = class.borrow();
+                            (class.clone(), borrowed.module.clone())
+                        }
+                        Value::String(s) => {
+                            // Primitive extension via shadow class
+                            let shadow_name = format!("__Extension_{}", s.as_str());
+                            let class =
+                                if let Some(Value::Class(cls)) = self.globals.get(&shadow_name) {
+                                    cls.clone()
+                                } else {
+                                    // Create new shadow class with struct initialization
+                                    let cls = self.gc.allocate(Class {
+                                        name: Rc::new(shadow_name.clone()),
+                                        methods: HashMap::new(),
+                                        static_methods: HashMap::new(),
+                                        operators: HashMap::new(),
+                                        constructor: None,
+                                        native_constructor: None,
+                                        superclass: None,
+                                        static_fields: HashMap::new(),
+                                        fields: HashMap::new(),
+                                        static_field_visibility: HashMap::new(),
+                                        getters: HashMap::new(),
+                                        setters: HashMap::new(),
+                                        static_getters: HashMap::new(),
+                                        static_setters: HashMap::new(),
+                                        module: None,
+                                        is_abstract: false,
+                                        implements: Vec::new(),
+                                        type_params: Vec::new(),
+                                    });
+                                    self.globals.insert(shadow_name, Value::Class(cls.clone()));
+                                    cls
+                                };
+                            let module: Option<Rc<String>> = class.borrow().module.clone();
+                            (class, module)
+                        }
+                        _ => return Err(RuntimeError::new("AddMethod on non-class value")),
+                    };
+
+                    let info = parse_method_info(func_val, &class_ref, module.as_ref())?;
+                    class_ref.borrow_mut().methods.insert(name, info);
+                }
                 Opcode::SetFieldVisibility => {
                     if self.functions[frame.function_index].is_pure {
                         self.throw_runtime_error(
@@ -2541,7 +2848,7 @@ impl VM {
                             } => {
                                 self.call_function(
                                     function,
-                                    Some(receiver),
+                                    Some(*receiver.clone()),
                                     &args,
                                     base + a,
                                     None,
@@ -2579,7 +2886,7 @@ impl VM {
                                 if let Some(handle) = class.borrow().constructor {
                                     self.call_function(
                                         handle,
-                                        Some(object.clone()),
+                                        Some(Value::Object(object.clone())),
                                         &args,
                                         base + a,
                                         Some(Value::Object(object.clone())),
@@ -2607,7 +2914,7 @@ impl VM {
                                 if let Some(handle) = class.borrow().constructor {
                                     self.call_function(
                                         handle,
-                                        Some(object.clone()),
+                                        Some(Value::Object(object.clone())),
                                         &args,
                                         base + a,
                                         Some(Value::Object(object.clone())),
@@ -2628,6 +2935,21 @@ impl VM {
                                 } else {
                                     return Err(RuntimeError::new("value is not callable"));
                                 }
+                            }
+                            Value::VariantConstructor {
+                                enum_type,
+                                variant_name,
+                            } => {
+                                let elements = match &self.registers[base + c] {
+                                    Value::Array(arr) => arr.borrow().elements.clone(),
+                                    _ => return Err(RuntimeError::new("call expects args array")),
+                                };
+                                self.registers[base + a] = Value::Variant {
+                                    enum_name: enum_type.borrow().name.clone(),
+                                    variant_name: variant_name.clone(),
+                                    data: elements,
+                                };
+                                break;
                             }
                             _ => return Err(RuntimeError::new("value is not callable")),
                         }
@@ -2951,7 +3273,7 @@ impl VM {
     fn call_function(
         &mut self,
         handle: usize,
-        receiver: Option<GcRc<Object>>,
+        receiver: Option<Value>,
         args: &[Value],
         return_reg: usize,
         return_override: Option<Value>,
@@ -2972,7 +3294,7 @@ impl VM {
         } else {
             let mut final_args = Vec::new();
             if let Some(recv) = receiver.clone() {
-                final_args.push(Value::Object(recv));
+                final_args.push(recv);
             }
             final_args.extend(args.iter().cloned());
 
@@ -3129,7 +3451,7 @@ impl VM {
                     let override_value = Some(Value::Object(object.clone()));
                     self.call_function(
                         handle,
-                        Some(object),
+                        Some(Value::Object(object.clone())),
                         &final_args,
                         return_reg,
                         override_value,
@@ -3159,7 +3481,7 @@ impl VM {
                     let override_value = Some(Value::Object(object.clone()));
                     self.call_function(
                         handle,
-                        Some(object),
+                        Some(Value::Object(object.clone())),
                         &final_args,
                         return_reg,
                         override_value,
@@ -3193,11 +3515,11 @@ impl VM {
                     .get(function)
                     .ok_or_else(|| RuntimeError::new("unknown function handle"))?;
                 let args = self.build_named_args(function, true, &positional, &named)?;
-                let mut final_args = vec![Value::Object(receiver.clone())];
+                let mut final_args = vec![*receiver.clone()];
                 final_args.extend(args);
                 self.call_function(
                     function,
-                    Some(receiver),
+                    Some(*receiver.clone()),
                     &final_args,
                     return_reg,
                     None,
@@ -3521,9 +3843,9 @@ fn resolve_module_path(
     Err(RuntimeError::new(format!("module not found: {}", path)))
 }
 
-fn resolve_builtin_method(vm: &VM, ty: &str, name: &str) -> Option<NativeFunction> {
-    vm.builtin_resolver.and_then(|resolver| resolver(ty, name))
-}
+// fn resolve_builtin_method(vm: &VM, ty: &str, name: &str) -> Option<NativeFunction> {
+//     vm.builtin_resolver.and_then(|resolver| resolver(ty, name))
+// }
 
 fn value_to_key(value: &Value) -> Result<ValueKey, RuntimeError> {
     ValueKey::try_from_value(value).ok_or_else(|| RuntimeError::new("unhashable type"))

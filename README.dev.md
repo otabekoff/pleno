@@ -26,3 +26,9 @@ cargo run -p pleno-cli -- run test_stdlib.pln
 
 cargo run -p pleno-cli -- test sources/tests | grep -B 5 
 FAILED
+
+Get-ChildItem -Recurse -Filter "*.pl" -File | Measure-Object | Select-Object -ExpandProperty Count
+
+cargo run -- run sources/tests/test_operators.pln                                
+
+

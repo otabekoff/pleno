@@ -104,6 +104,12 @@ pub enum Opcode {
     IterNext,
     Specialize,
     SetTypeParams,
+    AddMethod,
+    DefineEnum,
+    AddVariant,
+    ConstructVariant,
+    MatchVariant,
+    GetVariantField,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

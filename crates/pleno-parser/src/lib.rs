@@ -111,6 +111,7 @@ impl Parser {
             TokenKind::KeywordImport => self.parse_import_stmt(),
             TokenKind::KeywordExport => self.parse_export_stmt(annotations),
             TokenKind::KeywordEnum => self.parse_enum_declaration(annotations),
+            TokenKind::KeywordExtend => self.parse_extend_stmt(),
             TokenKind::KeywordClass => self.parse_class_stmt(annotations, false),
             TokenKind::KeywordAbstract => {
                 self.advance();
@@ -605,6 +606,55 @@ impl Parser {
         ))
     }
 
+    fn parse_extend_stmt(&mut self) -> Result<Stmt, ParseError> {
+        let start_span = self.peek_span();
+        self.advance(); // extend
+
+        let generics = if self.check(&TokenKind::Less) {
+            self.parse_generic_params()?
+        } else {
+            Vec::new()
+        };
+
+        let target = match self.advance().kind.clone() {
+            TokenKind::Ident(value) => value,
+            other => {
+                return Err(ParseError {
+                    message: format!("Expected extension target name, found {other:?}"),
+                    span: self.previous_span(),
+                });
+            }
+        };
+
+        self.expect(TokenKind::LBrace, "Expected '{' after extension target")?;
+
+        let mut methods = Vec::new();
+        while !self.is_at_end() && !matches!(self.peek_kind(), TokenKind::RBrace) {
+            let member_annotations = self.parse_annotations()?;
+            let decl = self.parse_function_decl(FunctionDeclarationConfig {
+                kind: pleno_ast::FunctionKind::Method,
+                allow_modifiers: true,
+                visibility: None,
+                is_static: None,
+                annotations: member_annotations,
+                is_async: false,
+                is_abstract: false,
+            })?;
+            methods.push(decl);
+        }
+
+        self.expect(TokenKind::RBrace, "Expected '}' after extension body")?;
+
+        Ok(self.wrap_stmt(
+            StmtKind::Extend {
+                target,
+                generics,
+                methods,
+            },
+            start_span,
+        ))
+    }
+
     fn parse_interface_stmt(
         &mut self,
         annotations: Vec<pleno_ast::Annotation>,
@@ -667,6 +717,93 @@ impl Parser {
                 extends,
                 annotations,
             },
+            start_span,
+        ))
+    }
+
+    fn parse_enum_declaration(
+        &mut self,
+        annotations: Vec<pleno_ast::Annotation>,
+    ) -> Result<Stmt, ParseError> {
+        let start_span = self.peek_span();
+        self.advance(); // enum
+        let name = match self.advance().kind.clone() {
+            TokenKind::Ident(value) => value,
+            other => {
+                return Err(ParseError {
+                    message: format!("Expected enum name, found {other:?}"),
+                    span: self.previous_span(),
+                });
+            }
+        };
+
+        // Parse optional generic parameters
+        let _generics = self.parse_generic_params()?;
+
+        self.expect(TokenKind::LBrace, "Expected '{' before enum body")?;
+        let mut variants = Vec::new();
+        while !self.check(&TokenKind::RBrace) && !self.is_at_end() {
+            let variant_name = match self.advance().kind.clone() {
+                TokenKind::Ident(value) => value,
+                other => {
+                    return Err(ParseError {
+                        message: format!("Expected variant name, found {other:?}"),
+                        span: self.previous_span(),
+                    });
+                }
+            };
+
+            // Parse optional parameters for this variant
+            let params = if self.matches(&TokenKind::LParen) {
+                let mut params = Vec::new();
+                while !self.check(&TokenKind::RParen) && !self.is_at_end() {
+                    let param_name = match self.advance().kind.clone() {
+                        TokenKind::Ident(value) => value,
+                        other => {
+                            return Err(ParseError {
+                                message: format!("Expected parameter name, found {other:?}"),
+                                span: self.previous_span(),
+                            });
+                        }
+                    };
+                    let ty = if self.matches(&TokenKind::Colon) {
+                        Some(self.parse_type()?)
+                    } else {
+                        None
+                    };
+                    params.push(pleno_ast::Param {
+                        name: param_name,
+                        ty,
+                        default: None,
+                        is_variadic: false,
+                        is_keyword_only: false,
+                    });
+                    if !self.matches(&TokenKind::Comma) {
+                        break;
+                    }
+                }
+                self.expect(TokenKind::RParen, "Expected ')' after variant parameters")?;
+                Some(params)
+            } else {
+                None
+            };
+
+            variants.push(pleno_ast::EnumVariant {
+                name: variant_name,
+                params,
+            });
+
+            // Allow trailing comma
+            self.matches(&TokenKind::Comma);
+        }
+        self.expect(TokenKind::RBrace, "Expected '}' after enum body")?;
+
+        Ok(self.wrap_stmt(
+            StmtKind::Enum(pleno_ast::EnumDecl {
+                name,
+                variants,
+                annotations,
+            }),
             start_span,
         ))
     }
@@ -2529,7 +2666,20 @@ impl Parser {
         let token = self.advance();
         match token.kind.clone() {
             TokenKind::Underscore => Ok(pleno_ast::Pattern::Underscore),
-            TokenKind::Ident(name) => {
+            TokenKind::Ident(mut name) => {
+                let mut qualified = false;
+                while self.matches(&TokenKind::Dot) {
+                    qualified = true;
+                    if let TokenKind::Ident(subname) = self.advance().kind.clone() {
+                        name = subname;
+                    } else {
+                        return Err(ParseError {
+                            message: "Expected variant name after '.'".to_string(),
+                            span: self.previous_span(),
+                        });
+                    }
+                }
+
                 // Variant: name(...)
                 if self.matches(&TokenKind::LParen) {
                     let mut patterns = Vec::new();
@@ -2543,6 +2693,11 @@ impl Parser {
                     }
                     self.expect(TokenKind::RParen, "Expected ')' after variant pattern")?;
                     return Ok(pleno_ast::Pattern::Variant(name, patterns));
+                }
+
+                // If it was qualified, it's a variant pattern even without parameters
+                if qualified {
+                    return Ok(pleno_ast::Pattern::Variant(name, Vec::new()));
                 }
 
                 // Type pattern: Type ident or Type _
@@ -2980,73 +3135,6 @@ impl Parser {
                 then_branch: Box::new(then_branch),
                 else_branch: Box::new(else_branch),
             },
-            start_span,
-        ))
-    }
-
-    fn parse_enum_declaration(
-        &mut self,
-        annotations: Vec<pleno_ast::Annotation>,
-    ) -> Result<Stmt, ParseError> {
-        let start_span = self.peek_span();
-        self.expect(TokenKind::KeywordEnum, "Expected 'enum'")?;
-
-        let name = match self.advance().kind.clone() {
-            TokenKind::Ident(value) => value,
-            _ => {
-                return Err(ParseError {
-                    message: "Expected enum name".to_string(),
-                    span: self.peek_span(),
-                });
-            }
-        };
-
-        self.expect(TokenKind::LBrace, "Expected '{' after enum name")?;
-
-        let mut variants = Vec::new();
-
-        while !self.matches(&TokenKind::RBrace) {
-            // Check for variant name
-            let variant_name = if let TokenKind::Ident(name) = self.peek_kind() {
-                let name = name.clone();
-                self.advance();
-                name
-            } else {
-                return Err(ParseError {
-                    message: "Expected enum variant name".to_string(),
-                    span: self.peek_span(),
-                });
-            };
-
-            // Optional parameters: Variant(Int, String)
-            let params = if self.matches(&TokenKind::LParen) {
-                let params = self.parse_param_list()?;
-                self.expect(TokenKind::RParen, "Expected ')' after variant parameters")?;
-                Some(params)
-            } else {
-                None
-            };
-
-            variants.push(pleno_ast::EnumVariant {
-                name: variant_name,
-                params,
-            });
-
-            if !self.matches(&TokenKind::Comma) && !self.check(&TokenKind::RBrace) {
-                // Allow optional comma, but require either comma or }
-                return Err(ParseError {
-                    message: "Expected ',' or '}' after enum variant".to_string(),
-                    span: self.peek_span(),
-                });
-            }
-        }
-
-        Ok(self.wrap_stmt(
-            StmtKind::Enum(pleno_ast::EnumDecl {
-                name,
-                variants,
-                annotations,
-            }),
             start_span,
         ))
     }

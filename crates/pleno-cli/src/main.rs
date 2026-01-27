@@ -88,7 +88,11 @@ fn main() {
                 process::exit(1);
             });
             // Check if target is a file
-            if PathBuf::from(&target).exists() || target.ends_with(".pln") {
+            if PathBuf::from(&target).exists() {
+                if !target.ends_with(".pln") {
+                    eprintln!("Error: Only .pln format file extensions are supported");
+                    process::exit(1);
+                }
                 run_file(&target);
             } else {
                 // Check for package.pln script
@@ -341,6 +345,10 @@ fn run_single_test(path: &PathBuf, stats: &mut TestStats) {
 }
 
 fn debug_ast(path: &str) {
+    if !path.ends_with(".pln") {
+        eprintln!("Error: Only .pln format file extensions are supported");
+        process::exit(1);
+    }
     let source = match fs::read_to_string(path) {
         Ok(contents) => contents,
         Err(err) => {
@@ -376,6 +384,10 @@ fn debug_ast(path: &str) {
 }
 
 fn run_file(path: &str) {
+    if !path.ends_with(".pln") {
+        eprintln!("Error: Only .pln format file extensions are supported");
+        process::exit(1);
+    }
     let source = match fs::read_to_string(path) {
         Ok(contents) => contents,
         Err(err) => {
@@ -472,6 +484,10 @@ fn format_file(path: &str) {
         // Format all .pln files in directory
         format_directory(&path_buf);
     } else {
+        if !path.ends_with(".pln") {
+            eprintln!("Error: Only .pln format file extensions are supported");
+            process::exit(1);
+        }
         format_single_file(&path_buf);
     }
 }
@@ -587,6 +603,10 @@ fn lint_directory(dir: &PathBuf) {
 }
 
 fn check_file(path: &str) {
+    if !path.ends_with(".pln") {
+        eprintln!("Error: Only .pln format file extensions are supported");
+        process::exit(1);
+    }
     let source = match fs::read_to_string(path) {
         Ok(contents) => contents,
         Err(err) => {
@@ -641,6 +661,10 @@ fn watch_file(path: &str) {
     }
 
     println!("Watching {} for changes...", path.display());
+    if !path.to_string_lossy().ends_with(".pln") {
+        eprintln!("Error: Only .pln format file extensions are supported");
+        process::exit(1);
+    }
     run_file(&path.to_string_lossy());
 
     let (tx, rx) = channel();
@@ -684,6 +708,10 @@ fn watch_file(path: &str) {
 }
 
 fn compile_file(path: &str) {
+    if !path.ends_with(".pln") {
+        eprintln!("Error: Only .pln format file extensions are supported");
+        process::exit(1);
+    }
     let source = match fs::read_to_string(path) {
         Ok(contents) => contents,
         Err(err) => {

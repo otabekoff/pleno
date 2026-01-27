@@ -10,6 +10,8 @@
 - [x] 6.6 Pattern Matching on Data (Full implementation: Objects with Rest, multi-arg Variants, Nested patterns)
 
 ## 10. Generics
+- [x] 10.1 Generic Classes (Full implementation with runtime reification)
+- [x] 10.2 Reified Generics (Recursive reification of nested types, runtime `is` check support)
 - [ ] 10.3 Generic Constraints (Deferred - no runtime enforcement)
 
 ## 12. Memory & Performance
@@ -25,7 +27,7 @@
 - [ ] 14.1 Reflection (Deferred)
 - [ ] 14.2 Macros (Deferred)
 - [x] 14.3 Operator Overloading (Full implementation: binary operators including arithmetic, comparison, and access)
-- [ ] 14.4 Extension Methods (Deferred)
+- [x] 14.4 Extension Methods (Full implementation: `extend` keyword for adding methods to existing classes and primitives via Shadow Extension Classes)
 - [x] 14.7 Type Aliases (Full implementation with `type` keyword)
 - [x] 14.8 Union & Intersection Types (Full implementation with `|` and `&`, supporting grouping and `is` operator)
 
