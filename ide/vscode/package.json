@@ -46,9 +46,7 @@
           "pleno"
         ],
         "extensions": [
-          ".pln",
-          ".pl",
-          ".pleno"
+          ".pln"
         ],
         "configuration": "./language-configuration.json"
       }

@@ -90,7 +90,7 @@ pub enum Value {
     Interface(GcRc<Interface>),
     Function(usize),
     BoundMethod {
-        receiver: GcRc<Object>,
+        receiver: Box<Value>,
         function: usize,
         owner: GcRc<Class>,
         visibility: MethodVisibility,
@@ -128,6 +128,16 @@ pub enum Value {
     BoundClass {
         class: GcRc<Class>,
         type_args: Vec<Value>,
+    },
+    Enum(GcRc<EnumType>),
+    Variant {
+        enum_name: Rc<String>,
+        variant_name: Rc<String>,
+        data: Vec<Value>,
+    },
+    VariantConstructor {
+        enum_type: GcRc<EnumType>,
+        variant_name: Rc<String>,
     },
 }
 
@@ -185,6 +195,9 @@ impl Value {
             Value::Tuple(_) => "Tuple",
             Value::Iterator(_) => "Iterator",
             Value::BoundClass { .. } => "Class",
+            Value::Enum(_) => "Enum",
+            Value::Variant { .. } => "Variant",
+            Value::VariantConstructor { .. } => "VariantConstructor",
         }
     }
 }
@@ -226,7 +239,7 @@ impl GcObject for Value {
         match self {
             Value::Class(c) => gc.mark_object(&c.to_gc_object()),
             Value::Interface(i) => gc.mark_object(&i.to_gc_object()),
-            Value::BoundMethod { receiver, .. } => gc.mark_object(&receiver.to_gc_object()),
+            Value::BoundMethod { receiver, .. } => receiver.mark(gc),
             Value::Closure(c) => gc.mark_object(&c.to_gc_object()),
             Value::BoundNativeMethod { receiver, .. } => receiver.mark(gc),
             Value::Map(m) => gc.mark_object(&m.to_gc_object()),
@@ -248,6 +261,15 @@ impl GcObject for Value {
                 for v in type_args {
                     v.mark(gc);
                 }
+            }
+            Value::Enum(e) => gc.mark_object(&e.to_gc_object()),
+            Value::Variant { data, .. } => {
+                for v in data {
+                    v.mark(gc);
+                }
+            }
+            Value::VariantConstructor { enum_type, .. } => {
+                gc.mark_object(&enum_type.to_gc_object());
             }
             _ => {}
         }
@@ -371,6 +393,23 @@ impl GcObject for Interface {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EnumType {
+    pub name: Rc<String>,
+    pub variants: HashMap<String, EnumVariantDef>,
+    pub module: Option<Rc<String>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EnumVariantDef {
+    pub index: usize,
+    pub param_count: usize,
+}
+
+impl GcObject for EnumType {
+    fn mark(&self, _gc: &mut MarkAndSweepGC) {}
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Class {
     pub name: Rc<String>,
     pub methods: HashMap<String, MethodInfo>,
@@ -477,18 +516,18 @@ impl PartialEq for Value {
             (Value::Function(a), Value::Function(b)) => a == b,
             (
                 Value::BoundMethod {
-                    receiver: a,
+                    receiver: ra,
                     function: fa,
                     owner: oa,
                     visibility: va,
                 },
                 Value::BoundMethod {
-                    receiver: b,
+                    receiver: rb,
                     function: fb,
                     owner: ob,
                     visibility: vb,
                 },
-            ) => a.as_ptr() == b.as_ptr() && fa == fb && oa == ob && va == vb,
+            ) => ra == rb && fa == fb && oa == ob && va == vb,
             (
                 Value::StaticMethod {
                     function: fa,
@@ -553,6 +592,29 @@ impl PartialEq for Value {
                     type_args: tb,
                 },
             ) => ca.as_ptr() == cb.as_ptr() && ta == tb,
+            (Value::Enum(a), Value::Enum(b)) => a.as_ptr() == b.as_ptr(),
+            (
+                Value::Variant {
+                    enum_name: ea,
+                    variant_name: va,
+                    data: da,
+                },
+                Value::Variant {
+                    enum_name: eb,
+                    variant_name: vb,
+                    data: db,
+                },
+            ) => ea == eb && va == vb && da == db,
+            (
+                Value::VariantConstructor {
+                    enum_type: ea,
+                    variant_name: va,
+                },
+                Value::VariantConstructor {
+                    enum_type: eb,
+                    variant_name: vb,
+                },
+            ) => ea.as_ptr() == eb.as_ptr() && va == vb,
             _ => false,
         }
     }
@@ -678,6 +740,34 @@ impl std::fmt::Display for Value {
                 write!(f, ")")
             }
             Value::Iterator(_) => write!(f, "<iterator>"),
+            Value::Enum(e) => write!(f, "<enum {}>", e.borrow().name),
+            Value::Variant {
+                enum_name,
+                variant_name,
+                data,
+            } => {
+                write!(f, "{}.{}", enum_name, variant_name)?;
+                if !data.is_empty() {
+                    write!(f, "(")?;
+                    for (i, v) in data.iter().enumerate() {
+                        if i > 0 {
+                            write!(f, ", ")?;
+                        }
+                        write!(f, "{}", v)?;
+                    }
+                    write!(f, ")")?;
+                }
+                Ok(())
+            }
+            Value::VariantConstructor {
+                enum_type,
+                variant_name,
+            } => write!(
+                f,
+                "<{}.{} constructor>",
+                enum_type.borrow().name,
+                variant_name
+            ),
         }
     }
 }

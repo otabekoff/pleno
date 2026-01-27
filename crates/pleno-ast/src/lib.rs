@@ -285,6 +285,11 @@ pub enum StmtKind {
         name: String,
         ty: String,
     },
+    Extend {
+        target: String,
+        generics: Vec<GenericParam>,
+        methods: Vec<FunctionDecl>,
+    },
     Expr(Expr),
 }
 

@@ -1,0 +1,32 @@
+enum Shape {
+    Circle(Float),
+    Rectangle(Float, Float),
+    Point
+}
+
+fn area(s) {
+    match s {
+        case Shape.Circle(r) => 3.14 * r * r,
+        case Shape.Rectangle(w, h) => w * h,
+        case Shape.Point => 0.0
+    }
+}
+
+let c = Shape.Circle(5.0);
+let r = Shape.Rectangle(10.0, 20.0);
+let p = Shape.Point;
+
+print("Circle: "); print(c);
+print("Rectangle: "); print(r);
+print("Point: "); print(p);
+
+print("Circle area: "); print(area(c));
+print("Rectangle area: "); print(area(r));
+print("Point area: "); print(area(p));
+
+// Verification
+if (area(c) != 78.5) { throw "Circle area mismatch"; }
+if (area(r) != 200.0) { throw "Rectangle area mismatch"; }
+if (area(p) != 0.0) { throw "Point area mismatch"; }
+
+print("Enum tests passed!");

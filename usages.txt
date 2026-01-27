@@ -1,0 +1,18 @@
+463:                    if let Some(native) = resolve_builtin_method(self, &source.type_name(), &name) {
+505:                    if let Some(native) = resolve_builtin_method(self, &iter.type_name(), &name) {
+1275:                                    && resolve_builtin_method(self, "Result", &name).is_some()
+1281:                                        function: resolve_builtin_method(self, "Result", &name)
+1286:                                    && resolve_builtin_method(self, "Option", &name).is_some()
+1292:                                        function: resolve_builtin_method(self, "Option", &name)
+1298:                                    && resolve_builtin_method(self, "Promise", &name).is_some()
+1304:                                        function: resolve_builtin_method(self, "Promise", &name)
+1309:                                    && resolve_builtin_method(self, "Regex", &name).is_some()
+1315:                                        function: resolve_builtin_method(self, "Regex", &name)
+1327:                            } else if let Some(func) = resolve_builtin_method(self, "Map", &name) {
+1462:                            } else if let Some(func) = resolve_builtin_method(self, "Set", &name) {
+1474:                            } else if let Some(func) = resolve_builtin_method(self, "Array", &name)
+1487:                            } else if let Some(func) = resolve_builtin_method(self, "String", &name)
+1518:                            } else if let Some(func) = resolve_builtin_method(self, "Array", &name)
+1529:                            if let Some(func) = resolve_builtin_method(self, "Mutex", &name) {
+1539:                            if let Some(func) = resolve_builtin_method(self, "Channel", &name) {
+3571:fn resolve_builtin_method(vm: &VM, ty: &str, name: &str) -> Option<NativeFunction> {

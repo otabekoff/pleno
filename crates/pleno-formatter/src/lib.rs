@@ -676,6 +676,24 @@ impl Formatter {
                 result.push_str(&format!("{}}}\n", self.indent(indent_level)));
                 result
             }
+            StmtKind::Extend {
+                target,
+                generics,
+                methods,
+            } => {
+                let mut result = format!("{}extend ", current_indent);
+                if !generics.is_empty() {
+                    result.push_str(&self.format_generics(generics));
+                    result.push(' ');
+                }
+                result.push_str(target);
+                result.push_str(" {\n");
+                for method in methods {
+                    result.push_str(&self.format_function(method, indent_level + 1));
+                }
+                result.push_str(&format!("{}}}\n", current_indent));
+                result
+            }
             StmtKind::Expr(expr) => {
                 format!(
                     "{}{};\n",

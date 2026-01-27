@@ -1,0 +1,23 @@
+class Person {
+    name: String;
+    constructor(name: String) {
+        this.name = name;
+    }
+}
+
+extend Person {
+    fn greet() {
+        print("Hello, my name is " + this.name);
+    }
+}
+
+let p = new Person("Alice");
+p.greet();
+
+extend String {
+    fn shout() {
+        return "HELLO: " + this + "!!!";
+    }
+}
+
+print("hello".shout());

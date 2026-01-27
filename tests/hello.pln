@@ -1,0 +1,2 @@
+let s = "Hello";
+print(s.to_string());

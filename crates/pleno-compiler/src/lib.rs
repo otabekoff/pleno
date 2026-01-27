@@ -508,6 +508,14 @@ impl Compiler {
                 self.next_labels.push(label.clone());
                 self.compile_stmt(stmt)
             }
+            StmtKind::Extend {
+                target,
+                generics,
+                methods,
+            } => {
+                self.compile_extend_stmt(target, generics, methods)?;
+                Ok(())
+            }
             StmtKind::Interface {
                 name,
                 methods,
@@ -1872,54 +1880,17 @@ impl Compiler {
                 }
             }
             Pattern::Variant(name, patterns) => {
-                // Check if it's a map first
-                let map_str_idx = self.add_constant(Value::String(Rc::new("Map".to_string())));
-                let map_str_reg = self.registers.allocate()?;
-                self.emit(Opcode::LoadConst, map_str_reg, map_str_idx, 0);
-                let is_map_reg = self.registers.allocate()?;
-                self.emit(Opcode::Is, is_map_reg, value_reg, map_str_reg);
-                self.free_temp(map_str_reg);
-                fail_jumps.push(self.emit_jump(Opcode::JumpIfNot, is_map_reg));
-                self.free_temp(is_map_reg);
+                let name_idx = self.add_constant(Value::String(Rc::new(name.clone())));
+                let is_match_reg = self.registers.allocate()?;
+                self.emit(Opcode::MatchVariant, is_match_reg, value_reg, name_idx);
+                fail_jumps.push(self.emit_jump(Opcode::JumpIfNot, is_match_reg));
+                self.free_temp(is_match_reg);
 
-                // Check if it's a map with property "variant" == name
-                let variant_name_idx =
-                    self.add_constant(Value::String(Rc::new("variant".to_string())));
-                let variant_reg = self.registers.allocate()?;
-                self.emit(
-                    Opcode::GetProperty,
-                    variant_reg,
-                    value_reg,
-                    variant_name_idx,
-                );
-
-                let expected_name_idx = self.add_constant(Value::String(Rc::new(name.clone())));
-                let expected_reg = self.registers.allocate()?;
-                self.emit(Opcode::LoadConst, expected_reg, expected_name_idx, 0);
-
-                let eq_reg = self.registers.allocate()?;
-                self.emit(Opcode::Eq, eq_reg, variant_reg, expected_reg);
-                self.free_temp(variant_reg);
-                self.free_temp(expected_reg);
-                fail_jumps.push(self.emit_jump(Opcode::JumpIfNot, eq_reg));
-                self.free_temp(eq_reg);
-
-                if patterns.len() == 1 {
-                    let val_name_idx =
-                        self.add_constant(Value::String(Rc::new("value".to_string())));
-                    let val_reg = self.registers.allocate()?;
-                    self.emit(Opcode::GetProperty, val_reg, value_reg, val_name_idx);
-                    self.compile_pattern(&patterns[0], val_reg, fail_jumps)?;
-                    self.free_temp(val_reg);
-                } else if !patterns.is_empty() {
-                    for (i, p) in patterns.iter().enumerate() {
-                        let name = format!("value{}", i);
-                        let name_idx = self.add_constant(Value::String(Rc::new(name)));
-                        let val_reg = self.registers.allocate()?;
-                        self.emit(Opcode::GetProperty, val_reg, value_reg, name_idx);
-                        self.compile_pattern(p, val_reg, fail_jumps)?;
-                        self.free_temp(val_reg);
-                    }
+                for (i, p) in patterns.iter().enumerate() {
+                    let field_reg = self.registers.allocate()?;
+                    self.emit(Opcode::GetVariantField, field_reg, value_reg, i as u8);
+                    self.compile_pattern(p, field_reg, fail_jumps)?;
+                    self.free_temp(field_reg);
                 }
             }
             Pattern::Object(props, rest) => {
@@ -2280,6 +2251,49 @@ impl Compiler {
         captures
     }
 
+    fn compile_extend_stmt(
+        &mut self,
+        target: &str,
+        generics: &[pleno_ast::GenericParam],
+        methods: &[pleno_ast::FunctionDecl],
+    ) -> Result<(), CompileError> {
+        let class_reg = self.registers.allocate()?;
+
+        // Resolve target class
+        if let Some(local) = self.resolve_local(target) {
+            self.emit(Opcode::Move, class_reg, local.reg, 0);
+        } else {
+            let name_idx = self.add_constant(Value::String(std::rc::Rc::new(target.to_string())));
+            self.emit(Opcode::GetGlobal, class_reg, name_idx as u8, 0);
+        }
+
+        for method in methods {
+            // Extension methods are instance methods, so is_method=true
+            // store_as_function=true because we want the function object to add to the class
+            let func_reg = self.compile_function(method, true, true, None)?;
+
+            let meta_reg = self.registers.allocate()?;
+            self.emit(Opcode::NewArray, meta_reg, 0, 0);
+            self.emit(Opcode::ArrayAppend, meta_reg, func_reg, 0);
+
+            let vis_name = visibility_name(method.visibility.as_ref());
+            let vis_idx = self.add_constant(Value::String(std::rc::Rc::new(vis_name.to_string())));
+            let vis_reg = self.registers.allocate()?;
+            self.emit(Opcode::LoadConst, vis_reg, vis_idx, 0);
+            self.emit(Opcode::ArrayAppend, meta_reg, vis_reg, 0);
+            self.free_temp(vis_reg);
+
+            let name_idx = self.add_constant(Value::String(std::rc::Rc::new(method.name.clone())));
+            self.emit(Opcode::AddMethod, meta_reg, class_reg, name_idx as u8);
+
+            self.free_temp(func_reg);
+            self.free_temp(meta_reg);
+        }
+
+        self.free_temp(class_reg);
+        Ok(())
+    }
+
     fn compile_class_declaration(&mut self, stmt: &Stmt) -> Result<u8, CompileError> {
         let (
             name,
@@ -2551,26 +2565,22 @@ impl Compiler {
     }
 
     fn compile_enum_declaration(&mut self, decl: &pleno_ast::EnumDecl) -> Result<u8, CompileError> {
-        let class_reg = self.registers.allocate()?;
+        let enum_reg = self.registers.allocate()?;
         let name_idx = self.add_constant(Value::String(decl.name.clone().into()));
-        self.emit(Opcode::DefineClass, class_reg, name_idx, 0);
+        self.emit(Opcode::DefineEnum, enum_reg, name_idx, 0);
 
-        // For now, compile each variant as a static field
-        // Future: full first-class Enum variants with data
-        for (i, variant) in decl.variants.iter().enumerate() {
-            let variant_idx = self.add_constant(Value::String(variant.name.clone().into()));
-
-            // For now, variants are just their discriminator (Int) if no params
-            // If they have params, they should be "constructors" of some sort,
-            // but we'll stick to simple discriminators for the MVP.
-            let value_reg = self.registers.allocate()?;
-            self.emit(Opcode::LoadInt, value_reg, i as u8, 0);
-
-            self.emit(Opcode::SetProperty, value_reg, class_reg, variant_idx);
-            self.free_temp(value_reg);
+        for variant in &decl.variants {
+            let variant_name_idx = self.add_constant(Value::String(variant.name.clone().into()));
+            let param_count = variant.params.as_ref().map(|p| p.len()).unwrap_or(0);
+            self.emit(
+                Opcode::AddVariant,
+                enum_reg,
+                variant_name_idx,
+                param_count as u8,
+            );
         }
 
-        Ok(class_reg)
+        Ok(enum_reg)
     }
 
     fn collect_locals(&self, stmt: &Stmt, locals: &mut HashMap<String, ()>) {
