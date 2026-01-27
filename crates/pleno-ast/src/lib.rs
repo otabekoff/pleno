@@ -136,6 +136,10 @@ pub enum ExprKind {
         left: Box<Expr>,
         ty: String,
     },
+    Specialize {
+        left: Box<Expr>,
+        type_args: Vec<String>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -416,4 +420,5 @@ pub enum FunctionKind {
     Method,
     Getter,
     Setter,
+    Operator(String),
 }

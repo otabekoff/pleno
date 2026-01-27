@@ -123,6 +123,12 @@ pub enum Value {
     },
     Mutex(GcRc<MutexState>),
     Channel(GcRc<ChannelState>),
+    Tuple(GcRc<TupleState>),
+    Iterator(GcRc<IteratorState>),
+    BoundClass {
+        class: GcRc<Class>,
+        type_args: Vec<Value>,
+    },
 }
 
 impl Value {
@@ -176,6 +182,9 @@ impl Value {
             Value::ArrayOp { .. } => "ArrayOp",
             Value::Mutex(_) => "Mutex",
             Value::Channel(_) => "Channel",
+            Value::Tuple(_) => "Tuple",
+            Value::Iterator(_) => "Iterator",
+            Value::BoundClass { .. } => "Class",
         }
     }
 }
@@ -232,6 +241,14 @@ impl GcObject for Value {
             Value::ArrayOp { array, .. } => gc.mark_object(&array.to_gc_object()),
             Value::Mutex(m) => gc.mark_object(&m.to_gc_object()),
             Value::Channel(c) => gc.mark_object(&c.to_gc_object()),
+            Value::Tuple(t) => gc.mark_object(&t.to_gc_object()),
+            Value::Iterator(i) => gc.mark_object(&i.to_gc_object()),
+            Value::BoundClass { class, type_args } => {
+                gc.mark_object(&class.to_gc_object());
+                for v in type_args {
+                    v.mark(gc);
+                }
+            }
             _ => {}
         }
     }
@@ -358,6 +375,7 @@ pub struct Class {
     pub name: Rc<String>,
     pub methods: HashMap<String, MethodInfo>,
     pub static_methods: HashMap<String, MethodInfo>,
+    pub operators: HashMap<String, MethodInfo>,
     pub constructor: Option<usize>,
     #[serde(skip, default)]
     pub native_constructor: Option<NativeFunction>,
@@ -372,6 +390,7 @@ pub struct Class {
     pub module: Option<Rc<String>>,
     pub is_abstract: bool,
     pub implements: Vec<Value>,
+    pub type_params: Vec<String>,
 }
 
 impl GcObject for Class {
@@ -397,6 +416,7 @@ impl GcObject for Class {
         self.static_getters.clear();
         self.static_setters.clear();
         self.implements.clear();
+        self.operators.clear();
     }
 }
 
@@ -422,6 +442,7 @@ impl PartialEq for Class {
             && self.module == other.module
             && self.is_abstract == other.is_abstract
             && self.implements == other.implements
+            && self.type_params == other.type_params
     }
 }
 
@@ -520,6 +541,18 @@ impl PartialEq for Value {
             ) => *ka == *kb && aa.as_ptr() == ab.as_ptr(),
             (Value::Mutex(a), Value::Mutex(b)) => a.as_ptr() == b.as_ptr(),
             (Value::Channel(a), Value::Channel(b)) => a.as_ptr() == b.as_ptr(),
+            (Value::Tuple(a), Value::Tuple(b)) => a.as_ptr() == b.as_ptr(),
+            (Value::Iterator(a), Value::Iterator(b)) => a.as_ptr() == b.as_ptr(),
+            (
+                Value::BoundClass {
+                    class: ca,
+                    type_args: ta,
+                },
+                Value::BoundClass {
+                    class: cb,
+                    type_args: tb,
+                },
+            ) => ca.as_ptr() == cb.as_ptr() && ta == tb,
             _ => false,
         }
     }
@@ -549,6 +582,20 @@ impl std::fmt::Display for Value {
                 Ok(())
             }
             Value::Class(c) => write!(f, "<class {}>", c.borrow().name),
+            Value::BoundClass { class, type_args } => {
+                write!(f, "<class {}", class.borrow().name)?;
+                if !type_args.is_empty() {
+                    write!(f, "<")?;
+                    for (i, arg) in type_args.iter().enumerate() {
+                        if i > 0 {
+                            write!(f, ", ")?;
+                        }
+                        write!(f, "{}", arg)?;
+                    }
+                    write!(f, ">")?;
+                }
+                write!(f, ">")
+            }
             Value::Interface(i) => write!(f, "<interface {}>", i.borrow().name),
             Value::Function(_) => write!(f, "<fn>"),
             Value::BoundMethod { owner, .. } => write!(f, "<method of {}>", owner.borrow().name),
@@ -614,6 +661,23 @@ impl std::fmt::Display for Value {
             }
             Value::Mutex(_) => write!(f, "<mutex>"),
             Value::Channel(_) => write!(f, "<channel>"),
+            Value::Tuple(t) => {
+                write!(f, "(")?;
+                let t = t.borrow();
+                for (i, v) in t.elements.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    if let Some(names) = &t.names {
+                        if let Some(name) = names.iter().find(|p| *p.1 == i).map(|p| p.0) {
+                            write!(f, "{}: ", name)?;
+                        }
+                    }
+                    write!(f, "{}", v)?;
+                }
+                write!(f, ")")
+            }
+            Value::Iterator(_) => write!(f, "<iterator>"),
         }
     }
 }
@@ -735,14 +799,16 @@ pub struct Object {
     pub class: Option<GcRc<Class>>,
     pub fields: HashMap<String, Value>,
     pub is_immutable: bool,
+    pub type_args: Option<Vec<Value>>,
 }
 
 impl Object {
-    pub fn new(class: Option<GcRc<Class>>) -> Self {
+    pub fn new(class: Option<GcRc<Class>>, type_args: Option<Vec<Value>>) -> Self {
         Self {
             class,
             fields: HashMap::new(),
             is_immutable: false,
+            type_args,
         }
     }
 
@@ -790,5 +856,84 @@ impl GcObject for Object {
     fn clear_refs(&mut self) {
         self.class = None;
         self.fields.clear();
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TupleState {
+    pub elements: Vec<Value>,
+    pub names: Option<HashMap<String, usize>>,
+}
+
+impl TupleState {
+    pub fn new(elements: Vec<Value>, names: Option<HashMap<String, usize>>) -> Self {
+        Self { elements, names }
+    }
+}
+
+impl GcObject for TupleState {
+    fn mark(&self, gc: &mut MarkAndSweepGC) {
+        for v in &self.elements {
+            v.mark(gc);
+        }
+    }
+
+    fn clear_refs(&mut self) {
+        self.elements.clear();
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum IteratorState {
+    Array {
+        array: GcRc<ArrayState>,
+        index: usize,
+        is_entries: bool,
+    },
+    Tuple {
+        tuple: GcRc<TupleState>,
+        index: usize,
+    },
+    Range {
+        range: Range,
+        current: i64,
+    },
+    Object {
+        iterator: GcRc<Object>,
+    },
+    Map {
+        map: GcRc<MapState>,
+        keys: Vec<String>,
+        index: usize,
+        is_entries: bool,
+    },
+    Set {
+        set: GcRc<std::collections::HashSet<ValueKey>>,
+        values: Vec<ValueKey>,
+        index: usize,
+    },
+}
+
+impl GcObject for IteratorState {
+    fn mark(&self, gc: &mut MarkAndSweepGC) {
+        match self {
+            IteratorState::Array { array, .. } => gc.mark_object(&array.to_gc_object()),
+            IteratorState::Tuple { tuple, .. } => gc.mark_object(&tuple.to_gc_object()),
+            IteratorState::Range { .. } => {}
+            IteratorState::Object { iterator } => gc.mark_object(&iterator.to_gc_object()),
+            IteratorState::Map { map, .. } => gc.mark_object(&map.to_gc_object()),
+            IteratorState::Set { set, .. } => gc.mark_object(&set.to_gc_object()),
+        }
+    }
+
+    fn clear_refs(&mut self) {
+        match self {
+            IteratorState::Array { array, .. } => array.borrow_mut().clear_refs(),
+            IteratorState::Tuple { tuple, .. } => tuple.borrow_mut().clear_refs(),
+            IteratorState::Range { .. } => {}
+            IteratorState::Object { iterator } => iterator.borrow_mut().clear_refs(),
+            IteratorState::Map { map, .. } => map.borrow_mut().clear_refs(),
+            IteratorState::Set { set, .. } => set.borrow_mut().clear(),
+        }
     }
 }

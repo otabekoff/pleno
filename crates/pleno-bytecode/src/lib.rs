@@ -96,6 +96,14 @@ pub enum Opcode {
     CallSuper,
     SetCapture,
     MapRemove,
+    NewTuple,
+    TupleAppend,
+    TupleNamedAppend,
+    SetOperators,
+    GetIterator,
+    IterNext,
+    Specialize,
+    SetTypeParams,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

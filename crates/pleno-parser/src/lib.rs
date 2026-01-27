@@ -989,6 +989,91 @@ impl Parser {
                     _ => break,
                 }
             }
+            if matches!(self.peek_kind(), TokenKind::KeywordOperator) {
+                self.advance(); // consume 'operator'
+                // Parse operator symbol: +, -, *, /, ==, !=, <, <=, >, >=, [], etc.
+                let op_symbol = match self.peek_kind() {
+                    TokenKind::Plus => {
+                        self.advance();
+                        "+".to_string()
+                    }
+                    TokenKind::Minus => {
+                        self.advance();
+                        "-".to_string()
+                    }
+                    TokenKind::Star => {
+                        self.advance();
+                        "*".to_string()
+                    }
+                    TokenKind::Slash => {
+                        self.advance();
+                        "/".to_string()
+                    }
+                    TokenKind::Percent => {
+                        self.advance();
+                        "%".to_string()
+                    }
+                    TokenKind::EqualEqual => {
+                        self.advance();
+                        "==".to_string()
+                    }
+                    TokenKind::BangEqual => {
+                        self.advance();
+                        "!=".to_string()
+                    }
+                    TokenKind::Less => {
+                        self.advance();
+                        "<".to_string()
+                    }
+                    TokenKind::LessEqual => {
+                        self.advance();
+                        "<=".to_string()
+                    }
+                    TokenKind::Greater => {
+                        self.advance();
+                        ">".to_string()
+                    }
+                    TokenKind::GreaterEqual => {
+                        self.advance();
+                        ">=".to_string()
+                    }
+                    TokenKind::LBracket => {
+                        self.advance();
+                        self.expect(TokenKind::RBracket, "Expected ']' after '[' in operator")?;
+                        "[]".to_string()
+                    }
+                    other => {
+                        return Err(ParseError {
+                            message: format!("Expected operator symbol, found {other:?}"),
+                            span: self.peek_span(),
+                        });
+                    }
+                };
+                // Parse function parameters and body
+                self.expect(TokenKind::LParen, "Expected '(' after operator symbol")?;
+                let params = self.parse_param_list()?;
+                self.expect(TokenKind::RParen, "Expected ')' after operator parameters")?;
+                let return_ty = if self.matches(&TokenKind::Colon) {
+                    Some(self.parse_type()?)
+                } else {
+                    None
+                };
+                let body = Box::new(self.parse_block_stmt()?);
+                methods.push(pleno_ast::FunctionDecl {
+                    name: format!("operator{}", op_symbol),
+                    generics: Vec::new(),
+                    params,
+                    return_ty,
+                    body,
+                    is_static: false,
+                    is_abstract: is_abstract_member,
+                    is_async: false,
+                    visibility,
+                    kind: pleno_ast::FunctionKind::Operator(op_symbol),
+                    annotations: member_annotations,
+                });
+                continue;
+            }
             if matches!(self.peek_kind(), TokenKind::KeywordFn) {
                 methods.push(self.parse_function_decl(FunctionDeclarationConfig {
                     kind: pleno_ast::FunctionKind::Method,
@@ -2224,6 +2309,28 @@ impl Parser {
                     ExprKind::Index {
                         collection: Box::new(expr),
                         index: Box::new(start_idx),
+                    },
+                    start_span,
+                );
+                continue;
+            }
+            if self.matches(&TokenKind::Less) {
+                let mut type_args = Vec::new();
+                loop {
+                    type_args.push(self.parse_type()?);
+                    if self.matches(&TokenKind::Comma) {
+                        continue;
+                    }
+                    break;
+                }
+                self.expect(
+                    TokenKind::Greater,
+                    "Expected '>' after generic type arguments",
+                )?;
+                expr = self.wrap_expr(
+                    ExprKind::Specialize {
+                        left: Box::new(expr),
+                        type_args,
                     },
                     start_span,
                 );
