@@ -1,0 +1,27 @@
+let add = fn(x, y) => x + y;
+let add5 = add(5, _);
+print("add5(10) = " + add5(10));
+
+let greet = fn(greeting, name) => greeting + ", " + name;
+let hello = greet("Hello", _);
+print("hello(\"World\") = " + hello("World"));
+
+/*
+// Named partials
+let subtract = fn(a, b) => a - b;
+let subFrom10 = subtract(a: 10, b: _);
+print("subFrom10(3) = " + subFrom10(3));
+*/
+
+
+// Currying test
+let multiply = fn(a) => fn(b) => a * b;
+let double = multiply(2);
+print("double(5) = " + double(5));
+
+let make_adder = fn(a) => {
+    let b = 10;
+    return fn(c) => a + b + c;
+};
+let add20 = make_adder(10);
+print("add20(5) = " + add20(5));

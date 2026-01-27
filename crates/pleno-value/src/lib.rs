@@ -7,6 +7,7 @@ use std::rc::Rc;
 
 pub trait VMProvider {
     fn call(&mut self, callee: Value, args: Vec<Value>) -> Result<Value, RuntimeError>;
+    fn spawn(&mut self, callee: Value, args: Vec<Value>) -> Result<Value, RuntimeError>;
     fn get_gc(&mut self) -> &mut gc::GCManager;
     fn create_promise(&mut self) -> (u64, Value);
     fn resolve_promise(&mut self, id: u64, value: Value);
@@ -112,7 +113,7 @@ pub enum Value {
     Set(GcRc<HashSet<ValueKey>>),
     Object(GcRc<Object>),
     Partial {
-        function: usize,
+        callee: Box<Value>,
         args: Vec<Value>,
         placeholders: Vec<usize>,
     },
@@ -246,7 +247,8 @@ impl GcObject for Value {
             Value::Array(a) => gc.mark_object(&a.to_gc_object()),
             Value::Set(s) => gc.mark_object(&s.to_gc_object()),
             Value::Object(o) => gc.mark_object(&o.to_gc_object()),
-            Value::Partial { args, .. } => {
+            Value::Partial { callee, args, .. } => {
+                callee.mark(gc);
                 for v in args {
                     v.mark(gc);
                 }
@@ -558,16 +560,16 @@ impl PartialEq for Value {
             (Value::Object(a), Value::Object(b)) => a.as_ptr() == b.as_ptr(),
             (
                 Value::Partial {
-                    function: fa,
+                    callee: ca,
                     args: aa,
                     placeholders: pa,
                 },
                 Value::Partial {
-                    function: fb,
+                    callee: cb,
                     args: ab,
                     placeholders: pb,
                 },
-            ) => fa == fb && aa == ab && pa == pb,
+            ) => ca == cb && aa == ab && pa == pb,
             (
                 Value::ArrayOp {
                     kind: ka,

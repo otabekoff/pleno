@@ -1,0 +1,19 @@
+fn isEven(n) {
+    return n % 2 == 0;
+}
+
+fn double(n) {
+    return n * 2;
+}
+
+let result = [1, 2, 3, 4, 5] 
+    |> filter(_, isEven) 
+    |> map(_, double);
+
+print("Pipeline with partials: ");
+print(result);
+
+// Testing pipeline without partials (if it works by auto-injecting as first arg)
+// let result2 = [1, 2, 3, 4, 5] |> filter(isEven) |> map(double);
+// print("Pipeline without partials: ");
+// print(result2);

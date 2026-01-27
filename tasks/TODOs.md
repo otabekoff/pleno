@@ -3,6 +3,8 @@
 
 http://localhost:5173/pleno/specs/ is showing next page to introduction which is itself, and causing loop on docs.
 
+Add support to more than one print stuff parameters like in python. endless. with comma.
+
 See `TECHNICAL_DEBT.md` for the full list of technical debt items. Update it. Now we need to search the project, the comments, and find all leakages, unimplemented stuffs, and write all the technical debts in technical debt file.
 
 make the project clean and organized. Of course mainly project root. And review README.md and make it a programming language README for open source.

@@ -1,54 +1,37 @@
 # Specs Verification Log
+(Cleared verified core features. See ROADMAP.md for historical verification.)
 
-## 5. Data Structures
-- [x] 5.4 Tuples (Full implementation: positional and named tuples, indexed and named access, destructuring)
-- [x] 5.3 Sets (Full implementation with literals, constructor, and binary methods: union, intersection, difference)
+## 1. Core Syntax & Fundamentals
+- [ ] 1.2 Deep Immutability (`const deep` syntax and recursive enforcement)
+- [ ] 1.3 Optional Types (Null safety with `Type?`, `?.`, `??`, `!`)
 
 ## 3. Functions
-- [x] 3.2 Default Parameters (Full implementation: expression support, runtime `Missing` check)
-- [x] 3.3 Named Parameters (Full implementation: syntax with `:`, optional/out-of-order support)
+- [ ] 3.4 Variable Arguments (`...args`)
+- [ ] 3.4.1 Keyword-Only Parameters (`*` separator)
 
 ## 6. Functional Features
-- [ ] 6.3 Immutable Data Structures (Deferred)
-- [x] 6.5 Partial Application/Currying (Full implementation: `_` placeholder for partials, multi-level capture support for currying)
-- [x] 6.6 Pattern Matching on Data (Full implementation: Objects with Rest, multi-arg Variants, Nested patterns)
+- [ ] 6.3 Immutable Data Structures (Persistent data structures with `.with()`)
 
 ## 10. Generics
-- [x] 10.1 Generic Classes (Full implementation with runtime reification)
-- [x] 10.2 Reified Generics (Recursive reification of nested types, runtime `is` check support)
-- [ ] 10.3 Generic Constraints (Deferred - no runtime enforcement)
+- [ ] 10.3 Generic Constraints (Runtime enforcement of `T: Constraint`)
 
 ## 12. Memory & Performance
-- [ ] 12.1 Ownership Hints (Deferred)
-- [ ] 12.2 Lazy Evaluation (Deferred)
-
-## 13. Standard Library
-- [x] 13.4 Directory Operations (Full implementation in std:io)
-- [x] 13.6 Custom Iterators (Full implementation: protocol with `.iterator()`, `.entries()`, and `.next()`, support in `for` loops)
-- [x] 13.8 Regular Expressions (Full implementation with constructor and raw strings)
+- [ ] 12.1 Ownership Hints (`move`, `&`, `&mut`)
+- [ ] 12.2 Lazy Evaluation (`lazy` keyword and sequences)
 
 ## 14. Advanced Features
-- [ ] 14.1 Reflection (Deferred)
-- [ ] 14.2 Macros (Deferred)
-- [x] 14.3 Operator Overloading (Full implementation: binary operators including arithmetic, comparison, and access)
-- [x] 14.4 Extension Methods (Full implementation: `extend` keyword for adding methods to existing classes and primitives via Shadow Extension Classes)
-- [x] 14.6 Enum Types (Full implementation: variants with data, pattern matching with data extraction, recursion)
-- [x] 14.7 Type Aliases (Full implementation with `type` keyword)
-- [x] 14.8 Union & Intersection Types (Full implementation with `|` and `&`, supporting grouping and `is` operator)
+- [ ] 14.1 Reflection (Dynamic field/method access via `Reflect`)
+- [ ] 14.2 Macros (Compile-time code generation)
 
 ## 16. Package Manager
-- [ ] plm command (Deferred - handled by pleno-cli partially)
+- [ ] 16.1 plm command (Full dependency management)
 
 ## 17. Tooling
-- [ ] doc (Unimplemented)
+- [ ] 17.1 doc (Documentation generator)
 
-## 19. Performance
+## 18. Performance
 - [ ] 19.1 JIT (Deferred)
 - [ ] 19.2 Memory Hints (Deferred)
 
-## 20. Security
+## 19. Security
 - [ ] 20.2 Sandboxing (Deferred)
-
-## Verification Summary
-Deferred features are noted in ROADMAP.md and kept here for tracking.
-Core system is operational with verified syntax and major features implemented.

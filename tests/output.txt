@@ -1,0 +1,5 @@
+Array expansion test:
+First: 1
+Last: 5
+String expansion test:
+HELLO!!!
