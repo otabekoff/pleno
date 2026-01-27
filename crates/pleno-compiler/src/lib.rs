@@ -2101,11 +2101,19 @@ impl Compiler {
             let capture_count = captures.len() as u8;
             self.emit(Opcode::Closure, dest, func_index as u8, capture_count);
             for (idx, name) in captures.iter().enumerate() {
-                let reg = self
-                    .resolve_local(name)
-                    .ok_or_else(|| CompileError::new("unknown capture"))?
-                    .reg;
+                let reg = if let Some(local) = self.resolve_local(name) {
+                    local.reg
+                } else if let Some(capture_idx) = self.captures.get(name) {
+                    let temp = self.registers.allocate()?;
+                    self.emit(Opcode::LoadCapture, temp, *capture_idx as u8, 0);
+                    temp
+                } else {
+                    return Err(CompileError::new("unknown capture"));
+                };
                 self.emit(Opcode::Capture, dest, reg, idx as u8);
+                if !self.is_local_reg(reg) {
+                    self.free_temp(reg);
+                }
             }
         }
         Ok(dest)
@@ -2217,11 +2225,19 @@ impl Compiler {
         let capture_count = captures.len() as u8;
         self.emit(Opcode::Closure, dest, func_index as u8, capture_count);
         for (idx, name) in captures.iter().enumerate() {
-            let reg = self
-                .resolve_local(name)
-                .ok_or_else(|| CompileError::new("unknown capture"))?
-                .reg;
+            let reg = if let Some(local) = self.resolve_local(name) {
+                local.reg
+            } else if let Some(capture_idx) = self.captures.get(name) {
+                let temp = self.registers.allocate()?;
+                self.emit(Opcode::LoadCapture, temp, *capture_idx as u8, 0);
+                temp
+            } else {
+                return Err(CompileError::new("unknown capture"));
+            };
             self.emit(Opcode::Capture, dest, reg, idx as u8);
+            if !self.is_local_reg(reg) {
+                self.free_temp(reg);
+            }
         }
         Ok(dest)
     }
@@ -2244,7 +2260,9 @@ impl Compiler {
         self.collect_idents(&decl.body, &mut used);
         let mut captures = Vec::new();
         for name in used.keys() {
-            if !locals.contains_key(name) && self.resolve_local(name).is_some() {
+            if !locals.contains_key(name)
+                && (self.resolve_local(name).is_some() || self.captures.contains_key(name))
+            {
                 captures.push(name.clone());
             }
         }
@@ -2254,7 +2272,7 @@ impl Compiler {
     fn compile_extend_stmt(
         &mut self,
         target: &str,
-        generics: &[pleno_ast::GenericParam],
+        _generics: &[pleno_ast::GenericParam],
         methods: &[pleno_ast::FunctionDecl],
     ) -> Result<(), CompileError> {
         let class_reg = self.registers.allocate()?;

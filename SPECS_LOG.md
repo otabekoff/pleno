@@ -4,9 +4,13 @@
 - [x] 5.4 Tuples (Full implementation: positional and named tuples, indexed and named access, destructuring)
 - [x] 5.3 Sets (Full implementation with literals, constructor, and binary methods: union, intersection, difference)
 
+## 3. Functions
+- [x] 3.2 Default Parameters (Full implementation: expression support, runtime `Missing` check)
+- [x] 3.3 Named Parameters (Full implementation: syntax with `:`, optional/out-of-order support)
+
 ## 6. Functional Features
 - [ ] 6.3 Immutable Data Structures (Deferred)
-- [ ] 6.5 Partial Application/Currying (Deferred)
+- [x] 6.5 Partial Application/Currying (Full implementation: `_` placeholder for partials, multi-level capture support for currying)
 - [x] 6.6 Pattern Matching on Data (Full implementation: Objects with Rest, multi-arg Variants, Nested patterns)
 
 ## 10. Generics
@@ -28,6 +32,7 @@
 - [ ] 14.2 Macros (Deferred)
 - [x] 14.3 Operator Overloading (Full implementation: binary operators including arithmetic, comparison, and access)
 - [x] 14.4 Extension Methods (Full implementation: `extend` keyword for adding methods to existing classes and primitives via Shadow Extension Classes)
+- [x] 14.6 Enum Types (Full implementation: variants with data, pattern matching with data extraction, recursion)
 - [x] 14.7 Type Aliases (Full implementation with `type` keyword)
 - [x] 14.8 Union & Intersection Types (Full implementation with `|` and `&`, supporting grouping and `is` operator)
 
