@@ -432,8 +432,10 @@ pub fn resolve_builtin_method(ty: &str, name: &str) -> Option<pleno_value::Nativ
         ("Array", "contains") => Some(native_array_contains),
         ("Array", "indexOf") => Some(native_array_index_of),
         ("Array", "isEmpty") => Some(native_array_is_empty),
+        ("Array", "with") => Some(native_array_with),
         ("Map", "put") => Some(native_map_put),
         ("Map", "get") => Some(native_map_get),
+        ("Map", "with") => Some(native_map_with),
         ("Map", "remove") => Some(native_map_remove),
         ("Map", "clear") => Some(native_map_clear),
         ("Map", "containsKey") => Some(native_map_contains_key),
@@ -451,6 +453,7 @@ pub fn resolve_builtin_method(ty: &str, name: &str) -> Option<pleno_value::Nativ
         ("Set", "map") => Some(native_set_map),
         ("Set", "filter") => Some(native_set_filter),
         ("Set", "forEach") => Some(native_set_for_each),
+        ("Set", "with") => Some(native_set_with),
         ("Set", "toArray") => Some(native_set_to_array),
         ("Set", "union") => Some(native_set_union),
         ("Set", "intersection") => Some(native_set_intersection),
@@ -786,6 +789,21 @@ fn native_array_shift(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value,
         Ok(arr.borrow_mut().elements.remove(0))
     }
 }
+
+fn native_array_with(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    let arr = match &args[0] {
+        Value::Array(a) => a,
+        _ => return Err(RuntimeError::new("expected array")),
+    };
+    let mut elements = arr.borrow().elements.clone();
+    elements.push(args.get(1).cloned().unwrap_or(Value::Null));
+
+    Ok(Value::Array(vm.get_gc().allocate(ArrayState {
+        elements,
+        is_immutable: true,
+    })))
+}
+
 fn native_array_unshift(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
     let arr = match &args[0] {
         Value::Array(a) => a,
@@ -1029,6 +1047,25 @@ fn native_map_put(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, Run
         .insert(key, args.get(2).cloned().unwrap_or(Value::Null));
     Ok(Value::Null)
 }
+
+fn native_map_with(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    let map = match &args[0] {
+        Value::Map(m) => m,
+        _ => return Err(RuntimeError::new("expected map")),
+    };
+    let key = match args.get(1) {
+        Some(Value::String(s)) => s.as_str().to_string(),
+        _ => return Err(RuntimeError::new("map key must be string")),
+    };
+    let mut entries = map.borrow().entries.clone();
+    entries.insert(key, args.get(2).cloned().unwrap_or(Value::Null));
+
+    Ok(Value::Map(vm.get_gc().allocate(MapState {
+        entries,
+        is_immutable: true,
+    })))
+}
+
 fn native_map_get(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
     let map = match &args[0] {
         Value::Map(m) => m,
@@ -1122,6 +1159,22 @@ fn native_set_size(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, Ru
         _ => return Err(RuntimeError::new("expected set")),
     };
     Ok(Value::Int(set.borrow().len() as i64))
+}
+
+fn native_set_with(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    let set = match &args[0] {
+        Value::Set(s) => s,
+        _ => return Err(RuntimeError::new("expected set")),
+    };
+    let mut elements = set.borrow().elements.clone();
+    let key = ValueKey::try_from_value(args.get(1).unwrap_or(&Value::Null))
+        .ok_or_else(|| RuntimeError::new("invalid value for set"))?;
+    elements.insert(key);
+
+    Ok(Value::Set(vm.get_gc().allocate(SetState {
+        elements,
+        is_immutable: true,
+    })))
 }
 
 // Result/Option methods

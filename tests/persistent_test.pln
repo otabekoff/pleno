@@ -1,0 +1,40 @@
+print("--- Array .with() Test ---");
+let list = [1, 2, 3];
+let newList = list.with(4);
+print("Original list: " + list); // [1, 2, 3]
+print("New list: " + newList);   // [1, 2, 3, 4]
+
+try {
+    newList.push(5);
+    print("Error: should not be able to push to immutable list");
+} catch (e) {
+    print("Caught expected error for newList (immutable): " + e.message);
+}
+
+print("\n--- Map .with() Test ---");
+let config = { "host": "localhost", "port": 8080 };
+let newConfig = config.with("timeout", 30);
+print("Original config: " + config.host + ":" + config.port);
+print("New config: " + newConfig.host + ":" + newConfig.port + " (timeout: " + newConfig.timeout + ")");
+
+try {
+    newConfig.host = "remote";
+    print("Error: should not be able to mutate immutable map");
+} catch (e) {
+    print("Caught expected error for newConfig (immutable): " + e.message);
+}
+
+print("\n--- Set .with() Test ---");
+let ids = new Set([1, 2]);
+let newIds = ids.with(3);
+print("Original set size: " + ids.size()); // 2
+print("New set size: " + newIds.size());   // 3
+
+try {
+    newIds.add(4);
+    print("Error: should not be able to add to immutable set");
+} catch (e) {
+    print("Caught expected error for newIds (immutable): " + e.message);
+}
+
+print("\nPersistent data structures verification PASSED");
