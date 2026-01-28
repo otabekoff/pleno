@@ -17,6 +17,7 @@ pub trait VMProvider {
     fn register_module(&mut self, name: String, value: Value);
     fn register_global(&mut self, name: String, value: Value);
     fn set_builtin_resolver(&mut self, resolver: fn(&str, &str) -> Option<NativeFunction>);
+    fn check_is_instance(&self, value: &Value, type_val: &Value) -> bool;
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -102,6 +103,7 @@ pub enum Value {
         visibility: MethodVisibility,
     },
     Closure(GcRc<ClosureState>),
+    Thunk(GcRc<ThunkState>),
     NativeFunction(#[serde(skip, default = "default_native_function_val")] NativeFunction),
     BoundNativeMethod {
         receiver: Box<Value>,
@@ -187,6 +189,7 @@ impl Value {
             Value::BoundMethod { .. } => "Method",
             Value::StaticMethod { .. } => "StaticMethod",
             Value::Closure(_) => "Closure",
+            Value::Thunk(_) => "Thunk",
             Value::NativeFunction(_) => "NativeFunction",
             Value::BoundNativeMethod { .. } => "NativeMethod",
             Value::Map(_) => "Map",
@@ -247,6 +250,7 @@ impl GcObject for Value {
             Value::Interface(i) => gc.mark_object(&i.to_gc_object()),
             Value::BoundMethod { receiver, .. } => receiver.mark(gc),
             Value::Closure(c) => gc.mark_object(&c.to_gc_object()),
+            Value::Thunk(t) => gc.mark_object(&t.to_gc_object()),
             Value::BoundNativeMethod { receiver, .. } => receiver.mark(gc),
             Value::Map(m) => gc.mark_object(&m.to_gc_object()),
             Value::Array(a) => gc.mark_object(&a.to_gc_object()),
@@ -703,6 +707,7 @@ impl std::fmt::Display for Value {
                 write!(f, "<static method of {}>", owner.borrow().name)
             }
             Value::Closure(c) => write!(f, "<closure {}>", c.borrow().function),
+            Value::Thunk(_) => write!(f, "<thunk>"),
             Value::NativeFunction(_) => write!(f, "<native fn>"),
             Value::BoundNativeMethod { .. } => write!(f, "<native method>"),
             Value::Map(m) => {
@@ -877,6 +882,30 @@ impl GcObject for ClosureState {
     fn mark(&self, gc: &mut MarkAndSweepGC) {
         for v in &self.captures {
             v.mark(gc);
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ThunkState {
+    pub callable: Value,
+    pub value: Option<Value>,
+}
+
+impl ThunkState {
+    pub fn new(callable: Value) -> Self {
+        Self {
+            callable,
+            value: None,
+        }
+    }
+}
+
+impl GcObject for ThunkState {
+    fn mark(&self, gc: &mut MarkAndSweepGC) {
+        self.callable.mark(gc);
+        if let Some(value) = &self.value {
+            value.mark(gc);
         }
     }
 }

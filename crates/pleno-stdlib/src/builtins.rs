@@ -790,20 +790,6 @@ fn native_array_shift(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value,
     }
 }
 
-fn native_array_with(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
-    let arr = match &args[0] {
-        Value::Array(a) => a,
-        _ => return Err(RuntimeError::new("expected array")),
-    };
-    let mut elements = arr.borrow().elements.clone();
-    elements.push(args.get(1).cloned().unwrap_or(Value::Null));
-
-    Ok(Value::Array(vm.get_gc().allocate(ArrayState {
-        elements,
-        is_immutable: true,
-    })))
-}
-
 fn native_array_unshift(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
     let arr = match &args[0] {
         Value::Array(a) => a,
@@ -1030,6 +1016,34 @@ fn native_array_is_empty(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Val
         _ => return Err(RuntimeError::new("expected array")),
     };
     Ok(Value::Bool(arr.borrow().elements.is_empty()))
+}
+
+fn native_array_with(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    let arr = match &args[0] {
+        Value::Array(a) => a,
+        _ => return Err(RuntimeError::new("expected array")),
+    };
+    let index = match args.get(1) {
+        Some(Value::Int(i)) => *i,
+        _ => return Err(RuntimeError::new("expected integer index")),
+    };
+    let value = args.get(2).cloned().unwrap_or(Value::Null);
+
+    let mut elements = arr.borrow().elements.clone();
+    let len = elements.len() as i64;
+
+    let normalized_index = if index < 0 { len + index } else { index };
+
+    if normalized_index < 0 || normalized_index >= len {
+        return Err(RuntimeError::new(format!("index out of bounds: {}", index)));
+    }
+
+    elements[normalized_index as usize] = value;
+
+    Ok(Value::Array(vm.get_gc().allocate(ArrayState {
+        elements,
+        is_immutable: true,
+    })))
 }
 
 fn native_map_put(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {

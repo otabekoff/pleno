@@ -1,0 +1,60 @@
+
+class Animal {
+    public species: String = "Animal";
+    private secret: String = "Shh";
+    
+    fn speak() {
+        print(this.species);
+    }
+}
+
+class Dog extends Animal {
+    public name: String;
+    private age: Int;
+    
+    constructor(name: String, age: Int) {
+        this.name = name;
+        this.age = age;
+        this.species = "Dog";
+    }
+    
+    fn bark() {
+        print("Woof! I am " + this.name);
+    }
+    
+    fn getAge(): Int {
+        return this.age;
+    }
+}
+
+let dog = new Dog("Buddy", 5);
+
+// Test getFields
+let fields = Reflect.getFields(dog);
+print("Fields: " + fields.join(", "));
+// Expected: age, name, secret, species (order might vary but sorted in reflection impl)
+
+// Test getMethods
+let methods = Reflect.getMethods(dog);
+print("Methods: " + methods.join(", "));
+// Expected: bark, constructor, getAge, speak
+
+// Test getField
+print("Name: " + Reflect.getField(dog, "name"));
+print("Age: " + Reflect.getField(dog, "age"));
+// Should be able to access private fields via reflection
+print("Secret: " + Reflect.getField(dog, "secret"));
+
+// Test setField
+Reflect.setField(dog, "name", "Max");
+print("New Name: " + dog.name);
+
+// Test callMethod
+Reflect.callMethod(dog, "bark", []);
+
+// Test isInstanceOf
+if (Reflect.isInstanceOf(dog, Dog)) { print("dog is Dog"); }
+if (Reflect.isInstanceOf(dog, Animal)) { print("dog is Animal"); }
+if (!Reflect.isInstanceOf(dog, String)) { print("dog is not String"); }
+
+print("Reflection Tests Complete");

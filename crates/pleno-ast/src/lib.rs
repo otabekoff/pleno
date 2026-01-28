@@ -145,6 +145,11 @@ pub enum ExprKind {
         left: Box<Expr>,
         type_args: Vec<String>,
     },
+    MacroCall {
+        name: String,
+        args: Vec<CallArg>,
+    },
+    MacroSplice(Box<Expr>),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -198,6 +203,12 @@ pub enum StmtKind {
         value: Option<Expr>,
         is_const: bool,
         is_deep: bool,
+        is_lazy: bool,
+    },
+    MacroDecl {
+        name: String,
+        params: Vec<String>,
+        body: Box<Stmt>,
     },
     Assign {
         name: String,

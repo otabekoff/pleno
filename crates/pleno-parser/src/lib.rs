@@ -103,6 +103,7 @@ impl Parser {
             TokenKind::KeywordModule => self.parse_module_stmt(),
             TokenKind::KeywordLet => self.parse_let_stmt(),
             TokenKind::KeywordConst => self.parse_const_stmt(),
+            TokenKind::KeywordMacro => self.parse_macro_decl_stmt(),
             TokenKind::KeywordIf => self.parse_if_stmt(),
             TokenKind::KeywordWhile => self.parse_while_stmt(),
             TokenKind::KeywordFor => self.parse_for_stmt(),
@@ -244,6 +245,7 @@ impl Parser {
     fn parse_let_declaration(&mut self, forced_mutable: bool) -> Result<Stmt, ParseError> {
         let start_span = self.peek_span();
         self.advance(); // let
+        let is_lazy = self.matches(&TokenKind::KeywordLazy);
         let mutable = self.matches(&TokenKind::KeywordMut) || forced_mutable;
         let name = match self.advance().kind.clone() {
             TokenKind::Ident(value) => value,
@@ -272,6 +274,7 @@ impl Parser {
                 value,
                 is_const: false,
                 is_deep: false,
+                is_lazy,
             },
             start_span,
         ))
@@ -317,6 +320,7 @@ impl Parser {
                 value,
                 is_const: true,
                 is_deep,
+                is_lazy: false,
             },
             start_span,
         ))
@@ -423,6 +427,44 @@ impl Parser {
         self.expect(TokenKind::RParen, "Expected ')' after while condition")?;
         let body = Box::new(self.parse_stmt()?);
         Ok(self.wrap_stmt(StmtKind::While { condition, body }, start_span))
+    }
+
+    fn parse_macro_decl_stmt(&mut self) -> Result<Stmt, ParseError> {
+        let start_span = self.peek_span();
+        self.advance(); // macro
+        let name = match self.advance().kind.clone() {
+            TokenKind::Ident(value) => value,
+            other => {
+                return Err(ParseError {
+                    message: format!("Expected macro name after 'macro', found {other:?}"),
+                    span: self.previous_span(),
+                });
+            }
+        };
+        self.expect(TokenKind::LParen, "Expected '(' after macro name")?;
+        let mut params = Vec::new();
+        if !matches!(self.peek_kind(), TokenKind::RParen) {
+            loop {
+                let param = match self.advance().kind.clone() {
+                    TokenKind::Ident(value) => value,
+                    other => {
+                        return Err(ParseError {
+                            message: format!(
+                                "Expected parameter name in macro declaration, found {other:?}"
+                            ),
+                            span: self.previous_span(),
+                        });
+                    }
+                };
+                params.push(param);
+                if !self.matches(&TokenKind::Comma) {
+                    break;
+                }
+            }
+        }
+        self.expect(TokenKind::RParen, "Expected ')' after macro parameters")?;
+        let body = Box::new(self.parse_stmt()?);
+        Ok(self.wrap_stmt(StmtKind::MacroDecl { name, params, body }, start_span))
     }
 
     fn parse_fn_stmt(
@@ -2295,6 +2337,18 @@ impl Parser {
                     }
                 }
             }
+            TokenKind::Dollar => {
+                let dollar_span = token.span;
+                if !self.matches(&TokenKind::LBrace) {
+                    return Err(ParseError {
+                        message: "Expected '{' after '$' for macro splice".to_string(),
+                        span: dollar_span,
+                    });
+                }
+                let expr = self.parse_expr()?;
+                self.expect(TokenKind::RBrace, "Expected '}' after macro splice")?;
+                Ok(self.wrap_expr(ExprKind::MacroSplice(Box::new(expr)), start_span))
+            }
             other => Err(ParseError {
                 message: format!("Unexpected token in expression: {other:?}"),
                 span: token.span,
@@ -2482,6 +2536,20 @@ impl Parser {
             }
 
             if self.matches(&TokenKind::Bang) {
+                if allow_call
+                    && matches!(expr.kind, ExprKind::Ident(_))
+                    && self.check(&TokenKind::LParen)
+                {
+                    let name = if let ExprKind::Ident(name) = expr.kind {
+                        name
+                    } else {
+                        unreachable!()
+                    };
+                    self.advance(); // consume '('
+                    let args = self.parse_call_args()?;
+                    expr = self.wrap_expr(ExprKind::MacroCall { name, args }, start_span);
+                    continue;
+                }
                 expr = self.wrap_expr(ExprKind::AssertNotNull(Box::new(expr)), start_span);
                 continue;
             }
@@ -2976,6 +3044,55 @@ impl Parser {
     }
 
     fn parse_base_type(&mut self) -> Result<String, ParseError> {
+        // Ownership hints: move T
+        if self.matches(&TokenKind::KeywordMove) {
+            let inner = self.parse_base_type()?;
+            return Ok(format!("move {}", inner));
+        }
+
+        // Reference types: &T or &mut T
+        if self.check(&TokenKind::Ampersand) {
+            let start_span = self.peek_span();
+            self.advance(); // consume '&'
+            let mut type_str = String::from("&");
+            if self.matches(&TokenKind::KeywordMut) {
+                type_str.push_str("mut ");
+            }
+
+            // Base type name after & / &mut
+            let base_name = match self.advance().kind.clone() {
+                TokenKind::Ident(name) => name,
+                TokenKind::Null => "Null".to_string(),
+                other => {
+                    return Err(ParseError {
+                        message: format!("Expected type name after '&', found {other:?}"),
+                        span: start_span,
+                    });
+                }
+            };
+            type_str.push_str(&base_name);
+
+            // Generic arguments: &Option<Int>
+            if self.matches(&TokenKind::Less) {
+                type_str.push('<');
+                loop {
+                    type_str.push_str(&self.parse_type()?);
+                    if self.matches(&TokenKind::Comma) {
+                        type_str.push_str(", ");
+                        continue;
+                    }
+                    break;
+                }
+                self.expect(
+                    TokenKind::Greater,
+                    "Expected '>' after generic type arguments",
+                )?;
+                type_str.push('>');
+            }
+
+            return self.parse_type_postfix(type_str);
+        }
+
         // Check for function type or grouping: (Int, Int) => String or (Int | String)
         if self.check(&TokenKind::LParen) {
             let start = self.peek_span();

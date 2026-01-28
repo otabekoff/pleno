@@ -67,15 +67,24 @@ fn is_complete(input: &str) -> bool {
     }
 }
 
+// ... imports ...
+
 pub fn start() -> Result<()> {
     let mut vm = VM::new();
     pleno_stdlib::register(&mut vm);
-    let mut rl = DefaultEditor::new()?;
+
+    let config = rustyline::Config::builder()
+        .edit_mode(rustyline::EditMode::Emacs)
+        .build();
+    let mut rl = DefaultEditor::with_config(config)?;
 
     // Load history if exists
     let history_path = dirs_history_path();
     if let Some(ref path) = history_path {
-        let _ = rl.load_history(path);
+        if let Err(_e) = rl.load_history(path) {
+            // It's okay if history doesn't exist yet, but warn on other errors
+            // println!("Warning: Could not load history: {}", e);
+        }
     }
 
     println!("Pleno REPL v0.1.0");
@@ -106,6 +115,7 @@ pub fn start() -> Result<()> {
                             continue;
                         }
                         ":clear" => {
+                            _ = rl.clear_screen(); // rustyline helper
                             vm = VM::new();
                             pleno_stdlib::register(&mut vm);
                             println!("VM state cleared.");
@@ -128,13 +138,18 @@ pub fn start() -> Result<()> {
             }
             Err(ReadlineError::Interrupted) => {
                 // CTRL+C
-                println!("^C");
-                input_buffer.clear();
+                if input_buffer.is_empty() {
+                    println!("^C");
+                    println!("(To exit, type :quit or press Ctrl+D)");
+                } else {
+                    println!("^C (Input cancelled)");
+                    input_buffer.clear();
+                }
                 continue;
             }
             Err(ReadlineError::Eof) => {
                 // CTRL+D
-                println!("\nGoodbye!");
+                println!("Goodbye!");
                 break;
             }
             Err(err) => {
@@ -218,11 +233,20 @@ fn print_help() {
 }
 
 fn dirs_history_path() -> Option<String> {
-    // Try to get a reasonable history path
+    // Try HOME first (Linux/macOS)
     if let Ok(home) = std::env::var("HOME") {
-        Some(format!("{}/.pleno_history", home))
-    } else {
-        None
+        return Some(format!("{}/.pleno_history", home));
+    }
+
+    // Try USERPROFILE (Windows)
+    if let Ok(home) = std::env::var("USERPROFILE") {
+        return Some(format!("{}/.pleno_history", home));
+    }
+
+    // Fallback to current directory
+    match std::env::current_dir() {
+        Ok(path) => Some(format!("{}/.pleno_history", path.display())),
+        Err(_) => Some(".pleno_history".to_string()),
     }
 }
 

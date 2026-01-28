@@ -2,11 +2,17 @@
 
 (Cleared verified core features. See ROADMAP.md for historical verification.)
 
-(Cleared verified core features. See ROADMAP.md for historical verification.)
-
 ## 16. Package Manager
 
-- [ ] 16.1 plm command (Full dependency management)
+- [x] 16.1 Basic `plm` CLI (`init`, `install`, `run`)
+- [x] 16.2 TOML Manifest (`pleno.toml`) and Lockfile (`pleno.lock`)
+- [ ] 16.3 Semantic Version Solver (`^`, `~` semantics)
+- [ ] 16.4 Hybrid Registry Integration (Index-only server + Git storage)
+- [ ] 16.5 Package Publishing (`plm publish`)
+- [ ] 16.6 Trust Model (Checksums & SHA256 integrity)
+- [ ] 16.7 Features & Optional Dependencies
+- [ ] 16.8 Offline Cache & Performance (Lockfile upgrades)
+- [ ] 16.9 Binary Builds & Distribution (Multi-platform)
 
 ## 17. Tooling
 

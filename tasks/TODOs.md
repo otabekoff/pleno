@@ -5,10 +5,19 @@ http://localhost:5173/pleno/specs/ is showing next page to introduction which is
 
 Now, as we have finished v1 of the Pleno programming language, we fully support specs.md and many other things not listed in it too. Now what I want is, you need to add those already implemented, but missed things in specs.md to be noted.
 
+Always do cargo clippy --workspace --all-targets --all-features -- -D warnings and github add    commit and push. gh?
+
 Now, as we have finished v1 of the Pleno programming langguage, I want you to fully think and write, plan the next v2 of Pleno programming language. We need V2 roadmap, v2-specs.md. Here we'll add better features, make the old and inconsistent things enhanced, better, implement new features and support many things, more stdlibs. and many more. Think more and write detailed, Things will be added, upgraded, updated, fixed, supported.
 
 We have to deploy v1 fully. Now we need to update the docs.
 
+LSP and IDE features. REPL, also colors?.
+
+Better error reporting like Rust's.
+
+More comment types?
+
+end, sep and others?
 
 V1 missing things noti implemented, deferred, technical debts should be identifed and should be saved to one file. v1-last-tasks.md
 
@@ -17,6 +26,8 @@ Scripts, management tools, makefile better vesrion. Organize the project.
 Move to new version of taks management in tasks folder. New workflow.
 
 More examples. Benchmark. IDE Features.
+
+
 
 Clean the project sources folder.
 

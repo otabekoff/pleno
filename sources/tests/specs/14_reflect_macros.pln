@@ -1,0 +1,45 @@
+// --- 14. Advanced Features: Reflection (partial), Macros (syntax only) ---
+
+import { Reflect } from "std:reflect";
+
+class User {
+    public name: String;
+    public age: Int;
+}
+
+fn reflection_demo() {
+    let user = User();
+
+    let typeName = Reflect.getTypeName(user);
+    print(typeName);
+
+    let fields = Reflect.getFields(user);
+    print(fields);
+
+    let methods = Reflect.getMethods(user);
+    print(methods);
+
+    Reflect.setField(user, "name", "Alice");
+    let name = Reflect.getField(user, "name");
+    print(name);
+
+    if (Reflect.isInstanceOf(user, User)) {
+        print("Is a User instance");
+    }
+}
+
+reflection_demo();
+
+// Macro syntax – currently parsed only, no expansion:
+macro repeat(count, code) {
+    for (let i = 0; i < count; i++) {
+        ${code}
+    }
+}
+
+repeat!(3, {
+    print("Hello from macro!");
+});
+
+print("14. Advanced Features: Reflection + Macro Syntax Parsed");
+

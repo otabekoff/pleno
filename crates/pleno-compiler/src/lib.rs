@@ -25,6 +25,9 @@ pub struct Compiler {
     registers: RegisterAllocator,
     last_expr_register: Option<u8>,
     locals: Vec<HashMap<String, Local>>,
+    lazy_locals: HashMap<u8, bool>,
+    ownership_states: HashMap<u8, OwnershipState>,
+    fn_signatures: Vec<HashMap<String, Vec<ParamOwnership>>>,
     loop_counter: u32,
     loop_stack: Vec<LoopContext>,
     captures: HashMap<String, usize>,
@@ -58,6 +61,9 @@ impl Compiler {
             registers: RegisterAllocator::new(),
             last_expr_register: None,
             locals: vec![HashMap::new()],
+            lazy_locals: HashMap::new(),
+            ownership_states: HashMap::new(),
+            fn_signatures: vec![HashMap::new()],
             loop_counter: 0,
             loop_stack: Vec::new(),
             captures: HashMap::new(),
@@ -173,16 +179,25 @@ impl Compiler {
                 is_const,
                 is_deep,
                 ty,
+                is_lazy,
             } => {
                 if *is_const && value.is_none() {
                     return Err(self.error("const requires an initializer", stmt.span));
                 }
                 let reg = if let Some(expr) = value {
-                    let reg = self.compile_expr(expr)?;
-                    if let Some(ty_name) = ty {
-                        self.emit_type_check(reg, ty_name)?;
+                    if *is_lazy {
+                        let thunk_reg = self.compile_lazy_thunk(expr)?;
+                        if let Some(ty_name) = ty {
+                            self.emit_type_check(thunk_reg, ty_name)?;
+                        }
+                        thunk_reg
+                    } else {
+                        let reg = self.compile_expr(expr)?;
+                        if let Some(ty_name) = ty {
+                            self.emit_type_check(reg, ty_name)?;
+                        }
+                        reg
                     }
-                    reg
                 } else {
                     let reg = self.registers.allocate()?;
                     self.emit(Opcode::LoadNull, reg, 0, 0);
@@ -202,6 +217,9 @@ impl Compiler {
                     self.emit(Opcode::Freeze, reg, 1, 0);
                 }
                 self.insert_local(name.clone(), reg, *mutable, ty.clone())?;
+                if *is_lazy {
+                    self.lazy_locals.insert(reg, true);
+                }
                 Ok(())
             }
             StmtKind::Assign { name, value } => {
@@ -214,6 +232,8 @@ impl Compiler {
                         self.emit_type_check(value_reg, ty_name)?;
                     }
                     self.emit(Opcode::Move, local.reg, value_reg, 0);
+                    self.ownership_states
+                        .insert(local.reg, OwnershipState::Available);
                 } else if let Some(index) = self.captures.get(name).cloned() {
                     // Update capture
                     self.emit(Opcode::SetCapture, value_reg, index as u8, 0);
@@ -463,6 +483,16 @@ impl Compiler {
                 annotations,
                 is_async,
             } => {
+                let ownership = params
+                    .iter()
+                    .map(|param| ParamOwnership {
+                        name: param.name.clone(),
+                        hint: parse_ownership_hint(param.ty.as_deref()),
+                    })
+                    .collect::<Vec<_>>();
+                if let Some(scope) = self.fn_signatures.last_mut() {
+                    scope.insert(name.clone(), ownership);
+                }
                 let decl = FunctionDecl {
                     name: name.clone(),
                     generics: generics.clone(),
@@ -660,6 +690,7 @@ impl Compiler {
                 }
                 Ok(())
             }
+            StmtKind::MacroDecl { .. } => Ok(()),
         }
     }
 
@@ -743,16 +774,35 @@ impl Compiler {
             }
             ExprKind::Ident(name) => {
                 if let Some(local) = self.resolve_local(name) {
-                    Ok(local.reg)
+                    if self
+                        .ownership_states
+                        .get(&local.reg)
+                        .is_some_and(|state| matches!(state, OwnershipState::Moved))
+                    {
+                        return Err(self.error("use of moved value", expr.span));
+                    }
+                    if self.lazy_locals.contains_key(&local.reg) {
+                        let dest = self.registers.allocate()?;
+                        self.emit(Opcode::ForceThunk, dest, local.reg, 0);
+                        Ok(dest)
+                    } else {
+                        Ok(local.reg)
+                    }
                 } else if let Some(index) = self.captures.get(name) {
                     let dest = self.registers.allocate()?;
                     self.emit(Opcode::LoadCapture, dest, *index as u8, 0);
-                    Ok(dest)
+                    let forced = self.registers.allocate()?;
+                    self.emit(Opcode::ForceThunk, forced, dest, 0);
+                    self.free_temp(dest);
+                    Ok(forced)
                 } else {
                     let dest = self.registers.allocate()?;
                     let name_idx = self.add_constant(Value::String(name.clone().into()));
                     self.emit(Opcode::GetGlobal, dest, name_idx, 0);
-                    Ok(dest)
+                    let forced = self.registers.allocate()?;
+                    self.emit(Opcode::ForceThunk, forced, dest, 0);
+                    self.free_temp(dest);
+                    Ok(forced)
                 }
             }
             ExprKind::This => self
@@ -1118,6 +1168,12 @@ impl Compiler {
                 "spread operator only allowed in collection literals",
             )),
             ExprKind::Call { callee, args } => {
+                if let ExprKind::Ident(name) = &callee.kind {
+                    if let Some(params) = self.resolve_fn_signature(name) {
+                        let params = params.to_vec();
+                        self.enforce_call_ownership(&params, args, expr.span)?;
+                    }
+                }
                 // Handle super() constructor call
                 if matches!(&callee.kind, ExprKind::Super) {
                     if self.current_super.is_none() {
@@ -1247,6 +1303,9 @@ impl Compiler {
                 self.emit(Opcode::Await, dest, expr_reg, 0);
                 self.free_temp(expr_reg);
                 Ok(dest)
+            }
+            ExprKind::MacroCall { .. } | ExprKind::MacroSplice(_) => {
+                Err(self.error("macro expansion is not implemented", expr.span))
             }
         }
     }
@@ -3206,7 +3265,33 @@ impl Compiler {
             .last_mut()
             .ok_or_else(|| CompileError::new("scope missing"))?;
         scope.insert(name, Local { reg, mutable, ty });
+        self.ownership_states.insert(reg, OwnershipState::Available);
         Ok(())
+    }
+
+    fn compile_lazy_thunk(&mut self, expr: &Expr) -> Result<u8, CompileError> {
+        let body_stmt = Stmt {
+            kind: StmtKind::Return(Some(expr.clone())),
+            span: expr.span,
+        };
+        let decl = FunctionDecl {
+            name: "lazy_thunk".to_string(),
+            generics: Vec::new(),
+            params: Vec::new(),
+            return_ty: None,
+            body: Box::new(body_stmt),
+            is_static: false,
+            is_abstract: false,
+            is_async: false,
+            visibility: None,
+            kind: FunctionKind::Method,
+            annotations: Vec::new(),
+        };
+        let thunk_fn = self.compile_function(&decl, false, false, None)?;
+        let dest = self.registers.allocate()?;
+        self.emit(Opcode::MakeThunk, dest, thunk_fn, 0);
+        self.free_temp(thunk_fn);
+        Ok(dest)
     }
 
     fn resolve_local(&self, name: &str) -> Option<Local> {
@@ -3236,9 +3321,122 @@ impl Compiler {
                 if Some(local.reg) != self.last_expr_register {
                     self.registers.free(local.reg);
                 }
+                self.lazy_locals.remove(&local.reg);
+                self.ownership_states.remove(&local.reg);
             }
         }
+        self.fn_signatures.pop();
     }
+
+    fn resolve_fn_signature(&self, name: &str) -> Option<&Vec<ParamOwnership>> {
+        for scope in self.fn_signatures.iter().rev() {
+            if let Some(sig) = scope.get(name) {
+                return Some(sig);
+            }
+        }
+        None
+    }
+
+    fn enforce_call_ownership(
+        &mut self,
+        params: &[ParamOwnership],
+        args: &[pleno_ast::CallArg],
+        span: pleno_ast::Span,
+    ) -> Result<(), CompileError> {
+        let mut positional_idx = 0;
+        for arg in args {
+            match arg {
+                pleno_ast::CallArg::Positional(expr) => {
+                    if let Some(param) = params.get(positional_idx) {
+                        self.enforce_arg_ownership(param, expr, span)?;
+                    }
+                    positional_idx += 1;
+                }
+                pleno_ast::CallArg::Named(name, expr) => {
+                    if let Some(param) = params.iter().find(|p| p.name == *name) {
+                        self.enforce_arg_ownership(param, expr, span)?;
+                    }
+                }
+                pleno_ast::CallArg::Placeholder | pleno_ast::CallArg::Spread(_) => {}
+            }
+        }
+        Ok(())
+    }
+
+    fn enforce_arg_ownership(
+        &mut self,
+        param: &ParamOwnership,
+        expr: &Expr,
+        span: pleno_ast::Span,
+    ) -> Result<(), CompileError> {
+        if let ExprKind::Ident(name) = &expr.kind {
+            if let Some(local) = self.resolve_local(name) {
+                if self
+                    .ownership_states
+                    .get(&local.reg)
+                    .is_some_and(|state| matches!(state, OwnershipState::Moved))
+                {
+                    return Err(self.error("use of moved value", span));
+                }
+                match param.hint {
+                    OwnershipHint::Move => {
+                        self.ownership_states
+                            .insert(local.reg, OwnershipState::Moved);
+                    }
+                    OwnershipHint::RefMut => {
+                        if !local.mutable {
+                            return Err(self.error(
+                                "cannot take mutable reference to immutable binding",
+                                span,
+                            ));
+                        }
+                    }
+                    OwnershipHint::Ref | OwnershipHint::None => {}
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum OwnershipHint {
+    None,
+    Move,
+    Ref,
+    RefMut,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum OwnershipState {
+    Available,
+    Moved,
+}
+
+#[derive(Debug, Clone)]
+struct ParamOwnership {
+    name: String,
+    hint: OwnershipHint,
+}
+
+fn parse_ownership_hint(ty: Option<&str>) -> OwnershipHint {
+    let Some(ty) = ty.map(str::trim) else {
+        return OwnershipHint::None;
+    };
+    if let Some(rest) = ty.strip_prefix("move ") {
+        if !rest.is_empty() {
+            return OwnershipHint::Move;
+        }
+    }
+    if let Some(rest) = ty.strip_prefix("&mut ") {
+        if !rest.is_empty() {
+            return OwnershipHint::RefMut;
+        }
+    }
+    if ty.starts_with('&') {
+        return OwnershipHint::Ref;
+    }
+    OwnershipHint::None
 }
 
 struct RegisterAllocator {
