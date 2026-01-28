@@ -1117,117 +1117,40 @@ impl Compiler {
                 }
 
                 let callee_reg = self.compile_expr(callee)?;
-                let has_placeholder = args
-                    .iter()
-                    .any(|arg| matches!(arg, pleno_ast::CallArg::Placeholder));
-                let has_named = args
-                    .iter()
-                    .any(|arg| matches!(arg, pleno_ast::CallArg::Named(_, _)));
+                let dest = self.registers.allocate()?;
+                self.compile_call_internal(callee_reg, args, dest, expr.span)?;
+                self.free_temp(callee_reg);
+                Ok(dest)
+            }
+            ExprKind::SafeCall { callee, args } => {
+                let callee_reg = self.compile_expr(callee)?;
+                let dest = self.registers.allocate()?;
 
-                if has_placeholder {
-                    let args_reg = self.registers.allocate()?;
-                    self.emit(Opcode::NewArray, args_reg, 0, 0);
-                    for arg in args {
-                        match arg {
-                            pleno_ast::CallArg::Positional(expr) => {
-                                let arg_reg = self.compile_expr(expr)?;
-                                self.emit(Opcode::ArrayAppend, args_reg, arg_reg, 0);
-                                self.free_temp(arg_reg);
-                            }
-                            pleno_ast::CallArg::Placeholder => {
-                                let arg_reg = self.registers.allocate()?;
-                                self.emit(Opcode::LoadMissing, arg_reg, 0, 0);
-                                self.emit(Opcode::ArrayAppend, args_reg, arg_reg, 0);
-                                self.free_temp(arg_reg);
-                            }
-                            pleno_ast::CallArg::Spread(expr) => {
-                                let spread_reg = self.compile_expr(expr)?;
-                                self.emit(Opcode::ArrayExtend, args_reg, spread_reg, 0);
-                                self.free_temp(spread_reg);
-                            }
-                            pleno_ast::CallArg::Named(_, _) => {
-                                return Err(CompileError::new(
-                                    "named arguments not supported in partials yet",
-                                ));
-                            }
-                        }
-                    }
-                    let dest = self.registers.allocate()?;
-                    self.emit(Opcode::Partial, dest, callee_reg, args_reg);
-                    self.free_temp(callee_reg);
-                    self.free_temp(args_reg);
-                    return Ok(dest);
-                }
+                let null_check_reg = self.registers.allocate()?;
+                self.emit(Opcode::LoadNull, null_check_reg, 0, 0);
+                let is_null_reg = self.registers.allocate()?;
+                self.emit(Opcode::Eq, is_null_reg, callee_reg, null_check_reg);
+                self.free_temp(null_check_reg);
 
-                if has_named {
-                    let positional_reg = self.registers.allocate()?;
-                    self.emit(Opcode::NewArray, positional_reg, 0, 0);
-                    let named_reg = self.registers.allocate()?;
-                    self.emit(Opcode::NewMap, named_reg, 0, 0);
-                    let mut seen_named = std::collections::HashSet::new();
-                    for arg in args {
-                        match arg {
-                            pleno_ast::CallArg::Positional(expr) => {
-                                let arg_reg = self.compile_expr(expr)?;
-                                self.emit(Opcode::ArrayAppend, positional_reg, arg_reg, 0);
-                                self.free_temp(arg_reg);
-                            }
-                            pleno_ast::CallArg::Named(name, expr) => {
-                                if !seen_named.insert(name.clone()) {
-                                    return Err(CompileError::new("duplicate named argument"));
-                                }
-                                let arg_reg = self.compile_expr(expr)?;
-                                let name_idx =
-                                    self.add_constant(Value::String(name.clone().into()));
-                                self.emit(Opcode::SetProperty, arg_reg, named_reg, name_idx);
-                                self.free_temp(arg_reg);
-                            }
-                            pleno_ast::CallArg::Spread(expr) => {
-                                let spread_reg = self.compile_expr(expr)?;
-                                self.emit(Opcode::ArrayExtend, positional_reg, spread_reg, 0);
-                                self.free_temp(spread_reg);
-                            }
-                            pleno_ast::CallArg::Placeholder => unreachable!(),
-                        }
-                    }
-                    let wrapper_reg = self.registers.allocate()?;
-                    self.emit(Opcode::NewArray, wrapper_reg, 0, 0);
-                    self.emit(Opcode::ArrayAppend, wrapper_reg, positional_reg, 0);
-                    self.emit(Opcode::ArrayAppend, wrapper_reg, named_reg, 0);
-                    let dest = self.registers.allocate()?;
-                    self.emit(Opcode::CallNamed, dest, callee_reg, wrapper_reg);
-                    self.free_temp(positional_reg);
-                    self.free_temp(named_reg);
-                    self.free_temp(wrapper_reg);
-                    self.free_temp(callee_reg);
-                    Ok(dest)
-                } else {
-                    let args_reg = self.registers.allocate()?;
-                    self.emit(Opcode::NewArray, args_reg, 0, 0);
-                    for arg in args {
-                        match arg {
-                            pleno_ast::CallArg::Positional(expr) => {
-                                let arg_reg = self.compile_expr(expr)?;
-                                self.emit(Opcode::ArrayAppend, args_reg, arg_reg, 0);
-                                self.free_temp(arg_reg);
-                            }
-                            pleno_ast::CallArg::Spread(expr) => {
-                                let spread_reg = self.compile_expr(expr)?;
-                                self.emit(Opcode::ArrayExtend, args_reg, spread_reg, 0);
-                                self.free_temp(spread_reg);
-                            }
-                            pleno_ast::CallArg::Named(_, _) => {
-                                return Err(CompileError::new("named arguments require name"));
-                            }
-                            pleno_ast::CallArg::Placeholder => unreachable!(),
-                        }
-                    }
-                    let dest = self.registers.allocate()?;
-                    self.emit(Opcode::Call, dest, callee_reg, args_reg);
-                    self.free_temp(callee_reg);
-                    self.free_temp(args_reg);
-                    Ok(dest)
-                }
+                let jump_to_end = self.emit_jump(Opcode::JumpIf, is_null_reg);
+                self.free_temp(is_null_reg);
+
+                self.compile_call_internal(callee_reg, args, dest, expr.span)?;
+
+                let jump_past_null = self.emit_jump(Opcode::Jump, 0);
+                self.patch_jump(jump_to_end)?;
+                self.emit(Opcode::LoadNull, dest, 0, 0);
+                self.patch_jump(jump_past_null)?;
+
+                self.free_temp(callee_reg);
+                Ok(dest)
+            }
+            ExprKind::AssertNotNull(inner) => {
+                let val_reg = self.compile_expr(inner)?;
+                let dest = self.registers.allocate()?;
+                self.emit(Opcode::AssertNotNull, dest, val_reg, 0);
+                self.free_temp(val_reg);
+                Ok(dest)
             }
             ExprKind::Match { expr, arms } => {
                 let value_reg = self.compile_expr(expr)?;
@@ -1609,6 +1532,119 @@ impl Compiler {
             if let Some(loop_ctx) = self.loop_stack.last_mut() {
                 loop_ctx.continue_jumps.push(jump);
             }
+            Ok(())
+        }
+    }
+
+    fn compile_call_internal(
+        &mut self,
+        callee_reg: u8,
+        args: &[pleno_ast::CallArg],
+        dest: u8,
+        span: Span,
+    ) -> Result<(), CompileError> {
+        let has_placeholder = args
+            .iter()
+            .any(|arg| matches!(arg, pleno_ast::CallArg::Placeholder));
+        let has_named = args
+            .iter()
+            .any(|arg| matches!(arg, pleno_ast::CallArg::Named(_, _)));
+
+        if has_placeholder {
+            let args_reg = self.registers.allocate()?;
+            self.emit(Opcode::NewArray, args_reg, 0, 0);
+            for arg in args {
+                match arg {
+                    pleno_ast::CallArg::Positional(expr) => {
+                        let arg_reg = self.compile_expr(expr)?;
+                        self.emit(Opcode::ArrayAppend, args_reg, arg_reg, 0);
+                        self.free_temp(arg_reg);
+                    }
+                    pleno_ast::CallArg::Placeholder => {
+                        let arg_reg = self.registers.allocate()?;
+                        self.emit(Opcode::LoadMissing, arg_reg, 0, 0);
+                        self.emit(Opcode::ArrayAppend, args_reg, arg_reg, 0);
+                        self.free_temp(arg_reg);
+                    }
+                    pleno_ast::CallArg::Spread(expr) => {
+                        let spread_reg = self.compile_expr(expr)?;
+                        self.emit(Opcode::ArrayExtend, args_reg, spread_reg, 0);
+                        self.free_temp(spread_reg);
+                    }
+                    pleno_ast::CallArg::Named(_, _) => {
+                        return Err(
+                            self.error("named arguments not supported in partials yet", span)
+                        );
+                    }
+                }
+            }
+            self.emit(Opcode::Partial, dest, callee_reg, args_reg);
+            self.free_temp(args_reg);
+            return Ok(());
+        }
+
+        if has_named {
+            let positional_reg = self.registers.allocate()?;
+            self.emit(Opcode::NewArray, positional_reg, 0, 0);
+            let named_reg = self.registers.allocate()?;
+            self.emit(Opcode::NewMap, named_reg, 0, 0);
+            let mut seen_named = std::collections::HashSet::new();
+            for arg in args {
+                match arg {
+                    pleno_ast::CallArg::Positional(expr) => {
+                        let arg_reg = self.compile_expr(expr)?;
+                        self.emit(Opcode::ArrayAppend, positional_reg, arg_reg, 0);
+                        self.free_temp(arg_reg);
+                    }
+                    pleno_ast::CallArg::Named(name, expr) => {
+                        if !seen_named.insert(name.clone()) {
+                            return Err(self.error("duplicate named argument", span));
+                        }
+                        let arg_reg = self.compile_expr(expr)?;
+                        let name_idx = self.add_constant(Value::String(name.clone().into()));
+                        self.emit(Opcode::SetProperty, arg_reg, named_reg, name_idx);
+                        self.free_temp(arg_reg);
+                    }
+                    pleno_ast::CallArg::Spread(expr) => {
+                        let spread_reg = self.compile_expr(expr)?;
+                        self.emit(Opcode::ArrayExtend, positional_reg, spread_reg, 0);
+                        self.free_temp(spread_reg);
+                    }
+                    pleno_ast::CallArg::Placeholder => unreachable!(),
+                }
+            }
+            let wrapper_reg = self.registers.allocate()?;
+            self.emit(Opcode::NewArray, wrapper_reg, 0, 0);
+            self.emit(Opcode::ArrayAppend, wrapper_reg, positional_reg, 0);
+            self.emit(Opcode::ArrayAppend, wrapper_reg, named_reg, 0);
+            self.emit(Opcode::CallNamed, dest, callee_reg, wrapper_reg);
+            self.free_temp(positional_reg);
+            self.free_temp(named_reg);
+            self.free_temp(wrapper_reg);
+            Ok(())
+        } else {
+            let args_reg = self.registers.allocate()?;
+            self.emit(Opcode::NewArray, args_reg, 0, 0);
+            for arg in args {
+                match arg {
+                    pleno_ast::CallArg::Positional(expr) => {
+                        let arg_reg = self.compile_expr(expr)?;
+                        self.emit(Opcode::ArrayAppend, args_reg, arg_reg, 0);
+                        self.free_temp(arg_reg);
+                    }
+                    pleno_ast::CallArg::Spread(expr) => {
+                        let spread_reg = self.compile_expr(expr)?;
+                        self.emit(Opcode::ArrayExtend, args_reg, spread_reg, 0);
+                        self.free_temp(spread_reg);
+                    }
+                    pleno_ast::CallArg::Named(_, _) => {
+                        return Err(self.error("named arguments require name", span));
+                    }
+                    pleno_ast::CallArg::Placeholder => unreachable!(),
+                }
+            }
+            self.emit(Opcode::Call, dest, callee_reg, args_reg);
+            self.free_temp(args_reg);
             Ok(())
         }
     }

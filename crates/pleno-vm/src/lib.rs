@@ -285,6 +285,9 @@ impl VM {
                 last_result = match self.run_until(0) {
                     Ok(val) => val,
                     Err(mut err) => {
+                        if err.handled {
+                            continue;
+                        }
                         self.enrich_error(&mut err);
                         return Err(err);
                     }
@@ -509,7 +512,7 @@ impl VM {
                                 self.registers[base + a] = iter;
                             }
                             Err(err) => {
-                                self.throw_runtime_error(&err.message)?;
+                                return Err(self.throw_runtime_error(&err.message));
                             }
                         }
                     } else if let Value::Object(obj) = &source {
@@ -554,7 +557,7 @@ impl VM {
                                 self.registers[base + a] = val;
                             }
                             Err(err) => {
-                                self.throw_runtime_error(&err.message)?;
+                                return Err(self.throw_runtime_error(&err.message));
                             }
                         }
                     } else if let Value::Object(obj) = &iter {
@@ -700,10 +703,9 @@ impl VM {
                 }
                 Opcode::SetCapture => {
                     if self.functions[frame.function_index].is_pure {
-                        self.throw_runtime_error(
+                        return Err(self.throw_runtime_error(
                             "pure function cannot have side effects (captured state)",
-                        )?;
-                        continue;
+                        ));
                     }
                     let idx = b;
                     let value = self.registers[base + a].clone();
@@ -749,15 +751,15 @@ impl VM {
                 }
                 Opcode::SetAdd => {
                     if self.functions[frame.function_index].is_pure {
-                        self.throw_runtime_error("pure function cannot have side effects")?;
-                        continue;
+                        return Err(
+                            self.throw_runtime_error("pure function cannot have side effects")
+                        );
                     }
                     let value = self.registers[base + b].clone();
                     match &self.registers[base + a] {
                         Value::Set(set) => {
                             if set.borrow().is_immutable {
-                                self.throw_runtime_error("cannot modify immutable set")?;
-                                continue;
+                                return Err(self.throw_runtime_error("cannot modify immutable set"));
                             }
                             let key = value_to_key(&value)?;
                             set.borrow_mut().insert(key);
@@ -793,15 +795,17 @@ impl VM {
                 },
                 Opcode::ArrayAppend => {
                     if self.functions[frame.function_index].is_pure {
-                        self.throw_runtime_error("pure function cannot have side effects")?;
-                        continue;
+                        return Err(
+                            self.throw_runtime_error("pure function cannot have side effects")
+                        );
                     }
                     let value = self.registers[base + b].clone();
                     match &self.registers[base + a] {
                         Value::Array(array) => {
                             if array.borrow().is_immutable {
-                                self.throw_runtime_error("cannot modify immutable array")?;
-                                continue;
+                                return Err(
+                                    self.throw_runtime_error("cannot modify immutable array")
+                                );
                             }
                             array.borrow_mut().elements.push(value);
                         }
@@ -842,15 +846,17 @@ impl VM {
                 }
                 Opcode::ArraySpread => {
                     if self.functions[frame.function_index].is_pure {
-                        self.throw_runtime_error("pure function cannot have side effects")?;
-                        continue;
+                        return Err(
+                            self.throw_runtime_error("pure function cannot have side effects")
+                        );
                     }
                     let value = self.registers[base + b].clone();
                     match (&self.registers[base + a], value) {
                         (Value::Array(target), Value::Array(source)) => {
                             if target.borrow().is_immutable {
-                                self.throw_runtime_error("cannot modify immutable array")?;
-                                continue;
+                                return Err(
+                                    self.throw_runtime_error("cannot modify immutable array")
+                                );
                             }
                             target
                                 .borrow_mut()
@@ -862,15 +868,15 @@ impl VM {
                 }
                 Opcode::MapSpread => {
                     if self.functions[frame.function_index].is_pure {
-                        self.throw_runtime_error("pure function cannot have side effects")?;
-                        continue;
+                        return Err(
+                            self.throw_runtime_error("pure function cannot have side effects")
+                        );
                     }
                     let value = self.registers[base + b].clone();
                     match (&self.registers[base + a], value) {
                         (Value::Map(target), Value::Map(source)) => {
                             if target.borrow().is_immutable {
-                                self.throw_runtime_error("cannot modify immutable map")?;
-                                continue;
+                                return Err(self.throw_runtime_error("cannot modify immutable map"));
                             }
                             for (k, v) in source.borrow().entries.iter() {
                                 target.borrow_mut().entries.insert(k.clone(), v.clone());
@@ -888,8 +894,7 @@ impl VM {
                     match &self.registers[base + a] {
                         Value::Map(map) => {
                             if map.borrow().is_immutable {
-                                self.throw_runtime_error("cannot modify immutable map")?;
-                                continue;
+                                return Err(self.throw_runtime_error("cannot modify immutable map"));
                             }
                             map.borrow_mut().entries.remove(&name);
                         }
@@ -898,8 +903,9 @@ impl VM {
                 }
                 Opcode::SetSpread => {
                     if self.functions[frame.function_index].is_pure {
-                        self.throw_runtime_error("pure function cannot have side effects")?;
-                        continue;
+                        return Err(
+                            self.throw_runtime_error("pure function cannot have side effects")
+                        );
                     }
                     let value = self.registers[base + b].clone();
                     match (&self.registers[base + a], value) {
@@ -913,8 +919,9 @@ impl VM {
                 }
                 Opcode::ArrayExtend => {
                     if self.functions[frame.function_index].is_pure {
-                        self.throw_runtime_error("pure function cannot have side effects")?;
-                        continue;
+                        return Err(
+                            self.throw_runtime_error("pure function cannot have side effects")
+                        );
                     }
                     let value = self.registers[base + b].clone();
                     match (&self.registers[base + a], value) {
@@ -933,8 +940,9 @@ impl VM {
                 }
                 Opcode::SetField => {
                     if self.functions[frame.function_index].is_pure {
-                        self.throw_runtime_error("pure function cannot have side effects")?;
-                        continue;
+                        return Err(
+                            self.throw_runtime_error("pure function cannot have side effects")
+                        );
                     }
                     let name = match &function.chunk.constants[c] {
                         Value::String(value) => value.as_str().to_string(),
@@ -944,8 +952,9 @@ impl VM {
                     match &self.registers[base + b] {
                         Value::Object(object) => {
                             if object.borrow().is_immutable {
-                                self.throw_runtime_error("cannot modify immutable object")?;
-                                continue;
+                                return Err(
+                                    self.throw_runtime_error("cannot modify immutable object")
+                                );
                             }
                             object.borrow_mut().fields.insert(name, value);
                         }
@@ -1210,8 +1219,9 @@ impl VM {
 
                 Opcode::SetProperty => {
                     if self.functions[frame.function_index].is_pure {
-                        self.throw_runtime_error("pure function cannot have side effects")?;
-                        continue;
+                        return Err(
+                            self.throw_runtime_error("pure function cannot have side effects")
+                        );
                     }
                     let name = match &function.chunk.constants[c] {
                         Value::String(value) => value.as_str().to_string(),
@@ -1223,15 +1233,15 @@ impl VM {
                     match &self.registers[base + b] {
                         Value::Map(map) => {
                             if map.borrow().is_immutable {
-                                self.throw_runtime_error("cannot modify immutable map")?;
-                                continue;
+                                return Err(self.throw_runtime_error("cannot modify immutable map"));
                             }
                             map.borrow_mut().insert(name, value);
                         }
                         Value::Object(object) => {
                             if object.borrow().is_immutable {
-                                self.throw_runtime_error("cannot modify immutable object")?;
-                                continue;
+                                return Err(
+                                    self.throw_runtime_error("cannot modify immutable object")
+                                );
                             }
                             let class = object.borrow().class.clone();
                             if let Some(class) = class.as_ref() {
@@ -1838,8 +1848,7 @@ impl VM {
                             let idx = idx as usize;
                             let array_borrow = array.borrow();
                             if idx >= array_borrow.len() {
-                                self.throw_runtime_error("array index out of bounds")?;
-                                continue;
+                                return Err(self.throw_runtime_error("array index out of bounds"));
                             }
                             self.registers[base + a] = array_borrow[idx].clone();
                         }
@@ -1847,8 +1856,7 @@ impl VM {
                             let idx = idx as usize;
                             let t = tuple.borrow();
                             if idx >= t.elements.len() {
-                                self.throw_runtime_error("tuple index out of bounds")?;
-                                continue;
+                                return Err(self.throw_runtime_error("tuple index out of bounds"));
                             }
                             self.registers[base + a] = t.elements[idx].clone();
                         }
@@ -1869,8 +1877,9 @@ impl VM {
                 }
                 Opcode::SetIndex => {
                     if self.functions[frame.function_index].is_pure {
-                        self.throw_runtime_error("pure function cannot have side effects")?;
-                        continue;
+                        return Err(
+                            self.throw_runtime_error("pure function cannot have side effects")
+                        );
                     }
                     let value = self.registers[base + a].clone();
                     let collection = self.registers[base + b].clone();
@@ -1878,21 +1887,20 @@ impl VM {
                     match (collection, index) {
                         (Value::Array(array), Value::Int(idx)) => {
                             if array.borrow().is_immutable {
-                                self.throw_runtime_error("cannot modify immutable array")?;
-                                continue;
+                                return Err(
+                                    self.throw_runtime_error("cannot modify immutable array")
+                                );
                             }
                             let idx = idx as usize;
                             let mut array = array.borrow_mut();
                             if idx >= array.elements.len() {
-                                self.throw_runtime_error("array index out of bounds")?;
-                                continue;
+                                return Err(self.throw_runtime_error("array index out of bounds"));
                             }
                             array.elements[idx] = value;
                         }
                         (Value::Map(map), Value::String(key)) => {
                             if map.borrow().is_immutable {
-                                self.throw_runtime_error("cannot modify immutable map")?;
-                                continue;
+                                return Err(self.throw_runtime_error("cannot modify immutable map"));
                             }
                             map.borrow_mut()
                                 .entries
@@ -2072,8 +2080,9 @@ impl VM {
                 }
                 Opcode::SetGlobal => {
                     if self.functions[frame.function_index].is_pure {
-                        self.throw_runtime_error("pure function cannot have side effects")?;
-                        continue;
+                        return Err(
+                            self.throw_runtime_error("pure function cannot have side effects")
+                        );
                     }
                     let name = match &function.chunk.constants[b] {
                         Value::String(value) => value.as_str().to_string(),
@@ -2315,8 +2324,7 @@ impl VM {
                             }
 
                             if let Some(msg) = validation_error {
-                                self.throw_runtime_error(&msg)?;
-                                continue;
+                                return Err(self.throw_runtime_error(&msg));
                             }
                         }
                         _ => return Err(RuntimeError::new("SetImplements on non-class value")),
@@ -2373,10 +2381,9 @@ impl VM {
                 }
                 Opcode::Freeze => {
                     if self.functions[frame.function_index].is_pure {
-                        self.throw_runtime_error(
+                        return Err(self.throw_runtime_error(
                             "pure function cannot have side effects (freeze)",
-                        )?;
-                        continue;
+                        ));
                     }
                     let recursive = b != 0;
                     let value = self.registers[base + a].clone();
@@ -2384,10 +2391,9 @@ impl VM {
                 }
                 Opcode::SetSuper => {
                     if self.functions[frame.function_index].is_pure {
-                        self.throw_runtime_error(
+                        return Err(self.throw_runtime_error(
                             "pure function cannot have side effects (class mutation)",
-                        )?;
-                        continue;
+                        ));
                     }
                     let superclass = match &self.registers[base + b] {
                         Value::Class(class) => class.clone(),
@@ -2402,10 +2408,9 @@ impl VM {
                 }
                 Opcode::SetAbstract => {
                     if self.functions[frame.function_index].is_pure {
-                        self.throw_runtime_error(
+                        return Err(self.throw_runtime_error(
                             "pure function cannot have side effects (class mutation)",
-                        )?;
-                        continue;
+                        ));
                     }
                     match &mut self.registers[base + a] {
                         Value::Class(class) => {
@@ -2416,10 +2421,9 @@ impl VM {
                 }
                 Opcode::SetStatic => {
                     if self.functions[frame.function_index].is_pure {
-                        self.throw_runtime_error(
+                        return Err(self.throw_runtime_error(
                             "pure function cannot have side effects (class mutation)",
-                        )?;
-                        continue;
+                        ));
                     }
                     let static_map = match &self.registers[base + b] {
                         Value::Map(map) => map.borrow().entries.clone(),
@@ -2446,10 +2450,9 @@ impl VM {
                 }
                 Opcode::SetGetters => {
                     if self.functions[frame.function_index].is_pure {
-                        self.throw_runtime_error(
+                        return Err(self.throw_runtime_error(
                             "pure function cannot have side effects (class mutation)",
-                        )?;
-                        continue;
+                        ));
                     }
                     let getters_map = match &self.registers[base + b] {
                         Value::Map(map) => map.borrow().entries.clone(),
@@ -2476,10 +2479,9 @@ impl VM {
                 }
                 Opcode::SetSetters => {
                     if self.functions[frame.function_index].is_pure {
-                        self.throw_runtime_error(
+                        return Err(self.throw_runtime_error(
                             "pure function cannot have side effects (class mutation)",
-                        )?;
-                        continue;
+                        ));
                     }
                     let setters_map = match &self.registers[base + b] {
                         Value::Map(map) => map.borrow().entries.clone(),
@@ -2506,10 +2508,9 @@ impl VM {
                 }
                 Opcode::SetStaticGetters => {
                     if self.functions[frame.function_index].is_pure {
-                        self.throw_runtime_error(
+                        return Err(self.throw_runtime_error(
                             "pure function cannot have side effects (class mutation)",
-                        )?;
-                        continue;
+                        ));
                     }
                     let getters_map = match &self.registers[base + b] {
                         Value::Map(map) => map.borrow().entries.clone(),
@@ -2540,10 +2541,9 @@ impl VM {
                 }
                 Opcode::SetStaticSetters => {
                     if self.functions[frame.function_index].is_pure {
-                        self.throw_runtime_error(
+                        return Err(self.throw_runtime_error(
                             "pure function cannot have side effects (class mutation)",
-                        )?;
-                        continue;
+                        ));
                     }
                     let setters_map = match &self.registers[base + b] {
                         Value::Map(map) => map.borrow().entries.clone(),
@@ -2574,10 +2574,9 @@ impl VM {
                 }
                 Opcode::SetOperators => {
                     if self.functions[frame.function_index].is_pure {
-                        self.throw_runtime_error(
+                        return Err(self.throw_runtime_error(
                             "pure function cannot have side effects (class mutation)",
-                        )?;
-                        continue;
+                        ));
                     }
                     let operators_map = match &self.registers[base + b] {
                         Value::Map(map) => map.borrow().entries.clone(),
@@ -2674,6 +2673,13 @@ impl VM {
                     };
                     self.registers[base + a] = Value::Bool(is_match);
                 }
+                Opcode::AssertNotNull => {
+                    let value = self.registers[base + b].clone();
+                    if matches!(value, Value::Null) {
+                        return Err(self.throw_runtime_error("unexpected null value"));
+                    }
+                    self.registers[base + a] = value;
+                }
                 Opcode::GetVariantField => {
                     let val = self.registers[base + b].clone();
                     let index = instruction.c() as usize;
@@ -2691,10 +2697,9 @@ impl VM {
                 }
                 Opcode::AddMethod => {
                     if self.functions[frame.function_index].is_pure {
-                        self.throw_runtime_error(
+                        return Err(self.throw_runtime_error(
                             "pure function cannot have side effects (class mutation)",
-                        )?;
-                        continue;
+                        ));
                     }
                     let func_val = self.registers[base + a].clone();
                     let class_val = self.registers[base + b].clone();
@@ -2750,10 +2755,9 @@ impl VM {
                 }
                 Opcode::SetFieldVisibility => {
                     if self.functions[frame.function_index].is_pure {
-                        self.throw_runtime_error(
+                        return Err(self.throw_runtime_error(
                             "pure function cannot have side effects (class mutation)",
-                        )?;
-                        continue;
+                        ));
                     }
                     let name = match &function.chunk.constants[b] {
                         Value::String(value) => value.as_str().to_string(),
@@ -2773,10 +2777,9 @@ impl VM {
                 }
                 Opcode::SetStaticFieldVisibility => {
                     if self.functions[frame.function_index].is_pure {
-                        self.throw_runtime_error(
+                        return Err(self.throw_runtime_error(
                             "pure function cannot have side effects (class mutation)",
-                        )?;
-                        continue;
+                        ));
                     }
                     let name = match &function.chunk.constants[b] {
                         Value::String(value) => value.as_str().to_string(),
@@ -3153,23 +3156,17 @@ impl VM {
                 .unwrap_or(false);
 
             if !has_variadic && final_args.len() > function.arity {
-                return Err(RuntimeError::new("too many positional arguments"));
+                return Err(self.throw_runtime_error("too many positional arguments"));
             }
 
             let mut processed = Vec::new();
             let mut arg_idx = 0;
 
             if function.is_async {
-                // Generate promise ID
+                // ... (rest of async logic)
                 let promise_id = self.next_promise_id;
                 self.next_promise_id += 1;
-
-                // Inject promise ID as last argument
-                // Note: The compiler should have added an extra parameter to function.params
-                // So when we iterate function.params, the last one will consume this value.
                 final_args.push(Value::Int(promise_id as i64));
-
-                // Create Promise object
                 let mut promise_map = HashMap::new();
                 promise_map.insert("id".to_string(), Value::Int(promise_id as i64));
                 promise_map.insert(
@@ -3179,8 +3176,6 @@ impl VM {
                 promise_map.insert("value".to_string(), Value::Null);
                 let promise = Value::Map(self.gc.allocate(MapState::new(promise_map)));
                 self.promises.insert(promise_id, promise.clone());
-
-                // Set return register to Promise immediately
                 self.registers[return_reg] = promise;
             }
 
@@ -3194,12 +3189,14 @@ impl VM {
 
                 if param.is_keyword_only {
                     if arg_idx < final_args.len() {
-                        return Err(RuntimeError::new("keyword-only argument requires name"));
+                        return Err(self.throw_runtime_error("keyword-only argument requires name"));
                     }
                     if param.has_default {
                         processed.push(Value::Missing);
                     } else {
-                        return Err(RuntimeError::new("missing required keyword-only argument"));
+                        return Err(
+                            self.throw_runtime_error("missing required keyword-only argument")
+                        );
                     }
                     continue;
                 }
@@ -3210,20 +3207,12 @@ impl VM {
                 } else if param.has_default {
                     processed.push(Value::Missing);
                 } else {
-                    println!(
-                        "DEBUG: Missing arg. param: {}, arg_idx: {}, args_len: {}",
-                        param.name,
-                        arg_idx,
-                        final_args.len()
-                    );
-                    return Err(RuntimeError::new("missing required argument"));
+                    return Err(self.throw_runtime_error("missing required argument"));
                 }
             }
 
             if arg_idx < final_args.len() {
-                // Return arg_idx and len for debug
-                // return Err(RuntimeError::new(format!("too many positional arguments: {} > {}", arg_idx, final_args.len())));
-                return Err(RuntimeError::new("too many positional arguments"));
+                return Err(self.throw_runtime_error("too many positional arguments"));
             }
             // println!("Calling function. is_async: {}, arity: {}, params: {}", function.is_async, function.arity, function.params.len());
 
@@ -3427,16 +3416,16 @@ impl VM {
         let mut pos_index = 0usize;
         for key in named.keys() {
             if !params.iter().any(|param| param.name == *key) {
-                return Err(RuntimeError::new("unknown named argument"));
+                return Err(self.throw_runtime_error("unknown named argument"));
             }
         }
         for (idx, param) in params.iter().enumerate() {
             if param.is_variadic {
                 if idx + 1 != params.len() {
-                    return Err(RuntimeError::new("variadic parameter must be last"));
+                    return Err(self.throw_runtime_error("variadic parameter must be last"));
                 }
                 if named.contains_key(&param.name) {
-                    return Err(RuntimeError::new("variadic parameter cannot be named"));
+                    return Err(self.throw_runtime_error("variadic parameter cannot be named"));
                 }
                 let rest = positional[pos_index..].to_vec();
                 args.push(Value::Array(self.gc.allocate(ArrayState::new(rest))));
@@ -3444,11 +3433,11 @@ impl VM {
                 continue;
             }
             if param.is_keyword_only && pos_index < positional.len() {
-                return Err(RuntimeError::new("keyword-only argument requires name"));
+                return Err(self.throw_runtime_error("keyword-only argument requires name"));
             }
             if pos_index < positional.len() {
                 if named.contains_key(&param.name) {
-                    return Err(RuntimeError::new("duplicate argument"));
+                    return Err(self.throw_runtime_error("duplicate argument"));
                 }
                 args.push(positional[pos_index].clone());
                 pos_index += 1;
@@ -3461,11 +3450,11 @@ impl VM {
             if param.has_default {
                 args.push(Value::Missing);
             } else {
-                return Err(RuntimeError::new("missing required argument"));
+                return Err(self.throw_runtime_error("missing required argument"));
             }
         }
         if pos_index < positional.len() {
-            return Err(RuntimeError::new("too many positional arguments"));
+            return Err(self.throw_runtime_error("too many positional arguments"));
         }
 
         Ok(args)
@@ -3479,7 +3468,7 @@ impl VM {
                 frame.ip = handler.catch_ip;
                 self.registers[handler.base + handler.error_reg] = error_value;
                 self.frames.push(frame);
-                return Ok(());
+                return Err(RuntimeError::handled());
             }
             self.registers.truncate(frame.base);
         }
@@ -3552,14 +3541,17 @@ impl VM {
         }
     }
 
-    fn throw_runtime_error(&mut self, message: &str) -> Result<(), RuntimeError> {
+    fn throw_runtime_error(&mut self, message: &str) -> RuntimeError {
         let mut map = HashMap::new();
         map.insert(
             "message".to_string(),
             Value::String(Rc::new(message.to_string())),
         );
         let error_val = Value::Map(self.gc.allocate(MapState::new(map)));
-        self.unwind_to_handler(error_val)
+        match self.unwind_to_handler(error_val) {
+            Ok(_) => unreachable!("unwind_to_handler should always return Err"),
+            Err(err) => err,
+        }
     }
 
     fn is_callable(&self, value: &Value) -> bool {
@@ -3606,7 +3598,7 @@ impl VM {
                     self.registers[return_reg_idx] = result;
                 }
                 Err(err) => {
-                    self.throw_runtime_error(&err.message)?;
+                    return Err(self.throw_runtime_error(&err.message));
                 }
             },
             Value::BoundNativeMethod { receiver, function } => {
@@ -3617,7 +3609,7 @@ impl VM {
                         self.registers[return_reg_idx] = result;
                     }
                     Err(err) => {
-                        self.throw_runtime_error(&err.message)?;
+                        return Err(self.throw_runtime_error(&err.message));
                     }
                 }
             }

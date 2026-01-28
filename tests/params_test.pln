@@ -1,0 +1,31 @@
+print("--- Variable Arguments (...args) ---");
+fn sum(...args) {
+    let mut total = 0;
+    for (x in args) {
+        total = total + x;
+    }
+    return total;
+}
+
+print("sum(1, 2, 3): " + sum(1, 2, 3));
+print("sum(): " + sum());
+
+print("\n--- Keyword-only Parameters (*) ---");
+fn config(host, *, port, protocol = "https") {
+    print("Connecting to " + protocol + "://" + host + ":" + port);
+}
+
+config("example.com", port: 8080);
+config("localhost", port: 3000, protocol: "http");
+
+try {
+    config("error.com", 80);
+} catch (e) {
+    print("Caught expected error for positional keyword-only: " + e.message);
+}
+
+try {
+    config("missing.com");
+} catch (e) {
+    print("Caught expected error for missing keyword-only: " + e.message);
+}

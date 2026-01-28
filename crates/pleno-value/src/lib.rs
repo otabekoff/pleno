@@ -351,6 +351,7 @@ pub struct RuntimeError {
     pub message: String,
     pub span: Option<pleno_common::Span>,
     pub stack_trace: Vec<StackFrame>,
+    pub handled: bool,
 }
 
 impl RuntimeError {
@@ -359,6 +360,16 @@ impl RuntimeError {
             message: message.into(),
             span: None,
             stack_trace: Vec::new(),
+            handled: false,
+        }
+    }
+
+    pub fn handled() -> Self {
+        Self {
+            message: "exception handled".to_string(),
+            span: None,
+            stack_trace: Vec::new(),
+            handled: true,
         }
     }
 

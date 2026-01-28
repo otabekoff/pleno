@@ -3,7 +3,9 @@
 
 http://localhost:5173/pleno/specs/ is showing next page to introduction which is itself, and causing loop on docs.
 
-Add support to more than one print stuff parameters like in python. endless. with comma.
+Also, do we have support for more than one print stuff parameters like in python  wiith comma and other programming languages? Endless? Look, should we add it or our programmign language design is different and has such thing support in another way? Or better solution? What about println? What about sep, end and other such things to print? Think about this and should we add them?
+
+I heard somewhere, making everything Boxed or boexed expressions in programming language is not good way and it makes slow. Is it true? Why? How can we avoid it? Is it possible to avoid it? How can we make it better? Do we have such cases or not? If we have such places, do we need to make them better and avoid or are there the places where they should be like so?
 
 See `TECHNICAL_DEBT.md` for the full list of technical debt items. Update it. Now we need to search the project, the comments, and find all leakages, unimplemented stuffs, and write all the technical debts in technical debt file.
 

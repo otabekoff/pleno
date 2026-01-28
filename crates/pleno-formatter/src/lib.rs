@@ -961,6 +961,29 @@ impl Formatter {
             ExprKind::Await { expr } => {
                 format!("await {}", self.format_expression(expr, indent_level))
             }
+            ExprKind::AssertNotNull(inner) => {
+                format!("{}!", self.format_expression(inner, indent_level))
+            }
+            ExprKind::SafeCall { callee, args } => {
+                let arg_strs: Vec<String> = args
+                    .iter()
+                    .map(|arg| match arg {
+                        CallArg::Positional(expr) => self.format_expression(expr, indent_level),
+                        CallArg::Named(name, expr) => {
+                            format!("{}: {}", name, self.format_expression(expr, indent_level))
+                        }
+                        CallArg::Placeholder => "_".to_string(),
+                        CallArg::Spread(expr) => {
+                            format!("...{}", self.format_expression(expr, indent_level))
+                        }
+                    })
+                    .collect();
+                format!(
+                    "{}?.({})",
+                    self.format_expression(callee, indent_level),
+                    arg_strs.join(", ")
+                )
+            }
             ExprKind::Specialize { left, type_args } => {
                 format!(
                     "{}<{}>",

@@ -439,6 +439,23 @@ fn collect_usages_from_expr(expr: &Expr, usages: &mut HashSet<String>) {
         ExprKind::Property { object, .. } | ExprKind::SafeProperty { object, .. } => {
             collect_usages_from_expr(object, usages);
         }
+        ExprKind::SafeCall { callee, args } => {
+            collect_usages_from_expr(callee, usages);
+            for arg in args {
+                match arg {
+                    CallArg::Positional(e) | CallArg::Named(_, e) => {
+                        collect_usages_from_expr(e, usages);
+                    }
+                    CallArg::Placeholder => {}
+                    CallArg::Spread(expr) => {
+                        collect_usages_from_expr(expr, usages);
+                    }
+                }
+            }
+        }
+        ExprKind::AssertNotNull(inner) => {
+            collect_usages_from_expr(inner, usages);
+        }
         ExprKind::Index { collection, index } => {
             collect_usages_from_expr(collection, usages);
             collect_usages_from_expr(index, usages);
