@@ -449,6 +449,7 @@ pub struct Class {
     pub is_abstract: bool,
     pub implements: Vec<Value>,
     pub type_params: Vec<String>,
+    pub type_constraints: HashMap<String, Vec<String>>,
 }
 
 impl GcObject for Class {
@@ -475,6 +476,7 @@ impl GcObject for Class {
         self.static_setters.clear();
         self.implements.clear();
         self.operators.clear();
+        self.type_constraints.clear();
     }
 }
 
@@ -501,6 +503,7 @@ impl PartialEq for Class {
             && self.is_abstract == other.is_abstract
             && self.implements == other.implements
             && self.type_params == other.type_params
+            && self.type_constraints == other.type_constraints
     }
 }
 

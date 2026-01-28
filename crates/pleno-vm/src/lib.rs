@@ -2122,6 +2122,7 @@ impl VM {
                         is_abstract: false,
                         implements: Vec::new(),
                         type_params: Vec::new(),
+                        type_constraints: HashMap::new(),
                     });
 
                     // Now parse methods with class reference
@@ -2345,9 +2346,28 @@ impl VM {
                         .filter_map(|v| v.as_str().map(|s| s.to_string()))
                         .collect::<Vec<_>>();
 
+                    let constraints_map = match &self.registers[base + c] {
+                        Value::Map(map) => map.borrow().entries.clone(),
+                        _ => HashMap::new(), // If reg c is not map (old bytecode?), or valid empty map
+                    };
+
+                    let mut type_constraints = HashMap::new();
+                    for (param, constraints_val) in constraints_map {
+                        if let Value::Array(arr) = constraints_val {
+                            let constraints = arr
+                                .borrow()
+                                .elements
+                                .iter()
+                                .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                                .collect::<Vec<_>>();
+                            type_constraints.insert(param, constraints);
+                        }
+                    }
+
                     match class_val {
                         Value::Class(class) => {
                             class.borrow_mut().type_params = params;
+                            class.borrow_mut().type_constraints = type_constraints;
                         }
                         _ => return Err(RuntimeError::new("SetTypeParams on non-class value")),
                     }
@@ -2365,6 +2385,55 @@ impl VM {
 
                     match class_val {
                         Value::Class(class) => {
+                            // Verify constraints
+                            {
+                                let class_borrow = class.borrow();
+                                if args.len() != class_borrow.type_params.len() {
+                                    return Err(self.throw_runtime_error(&format!(
+                                        "Generic type mismatch: expected {} args, found {}",
+                                        class_borrow.type_params.len(),
+                                        args.len()
+                                    )));
+                                }
+
+                                for (i, param_name) in class_borrow.type_params.iter().enumerate() {
+                                    if let Some(constraints) =
+                                        class_borrow.type_constraints.get(param_name)
+                                    {
+                                        for constraint_name in constraints {
+                                            // Resolve constraint type (Class, Interface, or Primitive Name)
+                                            let constraint_type = if let Some(val) =
+                                                self.globals.get(constraint_name)
+                                            {
+                                                val.clone()
+                                            } else {
+                                                // Assume primitive or simple type name if not in globals
+                                                Value::String(Rc::new(constraint_name.clone()))
+                                            };
+
+                                            if !self
+                                                .check_type_compatible(&args[i], &constraint_type)
+                                            {
+                                                let arg_type_name = match &args[i] {
+                                                    Value::Class(c) => c.borrow().name.to_string(),
+                                                    Value::Interface(i) => {
+                                                        i.borrow().name.to_string()
+                                                    }
+                                                    Value::String(s) => s.to_string(),
+                                                    _ => "Unknown".to_string(),
+                                                };
+                                                return Err(self.throw_runtime_error(&format!(
+                                                    "Generic constraint failed: Type '{}' does not satisfy constraint '{}' for parameter '{}'",
+                                                    arg_type_name,
+                                                    constraint_name,
+                                                    param_name
+                                                )));
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
                             self.registers[base + a] = Value::BoundClass {
                                 class,
                                 type_args: args,
@@ -2740,6 +2809,7 @@ impl VM {
                                         is_abstract: false,
                                         implements: Vec::new(),
                                         type_params: Vec::new(),
+                                        type_constraints: HashMap::new(),
                                     });
                                     self.globals.insert(shadow_name, Value::Class(cls.clone()));
                                     cls
@@ -3089,6 +3159,31 @@ impl VM {
                         }
                         current = cls.borrow().superclass.clone();
                     }
+                    false
+                }
+                _ => false,
+            },
+            Value::Interface(target_iface) => match val_type {
+                Value::Class(cls) => {
+                    let iface = target_iface.borrow();
+                    let mut current = Some(cls.clone());
+                    while let Some(c) = current {
+                        for imp in &c.borrow().implements {
+                            if let Value::Interface(i) = imp {
+                                if i.borrow().name == iface.name {
+                                    return true;
+                                }
+                            }
+                        }
+                        current = c.borrow().superclass.clone();
+                    }
+
+                    // Also check structural compatibility?
+                    // Specs might say nominal only for 'implements', but structural for matching?
+                    // For now, let's stick to nominal 'implements' check as in check_is_instance first part.
+                    // If structural is needed, we would iterate methods.
+                    // Given the test error "does not satisfy constraint", nominal check should pass if 'implements' is used.
+                    // The test uses 'implements ISerializable'.
                     false
                 }
                 _ => false,

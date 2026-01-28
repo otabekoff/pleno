@@ -3,6 +3,33 @@
 
 http://localhost:5173/pleno/specs/ is showing next page to introduction which is itself, and causing loop on docs.
 
+Now, as we have finished v1 of the Pleno programming language, we fully support specs.md and many other things not listed in it too. Now what I want is, you need to add those already implemented, but missed things in specs.md to be noted.
+
+Now, as we have finished v1 of the Pleno programming langguage, I want you to fully think and write, plan the next v2 of Pleno programming language. We need V2 roadmap, v2-specs.md. Here we'll add better features, make the old and inconsistent things enhanced, better, implement new features and support many things, more stdlibs. and many more. Think more and write detailed, Things will be added, upgraded, updated, fixed, supported.
+
+We have to deploy v1 fully. Now we need to update the docs.
+
+
+V1 missing things noti implemented, deferred, technical debts should be identifed and should be saved to one file. v1-last-tasks.md
+
+Scripts, management tools, makefile better vesrion. Organize the project.
+
+Move to new version of taks management in tasks folder. New workflow.
+
+More examples. Benchmark. IDE Features.
+
+Clean the project sources folder.
+
+We've to think about bad practices, inconsistencies. We've to review what we have already and reconsider everything. Need to find inconsistencies, duplicated, bad dx and practices and fix and solve and upgrade, update them.
+
+We've to think about better github management, better actions, better commits, better tools of github, better branch management.
+
+New folder called prompts.
+
+V2, weill be the most ideal one.
+
+Add more licenses from rust like githuib stuff.
+
 Also, do we have support for more than one print stuff parameters like in python  wiith comma and other programming languages? Endless? Look, should we add it or our programmign language design is different and has such thing support in another way? Or better solution? What about println? What about sep, end and other such things to print? Think about this and should we add them?
 
 I heard somewhere, making everything Boxed or boexed expressions in programming language is not good way and it makes slow. Is it true? Why? How can we avoid it? Is it possible to avoid it? How can we make it better? Do we have such cases or not? If we have such places, do we need to make them better and avoid or are there the places where they should be like so?

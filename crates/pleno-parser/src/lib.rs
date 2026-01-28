@@ -1488,7 +1488,8 @@ impl Parser {
                         }
                     };
                     constraints.push(constraint);
-                    if !self.matches(&TokenKind::Plus) {
+                    // Support both + and & for constraints (specs use &, but + is common)
+                    if !self.matches(&TokenKind::Plus) && !self.matches(&TokenKind::Ampersand) {
                         break;
                     }
                 }

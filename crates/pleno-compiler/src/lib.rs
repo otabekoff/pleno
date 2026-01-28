@@ -2461,15 +2461,42 @@ impl Compiler {
         if !generics.is_empty() {
             let params_reg = self.registers.allocate()?;
             self.emit(Opcode::NewArray, params_reg, 0, 0);
+
+            let constraints_reg = self.registers.allocate()?;
+            self.emit(Opcode::NewMap, constraints_reg, 0, 0);
+
             for g in generics {
                 let name_idx = self.add_constant(Value::String(std::rc::Rc::new(g.name.clone())));
                 let name_reg = self.registers.allocate()?;
                 self.emit(Opcode::LoadConst, name_reg, name_idx, 0);
                 self.emit(Opcode::ArrayAppend, params_reg, name_reg, 0);
+
+                if !g.constraints.is_empty() {
+                    let cons_list_reg = self.registers.allocate()?;
+                    self.emit(Opcode::NewArray, cons_list_reg, 0, 0);
+                    for constraint in &g.constraints {
+                        let c_idx =
+                            self.add_constant(Value::String(std::rc::Rc::new(constraint.clone())));
+                        let c_reg = self.registers.allocate()?;
+                        self.emit(Opcode::LoadConst, c_reg, c_idx, 0);
+                        self.emit(Opcode::ArrayAppend, cons_list_reg, c_reg, 0);
+                        self.free_temp(c_reg);
+                    }
+                    // Reuse name_reg (which has the param name) as key
+                    self.emit(Opcode::SetIndex, cons_list_reg, constraints_reg, name_reg);
+                    self.free_temp(cons_list_reg);
+                }
+
                 self.free_temp(name_reg);
             }
-            self.emit(Opcode::SetTypeParams, class_reg, params_reg, 0);
+            self.emit(
+                Opcode::SetTypeParams,
+                class_reg,
+                params_reg,
+                constraints_reg,
+            );
             self.free_temp(params_reg);
+            self.free_temp(constraints_reg);
         }
 
         self.emit(Opcode::SetStatic, class_reg, static_reg, 0);

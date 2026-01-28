@@ -1,0 +1,90 @@
+// Test Generic Constraints
+
+interface ISerializable {
+    fn serialize(): String;
+}
+
+class JsonSerializer implements ISerializable {
+    fn serialize(): String {
+        return "Json";
+    }
+}
+
+class XmlSerializer implements ISerializable {
+    fn serialize(): String {
+        return "Xml";
+    }
+}
+
+class NotASerializer {}
+
+// Generic class with checking
+class Container<T: ISerializable> {
+    const item: T;
+    
+    fn constructor(item: T) {
+        this.item = item;
+    }
+}
+
+// Valid specialization
+println("Testing valid specialization...");
+try {
+    const c1 = new Container<JsonSerializer>(new JsonSerializer());
+    println("c1 created successfully");
+    
+    const c2 = new Container<XmlSerializer>(new XmlSerializer());
+    println("c2 created successfully");
+} catch (e) {
+    println("Error in valid specialization: " + e.message);
+}
+
+// Invalid specialization
+println("Testing invalid specialization...");
+try {
+    const c3 = new Container<NotASerializer>(new NotASerializer());
+    println("Error: c3 should have failed!");
+} catch (e) {
+    println("Caught expected error for NotASerializer: " + e.message);
+}
+
+try {
+    const c4 = new Container<String>("hello");
+    println("Error: c4 should have failed!");
+} catch (e) {
+    println("Caught expected error for String: " + e.message);
+}
+
+// Multiple constraints
+interface IPrintable {
+    fn print();
+}
+
+class Document implements ISerializable, IPrintable {
+    fn serialize(): String { return "Doc"; }
+    fn print() { println("Printing Doc"); }
+}
+
+class DataBox<T: ISerializable & IPrintable> {
+    const data: T;
+    fn constructor(data: T) {
+        this.data = data;
+    }
+}
+
+println("Testing multiple constraints...");
+try {
+    const box = new DataBox<Document>(new Document());
+    println("box created successfully"); // valid
+} catch (e) {
+    println("Error in valid multiple constraints: " + e.message);
+}
+
+try {
+    const box2 = new DataBox<JsonSerializer>(new JsonSerializer()); // Fails IPrintable
+    println("Error: box2 should have failed!"); 
+} catch (e) {
+    println("Caught expected error for multiple constraints: " + e.message);
+}
+
+println("Generic Constraints Tests Completed");
