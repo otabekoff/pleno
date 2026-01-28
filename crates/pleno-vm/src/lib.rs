@@ -1,11 +1,11 @@
 use pleno_bytecode::{Chunk, Opcode, ParamSpec};
 use pleno_value::{
     ArrayState, Class, ClosureState, EnumType, EnumVariantDef, MapState, MultiWaiter,
-    MultiWaiterMode, NativeFunction, Object, Range, RuntimeError, TupleState, VMProvider, Value,
-    ValueKey,
+    MultiWaiterMode, NativeFunction, Object, Range, RuntimeError, SetState, TupleState, VMProvider,
+    Value, ValueKey,
     gc::{GcObject, GcRc},
 };
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::rc::Rc;
 
@@ -745,7 +745,7 @@ impl VM {
                 }
                 Opcode::NewSet => {
                     self.registers[base + a] =
-                        Value::Set(self.gc.allocate(std::collections::HashSet::new()));
+                        Value::Set(self.gc.allocate(SetState::new(HashSet::new())));
                 }
                 Opcode::SetAdd => {
                     if self.functions[frame.function_index].is_pure {
@@ -755,10 +755,14 @@ impl VM {
                     let value = self.registers[base + b].clone();
                     match &self.registers[base + a] {
                         Value::Set(set) => {
+                            if set.borrow().is_immutable {
+                                self.throw_runtime_error("cannot modify immutable set")?;
+                                continue;
+                            }
                             let key = value_to_key(&value)?;
                             set.borrow_mut().insert(key);
                         }
-                        _ => return Err(RuntimeError::new("set add on non-set value")),
+                        _ => return Err(RuntimeError::new("set add expects set")),
                     }
                 }
                 Opcode::SetHas => {
@@ -2374,8 +2378,9 @@ impl VM {
                         )?;
                         continue;
                     }
+                    let recursive = b != 0;
                     let value = self.registers[base + a].clone();
-                    self.freeze_value(&value);
+                    self.freeze_value(&value, recursive);
                 }
                 Opcode::SetSuper => {
                     if self.functions[frame.function_index].is_pure {
@@ -3484,16 +3489,18 @@ impl VM {
         )))
     }
 
-    fn freeze_value(&mut self, value: &Value) {
+    fn freeze_value(&mut self, value: &Value, recursive: bool) {
         match value {
             Value::Array(array) => {
                 let mut arr = array.borrow_mut();
                 if !arr.is_immutable {
                     arr.is_immutable = true;
-                    let elements = arr.elements.clone();
-                    drop(arr);
-                    for item in elements {
-                        self.freeze_value(&item);
+                    if recursive {
+                        let elements = arr.elements.clone();
+                        drop(arr);
+                        for item in elements {
+                            self.freeze_value(&item, true);
+                        }
                     }
                 }
             }
@@ -3501,10 +3508,12 @@ impl VM {
                 let mut m = map.borrow_mut();
                 if !m.is_immutable {
                     m.is_immutable = true;
-                    let entries = m.entries.clone();
-                    drop(m);
-                    for item in entries.values() {
-                        self.freeze_value(item);
+                    if recursive {
+                        let entries = m.entries.clone();
+                        drop(m);
+                        for item in entries.values() {
+                            self.freeze_value(item, true);
+                        }
                     }
                 }
             }
@@ -3512,10 +3521,30 @@ impl VM {
                 let mut obj = object.borrow_mut();
                 if !obj.is_immutable {
                     obj.is_immutable = true;
-                    let fields = obj.fields.clone();
-                    drop(obj);
-                    for item in fields.values() {
-                        self.freeze_value(item);
+                    if recursive {
+                        let fields = obj.fields.clone();
+                        drop(obj);
+                        for item in fields.values() {
+                            self.freeze_value(item, true);
+                        }
+                    }
+                }
+            }
+            Value::Set(set) => {
+                let mut s = set.borrow_mut();
+                if !s.is_immutable {
+                    s.is_immutable = true;
+                    // Sets usually contain immutable primitives (ValueKey),
+                    // but if they ever contain mutable things, we'd recurse here.
+                }
+            }
+            Value::Tuple(tuple) => {
+                // Tuples themselves are immutable at the top level,
+                // but we recurse for deep freezing.
+                if recursive {
+                    let elements = tuple.borrow().elements.clone();
+                    for item in elements {
+                        self.freeze_value(&item, true);
                     }
                 }
             }

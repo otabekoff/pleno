@@ -1,6 +1,7 @@
 use crate::concurrency::*;
 use pleno_value::{
-    ArrayState, IteratorState, MapState, RuntimeError, TupleState, VMProvider, Value, ValueKey,
+    ArrayState, IteratorState, MapState, RuntimeError, SetState, TupleState, VMProvider, Value,
+    ValueKey,
 };
 use std::collections::HashMap;
 use std::io::Write;
@@ -759,6 +760,7 @@ fn native_array_push(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, 
         Value::Array(a) => a,
         _ => return Err(RuntimeError::new("expected array")),
     };
+    arr.borrow().ensure_mutable()?;
     arr.borrow_mut()
         .elements
         .push(args.get(1).cloned().unwrap_or(Value::Null));
@@ -769,6 +771,7 @@ fn native_array_pop(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, R
         Value::Array(a) => a,
         _ => return Err(RuntimeError::new("expected array")),
     };
+    arr.borrow().ensure_mutable()?;
     Ok(arr.borrow_mut().elements.pop().unwrap_or(Value::Null))
 }
 fn native_array_shift(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
@@ -776,11 +779,11 @@ fn native_array_shift(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value,
         Value::Array(a) => a,
         _ => return Err(RuntimeError::new("expected array")),
     };
-    let mut b = arr.borrow_mut();
-    if b.elements.is_empty() {
+    arr.borrow().ensure_mutable()?;
+    if arr.borrow().elements.is_empty() {
         Ok(Value::Null)
     } else {
-        Ok(b.elements.remove(0))
+        Ok(arr.borrow_mut().elements.remove(0))
     }
 }
 fn native_array_unshift(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
@@ -788,6 +791,7 @@ fn native_array_unshift(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Valu
         Value::Array(a) => a,
         _ => return Err(RuntimeError::new("expected array")),
     };
+    arr.borrow().ensure_mutable()?;
     arr.borrow_mut()
         .elements
         .insert(0, args.get(1).cloned().unwrap_or(Value::Null));
@@ -798,14 +802,16 @@ fn native_array_insert(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value
         Value::Array(a) => a,
         _ => return Err(RuntimeError::new("expected array")),
     };
-    let idx = match args.get(1) {
+    arr.borrow().ensure_mutable()?;
+    let index = match args.get(1) {
         Some(Value::Int(i)) => *i as usize,
-        _ => 0,
+        _ => return Err(RuntimeError::new("expected integer index")),
     };
-    let mut b = arr.borrow_mut();
-    let idx = idx.min(b.elements.len());
-    b.elements
-        .insert(idx, args.get(2).cloned().unwrap_or(Value::Null));
+    let value = args.get(2).cloned().unwrap_or(Value::Null);
+    let mut arr = arr.borrow_mut();
+    if index <= arr.elements.len() {
+        arr.elements.insert(index, value);
+    }
     Ok(Value::Null)
 }
 fn native_array_remove_at(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
@@ -813,6 +819,7 @@ fn native_array_remove_at(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Va
         Value::Array(a) => a,
         _ => return Err(RuntimeError::new("expected array")),
     };
+    arr.borrow().ensure_mutable()?;
     let idx = match args.get(1) {
         Some(Value::Int(i)) => *i as usize,
         _ => return Ok(Value::Null),
@@ -829,6 +836,7 @@ fn native_array_clear(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value,
         Value::Array(a) => a,
         _ => return Err(RuntimeError::new("expected array")),
     };
+    arr.borrow().ensure_mutable()?;
     arr.borrow_mut().elements.clear();
     Ok(Value::Null)
 }
@@ -962,6 +970,7 @@ fn native_array_reverse(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Valu
         Value::Array(a) => a,
         _ => return Err(RuntimeError::new("expected array")),
     };
+    arr.borrow().ensure_mutable()?;
     arr.borrow_mut().elements.reverse();
     Ok(Value::Null)
 }
@@ -1010,6 +1019,7 @@ fn native_map_put(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, Run
         Value::Map(m) => m,
         _ => return Err(RuntimeError::new("expected map")),
     };
+    map.borrow().ensure_mutable()?;
     let key = match args.get(1) {
         Some(Value::String(s)) => s.as_str().to_string(),
         _ => return Err(RuntimeError::new("map key must be string")),
@@ -1040,6 +1050,7 @@ fn native_map_remove(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, 
         Value::Map(m) => m,
         _ => return Err(RuntimeError::new("expected map")),
     };
+    map.borrow().ensure_mutable()?;
     let key = match args.get(1) {
         Some(Value::String(s)) => s.as_str(),
         _ => return Ok(Value::Bool(false)),
@@ -1080,6 +1091,7 @@ fn native_set_add(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, Run
         Value::Set(s) => s,
         _ => return Err(RuntimeError::new("expected set")),
     };
+    set.borrow().ensure_mutable()?;
     let key = ValueKey::try_from_value(args.get(1).unwrap_or(&Value::Null))
         .ok_or_else(|| RuntimeError::new("invalid value for set"))?;
     set.borrow_mut().insert(key);
@@ -1090,6 +1102,7 @@ fn native_set_remove(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, 
         Value::Set(s) => s,
         _ => return Err(RuntimeError::new("expected set")),
     };
+    set.borrow().ensure_mutable()?;
     let key = ValueKey::try_from_value(args.get(1).unwrap_or(&Value::Null))
         .ok_or_else(|| RuntimeError::new("invalid value for set"))?;
     Ok(Value::Bool(set.borrow_mut().remove(&key)))
@@ -1314,6 +1327,7 @@ fn native_set_clear(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, R
         Value::Set(s) => s,
         _ => return Err(RuntimeError::new("expected set")),
     };
+    set.borrow().ensure_mutable()?;
     set.borrow_mut().clear();
     Ok(Value::Null)
 }
@@ -1323,6 +1337,7 @@ fn native_map_clear(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, R
         Value::Map(m) => m,
         _ => return Err(RuntimeError::new("expected map")),
     };
+    map.borrow().ensure_mutable()?;
     map.borrow_mut().entries.clear();
     Ok(Value::Null)
 }
@@ -1449,7 +1464,7 @@ fn native_set_filter(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, R
             result.insert(key.clone());
         }
     }
-    Ok(Value::Set(vm.get_gc().allocate(result)))
+    Ok(Value::Set(vm.get_gc().allocate(SetState::new(result))))
 }
 
 fn native_set_for_each(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
@@ -1495,7 +1510,7 @@ fn native_set_to_array(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value,
 
 fn native_set_union(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
     let set1 = match &args[0] {
-        Value::Set(s) => s.borrow().clone(),
+        Value::Set(s) => s.borrow().elements.clone(),
         _ => return Err(RuntimeError::new("expected set")),
     };
     let set2 = match args.get(1) {
@@ -1506,7 +1521,7 @@ fn native_set_union(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, Ru
     for item in set2.iter() {
         result.insert(item.clone());
     }
-    Ok(Value::Set(vm.get_gc().allocate(result)))
+    Ok(Value::Set(vm.get_gc().allocate(SetState::new(result))))
 }
 
 fn native_set_intersection(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
@@ -1524,7 +1539,7 @@ fn native_set_intersection(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Va
             result.insert(item.clone());
         }
     }
-    Ok(Value::Set(vm.get_gc().allocate(result)))
+    Ok(Value::Set(vm.get_gc().allocate(SetState::new(result))))
 }
 
 fn native_set_difference(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
@@ -1542,7 +1557,7 @@ fn native_set_difference(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Valu
             result.insert(item.clone());
         }
     }
-    Ok(Value::Set(vm.get_gc().allocate(result)))
+    Ok(Value::Set(vm.get_gc().allocate(SetState::new(result))))
 }
 
 fn native_set_constructor(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
@@ -1557,11 +1572,11 @@ fn native_set_constructor(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Val
                 }
             }
             Value::Set(s) => {
-                result = s.borrow().clone();
+                result = s.borrow().elements.clone();
             }
             Value::Null => {}
             _ => return Err(RuntimeError::new("Set constructor expects array or set")),
         }
     }
-    Ok(Value::Set(vm.get_gc().allocate(result)))
+    Ok(Value::Set(vm.get_gc().allocate(SetState::new(result))))
 }

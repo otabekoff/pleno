@@ -194,8 +194,12 @@ impl Compiler {
                     }
                     reg
                 };
-                if *is_deep {
-                    self.emit(Opcode::Freeze, reg, 0, 0);
+                if *is_const {
+                    let recursive = if *is_deep { 1 } else { 0 };
+                    self.emit(Opcode::Freeze, reg, recursive, 0);
+                } else if *is_deep {
+                    // let deep should also work
+                    self.emit(Opcode::Freeze, reg, 1, 0);
                 }
                 self.insert_local(name.clone(), reg, *mutable, ty.clone())?;
                 Ok(())

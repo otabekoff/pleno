@@ -110,7 +110,7 @@ pub enum Value {
     },
     Map(GcRc<MapState>),
     Array(GcRc<ArrayState>),
-    Set(GcRc<HashSet<ValueKey>>),
+    Set(GcRc<SetState>),
     Object(GcRc<Object>),
     Partial {
         callee: Box<Value>,
@@ -320,10 +320,16 @@ impl GcObject for MapState {
     }
 }
 
-impl GcObject for HashSet<ValueKey> {
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SetState {
+    pub elements: HashSet<ValueKey>,
+    pub is_immutable: bool,
+}
+
+impl GcObject for SetState {
     fn mark(&self, _gc: &mut MarkAndSweepGC) {}
     fn clear_refs(&mut self) {
-        self.clear();
+        self.elements.clear();
     }
 }
 
@@ -886,6 +892,52 @@ impl<'a> IntoIterator for &'a MapState {
     }
 }
 
+impl SetState {
+    pub fn new(elements: HashSet<ValueKey>) -> Self {
+        Self {
+            elements,
+            is_immutable: false,
+        }
+    }
+
+    pub fn ensure_mutable(&self) -> Result<(), RuntimeError> {
+        if self.is_immutable {
+            Err(RuntimeError::new("cannot modify immutable set"))
+        } else {
+            Ok(())
+        }
+    }
+}
+
+impl std::ops::Deref for SetState {
+    type Target = HashSet<ValueKey>;
+    fn deref(&self) -> &Self::Target {
+        &self.elements
+    }
+}
+
+impl std::ops::DerefMut for SetState {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.elements
+    }
+}
+
+impl IntoIterator for SetState {
+    type Item = ValueKey;
+    type IntoIter = std::collections::hash_set::IntoIter<ValueKey>;
+    fn into_iter(self) -> Self::IntoIter {
+        self.elements.into_iter()
+    }
+}
+
+impl<'a> IntoIterator for &'a SetState {
+    type Item = &'a ValueKey;
+    type IntoIter = std::collections::hash_set::Iter<'a, ValueKey>;
+    fn into_iter(self) -> Self::IntoIter {
+        self.elements.iter()
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Object {
     pub class: Option<GcRc<Class>>,
@@ -1000,7 +1052,7 @@ pub enum IteratorState {
         is_entries: bool,
     },
     Set {
-        set: GcRc<std::collections::HashSet<ValueKey>>,
+        set: GcRc<SetState>,
         values: Vec<ValueKey>,
         index: usize,
     },
