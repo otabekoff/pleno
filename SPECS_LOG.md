@@ -2,15 +2,15 @@
 (Cleared verified core features. See ROADMAP.md for historical verification.)
 
 ## 1. Core Syntax & Fundamentals
-- [ ] 1.2 Deep Immutability (`const deep` syntax and recursive enforcement)
-- [ ] 1.3 Optional Types (Null safety with `Type?`, `?.`, `??`, `!`)
+- [x] 1.2 Deep Immutability (`const deep` syntax and recursive enforcement)
+- [x] 1.3 Optional Types (Null safety with `Type?`, `?.`, `??`, `!`)
 
 ## 3. Functions
-- [ ] 3.4 Variable Arguments (`...args`)
-- [ ] 3.4.1 Keyword-Only Parameters (`*` separator)
+- [x] 3.4 Variable Arguments (`...args`)
+- [x] 3.4.1 Keyword-Only Parameters (`*` separator)
 
 ## 6. Functional Features
-- [ ] 6.3 Immutable Data Structures (Persistent data structures with `.with()`)
+- [x] 6.3 Immutable Data Structures (Persistent data structures with `.with()`)
 
 ## 10. Generics
 - [ ] 10.3 Generic Constraints (Runtime enforcement of `T: Constraint`)
