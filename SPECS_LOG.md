@@ -13,7 +13,8 @@
 - [x] 6.3 Immutable Data Structures (Persistent data structures with `.with()`)
 
 ## 10. Generics
-- [ ] 10.3 Generic Constraints (Runtime enforcement of `T: Constraint`)
+- [x] 10.3 Generic Constraints (Runtime enforcement of `T: Constraint`)
+- [x] 10.4 Generic Interfaces (Interfaces with type parameters)
 
 ## 12. Memory & Performance
 - [ ] 12.1 Ownership Hints (`move`, `&`, `&mut`)
