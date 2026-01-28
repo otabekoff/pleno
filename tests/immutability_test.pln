@@ -1,0 +1,62 @@
+print("--- Const Test ---");
+const list = [1, 2, 3];
+print("Initial list: " + list);
+try {
+    list.push(4);
+    print("List after push: " + list);
+} catch (e) {
+    print("Caught expected error: " + e.message);
+}
+
+print("\n--- Const Deep Test ---");
+const deep matrix = [[1, 2], [3, 4]];
+print("Initial matrix: " + matrix);
+try {
+    matrix[0].push(5);
+    print("Matrix after inner push: " + matrix);
+} catch (e) {
+    print("Caught expected error from deep const: " + e.message);
+}
+
+print("\n--- Const Shallow Test (current behavior?) ---");
+const nested = [[1, 2]];
+try {
+    nested[0].push(3);
+    print("Nested after inner push (if shallow): " + nested);
+} catch (e) {
+    print("Caught error from nested (if deep): " + e.message);
+}
+
+print("\n--- Object Test ---");
+class Person {
+    public name: String;
+    constructor(name) { this.name = name; }
+}
+const alice = new Person("Alice");
+try {
+    alice.name = "Bob";
+    print("Alice name after change: " + alice.name);
+} catch (e) {
+    print("Caught expected error for const object: " + e.message);
+}
+
+const deep bob = new Person("Bob");
+// If we had nested objects, we'd test deep here too.
+
+print("\n--- Map Test ---");
+const config = { "theme": "dark" };
+try {
+    config.theme = "light";
+    print("Config theme after change: " + config.theme);
+} catch (e) {
+    print("Caught expected error for const map: " + e.message);
+}
+
+print("\n--- Set Test ---");
+const uniqueIds = new Set([1, 2, 3]);
+try {
+    uniqueIds.add(4);
+    print("Set after add: " + uniqueIds.size());
+} catch (e) {
+    print("Caught expected error for const set: " + e.message);
+}
