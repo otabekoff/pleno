@@ -140,6 +140,10 @@ pub enum Value {
         enum_type: GcRc<EnumType>,
         variant_name: Rc<String>,
     },
+    BoundInterface {
+        interface: GcRc<Interface>,
+        type_args: Vec<Value>,
+    },
 }
 
 impl Value {
@@ -199,6 +203,7 @@ impl Value {
             Value::Enum(_) => "Enum",
             Value::Variant { .. } => "Variant",
             Value::VariantConstructor { .. } => "VariantConstructor",
+            Value::BoundInterface { .. } => "Interface",
         }
     }
 }
@@ -272,6 +277,15 @@ impl GcObject for Value {
             }
             Value::VariantConstructor { enum_type, .. } => {
                 gc.mark_object(&enum_type.to_gc_object());
+            }
+            Value::BoundInterface {
+                interface,
+                type_args,
+            } => {
+                gc.mark_object(&interface.to_gc_object());
+                for v in type_args {
+                    v.mark(gc);
+                }
             }
             _ => {}
         }
@@ -405,6 +419,8 @@ pub struct Interface {
     pub methods: HashMap<String, MethodSignature>,
     pub getters: HashMap<String, MethodSignature>,
     pub setters: HashMap<String, MethodSignature>,
+    pub type_params: Vec<String>,
+    pub type_constraints: HashMap<String, Vec<String>>,
 }
 
 impl GcObject for Interface {
@@ -790,6 +806,19 @@ impl std::fmt::Display for Value {
                 enum_type.borrow().name,
                 variant_name
             ),
+            Value::BoundInterface {
+                interface,
+                type_args,
+            } => {
+                write!(f, "{}<", interface.borrow().name)?;
+                for (i, arg) in type_args.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{}", arg)?;
+                }
+                write!(f, ">")
+            }
         }
     }
 }

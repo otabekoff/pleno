@@ -1062,15 +1062,7 @@ impl Parser {
         let mut implements = Vec::new();
         if self.matches(&TokenKind::KeywordImplements) {
             loop {
-                let name = match self.advance().kind.clone() {
-                    TokenKind::Ident(value) => value,
-                    other => {
-                        return Err(ParseError {
-                            message: format!("Expected interface name, found {other:?}"),
-                            span: self.previous_span(),
-                        });
-                    }
-                };
+                let name = self.parse_type()?;
                 implements.push(name);
                 if !self.matches(&TokenKind::Comma) {
                     break;

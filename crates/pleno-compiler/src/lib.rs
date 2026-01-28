@@ -524,7 +524,7 @@ impl Compiler {
                 name,
                 methods,
                 annotations: _,
-                generics: _,
+                generics,
                 extends: _,
             } => {
                 let methods_reg = self.registers.allocate()?;
@@ -597,6 +597,49 @@ impl Compiler {
                     name_idx,
                     methods_reg,
                 );
+
+                if !generics.is_empty() {
+                    let params_reg = self.registers.allocate()?;
+                    self.emit(Opcode::NewArray, params_reg, 0, 0);
+
+                    let constraints_reg = self.registers.allocate()?;
+                    self.emit(Opcode::NewMap, constraints_reg, 0, 0);
+
+                    for g in generics {
+                        let name_idx =
+                            self.add_constant(Value::String(std::rc::Rc::new(g.name.clone())));
+                        let name_reg = self.registers.allocate()?;
+                        self.emit(Opcode::LoadConst, name_reg, name_idx, 0);
+                        self.emit(Opcode::ArrayAppend, params_reg, name_reg, 0);
+
+                        if !g.constraints.is_empty() {
+                            let cons_list_reg = self.registers.allocate()?;
+                            self.emit(Opcode::NewArray, cons_list_reg, 0, 0);
+                            for constraint in &g.constraints {
+                                let c_idx = self.add_constant(Value::String(std::rc::Rc::new(
+                                    constraint.clone(),
+                                )));
+                                let c_reg = self.registers.allocate()?;
+                                self.emit(Opcode::LoadConst, c_reg, c_idx, 0);
+                                self.emit(Opcode::ArrayAppend, cons_list_reg, c_reg, 0);
+                                self.free_temp(c_reg);
+                            }
+                            // Reuse name_reg (which has the param name) as key
+                            self.emit(Opcode::SetIndex, cons_list_reg, constraints_reg, name_reg);
+                            self.free_temp(cons_list_reg);
+                        }
+
+                        self.free_temp(name_reg);
+                    }
+                    self.emit(
+                        Opcode::SetTypeParams,
+                        interface_reg,
+                        params_reg,
+                        constraints_reg,
+                    );
+                    self.free_temp(params_reg);
+                    self.free_temp(constraints_reg);
+                }
 
                 let name_idx_global =
                     self.add_constant(Value::String(std::rc::Rc::new(name.clone())));
@@ -2510,12 +2553,59 @@ impl Compiler {
             self.emit(Opcode::NewArray, interfaces_reg, 0, 0);
             for interface_name in implements {
                 let interface_reg = self.registers.allocate()?;
-                if let Some(local) = self.resolve_local(&interface_name) {
-                    self.emit(Opcode::Move, interface_reg, local.reg, 0);
+
+                // Check if this is a generic type (contains '<')
+                if let Some(lt_pos) = interface_name.find('<') {
+                    // Parse generic: "Container<Int>" -> base="Container", args=["Int"]
+                    let base_name = &interface_name[..lt_pos];
+                    let args_str = &interface_name[lt_pos + 1..interface_name.len() - 1]; // Strip < and >
+
+                    // Load base interface
+                    let base_reg = self.registers.allocate()?;
+                    if let Some(local) = self.resolve_local(base_name) {
+                        self.emit(Opcode::Move, base_reg, local.reg, 0);
+                    } else {
+                        let name_idx = self
+                            .add_constant(Value::String(std::rc::Rc::new(base_name.to_string())));
+                        self.emit(Opcode::GetGlobal, base_reg, name_idx, 0);
+                    }
+
+                    // Parse and load type arguments
+                    let args_array_reg = self.registers.allocate()?;
+                    self.emit(Opcode::NewArray, args_array_reg, 0, 0);
+
+                    // Split args by comma (simple split, doesn't handle nested generics)
+                    for arg in args_str.split(',') {
+                        let arg = arg.trim();
+                        if arg.is_empty() {
+                            continue;
+                        }
+                        let arg_reg = self.registers.allocate()?;
+                        // Try to resolve as local, global, or treat as primitive type name
+                        if let Some(local) = self.resolve_local(arg) {
+                            self.emit(Opcode::Move, arg_reg, local.reg, 0);
+                        } else {
+                            let arg_idx =
+                                self.add_constant(Value::String(std::rc::Rc::new(arg.to_string())));
+                            self.emit(Opcode::GetGlobal, arg_reg, arg_idx, 0);
+                        }
+                        self.emit(Opcode::ArrayAppend, args_array_reg, arg_reg, 0);
+                        self.free_temp(arg_reg);
+                    }
+
+                    // Emit Specialize to create BoundInterface
+                    self.emit(Opcode::Specialize, interface_reg, base_reg, args_array_reg);
+                    self.free_temp(base_reg);
+                    self.free_temp(args_array_reg);
                 } else {
-                    let name_idx =
-                        self.add_constant(Value::String(std::rc::Rc::new(interface_name.clone())));
-                    self.emit(Opcode::GetGlobal, interface_reg, name_idx, 0);
+                    // Non-generic interface
+                    if let Some(local) = self.resolve_local(&interface_name) {
+                        self.emit(Opcode::Move, interface_reg, local.reg, 0);
+                    } else {
+                        let name_idx = self
+                            .add_constant(Value::String(std::rc::Rc::new(interface_name.clone())));
+                        self.emit(Opcode::GetGlobal, interface_reg, name_idx, 0);
+                    }
                 }
 
                 self.emit(Opcode::ArrayAppend, interfaces_reg, interface_reg, 0);
