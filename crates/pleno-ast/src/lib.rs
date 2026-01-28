@@ -118,6 +118,11 @@ pub enum ExprKind {
         left: Box<Expr>,
         right: Box<Expr>,
     },
+    AssertNotNull(Box<Expr>),
+    SafeCall {
+        callee: Box<Expr>,
+        args: Vec<CallArg>,
+    },
     Match {
         expr: Box<Expr>,
         arms: Vec<MatchArm>,

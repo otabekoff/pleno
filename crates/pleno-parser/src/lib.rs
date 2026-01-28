@@ -1691,15 +1691,7 @@ impl Parser {
                 }
             };
             let ty = if self.matches(&TokenKind::Colon) {
-                match self.advance().kind.clone() {
-                    TokenKind::Ident(value) => Some(value),
-                    other => {
-                        return Err(ParseError {
-                            message: format!("Expected type name after ':', found {other:?}"),
-                            span: self.previous_span(),
-                        });
-                    }
-                }
+                Some(self.parse_type()?)
             } else {
                 None
             };
@@ -2367,6 +2359,17 @@ impl Parser {
                 continue;
             }
             if self.matches(&TokenKind::QuestionDot) {
+                if self.matches(&TokenKind::LParen) {
+                    let args = self.parse_call_args()?;
+                    expr = self.wrap_expr(
+                        ExprKind::SafeCall {
+                            callee: Box::new(expr),
+                            args,
+                        },
+                        start_span,
+                    );
+                    continue;
+                }
                 let name = match self.advance().kind.clone() {
                     TokenKind::Ident(name) => name,
                     TokenKind::Int(val) => val.to_string(),
@@ -2474,40 +2477,7 @@ impl Parser {
                 continue;
             }
             if allow_call && self.matches(&TokenKind::LParen) {
-                let mut args = Vec::new();
-                if !matches!(self.peek_kind(), TokenKind::RParen) {
-                    loop {
-                        let arg = if matches!(self.peek_kind(), TokenKind::Underscore) {
-                            self.advance();
-                            pleno_ast::CallArg::Placeholder
-                        } else if matches!(self.peek_kind(), TokenKind::Ident(_))
-                            && matches!(self.peek_next_kind(), Some(TokenKind::Colon))
-                        {
-                            let name = match self.advance().kind.clone() {
-                                TokenKind::Ident(value) => value,
-                                _ => unreachable!("ident checked"),
-                            };
-                            self.expect(TokenKind::Colon, "Expected ':' in named argument")?;
-                            let value = self.parse_expr()?;
-                            pleno_ast::CallArg::Named(name, value)
-                        } else if self.matches(&TokenKind::Ellipsis)
-                            || self.matches(&TokenKind::DotDot)
-                        {
-                            pleno_ast::CallArg::Spread(self.parse_expr()?)
-                        } else {
-                            pleno_ast::CallArg::Positional(self.parse_expr()?)
-                        };
-                        args.push(arg);
-                        if self.matches(&TokenKind::Comma) {
-                            if matches!(self.peek_kind(), TokenKind::RParen) {
-                                break;
-                            }
-                            continue;
-                        }
-                        break;
-                    }
-                }
-                self.expect(TokenKind::RParen, "Expected ')' after arguments")?;
+                let args = self.parse_call_args()?;
                 expr = self.wrap_expr(
                     ExprKind::Call {
                         callee: Box::new(expr),
@@ -2517,9 +2487,51 @@ impl Parser {
                 );
                 continue;
             }
+
+            if self.matches(&TokenKind::Bang) {
+                expr = self.wrap_expr(ExprKind::AssertNotNull(Box::new(expr)), start_span);
+                continue;
+            }
+
             break;
         }
         Ok(expr)
+    }
+
+    fn parse_call_args(&mut self) -> Result<Vec<pleno_ast::CallArg>, ParseError> {
+        let mut args = Vec::new();
+        if !matches!(self.peek_kind(), TokenKind::RParen) {
+            loop {
+                let arg = if matches!(self.peek_kind(), TokenKind::Underscore) {
+                    self.advance();
+                    pleno_ast::CallArg::Placeholder
+                } else if matches!(self.peek_kind(), TokenKind::Ident(_))
+                    && matches!(self.peek_next_kind(), Some(TokenKind::Colon))
+                {
+                    let name = match self.advance().kind.clone() {
+                        TokenKind::Ident(value) => value,
+                        _ => unreachable!("ident checked"),
+                    };
+                    self.expect(TokenKind::Colon, "Expected ':' in named argument")?;
+                    let value = self.parse_expr()?;
+                    pleno_ast::CallArg::Named(name, value)
+                } else if self.matches(&TokenKind::Ellipsis) || self.matches(&TokenKind::DotDot) {
+                    pleno_ast::CallArg::Spread(self.parse_expr()?)
+                } else {
+                    pleno_ast::CallArg::Positional(self.parse_expr()?)
+                };
+                args.push(arg);
+                if self.matches(&TokenKind::Comma) {
+                    if matches!(self.peek_kind(), TokenKind::RParen) {
+                        break;
+                    }
+                    continue;
+                }
+                break;
+            }
+        }
+        self.expect(TokenKind::RParen, "Expected ')' after arguments")?;
+        Ok(args)
     }
 
     fn parse_map_literal(&mut self, start_span: Span) -> Result<Expr, ParseError> {

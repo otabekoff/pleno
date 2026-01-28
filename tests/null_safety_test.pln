@@ -1,0 +1,36 @@
+print("--- Null Coalescing (??) ---");
+let a = null;
+let b = "default";
+print("a ?? b: " + (a ?? b));
+let c = "actual";
+print("c ?? b: " + (c ?? b));
+
+print("--- Safe Navigation (?.) ---");
+class User {
+    name: String;
+    constructor(name) { this.name = name; }
+}
+
+let mut user = null;
+print("user?.name: " + user?.name);
+
+user = new User("Alice");
+print("user?.name: " + user?.name);
+
+print("--- Forced Unwrap (!) ---");
+user = new User("Bob");
+print("user!.name: " + user!.name);
+
+user = null;
+try {
+    print("user!.name: " + (user!).name);
+} catch (e) {
+    print("Caught expected error for user!: " + e.message);
+}
+
+print("--- Optional Type (Type?) ---");
+fn greet(name: String?) {
+    print("Hello, " + (name ?? "Stranger"));
+}
+greet(null);
+greet("Carol");
