@@ -7,6 +7,7 @@ pub mod math;
 pub mod path;
 pub mod process;
 pub mod promise;
+pub mod reflect;
 pub mod regex;
 pub mod test;
 pub mod time;
@@ -239,6 +240,39 @@ pub fn register(vm: &mut dyn VMProvider) {
         Value::Map(gc.allocate(MapState::new(regex_module))),
     );
 
+    // std:reflect
+    let mut reflect_module = HashMap::new();
+    reflect_module.insert(
+        "getTypeName".to_string(),
+        Value::NativeFunction(reflect::reflect_get_type_name),
+    );
+    reflect_module.insert(
+        "getFields".to_string(),
+        Value::NativeFunction(reflect::reflect_get_fields),
+    );
+    reflect_module.insert(
+        "getMethods".to_string(),
+        Value::NativeFunction(reflect::reflect_get_methods),
+    );
+    reflect_module.insert(
+        "getField".to_string(),
+        Value::NativeFunction(reflect::reflect_get_field),
+    );
+    reflect_module.insert(
+        "setField".to_string(),
+        Value::NativeFunction(reflect::reflect_set_field),
+    );
+    reflect_module.insert(
+        "isInstanceOf".to_string(),
+        Value::NativeFunction(reflect::reflect_is_instance_of),
+    );
+    reflect_module.insert(
+        "callMethod".to_string(),
+        Value::NativeFunction(reflect::reflect_call_method),
+    );
+    let reflect_val = Value::Map(gc.allocate(MapState::new(reflect_module)));
+    modules.insert("std:reflect".to_string(), reflect_val.clone());
+
     // std:test
     let mut assert_obj = HashMap::new();
     assert_obj.insert(
@@ -284,6 +318,9 @@ pub fn register(vm: &mut dyn VMProvider) {
 
     // Register each module in the VM
     for (name, value) in modules {
+        if name == "std:reflect" {
+            vm.register_global("Reflect".to_string(), value.clone());
+        }
         vm.register_module(name, value);
     }
 }

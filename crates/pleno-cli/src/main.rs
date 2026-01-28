@@ -23,116 +23,32 @@ fn main() {
             println!("pleno {}", env!("CARGO_PKG_VERSION"));
         }
         "init" => {
-            let name = args.next().unwrap_or_else(|| {
-                // Default to current directory name
-                env::current_dir()
-                    .ok()
-                    .and_then(|p| p.file_name().map(|n| n.to_string_lossy().to_string()))
-                    .unwrap_or_else(|| "my-app".to_string())
-            });
-            let manifest = Manifest::new(&name, "0.1.0");
-            if let Err(e) = manifest.save_to_file("package.pln") {
-                eprintln!("Failed to create package.pln: {}", e);
-                process::exit(1);
-            }
-            println!("Created package.pln for {}", name);
+            handle_init(&mut args);
         }
         "install" => {
-            let pkg_name = args.next();
-            let mut manifest = match Manifest::load_from_file("package.pln") {
-                Ok(m) => m,
-                Err(e) => {
-                    eprintln!("Failed to load package.pln: {}", e);
-                    process::exit(1);
-                }
-            };
-
-            let manager = pleno_package::PackageManager::new("packages");
-
-            if let Some(pkg) = pkg_name {
-                // Determine source: if it contains '/' or starts with 'git+', use as is.
-                // Otherwise we don't have a registry, so error out.
-                let (name, source) = if pkg.contains('/') || pkg.starts_with("git+") {
-                    let name = pkg.split('/').next_back().unwrap().replace(".git", "");
-                    (name, pkg)
-                } else {
-                    eprintln!(
-                        "Error: Package source must be a Git URL (git+...) or local path (./...). Registry lookups are not yet supported."
-                    );
-                    process::exit(1);
-                };
-
-                manifest.dependencies.insert(name.clone(), source.clone());
-                if let Err(e) = manifest.save_to_file("package.pln") {
-                    eprintln!("Failed to save package.pln: {}", e);
-                    process::exit(1);
-                }
-                println!("Added {} to dependencies", name);
-
-                if let Err(e) = manager.install_all(&manifest) {
-                    eprintln!("Installation failed: {}", e);
-                    process::exit(1);
-                }
-            } else {
-                println!("Installing dependencies...");
-                if let Err(e) = manager.install_all(&manifest) {
-                    eprintln!("Installation failed: {}", e);
+            handle_install(&mut args);
+        }
+        "plm" => {
+            let sub_command = args.next().unwrap_or_else(|| {
+                eprintln!("Error: 'plm' requires a command (init, install, run)");
+                process::exit(1)
+            });
+            match sub_command.as_str() {
+                "init" => handle_init(&mut args),
+                "install" => handle_install(&mut args),
+                "run" => handle_plm_run(&mut args),
+                _ => {
+                    eprintln!("Error: Unknown plm command '{}'", sub_command);
                     process::exit(1);
                 }
             }
-            println!("Installation successful.");
         }
         "run" => {
             let target = args.next().unwrap_or_else(|| {
                 eprintln!("Error: 'run' requires a file path or script name");
                 process::exit(1);
             });
-            // Check if target is a file
-            if PathBuf::from(&target).exists() {
-                if !target.ends_with(".pln") {
-                    eprintln!("Error: Only .pln format file extensions are supported");
-                    process::exit(1);
-                }
-                run_file(&target);
-            } else {
-                // Check for package.pln script
-                match Manifest::load_from_file("package.pln") {
-                    Ok(manifest) => {
-                        if let Some(script) = manifest.scripts.get(&target) {
-                            println!("> {}", script);
-                            // Run shell command
-                            // Split script into command and args
-                            // Naive splitting
-                            let mut parts = script.split_whitespace();
-                            if let Some(cmd) = parts.next() {
-                                let status = process::Command::new(cmd).args(parts).status();
-                                match status {
-                                    Ok(s) => {
-                                        if !s.success() {
-                                            process::exit(s.code().unwrap_or(1));
-                                        }
-                                    }
-                                    Err(e) => {
-                                        eprintln!("Failed to execute script: {}", e);
-                                        process::exit(1);
-                                    }
-                                }
-                            }
-                        } else {
-                            eprintln!(
-                                "Script '{}' not found in package.pln, and file '{}' does not exist.",
-                                target, target
-                            );
-                            process::exit(1);
-                        }
-                    }
-                    Err(_) => {
-                        // No manifest, and file doesn't exist
-                        eprintln!("File '{}' not found.", target);
-                        process::exit(1);
-                    }
-                }
-            }
+            handle_run(&target);
         }
         "format" => {
             let path = args.next().unwrap_or_else(|| {
@@ -781,24 +697,154 @@ fn print_help() {
         Usage: pleno <command> [arguments]\n\n\
         Commands:\n\
           run <file.pln>     Run a Pleno file\n\
+          plm <command>      Package management (init, install, run)\n\
           format <path>      Format Pleno files\n\
           lint <path>        Lint Pleno files\n\
-          check <file.pln>   Type check a Pleno file\n\
           check <file.pln>   Type check a Pleno file\n\
           test <path>        Run tests in file or directory\n\
           repl               Start the interactive REPL\n\
           lsp                Start the Language Server\n\n\
+        Package Commands (plm):\n\
+          init [name]        Initialize a new Pleno package\n\
+          install [url]      Install dependencies or a specific package\n\
+          run <script>       Run a script defined in package.pln\n\n\
         Options:\n\
           -h, --help         Show this help message\n\
           -v, --version      Show version information\n\n\
         Examples:\n\
           pleno run main.pln\n\
-          pleno format src/\n\
-          pleno lint main.pln\n\
-          pleno check main.pln\n\
-          pleno check main.pln\n\
-          pleno test sources/tests\n\
-          pleno repl         Start the interactive REPL\n\
-          pleno lsp          Start the Language Server"
+          pleno plm install\n\
+          pleno plm run dev"
     );
+}
+
+fn handle_init(args: &mut std::iter::Peekable<std::iter::Skip<std::env::Args>>) {
+    let name = args.next().unwrap_or_else(|| {
+        env::current_dir()
+            .ok()
+            .and_then(|p| p.file_name().map(|n| n.to_string_lossy().to_string()))
+            .unwrap_or_else(|| "my-app".to_string())
+    });
+    let manifest = Manifest::new(&name, "0.1.0");
+    if let Err(e) = manifest.save_to_file("pleno.toml") {
+        eprintln!("Failed to create pleno.toml: {}", e);
+        process::exit(1);
+    }
+    println!("Created pleno.toml for {}", name);
+}
+
+fn handle_install(args: &mut std::iter::Peekable<std::iter::Skip<std::env::Args>>) {
+    let pkg_name = args.next();
+    let mut manifest = match Manifest::load_from_file("pleno.toml") {
+        Ok(m) => m,
+        Err(e) => {
+            eprintln!("Failed to load pleno.toml: {}", e);
+            process::exit(1);
+        }
+    };
+
+    let manager = pleno_package::PackageManager::new("packages");
+
+    if let Some(pkg) = pkg_name {
+        let (name, source) = if pkg.contains('/') || pkg.starts_with("git+") {
+            let name = pkg.split('/').next_back().unwrap().replace(".git", "");
+            (name, pkg)
+        } else {
+            eprintln!(
+                "Error: Package source must be a Git URL (git+...) or local path (./...). Registry lookups are not yet supported."
+            );
+            process::exit(1);
+        };
+
+        manifest.dependencies.insert(name.clone(), source.clone());
+        if let Err(e) = manifest.save_to_file("pleno.toml") {
+            eprintln!("Failed to save pleno.toml: {}", e);
+            process::exit(1);
+        }
+        println!("Added {} to dependencies", name);
+
+        if let Err(e) = manager.install_all(&manifest) {
+            eprintln!("Installation failed: {}", e);
+            process::exit(1);
+        }
+    } else {
+        println!("Installing dependencies...");
+        if let Err(e) = manager.install_all(&manifest) {
+            eprintln!("Installation failed: {}", e);
+            process::exit(1);
+        }
+    }
+    println!("Installation successful.");
+}
+
+fn handle_plm_run(args: &mut std::iter::Peekable<std::iter::Skip<std::env::Args>>) {
+    let target = args.next().unwrap_or_else(|| {
+        eprintln!("Error: 'plm run' requires a script name");
+        process::exit(1);
+    });
+
+    match Manifest::load_from_file("pleno.toml") {
+        Ok(manifest) => {
+            if let Some(script) = manifest.scripts.get(&target) {
+                println!("> {}", script);
+                run_shell_script(script);
+            } else {
+                eprintln!("Script '{}' not found in pleno.toml", target);
+                process::exit(1);
+            }
+        }
+        Err(_) => {
+            eprintln!("Error: pleno.toml not found.");
+            process::exit(1);
+        }
+    }
+}
+
+fn handle_run(target: &str) {
+    if PathBuf::from(target).exists() {
+        if !target.ends_with(".pln") {
+            eprintln!("Error: Only .pln format file extensions are supported");
+            process::exit(1);
+        }
+        run_file(target);
+    } else {
+        match Manifest::load_from_file("pleno.toml") {
+            Ok(manifest) => {
+                if let Some(script) = manifest.scripts.get(target) {
+                    println!("> {}", script);
+                    run_shell_script(script);
+                } else {
+                    eprintln!(
+                        "Script '{}' not found in pleno.toml, and file '{}' does not exist.",
+                        target, target
+                    );
+                    process::exit(1);
+                }
+            }
+            Err(_) => {
+                eprintln!("File '{}' not found.", target);
+                process::exit(1);
+            }
+        }
+    }
+}
+
+fn run_shell_script(script: &str) {
+    let status = if cfg!(windows) {
+        process::Command::new("cmd").arg("/C").arg(script).status()
+    } else {
+        process::Command::new("sh").arg("-c").arg(script).status()
+    };
+
+    match status {
+        Ok(s) => {
+            if !s.success() {
+                process::exit(s.code().unwrap_or(1));
+            }
+        }
+        Err(e) => {
+            eprintln!("Failed to execute script: {}", e);
+            process::exit(1);
+        }
+    }
 }

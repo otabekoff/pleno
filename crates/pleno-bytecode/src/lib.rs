@@ -111,6 +111,8 @@ pub enum Opcode {
     MatchVariant,
     GetVariantField,
     AssertNotNull,
+    MakeThunk,
+    ForceThunk,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

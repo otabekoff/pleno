@@ -1,8 +1,8 @@
 use pleno_bytecode::{Chunk, Opcode, ParamSpec};
 use pleno_value::{
     ArrayState, Class, ClosureState, EnumType, EnumVariantDef, MapState, MultiWaiter,
-    MultiWaiterMode, NativeFunction, Object, Range, RuntimeError, SetState, TupleState, VMProvider,
-    Value, ValueKey,
+    MultiWaiterMode, NativeFunction, Object, Range, RuntimeError, SetState, ThunkState, TupleState,
+    VMProvider, Value, ValueKey,
     gc::{GcObject, GcRc},
 };
 use std::collections::{HashMap, HashSet};
@@ -216,6 +216,10 @@ impl VMProvider for VM {
     fn set_builtin_resolver(&mut self, resolver: fn(&str, &str) -> Option<NativeFunction>) {
         self.builtin_resolver = Some(resolver);
     }
+
+    fn check_is_instance(&self, value: &Value, type_val: &Value) -> bool {
+        self.check_is_instance(value, type_val)
+    }
 }
 
 impl Default for VM {
@@ -315,6 +319,21 @@ impl VM {
         }
         if err.stack_trace.is_empty() {
             err.stack_trace = self.generate_backtrace();
+        }
+    }
+
+    fn force_thunk(&mut self, value: Value) -> Result<Value, RuntimeError> {
+        match value {
+            Value::Thunk(state) => {
+                if let Some(cached) = state.borrow().value.clone() {
+                    return Ok(cached);
+                }
+                let callable = state.borrow().callable.clone();
+                let result = self.call(callable, Vec::new())?;
+                state.borrow_mut().value = Some(result.clone());
+                Ok(result)
+            }
+            other => Ok(other),
         }
     }
 
@@ -2954,6 +2973,16 @@ impl VM {
                     self.call_any_value(callee, args, base + a)?;
                 }
 
+                Opcode::MakeThunk => {
+                    let callable = self.registers[base + b].clone();
+                    let thunk = Value::Thunk(self.gc.allocate(ThunkState::new(callable)));
+                    self.registers[base + a] = thunk;
+                }
+                Opcode::ForceThunk => {
+                    let value = self.registers[base + b].clone();
+                    let forced = self.force_thunk(value)?;
+                    self.registers[base + a] = forced;
+                }
                 Opcode::CallNamed => {
                     let callee = self.registers[base + b].clone();
                     let wrapper = match &self.registers[base + c] {
@@ -3841,6 +3870,10 @@ impl VM {
         return_reg_idx: usize,
     ) -> Result<(), RuntimeError> {
         match callee {
+            Value::Thunk(_) => {
+                let forced = self.force_thunk(callee)?;
+                return self.call_any_value(forced, args, return_reg_idx);
+            }
             Value::Function(handle) => {
                 self.call_function(handle, None, &args, return_reg_idx, None, None, None, false)?;
             }

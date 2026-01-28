@@ -32,3 +32,4 @@ Get-ChildItem -Recurse -Filter "*.pl" -File | Measure-Object | Select-Object -Ex
 cargo run -- run sources/tests/test_operators.pln                                
 
 
+cargo clippy --workspace --all-targets --all-features -- -D warnings

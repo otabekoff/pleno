@@ -147,6 +147,7 @@ impl Formatter {
                 is_const,
                 is_deep,
                 ty,
+                is_lazy,
             } => {
                 let mut result = current_indent;
                 if *is_const {
@@ -155,10 +156,14 @@ impl Formatter {
                     } else {
                         result.push_str("const ");
                     }
-                } else if *mutable {
-                    result.push_str("let mut ");
                 } else {
                     result.push_str("let ");
+                    if *is_lazy {
+                        result.push_str("lazy ");
+                    }
+                    if *mutable {
+                        result.push_str("mut ");
+                    }
                 }
                 result.push_str(name);
 
@@ -712,6 +717,17 @@ impl Formatter {
             StmtKind::TypeAlias { name, ty } => {
                 format!("{}type {} = {};\n", current_indent, name, ty)
             }
+            StmtKind::MacroDecl { name, params, body } => {
+                let mut result = format!("{}macro {}(", current_indent, name);
+                result.push_str(&params.join(", "));
+                result.push_str(") ");
+                let body_str = self.format_statement(body, indent_level);
+                result.push_str(body_str.trim_start());
+                if !result.ends_with('\n') {
+                    result.push('\n');
+                }
+                result
+            }
         };
         result + &stmt_str
     }
@@ -787,6 +803,25 @@ impl Formatter {
                 };
                 let op = if *inclusive { "..=" } else { ".." };
                 format!("{}{}{}", start_str, op, end_str)
+            }
+            ExprKind::MacroCall { name, args } => {
+                let arg_list = args
+                    .iter()
+                    .map(|arg| match arg {
+                        CallArg::Positional(expr) => self.format_expression(expr, indent_level),
+                        CallArg::Named(name, expr) => {
+                            format!("{}: {}", name, self.format_expression(expr, indent_level))
+                        }
+                        CallArg::Placeholder => "_".to_string(),
+                        CallArg::Spread(expr) => {
+                            format!("...{}", self.format_expression(expr, indent_level))
+                        }
+                    })
+                    .collect::<Vec<_>>();
+                format!("{}!({})", name, arg_list.join(", "))
+            }
+            ExprKind::MacroSplice(expr) => {
+                format!("${{{}}}", self.format_expression(expr, indent_level))
             }
             ExprKind::MapLiteral(entries) => {
                 let items: Vec<String> = entries

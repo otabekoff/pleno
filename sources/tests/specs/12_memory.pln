@@ -1,7 +1,40 @@
 // --- 12. Memory & Performance ---
-// Ownership Hints (move, &, &mut)
-// Lazy Evaluation (lazy)
-// Memory Pooling (@pooled)
+// 12.1 Ownership Hints (move, &, &mut) - syntax verification
+// 12.2 Lazy Evaluation (lazy) - syntax verification
+// 12.3 Memory Pooling (@pooled) - still deferred
 
-// These are likely deferred. This file serves as a placeholder.
-print("12. Memory Features: Skipped (Deferred)");
+@pure
+fn takeOwnership(value: move String) {
+    // For now, ownership hints are syntax-only and behave like normal parameters.
+    print(value);
+}
+
+fn borrowValue(value: &String) {
+    print(value);
+}
+
+fn borrowMutable(value: &mut String) {
+    print(value);
+}
+
+fn testLazyBinding() {
+    let lazy lazyValue = 42;
+    print(lazyValue);
+}
+
+fn testLazySemantics() {
+    let mut counter = 0;
+    let lazy computed = {
+        counter = counter + 1;
+        counter
+    };
+    print(counter); // 0 before access
+    print(computed); // 1 after first access
+    print(computed); // still 1 (cached)
+    print(counter); // 1 (only evaluated once)
+}
+
+testLazyBinding();
+testLazySemantics();
+print("12. Memory Features: Syntax Parsed");
+
