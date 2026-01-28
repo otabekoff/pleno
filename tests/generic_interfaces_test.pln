@@ -1,0 +1,35 @@
+
+interface Container<T> {
+    fn getValue(): T;
+}
+
+class IntContainer implements Container<Int> {
+    value: Int;
+
+    fn constructor(v: Int) {
+        this.value = v;
+    }
+
+    fn getValue(): Int {
+        return this.value;
+    }
+}
+
+let c = new IntContainer(42);
+if (c is Container<Int>) {
+    print("c is Container<Int>")
+} else {
+    print("FAIL: c is NOT Container<Int>")
+}
+
+if (c.getValue() == 42) {
+    print("Value matches")
+} else {
+    print("FAIL: Value mismatch")
+}
+
+if (c is Container<String>) {
+    print("FAIL: c should NOT be Container<String>")
+} else {
+    print("Correct: c is not Container<String>")
+}

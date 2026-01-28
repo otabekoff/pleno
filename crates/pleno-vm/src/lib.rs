@@ -2203,6 +2203,8 @@ impl VM {
                             methods,
                             getters,
                             setters,
+                            type_params: Vec::new(),
+                            type_constraints: HashMap::new(),
                         }));
                 }
                 Opcode::SetImplements => {
@@ -2222,106 +2224,114 @@ impl VM {
                             let mut validation_error = None;
                             // Validation Logic
                             'interface_loop: for interface_val in interfaces {
-                                if let Value::Interface(interface) = &interface_val {
-                                    {
-                                        let interface_borrow = interface.borrow();
-                                        let class_borrow = class.borrow();
+                                let interface = match &interface_val {
+                                    Value::Interface(i) => i.clone(),
+                                    Value::BoundInterface { interface, .. } => interface.clone(),
+                                    _ => {
+                                        return Err(RuntimeError::new(
+                                            "SetImplements: expected interface",
+                                        ));
+                                    }
+                                };
 
-                                        // Check methods
-                                        for (name, sig) in &interface_borrow.methods {
-                                            let method_info = if sig.is_static {
-                                                resolve_static_method(&class, name)
-                                            } else {
-                                                resolve_method(&class, name)
-                                            };
+                                {
+                                    let interface_borrow = interface.borrow();
+                                    let class_borrow = class.borrow();
 
-                                            if let Some(method_info) = method_info {
-                                                if let Some(func) =
-                                                    self.functions.get(method_info.function)
-                                                {
-                                                    let mut expected_arity = sig.arity;
-                                                    if !sig.is_static {
-                                                        expected_arity += 1;
-                                                    }
-                                                    if sig.is_async {
-                                                        expected_arity += 1;
-                                                    }
+                                    // Check methods
+                                    for (name, sig) in &interface_borrow.methods {
+                                        let method_info = if sig.is_static {
+                                            resolve_static_method(&class, name)
+                                        } else {
+                                            resolve_method(&class, name)
+                                        };
 
-                                                    if func.arity != expected_arity {
-                                                        validation_error = Some(format!(
-                                                            "Class '{}' implements interface '{}' incorrectly: method '{}' requires {} args (including implicit ones), found {}",
-                                                            class_borrow.name,
-                                                            interface_borrow.name,
-                                                            name,
-                                                            expected_arity,
-                                                            func.arity
-                                                        ));
-                                                        break 'interface_loop;
-                                                    }
-
-                                                    if func.is_async != sig.is_async {
-                                                        validation_error = Some(format!(
-                                                            "Class '{}' implements interface '{}' incorrectly: method '{}' async status mismatch",
-                                                            class_borrow.name,
-                                                            interface_borrow.name,
-                                                            name
-                                                        ));
-                                                        break 'interface_loop;
-                                                    }
+                                        if let Some(method_info) = method_info {
+                                            if let Some(func) =
+                                                self.functions.get(method_info.function)
+                                            {
+                                                let mut expected_arity = sig.arity;
+                                                if !sig.is_static {
+                                                    expected_arity += 1;
                                                 }
-                                            } else {
-                                                validation_error = Some(format!(
-                                                    "Class '{}' missing {}method '{}' required by interface '{}'",
-                                                    class_borrow.name,
-                                                    if sig.is_static { "static " } else { "" },
-                                                    name,
-                                                    interface_borrow.name
-                                                ));
-                                                break 'interface_loop;
-                                            }
-                                        }
+                                                if sig.is_async {
+                                                    expected_arity += 1;
+                                                }
 
-                                        // Check getters
-                                        for (name, sig) in &interface_borrow.getters {
-                                            let getter_info = if sig.is_static {
-                                                resolve_static_getter(&class, name)
-                                            } else {
-                                                resolve_getter(&class, name)
-                                            };
-                                            if getter_info.is_none() {
-                                                validation_error = Some(format!(
-                                                    "Class '{}' missing {}getter '{}' required by interface '{}'",
-                                                    class_borrow.name,
-                                                    if sig.is_static { "static " } else { "" },
-                                                    name,
-                                                    interface_borrow.name
-                                                ));
-                                                break 'interface_loop;
-                                            }
-                                        }
+                                                if func.arity != expected_arity {
+                                                    validation_error = Some(format!(
+                                                        "Class '{}' implements interface '{}' incorrectly: method '{}' requires {} args (including implicit ones), found {}",
+                                                        class_borrow.name,
+                                                        interface_borrow.name,
+                                                        name,
+                                                        expected_arity,
+                                                        func.arity
+                                                    ));
+                                                    break 'interface_loop;
+                                                }
 
-                                        // Check setters
-                                        for (name, sig) in &interface_borrow.setters {
-                                            let setter_info = if sig.is_static {
-                                                resolve_static_setter(&class, name)
-                                            } else {
-                                                resolve_setter(&class, name)
-                                            };
-                                            if setter_info.is_none() {
-                                                validation_error = Some(format!(
-                                                    "Class '{}' missing {}setter '{}' required by interface '{}'",
-                                                    class_borrow.name,
-                                                    if sig.is_static { "static " } else { "" },
-                                                    name,
-                                                    interface_borrow.name
-                                                ));
-                                                break 'interface_loop;
+                                                if func.is_async != sig.is_async {
+                                                    validation_error = Some(format!(
+                                                        "Class '{}' implements interface '{}' incorrectly: method '{}' async status mismatch",
+                                                        class_borrow.name,
+                                                        interface_borrow.name,
+                                                        name
+                                                    ));
+                                                    break 'interface_loop;
+                                                }
                                             }
+                                        } else {
+                                            validation_error = Some(format!(
+                                                "Class '{}' missing {}method '{}' required by interface '{}'",
+                                                class_borrow.name,
+                                                if sig.is_static { "static " } else { "" },
+                                                name,
+                                                interface_borrow.name
+                                            ));
+                                            break 'interface_loop;
                                         }
                                     }
 
-                                    class.borrow_mut().implements.push(interface_val.clone());
+                                    // Check getters
+                                    for (name, sig) in &interface_borrow.getters {
+                                        let getter_info = if sig.is_static {
+                                            resolve_static_getter(&class, name)
+                                        } else {
+                                            resolve_getter(&class, name)
+                                        };
+                                        if getter_info.is_none() {
+                                            validation_error = Some(format!(
+                                                "Class '{}' missing {}getter '{}' required by interface '{}'",
+                                                class_borrow.name,
+                                                if sig.is_static { "static " } else { "" },
+                                                name,
+                                                interface_borrow.name
+                                            ));
+                                            break 'interface_loop;
+                                        }
+                                    }
+
+                                    // Check setters
+                                    for (name, sig) in &interface_borrow.setters {
+                                        let setter_info = if sig.is_static {
+                                            resolve_static_setter(&class, name)
+                                        } else {
+                                            resolve_setter(&class, name)
+                                        };
+                                        if setter_info.is_none() {
+                                            validation_error = Some(format!(
+                                                "Class '{}' missing {}setter '{}' required by interface '{}'",
+                                                class_borrow.name,
+                                                if sig.is_static { "static " } else { "" },
+                                                name,
+                                                interface_borrow.name
+                                            ));
+                                            break 'interface_loop;
+                                        }
+                                    }
                                 }
+
+                                class.borrow_mut().implements.push(interface_val.clone());
                             }
 
                             if let Some(msg) = validation_error {
@@ -2369,7 +2379,15 @@ impl VM {
                             class.borrow_mut().type_params = params;
                             class.borrow_mut().type_constraints = type_constraints;
                         }
-                        _ => return Err(RuntimeError::new("SetTypeParams on non-class value")),
+                        Value::Interface(interface) => {
+                            interface.borrow_mut().type_params = params;
+                            interface.borrow_mut().type_constraints = type_constraints;
+                        }
+                        _ => {
+                            return Err(RuntimeError::new(
+                                "SetTypeParams on non-class/interface value",
+                            ));
+                        }
                     }
                 }
                 Opcode::Specialize => {
@@ -2436,6 +2454,63 @@ impl VM {
 
                             self.registers[base + a] = Value::BoundClass {
                                 class,
+                                type_args: args,
+                            };
+                        }
+                        Value::Interface(interface) => {
+                            // Verify constraints
+                            {
+                                let interface_borrow = interface.borrow();
+                                if args.len() != interface_borrow.type_params.len() {
+                                    return Err(self.throw_runtime_error(&format!(
+                                        "Generic type mismatch: expected {} args, found {}",
+                                        interface_borrow.type_params.len(),
+                                        args.len()
+                                    )));
+                                }
+
+                                for (i, param_name) in
+                                    interface_borrow.type_params.iter().enumerate()
+                                {
+                                    if let Some(constraints) =
+                                        interface_borrow.type_constraints.get(param_name)
+                                    {
+                                        for constraint_name in constraints {
+                                            // Resolve constraint type (Class, Interface, or Primitive Name)
+                                            let constraint_type = if let Some(val) =
+                                                self.globals.get(constraint_name)
+                                            {
+                                                val.clone()
+                                            } else {
+                                                // Assume primitive or simple type name if not in globals
+                                                Value::String(Rc::new(constraint_name.clone()))
+                                            };
+
+                                            if !self
+                                                .check_type_compatible(&args[i], &constraint_type)
+                                            {
+                                                let arg_type_name = match &args[i] {
+                                                    Value::Class(c) => c.borrow().name.to_string(),
+                                                    Value::Interface(i) => {
+                                                        i.borrow().name.to_string()
+                                                    }
+                                                    Value::String(s) => s.to_string(),
+                                                    _ => "Unknown".to_string(),
+                                                };
+                                                return Err(self.throw_runtime_error(&format!(
+                                                    "Generic constraint failed: Type '{}' does not satisfy constraint '{}' for parameter '{}'",
+                                                    arg_type_name,
+                                                    constraint_name,
+                                                    param_name
+                                                )));
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            self.registers[base + a] = Value::BoundInterface {
+                                interface,
                                 type_args: args,
                             };
                         }
@@ -3100,10 +3175,13 @@ impl VM {
                         let mut current = Some(cls.clone());
                         while let Some(c) = current {
                             for imp in &c.borrow().implements {
-                                if let Value::Interface(i) = imp {
-                                    if i.borrow().name == iface.name {
-                                        return true;
-                                    }
+                                let imp_iface = match imp {
+                                    Value::Interface(i) => i,
+                                    Value::BoundInterface { interface, .. } => interface,
+                                    _ => continue,
+                                };
+                                if imp_iface.borrow().name == iface.name {
+                                    return true;
                                 }
                             }
                             current = c.borrow().superclass.clone();
@@ -3127,6 +3205,47 @@ impl VM {
                         }
                     }
                     true
+                }
+                _ => false,
+            },
+            Value::BoundInterface {
+                interface: target_iface,
+                type_args: target_args,
+            } => match value {
+                Value::Object(obj) => {
+                    let obj = obj.borrow();
+                    let iface = target_iface.borrow();
+
+                    if let Some(cls) = &obj.class {
+                        let mut current = Some(cls.clone());
+                        while let Some(c) = current {
+                            for imp in &c.borrow().implements {
+                                if let Value::BoundInterface {
+                                    interface,
+                                    type_args,
+                                } = imp
+                                {
+                                    if interface.borrow().name == iface.name {
+                                        if type_args.len() != target_args.len() {
+                                            continue;
+                                        }
+                                        let mut args_match = true;
+                                        for (a, b) in type_args.iter().zip(target_args.iter()) {
+                                            if !self.check_type_compatible(a, b) {
+                                                args_match = false;
+                                                break;
+                                            }
+                                        }
+                                        if args_match {
+                                            return true;
+                                        }
+                                    }
+                                }
+                            }
+                            current = c.borrow().superclass.clone();
+                        }
+                    }
+                    false
                 }
                 _ => false,
             },
@@ -3164,26 +3283,76 @@ impl VM {
                 _ => false,
             },
             Value::Interface(target_iface) => match val_type {
-                Value::Class(cls) => {
+                Value::Class(cls) | Value::BoundClass { class: cls, .. } => {
                     let iface = target_iface.borrow();
                     let mut current = Some(cls.clone());
                     while let Some(c) = current {
                         for imp in &c.borrow().implements {
-                            if let Value::Interface(i) = imp {
-                                if i.borrow().name == iface.name {
-                                    return true;
+                            let imp_iface = match imp {
+                                Value::Interface(i) => i.clone(),
+                                Value::BoundInterface { interface, .. } => interface.clone(),
+                                _ => continue,
+                            };
+                            if imp_iface.borrow().name == iface.name {
+                                return true;
+                            }
+                        }
+                        current = c.borrow().superclass.clone();
+                    }
+                    false
+                }
+                _ => false,
+            },
+            Value::BoundInterface {
+                interface: target_iface,
+                type_args: target_args,
+            } => match val_type {
+                Value::BoundInterface {
+                    interface: instance_iface,
+                    type_args: instance_args,
+                } => {
+                    if instance_iface.as_ptr() != target_iface.as_ptr() {
+                        return false;
+                    }
+                    if instance_args.len() != target_args.len() {
+                        return false;
+                    }
+                    for (a, b) in instance_args.iter().zip(target_args.iter()) {
+                        if !self.check_type_compatible(a, b) {
+                            return false;
+                        }
+                    }
+                    true
+                }
+                Value::Class(cls) | Value::BoundClass { class: cls, .. } => {
+                    let iface = target_iface.borrow();
+                    let mut current = Some(cls.clone());
+                    while let Some(c) = current {
+                        for imp in &c.borrow().implements {
+                            if let Value::BoundInterface {
+                                interface,
+                                type_args,
+                            } = imp
+                            {
+                                if interface.borrow().name == iface.name {
+                                    if type_args.len() != target_args.len() {
+                                        continue;
+                                    }
+                                    let mut match_args = true;
+                                    for (a, b) in type_args.iter().zip(target_args.iter()) {
+                                        if !self.check_type_compatible(a, b) {
+                                            match_args = false;
+                                            break;
+                                        }
+                                    }
+                                    if match_args {
+                                        return true;
+                                    }
                                 }
                             }
                         }
                         current = c.borrow().superclass.clone();
                     }
-
-                    // Also check structural compatibility?
-                    // Specs might say nominal only for 'implements', but structural for matching?
-                    // For now, let's stick to nominal 'implements' check as in check_is_instance first part.
-                    // If structural is needed, we would iterate methods.
-                    // Given the test error "does not satisfy constraint", nominal check should pass if 'implements' is used.
-                    // The test uses 'implements ISerializable'.
                     false
                 }
                 _ => false,
