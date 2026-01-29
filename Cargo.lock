@@ -1033,6 +1033,7 @@ dependencies = [
  "notify",
  "pleno-compiler",
  "pleno-diagnostics",
+ "pleno-doc",
  "pleno-formatter",
  "pleno-lexer",
  "pleno-linter",
@@ -1068,6 +1069,15 @@ name = "pleno-diagnostics"
 version = "0.1.0"
 dependencies = [
  "pleno-common",
+]
+
+[[package]]
+name = "pleno-doc"
+version = "0.1.0"
+dependencies = [
+ "pleno-ast",
+ "pleno-lexer",
+ "pleno-parser",
 ]
 
 [[package]]

@@ -7,6 +7,8 @@ Now, as we have finished v1 of the Pleno programming language, we fully support 
 
 Always do cargo clippy --workspace --all-targets --all-features -- -D warnings and github add    commit and push. gh?
 
+After doing each job, do cargo fmt for workspace.
+
 Now, as we have finished v1 of the Pleno programming langguage, I want you to fully think and write, plan the next v2 of Pleno programming language. We need V2 roadmap, v2-specs.md. Here we'll add better features, make the old and inconsistent things enhanced, better, implement new features and support many things, more stdlibs. and many more. Think more and write detailed, Things will be added, upgraded, updated, fixed, supported.
 
 We have to deploy v1 fully. Now we need to update the docs.

@@ -1,0 +1,9 @@
+[package]
+name = "pleno-doc"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+pleno-ast = { path = "../pleno-ast" }
+pleno-lexer = { path = "../pleno-lexer" }
+pleno-parser = { path = "../pleno-parser" }

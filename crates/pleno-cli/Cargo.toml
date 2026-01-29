@@ -16,5 +16,6 @@ pleno-stdlib = { workspace = true }
 pleno-lsp = { workspace = true }
 pleno-repl = { workspace = true }
 pleno-linter = { workspace = true }
+pleno-doc = { workspace = true }
 notify = "6"
 bincode = "1"

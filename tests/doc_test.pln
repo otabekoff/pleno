@@ -1,0 +1,41 @@
+/// A 2D point class.
+/// Represents a point in a two-dimensional coordinate system.
+class Point {
+    /// X coordinate of the point
+    x: Float;
+    /// Y coordinate of the point
+    y: Float;
+}
+
+/// Represents a shape that can be drawn.
+interface Drawable {
+    /// Draws the shape to the screen.
+    fn draw();
+}
+
+/// Color enumeration
+enum Color {
+    /// Red color
+    Red,
+    /// Green color
+    Green,
+    /// Blue color
+    Blue
+}
+
+/// Adds two numbers together.
+/// 
+/// # Arguments
+/// * `a` - First number
+/// * `b` - Second number
+/// 
+/// # Returns
+/// The sum of a and b.
+fn add(a, b) {
+    return a + b;
+}
+
+/// Multiplies two numbers.
+fn multiply(a, b) {
+    return a * b;
+}
