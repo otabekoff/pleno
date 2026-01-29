@@ -3,9 +3,13 @@
 
 http://localhost:5173/pleno/specs/ is showing next page to introduction which is itself, and causing loop on docs.
 
+i++ ++i else if finallies
+
 Now, as we have finished v1 of the Pleno programming language, we fully support specs.md and many other things not listed in it too. Now what I want is, you need to add those already implemented, but missed things in specs.md to be noted.
 
 Always do cargo clippy --workspace --all-targets --all-features -- -D warnings and github add    commit and push. gh?
+
+Code Runner extension should support for Pleno programming language.
 
 After doing each job, do cargo fmt for workspace.
 

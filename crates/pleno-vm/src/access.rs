@@ -97,11 +97,11 @@ pub fn can_access_method(
         MethodVisibility::Protected => current_class
             .map(|c| is_subclass_of(c, &method.owner))
             .unwrap_or(false),
-        MethodVisibility::Internal => method
-            .module
-            .as_ref()
-            .and_then(|module| current_module.map(|current| module.as_str() == current.as_str()))
-            .unwrap_or(false),
+        MethodVisibility::Internal => match (&method.module, current_module) {
+            (Some(o), Some(c)) => o.as_str() == c.as_str(),
+            (None, None) => true,
+            _ => false,
+        },
     }
 }
 
@@ -132,10 +132,11 @@ pub fn can_access_field(
                 }
             })
             .unwrap_or(false),
-        MethodVisibility::Internal => owner_module
-            .as_ref()
-            .and_then(|module| current_module.map(|current| module.as_str() == current.as_str()))
-            .unwrap_or(false),
+        MethodVisibility::Internal => match (owner_module, current_module) {
+            (Some(o), Some(c)) => o.as_str() == c.as_str(),
+            (None, None) => true,
+            _ => false,
+        },
     }
 }
 

@@ -1,4 +1,4 @@
-## 12. Memory Management & Performance
+# Memory Management & Performance
 
 ### 12.1 Ownership Hints (Optional)
 

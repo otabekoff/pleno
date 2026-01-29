@@ -17,6 +17,13 @@ export default defineConfig({
   srcDir: '.',
   ignoreDeadLinks: true,
   themeConfig: {
+    search: {
+      provider: 'local',
+      // options: {
+      //   miniSearch: {
+      //   }
+      // }
+    },
     outline: {
       level: "deep",
       label: "On this page"
@@ -24,66 +31,78 @@ export default defineConfig({
     logo: '/logo.svg',
     nav: [
       { text: 'Home', link: '/' },
-      { text: 'Guide', link: '/specs/index' },
-      { text: 'Reference', link: '/specs/core-syntax-fundamentals' },
-      { text: 'Examples', link: '/specs/example-programs' }
+      { text: 'Guide', link: '/guide/getting-started' },
+      { text: 'Specification', link: '/specs/core-syntax-fundamentals' },
+      { text: 'Stdlib', link: '/stdlib/' },
+      { text: 'Examples', link: '/examples' }
     ],
 
-    sidebar: [
-      {
-        text: 'Getting Started',
-        items: [
-          { text: 'Introduction', link: '/specs/index' },
-          { text: 'Installation', link: '/specs/installation' },
-          { text: 'Bytecode VM Design', link: '/specs/bytecode_vm' },
-        ]
-      },
-      {
-        text: 'Language Reference',
-        items: [
-          { text: 'Core Syntax', link: '/specs/core-syntax-fundamentals' },
-          { text: 'Control Flow', link: '/specs/control-flow' },
-          { text: 'Functions', link: '/specs/functions' },
-          { text: 'Object-Oriented Programming', link: '/specs/OOP' },
-          { text: 'Data Structures', link: '/specs/data-structures' },
-          { text: 'Functional Features', link: '/specs/functional-programming' },
-        ]
-      },
-      {
-        text: 'Advanced',
-        items: [
-          { text: 'Async & Concurrency', link: '/specs/async-concurrency' },
-          { text: 'Error Handling', link: '/specs/error-handling' },
-          { text: 'Generics', link: '/specs/generics' },
-          { text: 'Decorators', link: '/specs/decorators-attributes' },
-          { text: 'Memory & Performance', link: '/specs/memory-performance' },
-        ]
-      },
-      {
-        text: 'Standard Library',
-        items: [
-          { text: 'Overview', link: '/specs/standard-library' },
-        ]
-      },
-      {
-        text: 'Tooling',
-        items: [
-          { text: 'CLI', link: '/specs/tooling-cli' },
-          { text: 'Testing', link: '/specs/testing-framework' },
-          { text: 'Package Manager', link: '/specs/package-manager' },
-        ]
-      },
-      {
-        text: 'Project',
-        items: [
-          { text: 'Release Process', link: '/specs/release' },
-          { text: 'Conclusion', link: '/specs/conclusion' },
-        ]
-      }
-    ],
+    sidebar: {
+      '/guide/': [
+        {
+          text: 'Guide',
+          items: [
+            { text: 'Getting Started', link: '/guide/getting-started' },
+            { text: 'Contributing', link: '/guide/contributing' },
+          ]
+        }
+      ],
+      '/specs/': [
+        {
+          text: 'Language Specification',
+          items: [
+            { text: 'Introduction', link: '/specs/' },
+            { text: 'Core Syntax', link: '/specs/core-syntax-fundamentals' },
+            { text: 'Control Flow', link: '/specs/control-flow' },
+            { text: 'Functions', link: '/specs/functions' },
+            { text: 'Object-Oriented Programming', link: '/specs/OOP' },
+            { text: 'Data Structures', link: '/specs/data-structures' },
+            { text: 'Functional Features', link: '/specs/functional-programming' },
+            { text: 'Async & Concurrency', link: '/specs/async-concurrency' },
+            { text: 'Modules & Imports', link: '/specs/modules-imports' },
+            { text: 'Error Handling', link: '/specs/error-handling' },
+            { text: 'Generics', link: '/specs/generics' },
+            { text: 'Decorators', link: '/specs/decorators-attributes' },
+            { text: 'Standard Library', link: '/specs/standard-library' },
+            { text: 'Memory & Performance', link: '/specs/memory-performance' },
+            { text: 'Security', link: '/specs/security-features' },
+            { text: 'Tooling & CLI', link: '/specs/tooling-cli' },
+            { text: 'Testing', link: '/specs/testing-framework' },
+            { text: 'Package Manager', link: '/specs/package-manager' },
+            { text: 'Release', link: '/specs/release' },
+          ]
+        }
+      ],
+      '/stdlib/': [
+        {
+          text: 'Standard Library',
+          items: [
+            // TODO: This should be auto-generated or listed manually if generator doesn't update config
+            // For now, linking to index if generated, or listing known modules
+            { text: 'Core', link: '/stdlib/core' },
+            { text: 'IO', link: '/stdlib/io' },
+            { text: 'HTTP', link: '/stdlib/http' },
+            { text: 'JSON', link: '/stdlib/json' },
+            // { text: 'Math', link: '/stdlib/math' }, // Parsing error
+            { text: 'Time', link: '/stdlib/time' },
+            // { text: 'Regex', link: '/stdlib/regex' }, // Parsing error
+            { text: 'OS', link: '/stdlib/os' },
+            { text: 'Benchmark', link: '/stdlib/benchmark' },
+          ]
+        }
+      ],
+      '/examples': [
+        {
+          text: 'Examples',
+          items: [
+            { text: 'Overview', link: '/examples' }
+          ]
+        }
+      ]
+    },
 
     socialLinks: [
-      { icon: 'github', link: 'https://github.com/plang/pleno' }
+      { icon: 'github', link: 'https://github.com/otabekoff/pleno' }
     ],
 
     footer: {
@@ -101,7 +120,7 @@ export default defineConfig({
         ...plenoGrammar,
         name: 'pleno',
         id: 'pleno',
-        
+
         aliases: ['pln']
       }
     ]

@@ -1,4 +1,4 @@
-## 18. Example Programs
+# Example Programs
 
 ### 18.1 Hello World
 

@@ -1,4 +1,4 @@
-## 7. Error Handling
+# Error Handling
 
 ### 7.1 Try-Catch
 

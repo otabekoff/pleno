@@ -1,0 +1,16 @@
+// 9. Super Method Calls
+class Base {
+    public fn greet(): String {
+        return "Greetings";
+    }
+}
+
+class Derived extends Base {
+    @override
+    public fn greet(): String {
+        return super.greet() + " from Derived";
+    }
+}
+
+let d = Derived();
+print("Derived greet: " + d.greet());

@@ -1,0 +1,115 @@
+// Comprehensive Phase 3 Verification
+
+fn assert(condition: Bool, message: String) {
+    if (!condition) {
+        print("ASSERTION FAILED: " + message);
+        exit(1);
+    }
+}
+
+print("Testing Functions & Functional Programming...");
+
+// 3.1 Basic Function & Shorthand
+fn square(x: Int): Int => x * x;
+fn add(a: Int, b: Int): Int {
+    return a + b;
+}
+assert(square(5) == 25, "Shorthand body square");
+assert(add(10, 20) == 30, "Basic function add");
+
+// 3.2 Default Parameters
+fn greet(name: String, greeting: String = "Hello"): String {
+    return greeting + ", " + name;
+}
+assert(greet("Alice") == "Hello, Alice", "Default parameter");
+assert(greet("Bob", "Hi") == "Hi, Bob", "Explicit parameter with default");
+
+// 3.3 Named Parameters
+fn createUser(name: String, age: Int, active: Bool = true) {
+    return { "name": name, "age": age, "active": active };
+}
+let user = createUser(age: 30, name: "Alice");
+assert(user.name == "Alice", "Named parameter name");
+assert(user.age == 30, "Named parameter age");
+assert(user.active == true, "Named parameter default");
+
+// 3.4 Variable Arguments
+fn sumAll(...numbers: Int[]): Int {
+    let mut total = 0;
+    for (n in numbers) {
+        total = total + n;
+    }
+    return total;
+}
+assert(sumAll(1, 2, 3, 4, 5) == 15, "Varargs sum");
+
+// 3.5 Higher-Order Functions & Closures
+fn apply(x: Int, op: (Int) => Int): Int => op(x);
+assert(apply(10, square) == 100, "HOF with named function");
+
+fn makeCounter(): () => Int {
+    let mut count = 0;
+    return fn() => {
+        count++;
+        return count;
+    };
+}
+let counter = makeCounter();
+assert(counter() == 1, "Closure call 1");
+assert(counter() == 2, "Closure call 2");
+
+// 3.7 Lambdas & Anonymous Functions
+let double = |x| => x * 2;
+assert(double(10) == 20, "Lambda shorthand");
+
+let multiply = fn(a: Int, b: Int): Int {
+    return a * b;
+};
+assert(multiply(3, 4) == 12, "Anonymous function");
+
+// Increment/Decrement Operators
+print("Testing Increment/Decrement...");
+let mut i = 0;
+assert(i++ == 0, "Post-increment returns old value");
+assert(i == 1, "Post-increment updates value");
+assert(++i == 2, "Pre-increment returns new value");
+assert(i == 2, "Pre-increment updates value");
+
+assert(i-- == 2, "Post-decrement returns old value");
+assert(i == 1, "Post-decrement updates value");
+assert(--i == 0, "Pre-decrement returns new value");
+assert(i == 0, "Pre-decrement updates value");
+
+// Targets for increments
+let o = { "val": 10 };
+o.val++;
+assert(o.val == 11, "Property increment");
+
+let arr = [100];
+arr[0]--;
+assert(arr[0] == 99, "Index decrement");
+
+// Try-Catch-Finally
+print("Testing Try-Catch-Finally...");
+let mut finallyCalled = false;
+try {
+    throw "error";
+} catch (e) {
+    assert(e == "error", "Catch value");
+} finally {
+    finallyCalled = true;
+}
+assert(finallyCalled == true, "Finally executed");
+
+// Else If
+print("Testing Else If...");
+let x = 15;
+if (x < 10) {
+    assert(false, "Should not hit if");
+} else if (x < 20) {
+    // Pass
+} else {
+    assert(false, "Should not hit else");
+}
+
+print("All Phase 3 Tests Passed!");

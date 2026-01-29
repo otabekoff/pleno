@@ -8,591 +8,9 @@
 
 ---
 
-## 1. Core Syntax & Fundamentals ✅
+## 5. Data Structures
 
-### 1.1 Comments ✅
-```pleno
-// Single-line comment
-
-/* Multi-line comment
-   spans multiple lines */
-
-/// Documentation comment for functions, classes, modules
-/// Can be extracted by documentation generators
-```
-
-### 1.2 Variables & Constants ✅
-
-#### Variables (mutable) ✅
-```pleno
-let x = 10;                    // Type inference
-let name: String = "Alice";    // Explicit type
-let mut counter = 0;           // Explicitly mutable
-```
-
-#### Constants (truly immutable)
-```pleno
-const PI = 3.14159;            // Compile-time constant
-const MAX_USERS: Int = 1000;   // Typed constant
-
-// Constants cannot be reassigned - enforced at runtime
-const list = [1, 2, 3];
-// list = [4, 5, 6];  // ERROR: Cannot reassign constant
-// list.push(4);      // ERROR: Cannot mutate constant value
-```
-
-#### Deep Immutability
-```pleno
-const deep obj = {
-    name: "Alice",
-    scores: [95, 87, 92]
-};
-// obj.name = "Bob";           // ERROR
-// obj.scores.push(88);         // ERROR
-// obj.scores[0] = 100;         // ERROR
-```
-
-### 1.3 Type System
-
-#### Primitive Types
-```pleno
-Int      // 64-bit signed integer
-Float    // 64-bit floating point
-String   // UTF-8 string
-Bool     // true or false
-Char     // Single Unicode character
-Null     // null type
-Void     // No return value
-Any      // Dynamic type (opt-out of type checking)
-```
-
-#### Type Annotations
-```pleno
-let age: Int = 25;
-let price: Float = 99.99;
-let active: Bool = true;
-let data: Any = "flexible";
-
-// Function with type annotations
-fn calculate(x: Int, y: Float): Float {
-    return x * y;
-}
-```
-
-#### Type Inference
-```pleno
-let count = 42;              // Inferred as Int
-let ratio = 3.14;            // Inferred as Float
-let message = "Hello";       // Inferred as String
-let mixed = null;            // Inferred as Null (can be reassigned)
-```
-
-#### Union Types
-```pleno
-let result: Int | String = 42;
-result = "error";  // Valid
-
-fn process(value: Int | Float | String): String {
-    return value.toString();
-}
-```
-
-#### Optional Types
-```pleno
-let optional: Int? = null;   // Can be Int or null
-let username: String? = "alice";
-
-// Safe navigation operator
-let length = username?.length;  // Returns Int? (null if username is null)
-
-// Null coalescing
-let displayName = username ?? "Guest";
-
-// Forced unwrap (runtime error if null)
-let definite = username!;  // Use with caution
-```
-
-#### Type Guards
-```pleno
-fn processValue(val: Int | String) {
-    if (val is Int) {
-        // val is narrowed to Int here
-        print(val * 2);
-    } else {
-        // val is narrowed to String here
-        print(val.toUpperCase());
-    }
-}
-```
-
-
-### 1.4 TypeOf Operator
-```pleno
-let x = 42;
-print(typeof(x));  // "Int"
-```
-
----
-
-## 2. Control Flow ✅
-
-### 2.1 Conditionals ✅
-
-#### If-Else
-```pleno
-if (condition) {
-    // code
-} else if (otherCondition) {
-    // code
-} else {
-    // code
-}
-
-// If as expression
-let status = if (score >= 60) "Pass" else "Fail";
-```
-
-#### Pattern Matching (Match Expression) ✅
-```pleno
-match (value) {
-    case 0 => print("zero"),
-    case 1, 2, 3 => print("small"),
-    case x if x > 100 => print("large: " + x),
-    case String s => print("string: " + s),
-    case _ => print("other")  // Default case
-}
-
-// Match as expression
-let category = match (age) {
-    case x if x < 13 => "child",
-    case x if x < 20 => "teen",
-    case x if x < 65 => "adult",
-    case _ => "senior"
-};
-```
-
-### 2.2 Loops ✅
-
-#### For Loop
-```pleno
-// Traditional for
-for (let i = 0; i < 10; i++) {
-    print(i);
-}
-
-// For-in (iteration)
-for (item in collection) {
-    print(item);
-}
-
-// For-in with index
-for (index, item in collection) {
-    print(index + ": " + item);
-}
-
-// Range-based
-for (i in 0..10) {      // Exclusive end
-    print(i);
-}
-
-for (i in 0..=10) {     // Inclusive end
-    print(i);
-}
-```
-
-#### While Loop
-```pleno
-while (condition) {
-    // code
-}
-
-// Do-while
-do {
-    // code
-} while (condition);
-```
-
-#### Loop Control
-```pleno
-break;        // Exit loop
-continue;     // Skip to next iteration
-break label;  // Break from labeled outer loop
-
-outer: for (i in 0..10) {
-    for (j in 0..10) {
-        if (i * j > 50) break outer;
-    }
-}
-```
-
----
-
-## 3. Functions ✅
-
-### 3.1 Function Declaration ✅
-
-#### Basic Function
-```pleno
-fn greet(name: String): String {
-    return "Hello, " + name;
-}
-
-// Without return type (inferred as Void)
-fn logMessage(msg: String) {
-    print(msg);
-}
-
-// Single expression function
-fn square(x: Int): Int => x * x;
-
-// Multiple parameters
-fn add(a: Int, b: Int): Int => a + b;
-```
-
-### 3.2 Default Parameters
-```pleno
-fn greet(name: String, greeting: String = "Hello"): String {
-    return greeting + ", " + name;
-}
-
-greet("Alice");              // "Hello, Alice"
-greet("Bob", "Hi");          // "Hi, Bob"
-```
-
-### 3.3 Named Parameters
-```pleno
-fn createUser(name: String, age: Int, active: Bool = true) {
-    // implementation
-}
-
-// Call with named parameters
-createUser(name: "Alice", age: 30);
-createUser(age: 25, name: "Bob", active: false);
-```
-
-### 3.4 Variable Arguments
-```pleno
-fn sum(...numbers: Int[]): Int {
-    let total = 0;
-    for (num in numbers) {
-        total += num;
-    }
-    return total;
-}
-
-sum(1, 2, 3, 4, 5);  // 15
-```
-
-### 3.4.1 Keyword-Only Parameters
-```pleno
-fn add(a: Int, *, b: Int): Int {
-    return a + b;
-}
-
-add(1, b: 2); // OK
-```
-
-### 3.5 Higher-Order Functions
-```pleno
-fn applyOperation(x: Int, y: Int, op: (Int, Int) => Int): Int {
-    return op(x, y);
-}
-
-let result = applyOperation(5, 3, fn(a, b) => a + b);
-
-// Function type annotation
-let operation: (Int, Int) => Int = fn(a, b) => a * b;
-```
-
-### 3.6 Closures
-```pleno
-fn makeCounter(): () => Int {
-    let count = 0;
-    return fn() => {
-        count += 1;
-        return count;
-    };
-}
-
-let counter = makeCounter();
-print(counter());  // 1
-print(counter());  // 2
-```
-
-### 3.7 Anonymous Functions & Lambdas
-```pleno
-// Anonymous function
-let multiply = fn(x: Int, y: Int): Int {
-    return x * y;
-};
-
-// Lambda (shorthand)
-let square = |x| => x * x;
-let add = |a, b| => a + b;
-
-// Used in higher-order functions
-[1, 2, 3, 4].map(|x| => x * 2);
-```
-
----
-
-## 4. Object-Oriented Programming ✅
-
-### 4.1 Class Definition ✅
-
-```pleno
-class Person {
-    // Private fields (truly encapsulated)
-    private name: String;
-    private age: Int;
-    
-    // Protected field (accessible in subclasses)
-    protected id: String;
-    
-    // Public field
-    public active: Bool;
-    
-    // Constructor
-    constructor(name: String, age: Int) {
-        this.name = name;
-        this.age = age;
-        this.id = generateId();
-        this.active = true;
-    }
-    
-    // Public method
-    public fn greet(): String {
-        return "Hello, I'm " + this.name;
-    }
-    
-    // Private method
-    private fn generateId(): String {
-        return "ID_" + Math.random().toString();
-    }
-    
-    // Getter
-    public fn getName(): String {
-        return this.name;
-    }
-    
-    // Setter with validation
-    public fn setAge(newAge: Int) {
-        if (newAge >= 0 && newAge <= 150) {
-            this.age = newAge;
-        } else {
-            throw Error("Invalid age");
-        }
-    }
-}
-
-// Usage
-let person = Person("Alice", 30);
-print(person.greet());
-// print(person.name);  // ERROR: Cannot access private field
-print(person.active);   // OK: Public field
-```
-
-### 4.2 Properties (Getters/Setters)
-
-```pleno
-class Circle {
-    private radius: Float;
-    
-    constructor(radius: Float) {
-        this.radius = radius;
-    }
-    
-    // Property with getter
-    property area: Float {
-        get {
-            return Math.PI * this.radius * this.radius;
-        }
-    }
-    
-    // Property with getter and setter
-    property diameter: Float {
-        get {
-            return this.radius * 2;
-        }
-        set(value) {
-            this.radius = value / 2;
-        }
-    }
-}
-
-let circle = Circle(5.0);
-print(circle.area);      // 78.54 (computed)
-circle.diameter = 20.0;  // Sets radius to 10
-```
-
-### 4.3 Inheritance
-
-```pleno
-class Animal {
-    protected name: String;
-    
-    constructor(name: String) {
-        this.name = name;
-    }
-    
-    public fn speak(): String {
-        return "Some sound";
-    }
-}
-
-class Dog extends Animal {
-    private breed: String;
-    
-    constructor(name: String, breed: String) {
-        super(name);  // Call parent constructor
-        this.breed = breed;
-    }
-    
-    // Override parent method
-    @override
-    public fn speak(): String {
-        return "Woof! I'm " + this.name;
-    }
-    
-    public fn getBreed(): String {
-        return this.breed;
-    }
-}
-
-let dog = Dog("Buddy", "Golden Retriever");
-print(dog.speak());  // "Woof! I'm Buddy"
-```
-
-### 4.4 Abstract Classes
-
-```pleno
-abstract class Shape {
-    protected color: String;
-    
-    constructor(color: String) {
-        this.color = color;
-    }
-    
-    // Abstract method (must be implemented by subclasses)
-    abstract fn area(): Float;
-    
-    // Concrete method
-    public fn describe(): String {
-        return "A " + this.color + " shape";
-    }
-}
-
-class Rectangle extends Shape {
-    private width: Float;
-    private height: Float;
-    
-    constructor(color: String, width: Float, height: Float) {
-        super(color);
-        this.width = width;
-        this.height = height;
-    }
-    
-    @override
-    fn area(): Float {
-        return this.width * this.height;
-    }
-}
-
-// let shape = Shape("red");  // ERROR: Cannot instantiate abstract class
-let rect = Rectangle("blue", 10.0, 5.0);
-print(rect.area());  // 50.0
-```
-
-### 4.5 Interfaces
-
-```pleno
-interface Drawable {
-    fn draw(): Void;
-    fn getColor(): String;
-}
-
-interface Resizable {
-    fn resize(factor: Float): Void;
-}
-
-// Multiple interface implementation
-class Canvas implements Drawable, Resizable {
-    private color: String;
-    private size: Float;
-    
-    constructor(color: String, size: Float) {
-        this.color = color;
-        this.size = size;
-    }
-    
-    fn draw(): Void {
-        print("Drawing canvas");
-    }
-    
-    fn getColor(): String {
-        return this.color;
-    }
-    
-    fn resize(factor: Float): Void {
-        this.size *= factor;
-    }
-}
-```
-
-### 4.6 Static Members
-
-```pleno
-class MathUtils {
-    // Static constant
-    public static const PI: Float = 3.14159;
-    
-    // Static field
-    private static instanceCount: Int = 0;
-    
-    constructor() {
-        MathUtils.instanceCount++;
-    }
-    
-    // Static method
-    public static fn square(x: Float): Float {
-        return x * x;
-    }
-    
-    public static fn getInstanceCount(): Int {
-        return MathUtils.instanceCount;
-    }
-}
-
-// Usage without instance
-print(MathUtils.PI);
-print(MathUtils.square(5.0));
-MathUtils.version = "1.0";
-print(MathUtils.version);
-```
-
-### 4.7 Access Modifiers
-
-- `public` - Accessible everywhere (default for methods)
-- `private` - Accessible only within the class
-- `protected` - Accessible within class and subclasses
-- `internal` - Accessible within the same module
-
-Access modifiers are enforced for methods and class fields (including static fields), including `internal`.
-
-```pleno
-class Example {
-    public publicField: Int;
-    private privateField: Int;
-    protected protectedField: Int;
-    internal internalField: Int;
-}
-```
-
----
-
-## 5. Data Structures ✅
-
-### 5.1 Arrays ✅
+### 5.1 Arrays
 
 ```pleno
 // Array literal
@@ -627,7 +45,7 @@ let slice2 = numbers[2..];    // From index 2 to end
 let slice3 = numbers[..3];    // From start to index 3
 ```
 
-### 5.2 Maps (Dictionaries) ✅
+### 5.2 Maps (Dictionaries)
 
 ```pleno
 // Map literal
@@ -719,19 +137,13 @@ range1.toArray();        // [0, 1, 2, ..., 9]
 for (i in 1..=5) {
     print(i);  // 1, 2, 3, 4, 5
 }
-
-// Unbounded ranges iterate until you break
-for (i in 5..) {
-    if (i > 10) { break; }
-    print(i);
-}
 ```
 
 ---
 
-## 6. Functional Programming Features ✅
+## 6. Functional Programming Features
 
-### 6.1 First-Class Functions ✅
+### 6.1 First-Class Functions
 
 ```pleno
 // Functions as values
@@ -749,18 +161,6 @@ fn makeMultiplier(factor: Int): (Int) => Int {
 
 let double = makeMultiplier(2);
 print(double(5));  // 10
-```
-
-#### Default and Named Arguments
-
-```pleno
-fn sum(a, b = 2, c = 3) {
-    return a + b + c;
-}
-
-sum(1);                // 6
-sum(1, c = 10);        // 13
-sum(b = 5, a = 2);     // 10
 ```
 
 ### 6.2 Pure Functions
@@ -789,7 +189,7 @@ const immutable config = {
 let newConfig = config.with("timeout", 30);
 ```
 
-### 6.4 Pipeline Operator ✅
+### 6.4 Pipeline Operator
 
 ```pleno
 // Chain operations with |>
@@ -840,7 +240,7 @@ fn processData(data: Any) {
 
 ---
 
-## 7. Error Handling ✅
+## 7. Error Handling
 
 ### 7.1 Try-Catch
 
@@ -934,18 +334,7 @@ user.isNone();              // Check if None
 
 ---
 
-## 8. Modules & Imports ✅
-
-Current implementation supports:
-
-```pleno
-import "path/to/module.pln";
-import ModuleName from "path/to/module.pln";
-import { symbol, other as alias } from "path/to/module.pln";
-import * as ModuleName from "path/to/module.pln";
-```
-
-Exports are limited to `export` on `fn`, `class`, `let`, and `const` declarations plus `export { name as alias };`. Import returns a module namespace map (accessed via `ModuleName.field`). Module declarations and structured imports are implemented for string paths; relative paths and `sources/` lookups are supported. Package/registry resolution is not implemented yet.
+## 8. Modules & Imports
 
 ### 8.1 Module Definition
 
@@ -1018,7 +407,7 @@ import { parse } from "json-parser";
 
 ---
 
-## 9. Async/Concurrency ✅
+## 9. Async/Concurrency
 
 ### 9.1 Async/Await
 
@@ -1286,7 +675,7 @@ class GameObject {
 
 ---
 
-## 13. Standard Library Highlights ✅
+## 13. Standard Library Highlights
 
 ### 13.1 String Operations
 
@@ -1450,26 +839,38 @@ await Http.delete(url);
 await Http.patch(url, body: data);
 ```
 
-### 13.7 Date & Time ✅
+### 13.7 Date & Time
 
 ```pleno
 import { DateTime, Duration } from "std:time";
 
 // Current date/time
 let now = DateTime.now();
-print(now.getTimestamp());         // Unix timestamp
+print(now.year);         // 2026
+print(now.month);        // 1-12
+print(now.day);          // 1-31
+print(now.hour);         // 0-23
+print(now.minute);       // 0-59
+print(now.second);       // 0-59
 
-// Formatting (chrono-style format)
-print(now.format("%Y-%m-%d %H:%M:%S"));
+// Create specific date
+let date = DateTime(2026, 1, 22, 14, 30, 0);
+
+// Formatting
+now.format("YYYY-MM-DD HH:mm:ss");
+now.format("DD/MM/YYYY");
+now.toISO();  // ISO 8601 format
 
 // Parsing
-let parsed = DateTime.parse("2026-01-22", "%Y-%m-%d");
+let parsed = DateTime.parse("2026-01-22", format: "YYYY-MM-DD");
 
 // Duration
 let duration = Duration.hours(2);
 let future = now.add(duration);
 let past = now.subtract(Duration.days(7));
-```
+
+// Comparison
+if (date1 > date2) {
     print("date1 is later");
 }
 ```
@@ -2049,8 +1450,7 @@ fn main(args: String[]) {
 
 ---
 
-## 19. Performance Features (Deferred for v2.0) ❌
-*Note: Advanced performance features like JIT and advanced GC hints are planned for future releases.*
+## 19. Performance Features
 
 ### 19.1 JIT Compilation
 - Hot path optimization
@@ -2087,8 +1487,7 @@ fn criticalPath() {
 
 ---
 
-## 20. Security Features (Deferred) ❌
-*Note: Sandboxing and advanced security features are planned for future releases.*
+## 20. Security Features
 
 ### 20.1 Safe Defaults
 - No implicit type coercion

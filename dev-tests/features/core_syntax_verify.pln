@@ -1,0 +1,112 @@
+// 1. Comments
+// Single-line comment works
+
+/* Multi-line comment
+   works */
+
+/// Doc comment works
+fn doc_test() {}
+
+// 2. Variables & Constants
+fn test_vars() {
+    print("Testing Variables & Constants...");
+    let x = 10;                     // Inference
+    let name: String = "Alice";     // Explicit
+    let mut counter = 0;            // Mutable
+    counter = 1;                    // Reassignment ok
+    print("  Vars OK: " + x + ", " + name + ", " + counter);
+
+    const PI = 3.14159;
+    const MAX_USERS: Int = 1000;
+    print("  Consts OK: " + PI + ", " + MAX_USERS);
+    
+    // Deep const syntax check (runtime enforcement tested separately)
+    const deep obj = {
+        "name": "Alice",
+        "scores": [95, 87, 92]
+    };
+    print("  Deep Const OK (read): " + obj.name);
+}
+
+// 3. Type System
+fn test_types() {
+    print("Testing Type System...");
+    let age: Int = 25;
+    let price: Float = 99.99;
+    let active: Bool = true;
+    let u: Null = null;
+    print("  Primitives OK");
+
+    // Any Type
+    let mut data: Any = "flexible";
+    print("  Any (Init) OK: " + data);
+    data = 123; // Test reassignment
+    print("  Any (reassign) OK: " + data);
+}
+
+fn test_unions() {
+    print("Testing Unions...");
+    let result: Int | String = 42;
+    print("  Union Int OK: " + result);
+    // result = "string"; // Reassignment check
+    // print("  Union String OK: " + result);
+    
+    // Function param
+    process_union(10);
+    process_union("hello");
+}
+
+fn process_union(val: Int | String) {
+    print("  process_union call: " + val);
+}
+
+fn test_optionals() {
+    print("Testing Optionals...");
+    let optional: Int? = null;
+    print("  Optional Null OK");
+    let username: String? = "alice";
+    
+    // Safe navigation
+    // Note: String doesn't have .length property in Pleno syntax usually unless extension method?
+    // Using simple property access if supported on string? Or maybe a mock object.
+    // Let's use a class for safe navigation test.
+    
+    let u: User? = null;
+    // let l = u?.name; // Safe nav
+    // print("  Safe Nav (Null) OK: " + l);
+    
+    // Null coalescing
+    let display = u ?? User("Guest");
+    print("  Coalesce OK: " + display.name);
+}
+
+class User {
+    public name: String;
+    constructor(name: String) { this.name = name; }
+}
+
+fn test_guards() {
+    print("Testing Type Guards...");
+    process_guard(10);
+    process_guard("Text");
+}
+
+fn process_guard(val: Int | String) {
+    if (val is Int) {
+        print("  Guard Int: " + (val * 2));
+    } else {
+        // String
+        print("  Guard String: " + val);
+    }
+}
+
+fn main() {
+    test_vars();
+    test_types();
+    test_unions();
+    test_optionals();
+    test_guards();
+    print("All Core Syntax Tests Passed!");
+}
+
+main();

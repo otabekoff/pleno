@@ -1,4 +1,4 @@
-## 3. Functions
+# Functions
 
 ### 3.1 Function Declaration
 
@@ -52,6 +52,15 @@ fn sum(...numbers: Int[]): Int {
 }
 
 sum(1, 2, 3, 4, 5);  // 15
+```
+
+### 3.4.1 Keyword-Only Parameters
+```pleno
+fn add(a: Int, *, b: Int): Int {
+    return a + b;
+}
+
+add(1, b: 2); // OK
 ```
 
 ### 3.5 Higher-Order Functions

@@ -1,4 +1,4 @@
-## 5. Data Structures
+# Data Structures
 
 ### 5.1 Arrays
 
@@ -70,11 +70,6 @@ let age = ages["Alice"] ?? 0;  // Default value if not found
 for (key, value in ages) {
     print(key + ": " + value);
 }
-
-// Functional methods
-ages.map(|k, v| => v * 2);                    // Transform values, returns new Map
-ages.filter(|k, v| => v > 25);                // Filter entries, returns new Map
-ages.forEach(|k, v| => print(k + ": " + v));  // Side effects, returns null
 ```
 
 ### 5.3 Sets
@@ -96,12 +91,6 @@ let set2 = {3, 4, 5};
 set1.union(set2);           // {1, 2, 3, 4, 5}
 set1.intersection(set2);    // {3}
 set1.difference(set2);      // {1, 2}
-
-// Functional methods
-set1.toArray();                       // Convert to array [1, 2, 3]
-set1.map(|x| => x * 2);               // Returns array [2, 4, 6]
-set1.filter(|x| => x > 1);            // Returns new Set {2, 3}
-set1.forEach(|x| => print(x));        // Side effects, returns null
 ```
 
 ### 5.4 Tuples
@@ -137,5 +126,11 @@ range1.toArray();        // [0, 1, 2, ..., 9]
 // Iteration
 for (i in 1..=5) {
     print(i);  // 1, 2, 3, 4, 5
+}
+
+// Unbounded ranges iterate until you break
+for (i in 5..) {
+    if (i > 10) { break; }
+    print(i);
 }
 ```

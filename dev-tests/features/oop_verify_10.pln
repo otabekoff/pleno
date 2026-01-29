@@ -1,0 +1,12 @@
+// 10. String + Number Concatenation
+let s = "Value: " + 10;
+print(s);
+
+let s2 = "Age: " + 25.5;
+print(s2);
+
+class Data {
+    public val = 100;
+}
+let d = Data();
+print("Data val: " + d.val);

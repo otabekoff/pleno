@@ -1,6 +1,6 @@
 use pleno_ast::{
-    Expr, ExprKind, FunctionDecl, FunctionKind, Literal, MapItem, Pattern, Program, Span, Stmt,
-    StmtKind,
+    Expr, ExprKind, FieldDecl, FunctionDecl, FunctionKind, Literal, MapItem, Pattern, Program,
+    Span, Stmt, StmtKind, Visibility,
 };
 use pleno_bytecode::{Chunk, FunctionProto, Instruction, Opcode, ParamSpec};
 use pleno_value::Value;
@@ -509,7 +509,7 @@ impl Compiler {
                     annotations: annotations.clone(),
                     doc: None,
                 };
-                let func_reg = self.compile_function(&decl, false, false, None)?;
+                let func_reg = self.compile_function(&decl, false, true, None, None)?;
                 if self.is_top_level {
                     let name_idx = self.add_constant(Value::String(name.clone().into()));
                     self.emit(Opcode::SetGlobal, func_reg, name_idx, 0);
@@ -764,17 +764,24 @@ impl Compiler {
                     }
                 }
             }
-            ExprKind::Unary { op, expr } => {
-                let value_reg = self.compile_expr(expr)?;
-                let dest = self.registers.allocate()?;
-                let opcode = match op {
-                    pleno_ast::UnaryOp::Negate => Opcode::Neg,
-                    pleno_ast::UnaryOp::Not => Opcode::Not,
-                };
-                self.emit(opcode, dest, value_reg, 0);
-                self.free_temp(value_reg);
-                Ok(dest)
-            }
+            ExprKind::Unary { op, expr } => match op {
+                pleno_ast::UnaryOp::PreIncrement => self.compile_increment(expr, true, true),
+                pleno_ast::UnaryOp::PostIncrement => self.compile_increment(expr, false, true),
+                pleno_ast::UnaryOp::PreDecrement => self.compile_increment(expr, true, false),
+                pleno_ast::UnaryOp::PostDecrement => self.compile_increment(expr, false, false),
+                _ => {
+                    let value_reg = self.compile_expr(expr)?;
+                    let dest = self.registers.allocate()?;
+                    let opcode = match op {
+                        pleno_ast::UnaryOp::Negate => Opcode::Neg,
+                        pleno_ast::UnaryOp::Not => Opcode::Not,
+                        _ => unreachable!(),
+                    };
+                    self.emit(opcode, dest, value_reg, 0);
+                    self.free_temp(value_reg);
+                    Ok(dest)
+                }
+            },
             ExprKind::Ident(name) => {
                 if let Some(local) = self.resolve_local(name) {
                     if self
@@ -1410,6 +1417,127 @@ impl Compiler {
         self.emit(Opcode::LoadTrue, dest, 0, 0);
         self.patch_jump(jump_to_end)?;
         Ok(dest)
+    }
+
+    fn compile_increment(
+        &mut self,
+        expr: &Expr,
+        is_pre: bool,
+        is_inc: bool,
+    ) -> Result<u8, CompileError> {
+        let one_reg = self.registers.allocate()?;
+        self.emit(Opcode::LoadInt, one_reg, 1, 0);
+
+        match &expr.kind {
+            ExprKind::Ident(name) => {
+                let return_reg = self.registers.allocate()?;
+
+                if let Some(local) = self.resolve_local(name) {
+                    if !local.mutable {
+                        return Err(self.error("cannot increment immutable variable", expr.span));
+                    }
+
+                    let current_val = local.reg;
+                    if !is_pre {
+                        self.emit(Opcode::Move, return_reg, current_val, 0);
+                    }
+
+                    if is_inc {
+                        self.emit(Opcode::Add, current_val, current_val, one_reg);
+                    } else {
+                        self.emit(Opcode::Sub, current_val, current_val, one_reg);
+                    }
+
+                    if is_pre {
+                        self.emit(Opcode::Move, return_reg, current_val, 0);
+                    }
+                } else if let Some(index) = self.captures.get(name).cloned() {
+                    let temp = self.registers.allocate()?;
+                    self.emit(Opcode::LoadCapture, temp, index as u8, 0);
+                    let val = self.registers.allocate()?;
+                    self.emit(Opcode::ForceThunk, val, temp, 0);
+                    self.free_temp(temp);
+
+                    if !is_pre {
+                        self.emit(Opcode::Move, return_reg, val, 0);
+                    }
+
+                    if is_inc {
+                        self.emit(Opcode::Add, val, val, one_reg);
+                    } else {
+                        self.emit(Opcode::Sub, val, val, one_reg);
+                    }
+
+                    if is_pre {
+                        self.emit(Opcode::Move, return_reg, val, 0);
+                    }
+
+                    self.emit(Opcode::SetCapture, val, index as u8, 0);
+                    self.free_temp(val);
+                } else {
+                    return Err(self.error(&format!("undefined variable: {}", name), expr.span));
+                }
+
+                self.free_temp(one_reg);
+                Ok(return_reg)
+            }
+            ExprKind::Property { object, name } => {
+                let obj_reg = self.compile_expr(object)?;
+                let name_idx = self.add_constant(Value::String(name.clone().into()));
+                let current_val = self.registers.allocate()?;
+                self.emit(Opcode::GetProperty, current_val, obj_reg, name_idx);
+
+                let return_reg = self.registers.allocate()?;
+                if !is_pre {
+                    self.emit(Opcode::Move, return_reg, current_val, 0);
+                }
+
+                if is_inc {
+                    self.emit(Opcode::Add, current_val, current_val, one_reg);
+                } else {
+                    self.emit(Opcode::Sub, current_val, current_val, one_reg);
+                }
+
+                if is_pre {
+                    self.emit(Opcode::Move, return_reg, current_val, 0);
+                }
+
+                self.emit(Opcode::SetProperty, current_val, obj_reg, name_idx);
+                self.free_temp(current_val);
+                self.free_temp(obj_reg);
+                self.free_temp(one_reg);
+                Ok(return_reg)
+            }
+            ExprKind::Index { collection, index } => {
+                let coll_reg = self.compile_expr(collection)?;
+                let idx_reg = self.compile_expr(index)?;
+                let current_val = self.registers.allocate()?;
+                self.emit(Opcode::GetIndex, current_val, coll_reg, idx_reg);
+
+                let return_reg = self.registers.allocate()?;
+                if !is_pre {
+                    self.emit(Opcode::Move, return_reg, current_val, 0);
+                }
+
+                if is_inc {
+                    self.emit(Opcode::Add, current_val, current_val, one_reg);
+                } else {
+                    self.emit(Opcode::Sub, current_val, current_val, one_reg);
+                }
+
+                if is_pre {
+                    self.emit(Opcode::Move, return_reg, current_val, 0);
+                }
+
+                self.emit(Opcode::SetIndex, current_val, coll_reg, idx_reg);
+                self.free_temp(current_val);
+                self.free_temp(idx_reg);
+                self.free_temp(coll_reg);
+                self.free_temp(one_reg);
+                Ok(return_reg)
+            }
+            _ => Err(self.error("invalid increment target", expr.span)),
+        }
     }
 
     fn compile_null_coalesce(&mut self, left: &Expr, right: &Expr) -> Result<u8, CompileError> {
@@ -2133,6 +2261,7 @@ impl Compiler {
         is_method: bool,
         store_as_function: bool,
         current_super: Option<String>,
+        instance_fields: Option<&[FieldDecl]>,
     ) -> Result<u8, CompileError> {
         let captures = self.analyze_captures(decl, is_method);
         if store_as_function && !captures.is_empty() {
@@ -2190,6 +2319,25 @@ impl Compiler {
                 compiler.patch_jump(skip_jump)?;
             }
         }
+
+        if let Some(fields) = instance_fields {
+            let this_reg = compiler
+                .resolve_local("this")
+                .ok_or_else(|| CompileError::new("'this' not found in constructor"))?
+                .reg;
+            for field in fields {
+                if !field.is_static {
+                    if let Some(default) = &field.default {
+                        let value_reg = compiler.compile_expr(default)?;
+                        let name_idx =
+                            compiler.add_constant(Value::String(field.name.clone().into()));
+                        compiler.emit(Opcode::SetProperty, value_reg, this_reg, name_idx);
+                        compiler.free_temp(value_reg);
+                    }
+                }
+            }
+        }
+
         compiler.compile_stmt(&decl.body)?;
         let return_reg = match compiler.last_expr_register {
             Some(reg) => reg,
@@ -2435,7 +2583,7 @@ impl Compiler {
         for method in methods {
             // Extension methods are instance methods, so is_method=true
             // store_as_function=true because we want the function object to add to the class
-            let func_reg = self.compile_function(method, true, true, None)?;
+            let func_reg = self.compile_function(method, true, true, None, None)?;
 
             let meta_reg = self.registers.allocate()?;
             self.emit(Opcode::NewArray, meta_reg, 0, 0);
@@ -2512,10 +2660,37 @@ impl Compiler {
         let operators_reg = self.registers.allocate()?;
         self.emit(Opcode::NewMap, operators_reg, 0, 0);
 
-        for method in methods {
+        let mut methods_to_compile = methods.clone();
+        if !methods_to_compile.iter().any(|m| m.name == "constructor") {
+            methods_to_compile.push(FunctionDecl {
+                name: "constructor".to_string(),
+                params: Vec::new(),
+                body: Box::new(Stmt::new(StmtKind::Block(Vec::new()), Span::new(0, 0))),
+                return_ty: None,
+                generics: Vec::new(),
+                annotations: Vec::new(),
+                is_async: false,
+                is_abstract: false,
+                visibility: Some(Visibility::Public),
+                is_static: false,
+                kind: FunctionKind::Method,
+                doc: None,
+            });
+        }
+
+        for method in &methods_to_compile {
             let is_method = !method.is_static;
-            let func_reg =
-                self.compile_function(method, is_method, true, superclass.as_ref().cloned())?;
+            let func_reg = self.compile_function(
+                method,
+                is_method,
+                true,
+                superclass.as_ref().cloned(),
+                if is_method && method.name == "constructor" {
+                    Some(fields)
+                } else {
+                    None
+                },
+            )?;
 
             let (target_reg, name_str) = match method.kind {
                 FunctionKind::Method => {
@@ -2687,6 +2862,7 @@ impl Compiler {
                     !prop.is_static,
                     true,
                     superclass.as_ref().cloned(),
+                    None,
                 )?;
                 let meta_reg = self.registers.allocate()?;
                 self.emit(Opcode::NewArray, meta_reg, 0, 0);
@@ -2718,6 +2894,7 @@ impl Compiler {
                     !prop.is_static,
                     true,
                     superclass.as_ref().cloned(),
+                    None,
                 )?;
                 let meta_reg = self.registers.allocate()?;
                 self.emit(Opcode::NewArray, meta_reg, 0, 0);
@@ -3294,7 +3471,7 @@ impl Compiler {
             annotations: Vec::new(),
             doc: None,
         };
-        let thunk_fn = self.compile_function(&decl, false, false, None)?;
+        let thunk_fn = self.compile_function(&decl, false, false, None, None)?;
         let dest = self.registers.allocate()?;
         self.emit(Opcode::MakeThunk, dest, thunk_fn, 0);
         self.free_temp(thunk_fn);

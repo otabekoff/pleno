@@ -1,0 +1,3 @@
+// 13. String + null
+let s = "Val: " + null;
+print(s);

@@ -1,0 +1,28 @@
+// 5. Abstract Classes
+abstract class Shape {
+    protected color: String;
+    
+    constructor(color: String) {
+        this.color = color;
+    }
+    
+    abstract fn area(): Float;
+}
+
+class Square extends Shape {
+    private side: Float;
+    
+    constructor(color: String, side: Float) {
+        super(color);
+        this.side = side;
+    }
+    
+    @override
+    fn area(): Float {
+        return this.side * this.side;
+    }
+}
+
+let sq = Square("Red", 4.0);
+print("Square area: " + sq.area());
+print("Square color: " + sq.color); // color is protected, so it should be accessible from subclass but maybe from outside too if not strictly enforced?

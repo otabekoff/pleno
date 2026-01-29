@@ -1,4 +1,4 @@
-## 4. Object-Oriented Programming
+# Object-Oriented Programming
 
 ### 4.1 Class Definition
 
@@ -228,6 +228,8 @@ class MathUtils {
 // Usage without instance
 print(MathUtils.PI);
 print(MathUtils.square(5.0));
+MathUtils.version = "1.0";
+print(MathUtils.version);
 ```
 
 ### 4.7 Access Modifiers
@@ -235,7 +237,9 @@ print(MathUtils.square(5.0));
 - `public` - Accessible everywhere (default for methods)
 - `private` - Accessible only within the class
 - `protected` - Accessible within class and subclasses
-- `internal` - Accessible within the same module/package
+- `internal` - Accessible within the same module
+
+Access modifiers are enforced for methods and class fields (including static fields), including `internal`.
 
 ```pleno
 class Example {

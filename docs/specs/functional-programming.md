@@ -1,4 +1,4 @@
-## 6. Functional Programming Features
+# Functional Programming Features
 
 ### 6.1 First-Class Functions
 
@@ -18,6 +18,18 @@ fn makeMultiplier(factor: Int): (Int) => Int {
 
 let double = makeMultiplier(2);
 print(double(5));  // 10
+```
+
+#### Default and Named Arguments
+
+```pleno
+fn sum(a, b = 2, c = 3) {
+    return a + b + c;
+}
+
+sum(1);                // 6
+sum(1, c = 10);        // 13
+sum(b = 5, a = 2);     // 10
 ```
 
 ### 6.2 Pure Functions

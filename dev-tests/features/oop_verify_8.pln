@@ -1,0 +1,23 @@
+// 8. Access Modifier Enforcement
+class Secret {
+    private data = "private";
+    protected pData = "protected";
+    public val = "public";
+}
+
+let s = Secret();
+print("Public val: " + s.val);
+
+// Try accessing private
+try {
+    print("Private data: " + s.data);
+} catch (e) {
+    print("Caught expected error for private data: " + e.message);
+}
+
+// Try accessing protected
+try {
+    print("Protected data: " + s.pData);
+} catch (e) {
+    print("Caught expected error for protected data: " + e.message);
+}

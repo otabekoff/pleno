@@ -1,0 +1,25 @@
+// 7. @override check
+class Base {
+    fn hello() => "Base";
+}
+
+class Sub extends Base {
+    @override
+    fn hello() => "Sub";
+}
+
+let sub = Sub();
+print("Sub hello: " + sub.hello());
+
+// 8. Nested Classes
+class Outer {
+    class Inner {
+        public fn hello() => "Hello from Inner";
+    }
+    
+    public fn getInner() => Outer.Inner();
+}
+
+let outer = Outer();
+let inner = outer.getInner();
+print("Nested class hello: " + inner.hello());

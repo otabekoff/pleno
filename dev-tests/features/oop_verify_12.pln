@@ -1,0 +1,18 @@
+// 12. Multiple Fields
+class Person {
+    private name: String;
+    private age: Int;
+    
+    constructor(name: String, age: Int) {
+        this.name = name;
+        this.age = age;
+    }
+    
+    public fn getAge(): Int {
+        return this.age;
+    }
+}
+
+let p = Person("Bob", 30);
+print("Name: " + p.name); // This should fail if name is private?
+print("Age: " + p.getAge());

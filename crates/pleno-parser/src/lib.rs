@@ -1617,6 +1617,13 @@ impl Parser {
         let body = if config.is_abstract {
             self.expect(TokenKind::Semicolon, "Expected ';' after abstract function")?;
             Box::new(self.wrap_stmt(StmtKind::Block(Vec::new()), self.previous_span()))
+        } else if self.matches(&TokenKind::FatArrow) {
+            let expr = self.parse_expr()?;
+            self.expect(
+                TokenKind::Semicolon,
+                "Expected ';' after shorthand function body",
+            )?;
+            Box::new(self.wrap_stmt(StmtKind::Return(Some(expr)), self.previous_span()))
         } else {
             Box::new(self.parse_block_stmt()?)
         };
@@ -2161,6 +2168,26 @@ impl Parser {
                 start_span,
             ));
         }
+        if self.matches(&TokenKind::PlusPlus) {
+            let expr = self.parse_unary()?;
+            return Ok(self.wrap_expr(
+                ExprKind::Unary {
+                    op: pleno_ast::UnaryOp::PreIncrement,
+                    expr: Box::new(expr),
+                },
+                start_span,
+            ));
+        }
+        if self.matches(&TokenKind::MinusMinus) {
+            let expr = self.parse_unary()?;
+            return Ok(self.wrap_expr(
+                ExprKind::Unary {
+                    op: pleno_ast::UnaryOp::PreDecrement,
+                    expr: Box::new(expr),
+                },
+                start_span,
+            ));
+        }
         self.parse_primary()
     }
 
@@ -2554,7 +2581,8 @@ impl Parser {
                 );
                 continue;
             }
-            if self.matches(&TokenKind::Less) {
+            if self.check(&TokenKind::Less) && self.is_likely_specialization() {
+                self.advance(); // consume '<'
                 let mut type_args = Vec::new();
                 loop {
                     type_args.push(self.parse_type()?);
@@ -2604,6 +2632,26 @@ impl Parser {
                     continue;
                 }
                 expr = self.wrap_expr(ExprKind::AssertNotNull(Box::new(expr)), start_span);
+                continue;
+            }
+            if self.matches(&TokenKind::PlusPlus) {
+                expr = self.wrap_expr(
+                    ExprKind::Unary {
+                        op: pleno_ast::UnaryOp::PostIncrement,
+                        expr: Box::new(expr),
+                    },
+                    start_span,
+                );
+                continue;
+            }
+            if self.matches(&TokenKind::MinusMinus) {
+                expr = self.wrap_expr(
+                    ExprKind::Unary {
+                        op: pleno_ast::UnaryOp::PostDecrement,
+                        expr: Box::new(expr),
+                    },
+                    start_span,
+                );
                 continue;
             }
 
@@ -3311,6 +3359,56 @@ impl Parser {
             },
             start_span,
         ))
+    }
+
+    fn is_likely_specialization(&self) -> bool {
+        if !matches!(self.peek_kind(), TokenKind::Less) {
+            return false;
+        }
+
+        let mut depth = 0;
+        let mut i = 0;
+        loop {
+            match self.peek_n_kind(i) {
+                Some(TokenKind::Less) => depth += 1,
+                Some(TokenKind::Greater) => {
+                    depth -= 1;
+                    if depth == 0 {
+                        return true;
+                    }
+                }
+                Some(TokenKind::Semicolon)
+                | Some(TokenKind::LBrace)
+                | Some(TokenKind::RBrace)
+                | Some(TokenKind::Equal)
+                | Some(TokenKind::KeywordIf)
+                | Some(TokenKind::KeywordElse)
+                | Some(TokenKind::FatArrow)
+                | None => {
+                    return false;
+                }
+                // Literals and most binary operators are not allowed in types
+                Some(TokenKind::Int(_))
+                | Some(TokenKind::Float(_))
+                | Some(TokenKind::String(_))
+                | Some(TokenKind::Plus)
+                | Some(TokenKind::Minus)
+                | Some(TokenKind::Star)
+                | Some(TokenKind::Slash)
+                | Some(TokenKind::EqualEqual)
+                | Some(TokenKind::BangEqual)
+                | Some(TokenKind::LessEqual)
+                | Some(TokenKind::GreaterEqual) => {
+                    return false;
+                }
+                _ => {}
+            }
+            i += 1;
+            // Limit lookahead to prevent infinite loops or extreme performance hits
+            if i > 100 {
+                return false;
+            }
+        }
     }
 }
 

@@ -1,4 +1,4 @@
-## Conclusion
+# Conclusion
 
 Pleno is designed to be:
 - **Easy to learn**: Familiar syntax, clear semantics

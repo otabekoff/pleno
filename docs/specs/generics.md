@@ -1,4 +1,4 @@
-## 10. Generics
+# Generics
 
 ### 10.1 Generic Functions
 

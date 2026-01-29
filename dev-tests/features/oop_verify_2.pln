@@ -1,0 +1,29 @@
+// 2. Inheritance and Super Calls
+class Animal {
+    protected name: String;
+    
+    constructor(name: String) {
+        this.name = name;
+    }
+    
+    public fn speak(): String {
+        return "Generic sound";
+    }
+}
+
+class Dog extends Animal {
+    private breed: String;
+    
+    constructor(name: String, breed: String) {
+        super(name);
+        this.breed = breed;
+    }
+    
+    @override
+    public fn speak(): String {
+        return "Woof! I'm " + this.name + " the " + this.breed;
+    }
+}
+
+let buck = Dog("Buck", "Beagle");
+print("Dog buck speaks: " + buck.speak());

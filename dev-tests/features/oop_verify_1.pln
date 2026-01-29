@@ -1,0 +1,33 @@
+// Basic Class Definition, Fields, Constructor, and Methods
+class Person {
+    private name: String;
+    private age: Int;
+    public active: Bool;
+    
+    constructor(name: String, age: Int) {
+        this.name = name;
+        this.age = age;
+        this.active = true;
+    }
+    
+    public fn greet(): String {
+        return "Hello, I'm " + this.name;
+    }
+    
+    public fn getAge(): Int {
+        return this.age;
+    }
+    
+    public fn setAge(newAge: Int) {
+        if (newAge >= 0) {
+            this.age = newAge;
+        }
+    }
+}
+
+let alice = Person("Alice", 30);
+print("Alice name via greet: " + alice.greet());
+print("Alice initial age: " + alice.getAge());
+alice.setAge(31);
+print("Alice new age: " + alice.getAge());
+print("Alice active: " + alice.active);

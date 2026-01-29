@@ -104,6 +104,8 @@ pub enum TokenKind {
     Caret,
     Hash,
     Comment(String, CommentKind),
+    PlusPlus,
+    MinusMinus,
     Ampersand,
     Eof,
 }
@@ -171,12 +173,28 @@ pub fn lex(source: &str) -> Result<Vec<Token>, LexError> {
                     token_simple(TokenKind::Dot, start)
                 }
             }
-            '+' => token_simple(TokenKind::Plus, start),
+            '+' => {
+                if matches!(chars.peek(), Some((_, '+'))) {
+                    let end = chars.next().map(|(idx, _)| idx + 1).unwrap_or(start + 2);
+                    Token {
+                        kind: TokenKind::PlusPlus,
+                        span: Span::new(start, end),
+                    }
+                } else {
+                    token_simple(TokenKind::Plus, start)
+                }
+            }
             '-' => {
                 if matches!(chars.peek(), Some((_, '>'))) {
                     let end = chars.next().map(|(idx, _)| idx + 1).unwrap_or(start + 2);
                     Token {
                         kind: TokenKind::Arrow,
+                        span: Span::new(start, end),
+                    }
+                } else if matches!(chars.peek(), Some((_, '-'))) {
+                    let end = chars.next().map(|(idx, _)| idx + 1).unwrap_or(start + 2);
+                    Token {
+                        kind: TokenKind::MinusMinus,
                         span: Span::new(start, end),
                     }
                 } else {

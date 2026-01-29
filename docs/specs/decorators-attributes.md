@@ -1,4 +1,4 @@
-## 11. Decorators/Attributes
+# Decorators & Attributes
 
 ```pleno
 // Decorator definition

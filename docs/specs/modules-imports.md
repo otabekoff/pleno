@@ -1,4 +1,15 @@
-## 8. Modules & Imports
+# Modules & Imports
+
+Current implementation supports:
+
+```pleno
+import "path/to/module.pln";
+import ModuleName from "path/to/module.pln";
+import { symbol, other as alias } from "path/to/module.pln";
+import * as ModuleName from "path/to/module.pln";
+```
+
+Exports are limited to `export` on `fn`, `class`, `let`, and `const` declarations plus `export { name as alias };`. Import returns a module namespace map (accessed via `ModuleName.field`). Module declarations and structured imports are implemented for string paths; relative paths and `sources/` lookups are supported. Package/registry resolution is not implemented yet.
 
 ### 8.1 Module Definition
 
