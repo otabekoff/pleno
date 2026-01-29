@@ -16,7 +16,7 @@
 
 ## 17. Tooling
 
-- [ ] 17.1 doc (Documentation generator)
+- [x] 17.1 doc (Documentation generator)
 
 ## 18. Performance
 

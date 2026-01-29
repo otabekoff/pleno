@@ -115,6 +115,11 @@ fn main() {
             });
             watch_file(&path);
         }
+        "doc" => {
+            let path = args.next();
+            let output = args.next();
+            handle_doc(path.as_deref(), output.as_deref());
+        }
         _ => {
             // Default: treat as file path and run it
             run_file(&command);
@@ -708,6 +713,7 @@ fn print_help() {
           lint <path>        Lint Pleno files\n\
           check <file.pln>   Type check a Pleno file\n\
           test <path>        Run tests in file or directory\n\
+          doc [path] [out]   Generate documentation\n\
           repl               Start the interactive REPL\n\
           lsp                Start the Language Server\n\n\
         Package Commands (plm):\n\
@@ -720,6 +726,7 @@ fn print_help() {
         Examples:\n\
           pleno run main.pln\n\
           pleno plm install\n\
+          pleno doc sources/\n\
           pleno plm run dev"
     );
 }
@@ -973,6 +980,144 @@ fn run_shell_script(script: &str) {
         Err(e) => {
             eprintln!("Failed to execute script: {}", e);
             process::exit(1);
+        }
+    }
+}
+
+fn handle_doc(path: Option<&str>, output_dir: Option<&str>) {
+    let source_path = PathBuf::from(path.unwrap_or("."));
+    let output_path = PathBuf::from(output_dir.unwrap_or("docs"));
+
+    // Create output directory
+    if let Err(e) = fs::create_dir_all(&output_path) {
+        eprintln!("Error creating output directory: {}", e);
+        process::exit(1);
+    }
+
+    let mut files_processed = 0;
+    let mut all_items: Vec<(String, Vec<pleno_doc::DocItem>)> = Vec::new();
+
+    if source_path.is_file() {
+        if let Some(items) = process_doc_file(&source_path) {
+            let name = source_path
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("unnamed")
+                .to_string();
+            all_items.push((name, items));
+            files_processed += 1;
+        }
+    } else if source_path.is_dir() {
+        process_doc_directory(&source_path, &mut all_items, &mut files_processed);
+    } else {
+        eprintln!(
+            "Error: '{}' is not a valid file or directory",
+            source_path.display()
+        );
+        process::exit(1);
+    }
+
+    // Generate Markdown files
+    let renderer = pleno_doc::MarkdownRenderer::new();
+
+    for (name, items) in &all_items {
+        if items.is_empty() {
+            continue;
+        }
+        let md_content = renderer.render(items, name);
+        let md_path = output_path.join(format!("{}.md", name));
+        if let Err(e) = fs::write(&md_path, md_content) {
+            eprintln!("Error writing {}: {}", md_path.display(), e);
+        } else {
+            println!("Generated: {}", md_path.display());
+        }
+    }
+
+    // Generate index.md
+    if !all_items.is_empty() {
+        let mut index = String::from("# API Documentation\n\n");
+        index.push_str("## Modules\n\n");
+        for (name, items) in &all_items {
+            if !items.is_empty() {
+                index.push_str(&format!("- [{}]({}.md)\n", name, name));
+            }
+        }
+        let index_path = output_path.join("index.md");
+        if let Err(e) = fs::write(&index_path, index) {
+            eprintln!("Error writing index: {}", e);
+        } else {
+            println!("Generated: {}", index_path.display());
+        }
+    }
+
+    println!(
+        "\nDocumentation generated: {} files processed",
+        files_processed
+    );
+}
+
+fn process_doc_file(path: &PathBuf) -> Option<Vec<pleno_doc::DocItem>> {
+    let source = match fs::read_to_string(path) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("Error reading {}: {}", path.display(), e);
+            return None;
+        }
+    };
+
+    // Lex
+    let tokens = match pleno_lexer::lex(&source) {
+        Ok(t) => t,
+        Err(e) => {
+            eprintln!("Lex error in {}: {}", path.display(), e.message);
+            return None;
+        }
+    };
+
+    // Parse
+    let mut parser = pleno_parser::Parser::new(tokens);
+    let program = match parser.parse_program() {
+        Ok(p) => p,
+        Err(e) => {
+            eprintln!("Parse error in {}: {}", path.display(), e.message);
+            return None;
+        }
+    };
+
+    // Extract documentation
+    let generator = pleno_doc::DocGenerator::new();
+    Some(generator.extract(&program))
+}
+
+fn process_doc_directory(
+    dir: &PathBuf,
+    all_items: &mut Vec<(String, Vec<pleno_doc::DocItem>)>,
+    files_processed: &mut usize,
+) {
+    let entries = match fs::read_dir(dir) {
+        Ok(e) => e,
+        Err(e) => {
+            eprintln!("Error reading directory {}: {}", dir.display(), e);
+            return;
+        }
+    };
+
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            process_doc_directory(&path, all_items, files_processed);
+        } else if path.extension().is_some_and(|e| e == "pln")
+            && let Some(items) = process_doc_file(&path)
+        {
+            if !items.is_empty() {
+                let name = path
+                    .file_stem()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("unnamed")
+                    .to_string();
+                all_items.push((name, items));
+            }
+            *files_processed += 1;
         }
     }
 }
