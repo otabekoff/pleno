@@ -7,5 +7,6 @@
 .DS_Store
 .idea/
 .vscode/
+.logs/
 docs/.vitepress/dist
 docs/.vitepress/cache
