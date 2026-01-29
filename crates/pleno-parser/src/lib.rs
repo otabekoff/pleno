@@ -1,5 +1,6 @@
 use pleno_ast::{Comment, Expr, ExprKind, Literal, Program, Span, Stmt, StmtKind};
 use pleno_lexer::{Token, TokenKind};
+use std::collections::HashMap;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum BracedKind {
@@ -17,6 +18,7 @@ pub struct ParseError {
 pub struct Parser {
     tokens: Vec<Token>,
     comments: Vec<Comment>,
+    token_docs: HashMap<usize, String>,
     index: usize,
 }
 
@@ -28,21 +30,32 @@ struct FunctionDeclarationConfig {
     annotations: Vec<pleno_ast::Annotation>,
     is_async: bool,
     is_abstract: bool,
+    doc: Option<String>,
 }
 
 impl Parser {
     pub fn new(raw_tokens: Vec<Token>) -> Self {
         let mut tokens = Vec::new();
         let mut comments = Vec::new();
+        let mut token_docs = HashMap::new();
+        let mut current_doc = Vec::new();
 
         for token in raw_tokens {
             if let TokenKind::Comment(content, kind) = token.kind {
-                comments.push(Comment {
-                    span: token.span,
-                    content,
-                    kind,
-                });
+                if kind == pleno_ast::CommentKind::Doc {
+                    current_doc.push(content);
+                } else {
+                    comments.push(Comment {
+                        span: token.span,
+                        content,
+                        kind,
+                    });
+                }
             } else {
+                if !current_doc.is_empty() {
+                    token_docs.insert(tokens.len(), current_doc.join("\n"));
+                    current_doc.clear();
+                }
                 tokens.push(token);
             }
         }
@@ -50,6 +63,7 @@ impl Parser {
         Self {
             tokens,
             comments,
+            token_docs,
             index: 0,
         }
     }
@@ -85,6 +99,7 @@ impl Parser {
     }
 
     fn parse_stmt(&mut self) -> Result<Stmt, ParseError> {
+        let doc = self.token_docs.get(&self.index).cloned();
         let start_span = self.peek_span();
         let annotations = self.parse_annotations()?;
 
@@ -100,32 +115,33 @@ impl Parser {
         }
 
         match self.peek_kind() {
-            TokenKind::KeywordModule => self.parse_module_stmt(),
-            TokenKind::KeywordLet => self.parse_let_stmt(),
-            TokenKind::KeywordConst => self.parse_const_stmt(),
-            TokenKind::KeywordMacro => self.parse_macro_decl_stmt(),
+            TokenKind::KeywordModule => self.parse_module_stmt(doc),
+            TokenKind::KeywordLet => self.parse_let_stmt(doc),
+            TokenKind::KeywordConst => self.parse_const_stmt(doc),
+            TokenKind::KeywordMacro => self.parse_macro_decl_stmt(doc),
             TokenKind::KeywordIf => self.parse_if_stmt(),
             TokenKind::KeywordWhile => self.parse_while_stmt(),
             TokenKind::KeywordFor => self.parse_for_stmt(),
             TokenKind::KeywordTry => self.parse_try_stmt(),
             TokenKind::KeywordThrow => self.parse_throw_stmt(),
             TokenKind::KeywordImport => self.parse_import_stmt(),
-            TokenKind::KeywordExport => self.parse_export_stmt(annotations),
-            TokenKind::KeywordEnum => self.parse_enum_declaration(annotations),
-            TokenKind::KeywordExtend => self.parse_extend_stmt(),
-            TokenKind::KeywordClass => self.parse_class_stmt(annotations, false),
+            TokenKind::KeywordExport => self.parse_export_stmt(annotations, doc),
+            TokenKind::KeywordEnum => self.parse_enum_declaration(annotations, doc),
+            TokenKind::KeywordExtend => self.parse_extend_stmt(doc),
+            TokenKind::KeywordClass => self.parse_class_stmt(annotations, false, doc),
             TokenKind::KeywordAbstract => {
                 self.advance();
                 match self.peek_kind() {
-                    TokenKind::KeywordClass => self.parse_class_stmt(annotations, true),
+                    TokenKind::KeywordClass => self.parse_class_stmt(annotations, true, doc),
                     other => Err(ParseError {
                         message: format!("Expected 'class' after 'abstract', found {other:?}"),
                         span: self.peek_span(),
                     }),
                 }
             }
-            TokenKind::KeywordInterface => self.parse_interface_stmt(annotations),
-            TokenKind::KeywordType => self.parse_type_alias_stmt(),
+            TokenKind::KeywordInterface => self.parse_interface_stmt(annotations, doc),
+            TokenKind::KeywordFn => self.parse_fn_stmt(annotations, doc),
+            TokenKind::KeywordType => self.parse_type_alias_stmt(doc),
             TokenKind::KeywordDo => self.parse_do_while_stmt(),
             TokenKind::KeywordAsync => {
                 if matches!(self.peek_n_kind(1), Some(TokenKind::KeywordFn)) {
@@ -138,6 +154,7 @@ impl Parser {
                         annotations,
                         is_async: true,
                         is_abstract: false,
+                        doc,
                     })?;
                     Ok(self.wrap_stmt(
                         StmtKind::Fn {
@@ -147,6 +164,7 @@ impl Parser {
                             body: decl.body,
                             annotations: decl.annotations,
                             is_async: true,
+                            doc: decl.doc,
                         },
                         start_span,
                     ))
@@ -156,28 +174,6 @@ impl Parser {
                         span: self.previous_span(),
                     })
                 }
-            }
-            TokenKind::KeywordFn => {
-                let decl = self.parse_function_decl(FunctionDeclarationConfig {
-                    kind: pleno_ast::FunctionKind::Method,
-                    allow_modifiers: false,
-                    visibility: None,
-                    is_static: None,
-                    annotations,
-                    is_async: false,
-                    is_abstract: false,
-                })?;
-                Ok(self.wrap_stmt(
-                    StmtKind::Fn {
-                        name: decl.name,
-                        generics: decl.generics,
-                        params: decl.params,
-                        body: decl.body,
-                        annotations: decl.annotations,
-                        is_async: false,
-                    },
-                    start_span,
-                ))
             }
             TokenKind::KeywordReturn => self.parse_return_stmt(),
             TokenKind::KeywordBreak => self.parse_break_stmt(),
@@ -236,13 +232,17 @@ impl Parser {
         }
     }
 
-    fn parse_let_stmt(&mut self) -> Result<Stmt, ParseError> {
-        let stmt = self.parse_let_declaration(false)?;
+    fn parse_let_stmt(&mut self, doc: Option<String>) -> Result<Stmt, ParseError> {
+        let stmt = self.parse_let_declaration(false, doc)?;
         self.expect(TokenKind::Semicolon, "Expected ';' after let statement")?;
         Ok(stmt)
     }
 
-    fn parse_let_declaration(&mut self, forced_mutable: bool) -> Result<Stmt, ParseError> {
+    fn parse_let_declaration(
+        &mut self,
+        forced_mutable: bool,
+        doc: Option<String>,
+    ) -> Result<Stmt, ParseError> {
         let start_span = self.peek_span();
         self.advance(); // let
         let is_lazy = self.matches(&TokenKind::KeywordLazy);
@@ -275,12 +275,13 @@ impl Parser {
                 is_const: false,
                 is_deep: false,
                 is_lazy,
+                doc,
             },
             start_span,
         ))
     }
 
-    fn parse_const_stmt(&mut self) -> Result<Stmt, ParseError> {
+    fn parse_const_stmt(&mut self, doc: Option<String>) -> Result<Stmt, ParseError> {
         let start_span = self.peek_span();
         self.advance(); // consume const
         if self.matches(&TokenKind::KeywordMut) {
@@ -321,6 +322,7 @@ impl Parser {
                 is_const: true,
                 is_deep,
                 is_lazy: false,
+                doc,
             },
             start_span,
         ))
@@ -382,7 +384,7 @@ impl Parser {
         Ok(self.wrap_stmt(StmtKind::Expr(expr), start_span))
     }
 
-    fn parse_module_stmt(&mut self) -> Result<Stmt, ParseError> {
+    fn parse_module_stmt(&mut self, doc: Option<String>) -> Result<Stmt, ParseError> {
         let start_span = self.peek_span();
         self.advance();
         let name = match self.advance().kind.clone() {
@@ -396,7 +398,14 @@ impl Parser {
         };
 
         if self.matches(&TokenKind::Semicolon) {
-            Ok(self.wrap_stmt(StmtKind::Module { name, body: None }, start_span))
+            Ok(self.wrap_stmt(
+                StmtKind::Module {
+                    name,
+                    body: None,
+                    doc,
+                },
+                start_span,
+            ))
         } else {
             self.expect(TokenKind::LBrace, "Expected '{' or ';' after module name")?;
             let mut body = Vec::new();
@@ -413,6 +422,7 @@ impl Parser {
                 StmtKind::Module {
                     name,
                     body: Some(body),
+                    doc,
                 },
                 start_span,
             ))
@@ -429,7 +439,7 @@ impl Parser {
         Ok(self.wrap_stmt(StmtKind::While { condition, body }, start_span))
     }
 
-    fn parse_macro_decl_stmt(&mut self) -> Result<Stmt, ParseError> {
+    fn parse_macro_decl_stmt(&mut self, doc: Option<String>) -> Result<Stmt, ParseError> {
         let start_span = self.peek_span();
         self.advance(); // macro
         let name = match self.advance().kind.clone() {
@@ -464,12 +474,21 @@ impl Parser {
         }
         self.expect(TokenKind::RParen, "Expected ')' after macro parameters")?;
         let body = Box::new(self.parse_stmt()?);
-        Ok(self.wrap_stmt(StmtKind::MacroDecl { name, params, body }, start_span))
+        Ok(self.wrap_stmt(
+            StmtKind::MacroDecl {
+                name,
+                params,
+                body,
+                doc,
+            },
+            start_span,
+        ))
     }
 
     fn parse_fn_stmt(
         &mut self,
         annotations: Vec<pleno_ast::Annotation>,
+        doc: Option<String>,
     ) -> Result<Stmt, ParseError> {
         let start_span = self.peek_span();
         let decl = self.parse_function_decl(FunctionDeclarationConfig {
@@ -480,6 +499,7 @@ impl Parser {
             annotations,
             is_async: false,
             is_abstract: false,
+            doc,
         })?;
         Ok(self.wrap_stmt(
             StmtKind::Fn {
@@ -489,6 +509,7 @@ impl Parser {
                 body: decl.body,
                 annotations: decl.annotations,
                 is_async: false,
+                doc: decl.doc,
             },
             start_span,
         ))
@@ -548,7 +569,7 @@ impl Parser {
         // If we see 'let', 'mut', or 'const', it might be C-style declaration
         // for (let i = 0; i < 10; i++)
         if self.check(&TokenKind::KeywordLet) {
-            let init_stmt = self.parse_let_declaration(true)?; // C-style loop variables are mutable
+            let init_stmt = self.parse_let_declaration(true, None)?; // C-style loop variables are mutable
             return self.parse_c_for_remainder(Some(Box::new(init_stmt)), start_span);
         }
 
@@ -648,7 +669,7 @@ impl Parser {
         ))
     }
 
-    fn parse_extend_stmt(&mut self) -> Result<Stmt, ParseError> {
+    fn parse_extend_stmt(&mut self, doc: Option<String>) -> Result<Stmt, ParseError> {
         let start_span = self.peek_span();
         self.advance(); // extend
 
@@ -672,6 +693,7 @@ impl Parser {
 
         let mut methods = Vec::new();
         while !self.is_at_end() && !matches!(self.peek_kind(), TokenKind::RBrace) {
+            let member_doc = self.token_docs.get(&self.index).cloned();
             let member_annotations = self.parse_annotations()?;
             let decl = self.parse_function_decl(FunctionDeclarationConfig {
                 kind: pleno_ast::FunctionKind::Method,
@@ -681,6 +703,7 @@ impl Parser {
                 annotations: member_annotations,
                 is_async: false,
                 is_abstract: false,
+                doc: member_doc,
             })?;
             methods.push(decl);
         }
@@ -692,6 +715,7 @@ impl Parser {
                 target,
                 generics,
                 methods,
+                doc,
             },
             start_span,
         ))
@@ -700,6 +724,7 @@ impl Parser {
     fn parse_interface_stmt(
         &mut self,
         annotations: Vec<pleno_ast::Annotation>,
+        doc: Option<String>,
     ) -> Result<Stmt, ParseError> {
         let start_span = self.peek_span();
         self.advance(); // interface
@@ -737,6 +762,7 @@ impl Parser {
         self.expect(TokenKind::LBrace, "Expected '{' before interface body")?;
         let mut methods = Vec::new();
         while !self.check(&TokenKind::RBrace) && !self.is_at_end() {
+            let member_doc = self.token_docs.get(&self.index).cloned();
             let method_annotations = self.parse_annotations()?;
             let method = self.parse_function_decl(FunctionDeclarationConfig {
                 kind: pleno_ast::FunctionKind::Method,
@@ -746,6 +772,7 @@ impl Parser {
                 annotations: method_annotations,
                 is_async: false,
                 is_abstract: true,
+                doc: member_doc,
             })?;
             methods.push(method);
         }
@@ -758,6 +785,7 @@ impl Parser {
                 methods,
                 extends,
                 annotations,
+                doc,
             },
             start_span,
         ))
@@ -766,6 +794,7 @@ impl Parser {
     fn parse_enum_declaration(
         &mut self,
         annotations: Vec<pleno_ast::Annotation>,
+        doc: Option<String>,
     ) -> Result<Stmt, ParseError> {
         let start_span = self.peek_span();
         self.advance(); // enum
@@ -833,6 +862,7 @@ impl Parser {
             variants.push(pleno_ast::EnumVariant {
                 name: variant_name,
                 params,
+                doc: None, // Variants don't have separate doc capture yet
             });
 
             // Allow trailing comma
@@ -845,6 +875,7 @@ impl Parser {
                 name,
                 variants,
                 annotations,
+                doc,
             }),
             start_span,
         ))
@@ -1012,6 +1043,7 @@ impl Parser {
     fn parse_export_stmt(
         &mut self,
         annotations: Vec<pleno_ast::Annotation>,
+        doc: Option<String>,
     ) -> Result<Stmt, ParseError> {
         let start_span = self.peek_span();
         self.advance();
@@ -1056,10 +1088,10 @@ impl Parser {
             return Ok(self.wrap_stmt(StmtKind::ExportList(items), start_span));
         }
         let stmt = match self.peek_kind() {
-            TokenKind::KeywordFn => self.parse_fn_stmt(annotations)?,
-            TokenKind::KeywordClass => self.parse_class_stmt(annotations, false)?,
-            TokenKind::KeywordLet => self.parse_let_stmt()?,
-            TokenKind::KeywordConst => self.parse_const_stmt()?,
+            TokenKind::KeywordFn => self.parse_fn_stmt(annotations, doc)?,
+            TokenKind::KeywordClass => self.parse_class_stmt(annotations, false, doc)?,
+            TokenKind::KeywordLet => self.parse_let_stmt(doc)?,
+            TokenKind::KeywordConst => self.parse_const_stmt(doc)?,
             other => {
                 return Err(ParseError {
                     message: format!("Expected declaration after export, found {other:?}"),
@@ -1074,6 +1106,7 @@ impl Parser {
         &mut self,
         annotations: Vec<pleno_ast::Annotation>,
         is_abstract: bool,
+        doc: Option<String>,
     ) -> Result<Stmt, ParseError> {
         let start_span = self.peek_span();
         self.advance();
@@ -1118,6 +1151,7 @@ impl Parser {
         let mut properties = Vec::new();
         let mut nested_classes = Vec::new();
         while !self.is_at_end() && !matches!(self.peek_kind(), TokenKind::RBrace) {
+            let member_doc = self.token_docs.get(&self.index).cloned();
             let member_annotations = self.parse_annotations()?;
             let mut visibility = None;
             let mut is_static = false;
@@ -1242,6 +1276,7 @@ impl Parser {
                     visibility,
                     kind: pleno_ast::FunctionKind::Operator(op_symbol),
                     annotations: member_annotations,
+                    doc: member_doc,
                 });
                 continue;
             }
@@ -1254,6 +1289,7 @@ impl Parser {
                     annotations: member_annotations,
                     is_async: false,
                     is_abstract: is_abstract_member,
+                    doc: member_doc,
                 })?);
                 continue;
             }
@@ -1268,6 +1304,7 @@ impl Parser {
                     visibility,
                     is_static,
                     member_annotations,
+                    member_doc,
                 )?);
                 continue;
             }
@@ -1282,6 +1319,7 @@ impl Parser {
                     visibility,
                     is_static,
                     member_annotations,
+                    member_doc,
                 )?);
                 continue;
             }
@@ -1290,11 +1328,16 @@ impl Parser {
                     visibility,
                     is_static,
                     member_annotations,
+                    member_doc,
                 )?);
                 continue;
             }
             if matches!(self.peek_kind(), TokenKind::KeywordClass) {
-                nested_classes.push(self.parse_class_stmt(member_annotations, false)?);
+                nested_classes.push(self.parse_class_stmt(
+                    member_annotations,
+                    false,
+                    member_doc,
+                )?);
                 continue;
             }
 
@@ -1325,6 +1368,7 @@ impl Parser {
                     visibility: visibility.or(Some(pleno_ast::Visibility::Public)),
                     kind: pleno_ast::FunctionKind::Method,
                     annotations: member_annotations,
+                    doc: member_doc,
                 });
                 continue;
             }
@@ -1359,6 +1403,7 @@ impl Parser {
                 is_const: is_const && !is_mut,
                 visibility,
                 annotations: member_annotations,
+                doc: member_doc,
             });
         }
         self.expect(TokenKind::RBrace, "Expected '}' after class body")?;
@@ -1374,6 +1419,7 @@ impl Parser {
                 is_abstract,
                 annotations,
                 nested_classes,
+                doc,
             },
             start_span,
         ))
@@ -1384,6 +1430,7 @@ impl Parser {
         visibility: Option<pleno_ast::Visibility>,
         is_static: bool,
         annotations: Vec<pleno_ast::Annotation>,
+        doc: Option<String>,
     ) -> Result<pleno_ast::PropertyDecl, ParseError> {
         self.advance(); // consume 'property'
         let name = match self.advance().kind.clone() {
@@ -1430,6 +1477,7 @@ impl Parser {
                     visibility: visibility.clone(),
                     kind: pleno_ast::FunctionKind::Getter,
                     annotations: Vec::new(),
+                    doc: None,
                 });
             } else if self.matches(&TokenKind::KeywordSet) {
                 if setter.is_some() {
@@ -1468,6 +1516,7 @@ impl Parser {
                     visibility: visibility.clone(),
                     kind: pleno_ast::FunctionKind::Setter,
                     annotations: Vec::new(),
+                    doc: None,
                 });
             } else {
                 return Err(ParseError {
@@ -1490,6 +1539,7 @@ impl Parser {
             is_static,
             visibility,
             annotations,
+            doc,
         })
     }
 
@@ -1594,6 +1644,7 @@ impl Parser {
             visibility,
             kind: config.kind,
             annotations: config.annotations,
+            doc: config.doc,
         })
     }
 
@@ -1603,6 +1654,7 @@ impl Parser {
         visibility: Option<pleno_ast::Visibility>,
         is_static: bool,
         annotations: Vec<pleno_ast::Annotation>,
+        doc: Option<String>,
     ) -> Result<pleno_ast::FunctionDecl, ParseError> {
         self.advance();
         let name = match self.advance().kind.clone() {
@@ -1645,6 +1697,7 @@ impl Parser {
             visibility,
             kind,
             annotations,
+            doc,
         })
     }
 
@@ -2804,14 +2857,13 @@ impl Parser {
                                 None
                             };
                             rest = Some(Box::new(pleno_ast::Pattern::Rest(name)));
-                            if self.matches(&TokenKind::Comma) {
-                                if !matches!(self.peek_kind(), TokenKind::RBrace) {
-                                    return Err(ParseError {
-                                        message: "Rest pattern must be the last element"
-                                            .to_string(),
-                                        span: self.previous_span(),
-                                    });
-                                }
+                            if self.matches(&TokenKind::Comma)
+                                && !matches!(self.peek_kind(), TokenKind::RBrace)
+                            {
+                                return Err(ParseError {
+                                    message: "Rest pattern must be the last element".to_string(),
+                                    span: self.previous_span(),
+                                });
                             }
                             break;
                         }
@@ -2997,7 +3049,7 @@ impl Parser {
         self.index >= self.tokens.len()
     }
 
-    fn parse_type_alias_stmt(&mut self) -> Result<Stmt, ParseError> {
+    fn parse_type_alias_stmt(&mut self, doc: Option<String>) -> Result<Stmt, ParseError> {
         let start_span = self.peek_span();
         self.advance(); // type
         let name = match self.advance().kind.clone() {
@@ -3012,7 +3064,7 @@ impl Parser {
         self.expect(TokenKind::Equal, "Expected '=' after type alias name")?;
         let ty = self.parse_type()?;
         self.expect(TokenKind::Semicolon, "Expected ';' after type alias")?;
-        Ok(self.wrap_stmt(StmtKind::TypeAlias { name, ty }, start_span))
+        Ok(self.wrap_stmt(StmtKind::TypeAlias { name, ty, doc }, start_span))
     }
 
     fn parse_type(&mut self) -> Result<String, ParseError> {

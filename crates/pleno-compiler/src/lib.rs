@@ -145,7 +145,7 @@ impl Compiler {
         self.current_span = stmt.span;
 
         match &stmt.kind {
-            StmtKind::Module { name, body } => {
+            StmtKind::Module { name, body, .. } => {
                 if let Some(stmts) = body {
                     for stmt in stmts {
                         self.compile_stmt(stmt)?;
@@ -163,7 +163,7 @@ impl Compiler {
                 }
                 Ok(())
             }
-            StmtKind::TypeAlias { name, ty } => {
+            StmtKind::TypeAlias { name, ty, .. } => {
                 self.type_aliases.insert(name.clone(), ty.clone());
                 Ok(())
             }
@@ -180,6 +180,7 @@ impl Compiler {
                 is_deep,
                 ty,
                 is_lazy,
+                ..
             } => {
                 if *is_const && value.is_none() {
                     return Err(self.error("const requires an initializer", stmt.span));
@@ -482,6 +483,7 @@ impl Compiler {
                 body,
                 annotations,
                 is_async,
+                ..
             } => {
                 let ownership = params
                     .iter()
@@ -505,6 +507,7 @@ impl Compiler {
                     visibility: None,
                     kind: FunctionKind::Method,
                     annotations: annotations.clone(),
+                    doc: None,
                 };
                 let func_reg = self.compile_function(&decl, false, false, None)?;
                 if self.is_top_level {
@@ -546,6 +549,7 @@ impl Compiler {
                 target,
                 generics,
                 methods,
+                ..
             } => {
                 self.compile_extend_stmt(target, generics, methods)?;
                 Ok(())
@@ -553,9 +557,8 @@ impl Compiler {
             StmtKind::Interface {
                 name,
                 methods,
-                annotations: _,
                 generics,
-                extends: _,
+                ..
             } => {
                 let methods_reg = self.registers.allocate()?;
                 self.emit(Opcode::NewMap, methods_reg, 0, 0);
@@ -1168,11 +1171,12 @@ impl Compiler {
                 "spread operator only allowed in collection literals",
             )),
             ExprKind::Call { callee, args } => {
-                if let ExprKind::Ident(name) = &callee.kind {
-                    if let Some(params) = self.resolve_fn_signature(name) {
-                        let params = params.to_vec();
-                        self.enforce_call_ownership(&params, args, expr.span)?;
-                    }
+                if let Some(params) = match &callee.kind {
+                    ExprKind::Ident(name) => self.resolve_fn_signature(name),
+                    _ => None,
+                } {
+                    let params = params.to_vec();
+                    self.enforce_call_ownership(&params, args, expr.span)?;
                 }
                 // Handle super() constructor call
                 if matches!(&callee.kind, ExprKind::Super) {
@@ -2290,6 +2294,7 @@ impl Compiler {
             visibility: None,
             kind: FunctionKind::Method,
             annotations: Vec::new(),
+            doc: None,
         };
 
         let captures = self.analyze_captures(&decl, false);
@@ -2424,7 +2429,7 @@ impl Compiler {
             self.emit(Opcode::Move, class_reg, local.reg, 0);
         } else {
             let name_idx = self.add_constant(Value::String(std::rc::Rc::new(target.to_string())));
-            self.emit(Opcode::GetGlobal, class_reg, name_idx as u8, 0);
+            self.emit(Opcode::GetGlobal, class_reg, name_idx, 0);
         }
 
         for method in methods {
@@ -2444,7 +2449,7 @@ impl Compiler {
             self.free_temp(vis_reg);
 
             let name_idx = self.add_constant(Value::String(std::rc::Rc::new(method.name.clone())));
-            self.emit(Opcode::AddMethod, meta_reg, class_reg, name_idx as u8);
+            self.emit(Opcode::AddMethod, meta_reg, class_reg, name_idx);
 
             self.free_temp(func_reg);
             self.free_temp(meta_reg);
@@ -2477,6 +2482,7 @@ impl Compiler {
                 implements,
                 is_abstract,
                 properties,
+                ..
             } => (
                 name,
                 generics,
@@ -3286,6 +3292,7 @@ impl Compiler {
             visibility: None,
             kind: FunctionKind::Method,
             annotations: Vec::new(),
+            doc: None,
         };
         let thunk_fn = self.compile_function(&decl, false, false, None)?;
         let dest = self.registers.allocate()?;
@@ -3369,30 +3376,30 @@ impl Compiler {
         expr: &Expr,
         span: pleno_ast::Span,
     ) -> Result<(), CompileError> {
-        if let ExprKind::Ident(name) = &expr.kind {
-            if let Some(local) = self.resolve_local(name) {
-                if self
-                    .ownership_states
-                    .get(&local.reg)
-                    .is_some_and(|state| matches!(state, OwnershipState::Moved))
-                {
-                    return Err(self.error("use of moved value", span));
+        if let Some(local) = match &expr.kind {
+            ExprKind::Ident(name) => self.resolve_local(name),
+            _ => None,
+        } {
+            if self
+                .ownership_states
+                .get(&local.reg)
+                .is_some_and(|state| matches!(state, OwnershipState::Moved))
+            {
+                return Err(self.error("use of moved value", span));
+            }
+            match param.hint {
+                OwnershipHint::Move => {
+                    self.ownership_states
+                        .insert(local.reg, OwnershipState::Moved);
                 }
-                match param.hint {
-                    OwnershipHint::Move => {
-                        self.ownership_states
-                            .insert(local.reg, OwnershipState::Moved);
+                OwnershipHint::RefMut => {
+                    if !local.mutable {
+                        return Err(
+                            self.error("cannot take mutable reference to immutable binding", span)
+                        );
                     }
-                    OwnershipHint::RefMut => {
-                        if !local.mutable {
-                            return Err(self.error(
-                                "cannot take mutable reference to immutable binding",
-                                span,
-                            ));
-                        }
-                    }
-                    OwnershipHint::Ref | OwnershipHint::None => {}
                 }
+                OwnershipHint::Ref | OwnershipHint::None => {}
             }
         }
         Ok(())
@@ -3423,15 +3430,11 @@ fn parse_ownership_hint(ty: Option<&str>) -> OwnershipHint {
     let Some(ty) = ty.map(str::trim) else {
         return OwnershipHint::None;
     };
-    if let Some(rest) = ty.strip_prefix("move ") {
-        if !rest.is_empty() {
-            return OwnershipHint::Move;
-        }
+    if ty.strip_prefix("move ").is_some_and(|r| !r.is_empty()) {
+        return OwnershipHint::Move;
     }
-    if let Some(rest) = ty.strip_prefix("&mut ") {
-        if !rest.is_empty() {
-            return OwnershipHint::RefMut;
-        }
+    if ty.strip_prefix("&mut ").is_some_and(|r| !r.is_empty()) {
+        return OwnershipHint::RefMut;
     }
     if ty.starts_with('&') {
         return OwnershipHint::Ref;

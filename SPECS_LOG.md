@@ -11,8 +11,8 @@
 - [x] 16.5 Package Publishing (`plm publish`)
 - [x] 16.6 Trust Model (Checksums & SHA256 integrity)
 - [x] 16.7 Features & Optional Dependencies
-- [ ] 16.8 Offline Cache & Performance (Lockfile upgrades)
-- [ ] 16.9 Binary Builds & Distribution (Multi-platform)
+- [x] 16.8 Offline Cache & Performance (Lockfile upgrades)
+- [x] 16.9 Binary Builds & Distribution (Multi-platform)
 
 ## 17. Tooling
 

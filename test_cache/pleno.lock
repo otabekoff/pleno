@@ -1,6 +1,0 @@
-[[package]]
-name = "mock_dep"
-version = "0.0.0"
-source = "git+./mock_dep"
-commit = "6554c2077d88a80624c94434b0b95146b86158ef"
-checksum = "6554c2077d88a80624c94434b0b95146b86158ef"

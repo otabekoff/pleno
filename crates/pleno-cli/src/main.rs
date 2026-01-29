@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use std::process;
 
 // CLI imports
-use pleno_package::{Dependency, Manifest};
+use pleno_package::{Bundle, Dependency, Manifest};
 
 fn main() {
     let mut args = env::args().skip(1).peekable();
@@ -903,13 +903,38 @@ fn handle_plm_run(args: &mut std::iter::Peekable<std::iter::Skip<std::env::Args>
     }
 }
 
+fn run_bundle(path: &str) {
+    let bytes = fs::read(path).unwrap_or_else(|e| {
+        eprintln!("Failed to read bundle {}: {}", path, e);
+        process::exit(1);
+    });
+    let bundle: Bundle = bincode::deserialize(&bytes).unwrap_or_else(|e| {
+        eprintln!("Failed to deserialize bundle {}: {}", path, e);
+        process::exit(1);
+    });
+    let chunk = bundle.modules.get(&bundle.main_module).unwrap_or_else(|| {
+        eprintln!("Main module {} not found in bundle", bundle.main_module);
+        process::exit(1);
+    });
+
+    let mut vm = pleno_vm::VM::new();
+    pleno_stdlib::register(&mut vm);
+    if let Err(e) = vm.execute(chunk.clone()) {
+        eprintln!("VM error: {}", e.message);
+        process::exit(1);
+    }
+}
+
 fn handle_run(target: &str) {
     if PathBuf::from(target).exists() {
-        if !target.ends_with(".pln") {
-            eprintln!("Error: Only .pln format file extensions are supported");
+        if target.ends_with(".plb") {
+            run_bundle(target);
+        } else if target.ends_with(".pln") {
+            run_file(target);
+        } else {
+            eprintln!("Error: Only .pln and .plb format file extensions are supported");
             process::exit(1);
         }
-        run_file(target);
     } else {
         match Manifest::load_from_file("pleno.toml") {
             Ok(manifest) => {

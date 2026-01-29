@@ -773,10 +773,12 @@ impl std::fmt::Display for Value {
                     if i > 0 {
                         write!(f, ", ")?;
                     }
-                    if let Some(names) = &t.names {
-                        if let Some(name) = names.iter().find(|p| *p.1 == i).map(|p| p.0) {
-                            write!(f, "{}: ", name)?;
-                        }
+                    if let Some(name) = t
+                        .names
+                        .as_ref()
+                        .and_then(|names| names.iter().find(|p| *p.1 == i).map(|p| p.0))
+                    {
+                        write!(f, "{}: ", name)?;
                     }
                     write!(f, "{}", v)?;
                 }

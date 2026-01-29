@@ -195,6 +195,7 @@ pub enum StmtKind {
     Module {
         name: String,
         body: Option<Vec<Stmt>>,
+        doc: Option<String>,
     },
     Let {
         name: String,
@@ -204,11 +205,13 @@ pub enum StmtKind {
         is_const: bool,
         is_deep: bool,
         is_lazy: bool,
+        doc: Option<String>,
     },
     MacroDecl {
         name: String,
         params: Vec<String>,
         body: Box<Stmt>,
+        doc: Option<String>,
     },
     Assign {
         name: String,
@@ -266,6 +269,7 @@ pub enum StmtKind {
         is_abstract: bool,
         annotations: Vec<Annotation>,
         nested_classes: Vec<Stmt>,
+        doc: Option<String>,
     },
     Interface {
         name: String,
@@ -273,6 +277,7 @@ pub enum StmtKind {
         methods: Vec<FunctionDecl>,
         extends: Vec<String>,
         annotations: Vec<Annotation>,
+        doc: Option<String>,
     },
     Enum(EnumDecl),
     Fn {
@@ -282,6 +287,7 @@ pub enum StmtKind {
         body: Box<Stmt>,
         annotations: Vec<Annotation>,
         is_async: bool,
+        doc: Option<String>,
     },
     Try {
         try_branch: Box<Stmt>,
@@ -300,11 +306,13 @@ pub enum StmtKind {
     TypeAlias {
         name: String,
         ty: String,
+        doc: Option<String>,
     },
     Extend {
         target: String,
         generics: Vec<GenericParam>,
         methods: Vec<FunctionDecl>,
+        doc: Option<String>,
     },
     Expr(Expr),
 }
@@ -350,6 +358,7 @@ pub struct FunctionDecl {
     pub visibility: Option<Visibility>,
     pub kind: FunctionKind,
     pub annotations: Vec<Annotation>,
+    pub doc: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -361,6 +370,7 @@ pub struct PropertyDecl {
     pub is_static: bool,
     pub visibility: Option<Visibility>,
     pub annotations: Vec<Annotation>,
+    pub doc: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -368,12 +378,14 @@ pub struct EnumDecl {
     pub name: String,
     pub variants: Vec<EnumVariant>,
     pub annotations: Vec<Annotation>,
+    pub doc: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct EnumVariant {
     pub name: String,
     pub params: Option<Vec<Param>>,
+    pub doc: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -394,6 +406,7 @@ pub struct FieldDecl {
     pub is_const: bool,
     pub visibility: Option<Visibility>,
     pub annotations: Vec<Annotation>,
+    pub doc: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
