@@ -128,7 +128,7 @@ impl Formatter {
         let result = self.emit_comments_before(stmt.span.start, indent_level);
         let current_indent = self.indent(indent_level);
         let stmt_str = match &stmt.kind {
-            StmtKind::Module { name, body } => {
+            StmtKind::Module { name, body, .. } => {
                 if let Some(stmts) = body {
                     let mut result = format!("{}module {} {{\n", current_indent, name);
                     for stmt in stmts {
@@ -148,6 +148,7 @@ impl Formatter {
                 is_deep,
                 ty,
                 is_lazy,
+                ..
             } => {
                 let mut result = current_indent;
                 if *is_const {
@@ -506,6 +507,7 @@ impl Formatter {
                 is_abstract,
                 annotations: _,
                 nested_classes,
+                ..
             } => {
                 let mut result = String::new();
                 let mut prefix = current_indent.clone();
@@ -571,6 +573,7 @@ impl Formatter {
                 methods,
                 extends,
                 annotations: _,
+                ..
             } => {
                 let mut result = format!("{}interface {} ", current_indent, name);
                 result.push_str(&self.format_generics(generics));
@@ -592,6 +595,7 @@ impl Formatter {
                 body,
                 annotations: _,
                 is_async,
+                ..
             } => {
                 let mut result = current_indent.clone();
                 if *is_async {
@@ -685,6 +689,7 @@ impl Formatter {
                 target,
                 generics,
                 methods,
+                ..
             } => {
                 let mut result = format!("{}extend ", current_indent);
                 if !generics.is_empty() {
@@ -714,10 +719,12 @@ impl Formatter {
                 result.push_str(&format!("{}}}\n", current_indent));
                 result
             }
-            StmtKind::TypeAlias { name, ty } => {
+            StmtKind::TypeAlias { name, ty, .. } => {
                 format!("{}type {} = {};\n", current_indent, name, ty)
             }
-            StmtKind::MacroDecl { name, params, body } => {
+            StmtKind::MacroDecl {
+                name, params, body, ..
+            } => {
                 let mut result = format!("{}macro {}(", current_indent, name);
                 result.push_str(&params.join(", "));
                 result.push_str(") ");

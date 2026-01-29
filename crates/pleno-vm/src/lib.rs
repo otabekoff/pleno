@@ -524,7 +524,7 @@ impl VM {
                     // Look up iterator method
                     if let Some(native) = self
                         .builtin_resolver
-                        .and_then(|r| r(&source.type_name(), &name))
+                        .and_then(|r| r(source.type_name(), &name))
                     {
                         match native(self, &[source]) {
                             Ok(iter) => {
@@ -535,27 +535,27 @@ impl VM {
                             }
                         }
                     } else if let Value::Object(obj) = &source {
-                        if let Some(class) = &obj.borrow().class {
-                            if let Some(method_info) = class.borrow().methods.get(&name) {
-                                self.call_function(
-                                    method_info.function,
-                                    Some(Value::Object(obj.clone())),
-                                    &[],
-                                    func_reg,
-                                    None,
-                                    None,
-                                    Some(method_info.owner.clone()),
-                                    false,
-                                )?;
-                                continue;
-                            }
+                        if let Some(class) = &obj.borrow().class
+                            && let Some(method_info) = class.borrow().methods.get(&name)
+                        {
+                            self.call_function(
+                                method_info.function,
+                                Some(Value::Object(obj.clone())),
+                                &[],
+                                func_reg,
+                                None,
+                                None,
+                                Some(method_info.owner.clone()),
+                                false,
+                            )?;
+                            continue;
                         }
-                        return Err(RuntimeError::new(&format!(
+                        return Err(RuntimeError::new(format!(
                             "property '{}' not found on Object",
                             name
                         )));
                     } else {
-                        return Err(RuntimeError::new(&format!(
+                        return Err(RuntimeError::new(format!(
                             "type '{}' is not iterable",
                             source.type_name()
                         )));
@@ -569,7 +569,7 @@ impl VM {
                     // Look up next method
                     if let Some(native) = self
                         .builtin_resolver
-                        .and_then(|r| r(&iter.type_name(), &name))
+                        .and_then(|r| r(iter.type_name(), &name))
                     {
                         match native(self, &[iter]) {
                             Ok(val) => {
@@ -580,27 +580,27 @@ impl VM {
                             }
                         }
                     } else if let Value::Object(obj) = &iter {
-                        if let Some(class) = &obj.borrow().class {
-                            if let Some(method_info) = class.borrow().methods.get(&name) {
-                                self.call_function(
-                                    method_info.function,
-                                    Some(Value::Object(obj.clone())),
-                                    &[],
-                                    func_reg,
-                                    None,
-                                    None,
-                                    Some(method_info.owner.clone()),
-                                    false,
-                                )?;
-                                continue;
-                            }
+                        if let Some(class) = &obj.borrow().class
+                            && let Some(method_info) = class.borrow().methods.get(&name)
+                        {
+                            self.call_function(
+                                method_info.function,
+                                Some(Value::Object(obj.clone())),
+                                &[],
+                                func_reg,
+                                None,
+                                None,
+                                Some(method_info.owner.clone()),
+                                false,
+                            )?;
+                            continue;
                         }
-                        return Err(RuntimeError::new(&format!(
+                        return Err(RuntimeError::new(format!(
                             "property '{}' not found on Object",
                             name
                         )));
                     } else {
-                        return Err(RuntimeError::new(&format!(
+                        return Err(RuntimeError::new(format!(
                             "type '{}' is not an iterator",
                             iter.type_name()
                         )));
@@ -1471,7 +1471,7 @@ impl VM {
                                 }
                                 continue;
                             } else {
-                                return Err(RuntimeError::new(&format!(
+                                return Err(RuntimeError::new(format!(
                                     "Enum '{}' has no variant '{}'",
                                     et.name, name
                                 )));
@@ -1932,22 +1932,28 @@ impl VM {
                     let left = self.registers[base + b].clone();
                     let right = self.registers[base + c].clone();
                     // Check for operator overloading on Object
-                    if let Value::Object(obj) = &left {
-                        if let Some(class) = &obj.borrow().class {
-                            if let Some(op_info) = class.borrow().operators.get("+") {
-                                self.call_function(
-                                    op_info.function,
-                                    Some(pleno_value::Value::Object(obj.clone())),
-                                    &[right],
-                                    base + a,
-                                    None,
-                                    None,
-                                    Some(op_info.owner.clone()),
-                                    false,
-                                )?;
-                                continue;
-                            }
-                        }
+                    if let Some(op_info) = match &left {
+                        Value::Object(obj) => obj
+                            .borrow()
+                            .class
+                            .as_ref()
+                            .and_then(|c| c.borrow().operators.get("+").cloned()),
+                        _ => None,
+                    } {
+                        self.call_function(
+                            op_info.function,
+                            Some(pleno_value::Value::Object(match &left {
+                                Value::Object(o) => o.clone(),
+                                _ => unreachable!(),
+                            })),
+                            &[right],
+                            base + a,
+                            None,
+                            None,
+                            Some(op_info.owner.clone()),
+                            false,
+                        )?;
+                        continue;
                     }
                     self.registers[base + a] = add_values(left, right)?;
                 }
@@ -1960,22 +1966,28 @@ impl VM {
                     let left = self.registers[base + b].clone();
                     let right = self.registers[base + c].clone();
                     // Check for operator overloading on Object
-                    if let Value::Object(obj) = &left {
-                        if let Some(class) = &obj.borrow().class {
-                            if let Some(op_info) = class.borrow().operators.get("*") {
-                                self.call_function(
-                                    op_info.function,
-                                    Some(Value::Object(obj.clone())),
-                                    &[right],
-                                    base + a,
-                                    None,
-                                    None,
-                                    Some(op_info.owner.clone()),
-                                    false,
-                                )?;
-                                continue;
-                            }
-                        }
+                    if let Some(op_info) = match &left {
+                        Value::Object(obj) => obj
+                            .borrow()
+                            .class
+                            .as_ref()
+                            .and_then(|c| c.borrow().operators.get("*").cloned()),
+                        _ => None,
+                    } {
+                        self.call_function(
+                            op_info.function,
+                            Some(Value::Object(match &left {
+                                Value::Object(o) => o.clone(),
+                                _ => unreachable!(),
+                            })),
+                            &[right],
+                            base + a,
+                            None,
+                            None,
+                            Some(op_info.owner.clone()),
+                            false,
+                        )?;
+                        continue;
                     }
                     self.registers[base + a] = mul_values(left, right)?;
                 }
@@ -3217,7 +3229,7 @@ impl VM {
                         }
                     }
                     // Check structural
-                    for (name, _sig) in &iface.methods {
+                    for name in iface.methods.keys() {
                         let mut found = false;
                         if let Some(cls) = &obj.class {
                             let mut current = Some(cls.clone());
@@ -3249,12 +3261,11 @@ impl VM {
                         let mut current = Some(cls.clone());
                         while let Some(c) = current {
                             for imp in &c.borrow().implements {
-                                if let Value::BoundInterface {
-                                    interface,
-                                    type_args,
-                                } = imp
-                                {
-                                    if interface.borrow().name == iface.name {
+                                match imp {
+                                    Value::BoundInterface {
+                                        interface,
+                                        type_args,
+                                    } if interface.borrow().name == iface.name => {
                                         if type_args.len() != target_args.len() {
                                             continue;
                                         }
@@ -3269,6 +3280,7 @@ impl VM {
                                             return true;
                                         }
                                     }
+                                    _ => {}
                                 }
                             }
                             current = c.borrow().superclass.clone();
@@ -3358,12 +3370,11 @@ impl VM {
                     let mut current = Some(cls.clone());
                     while let Some(c) = current {
                         for imp in &c.borrow().implements {
-                            if let Value::BoundInterface {
-                                interface,
-                                type_args,
-                            } = imp
-                            {
-                                if interface.borrow().name == iface.name {
+                            match imp {
+                                Value::BoundInterface {
+                                    interface,
+                                    type_args,
+                                } if interface.borrow().name == iface.name => {
                                     if type_args.len() != target_args.len() {
                                         continue;
                                     }
@@ -3378,6 +3389,7 @@ impl VM {
                                         return true;
                                     }
                                 }
+                                _ => {}
                             }
                         }
                         current = c.borrow().superclass.clone();

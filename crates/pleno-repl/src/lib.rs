@@ -80,11 +80,11 @@ pub fn start() -> Result<()> {
 
     // Load history if exists
     let history_path = dirs_history_path();
-    if let Some(ref path) = history_path {
-        if let Err(_e) = rl.load_history(path) {
-            // It's okay if history doesn't exist yet, but warn on other errors
-            // println!("Warning: Could not load history: {}", e);
-        }
+    if let Some(ref path) = history_path
+        && rl.load_history(path).is_err()
+    {
+        // It's okay if history doesn't exist yet, but warn on other errors
+        // println!("Warning: Could not load history: {}", e);
     }
 
     println!("Pleno REPL v0.1.0");

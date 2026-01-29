@@ -6,12 +6,12 @@ pub fn reflect_get_type_name(
     _vm: &mut dyn VMProvider,
     args: &[Value],
 ) -> Result<Value, RuntimeError> {
-    let value = args.get(0).cloned().unwrap_or(Value::Null);
+    let value = args.first().cloned().unwrap_or(Value::Null);
     Ok(Value::String(Rc::new(value.type_name().to_string())))
 }
 
 pub fn reflect_get_fields(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
-    let value = args.get(0).cloned().unwrap_or(Value::Null);
+    let value = args.first().cloned().unwrap_or(Value::Null);
     let mut names: HashSet<String> = HashSet::new();
 
     match value {
@@ -47,7 +47,7 @@ pub fn reflect_get_fields(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Val
 }
 
 pub fn reflect_get_methods(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
-    let value = args.get(0).cloned().unwrap_or(Value::Null);
+    let value = args.first().cloned().unwrap_or(Value::Null);
     let mut names: HashSet<String> = HashSet::new();
 
     // Methods live on Class

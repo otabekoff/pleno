@@ -22,6 +22,20 @@ pub enum PackageError {
     InvalidVersionReq(String),
     #[error("No compatible version found for {0} (requires {1})")]
     NoCompatibleVersion(String, String),
+    #[error("Compile error: {0}")]
+    CompileError(String),
+    #[error("Parse error: {0}")]
+    ParseError(String),
+    #[error("Lex error: {0}")]
+    LexError(String),
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct Bundle {
+    pub name: String,
+    pub version: String,
+    pub main_module: String,
+    pub modules: HashMap<String, pleno_bytecode::Chunk>,
 }
 
 pub trait Registry {
@@ -137,6 +151,9 @@ pub struct Resolver<'a> {
     registry: &'a dyn Registry,
 }
 
+/// Result type for resolved dependencies: maps package name to (Version, source, optional SHA)
+pub type ResolvedDeps = HashMap<String, (Version, String, Option<String>)>;
+
 impl<'a> Resolver<'a> {
     pub fn new(registry: &'a dyn Registry) -> Self {
         Self { registry }
@@ -147,7 +164,7 @@ impl<'a> Resolver<'a> {
         manifest: &Manifest,
         lockfile: &Lockfile,
         features: &[String],
-    ) -> Result<HashMap<String, (Version, String, Option<String>)>, PackageError> {
+    ) -> Result<ResolvedDeps, PackageError> {
         let mut resolved = HashMap::new();
         let mut stack = Vec::new();
         let mut active_features = std::collections::HashSet::new();
@@ -442,13 +459,12 @@ impl PackageManager {
                     .unwrap_or_else(|| std::env::current_dir().unwrap().join(".pleno_cache"))
             });
 
-        let manager = Self {
+        Self {
             packages_dir: packages_dir.as_ref().to_path_buf(),
             cache_dir: cache_base,
             registry_url: None,
             offline: false,
-        };
-        manager
+        }
     }
 
     pub fn with_registry(mut self, url: String) -> Self {
@@ -639,15 +655,15 @@ impl PackageManager {
         let dest = self.packages_dir.join(name);
 
         // 1. Try global cache first if we have a SHA
-        if let Some(cache_path) = self.get_cache_path(name, expected_sha) {
-            if cache_path.exists() {
-                if dest.exists() {
-                    std::fs::remove_dir_all(&dest)?;
-                }
-                std::fs::create_dir_all(&dest)?;
-                self.copy_dir(&cache_path, &dest)?;
-                return Ok(expected_sha.map(|s| s.to_string()));
+        if let Some(cache_path) = self.get_cache_path(name, expected_sha)
+            && cache_path.exists()
+        {
+            if dest.exists() {
+                std::fs::remove_dir_all(&dest)?;
             }
+            std::fs::create_dir_all(&dest)?;
+            self.copy_dir(&cache_path, &dest)?;
+            return Ok(expected_sha.map(|s| s.to_string()));
         }
 
         // 2. Fetch to a temporary location or directly to cache
@@ -703,13 +719,12 @@ impl PackageManager {
         }
 
         // 3. Mirror to cache if we have a SHA
-        if let Some(sha_to_cache) = &resolved_sha {
-            if let Some(cache_path) = self.get_cache_path(name, Some(sha_to_cache)) {
-                if !cache_path.exists() {
-                    std::fs::create_dir_all(&cache_path)?;
-                    self.copy_dir(&dest, &cache_path)?;
-                }
-            }
+        if let Some(sha_to_cache) = &resolved_sha
+            && let Some(cache_path) = self.get_cache_path(name, Some(sha_to_cache))
+            && !cache_path.exists()
+        {
+            std::fs::create_dir_all(&cache_path)?;
+            self.copy_dir(&dest, &cache_path)?;
         }
 
         Ok(resolved_sha)
@@ -762,6 +777,54 @@ impl PackageManager {
                 std::fs::copy(entry.path(), dst_path)?;
             }
         }
+        Ok(())
+    }
+
+    pub fn build_project(
+        &self,
+        manifest: &Manifest,
+        entry_path: Option<&str>,
+    ) -> Result<(), PackageError> {
+        use pleno_compiler::Compiler;
+        use pleno_lexer::lex;
+        use pleno_parser::Parser;
+
+        let main_path = entry_path
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from(&manifest.package.main));
+
+        if !main_path.exists() {
+            return Err(PackageError::NotFound(main_path));
+        }
+
+        let source = std::fs::read_to_string(&main_path)?;
+        let tokens = lex(&source).map_err(|e| PackageError::LexError(format!("{:?}", e)))?;
+        let mut parser = Parser::new(tokens);
+        let program = parser
+            .parse_program()
+            .map_err(|e| PackageError::ParseError(format!("{:?}", e)))?;
+
+        let mut compiler = Compiler::new(source);
+        let chunk = compiler
+            .compile(&program)
+            .map_err(|e| PackageError::CompileError(format!("{:?}", e)))?;
+
+        let mut modules = HashMap::new();
+        modules.insert(manifest.package.name.clone(), chunk);
+
+        let bundle = Bundle {
+            name: manifest.package.name.clone(),
+            version: manifest.package.version.clone(),
+            main_module: manifest.package.name.clone(),
+            modules,
+        };
+
+        let bundle_path = PathBuf::from(format!("{}.plb", manifest.package.name));
+        let encoded: Vec<u8> = bincode::serialize(&bundle)
+            .map_err(|e| std::io::Error::other(format!("Serialization failed: {}", e)))?;
+
+        std::fs::write(bundle_path, encoded)?;
+
         Ok(())
     }
 }

@@ -360,7 +360,7 @@ pub fn lex(source: &str) -> Result<Vec<Token>, LexError> {
                 chars.next(); // consume '"'
                 let mut value = String::new();
                 let mut terminated = false;
-                while let Some((idx, next_ch)) = chars.next() {
+                for (idx, next_ch) in chars.by_ref() {
                     if next_ch == '"' {
                         terminated = true;
                         tokens.push(Token {
