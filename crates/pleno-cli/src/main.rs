@@ -29,6 +29,9 @@ fn main() {
         "install" => {
             handle_install(&mut args);
         }
+        "build" => {
+            handle_build(&mut args);
+        }
         "plm" => {
             let sub_command = args.next().unwrap_or_else(|| {
                 eprintln!("Error: 'plm' requires a command (init, install, run)");
@@ -39,6 +42,7 @@ fn main() {
                 "install" => handle_install(&mut args),
                 "run" => handle_plm_run(&mut args),
                 "publish" => handle_plm_publish(&mut args),
+                "build" => handle_build(&mut args),
                 _ => {
                     eprintln!("Error: Unknown plm command '{}'", sub_command);
                     process::exit(1);
@@ -738,6 +742,7 @@ fn handle_init(args: &mut std::iter::Peekable<std::iter::Skip<std::env::Args>>) 
 fn handle_install(args: &mut std::iter::Peekable<std::iter::Skip<std::env::Args>>) {
     let mut pkg_name = None;
     let mut features = Vec::new();
+    let mut offline = false;
 
     while let Some(arg) = args.next() {
         if arg == "--features" {
@@ -746,6 +751,8 @@ fn handle_install(args: &mut std::iter::Peekable<std::iter::Skip<std::env::Args>
                     features.push(f.to_string());
                 }
             }
+        } else if arg == "--offline" {
+            offline = true;
         } else if pkg_name.is_none() && !arg.starts_with('-') {
             pkg_name = Some(arg);
         }
@@ -761,7 +768,9 @@ fn handle_install(args: &mut std::iter::Peekable<std::iter::Skip<std::env::Args>
 
     let registry_url = std::env::var("PLENO_REGISTRY")
         .unwrap_or_else(|_| "https://registry.pleno.dev".to_string());
-    let manager = pleno_package::PackageManager::new("packages").with_registry(registry_url);
+    let manager = pleno_package::PackageManager::new("packages")
+        .with_registry(registry_url)
+        .with_offline(offline);
 
     if let Some(pkg) = pkg_name {
         let (name, source) = if let Some(pos) = pkg.find('@') {
@@ -823,6 +832,27 @@ fn handle_install(args: &mut std::iter::Peekable<std::iter::Skip<std::env::Args>
         }
     }
     println!("Installation successful.");
+}
+
+fn handle_build(args: &mut std::iter::Peekable<std::iter::Skip<std::env::Args>>) {
+    let entry_file = args.next();
+
+    let manifest = match Manifest::load_from_file("pleno.toml") {
+        Ok(m) => m,
+        Err(e) => {
+            eprintln!("Failed to load pleno.toml: {}", e);
+            process::exit(1);
+        }
+    };
+
+    let manager = pleno_package::PackageManager::new("packages");
+    println!("Building project {}...", manifest.package.name);
+
+    if let Err(e) = manager.build_project(&manifest, entry_file.as_deref()) {
+        eprintln!("Build failed: {}", e);
+        process::exit(1);
+    }
+    println!("Build successful: {}.plb", manifest.package.name);
 }
 
 fn handle_plm_publish(_args: &mut std::iter::Peekable<std::iter::Skip<std::env::Args>>) {
