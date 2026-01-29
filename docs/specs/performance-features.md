@@ -1,4 +1,6 @@
-## 19. Performance Features
+# Performance Features (Deferred for v2.0)
+
+*Note: Advanced performance features like JIT and advanced GC hints are planned for future releases.*
 
 ### 19.1 JIT Compilation
 - Hot path optimization

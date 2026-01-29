@@ -1,4 +1,4 @@
-## 1. Core Syntax & Fundamentals
+# Core Syntax & Fundamentals
 
 ### 1.1 Comments
 ```pleno
@@ -113,4 +113,11 @@ fn processValue(val: Int | String) {
         print(val.toUpperCase());
     }
 }
+```
+
+
+### 1.4 TypeOf Operator
+```pleno
+let x = 42;
+print(typeof(x));  // "Int"
 ```

@@ -1,3 +1,4 @@
+
 **Excellent question!** Distribution strategy is crucial for adoption. Here's a comprehensive plan for packaging and distributing Pleno:
 
 ## Distribution Strategy for Pleno
@@ -189,7 +190,7 @@ pleno/
 │   └── ...
 ├── docs/                   # Documentation
 │   ├── guide/
-│   ├── reference/
+│   ├── specs/
 │   └── examples/
 ├── stdlib/                 # Standard library (.pln files)
 │   ├── io/
@@ -453,7 +454,7 @@ https://pleno-lang.org/
 ├── /download          # Download page
 ├── /docs              # Documentation
 │   ├── /guide         # Getting started
-│   ├── /reference     # Language reference
+│   ├── /specs         # Language specification
 │   └── /api           # API docs
 ├── /packages          # Package registry
 ├── /playground        # Online REPL

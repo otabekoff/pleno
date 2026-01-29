@@ -746,11 +746,15 @@ impl Formatter {
             ExprKind::This => "this".to_string(),
             ExprKind::Super => "super".to_string(),
             ExprKind::Unary { op, expr } => {
-                let op_str = match op {
-                    UnaryOp::Negate => "-",
-                    UnaryOp::Not => "!",
-                };
-                format!("{}{}", op_str, self.format_expression(expr, indent_level))
+                let inner = self.format_expression(expr, indent_level);
+                match op {
+                    UnaryOp::Negate => format!("-{}", inner),
+                    UnaryOp::Not => format!("!{}", inner),
+                    UnaryOp::PreIncrement => format!("++{}", inner),
+                    UnaryOp::PostIncrement => format!("{}++", inner),
+                    UnaryOp::PreDecrement => format!("--{}", inner),
+                    UnaryOp::PostDecrement => format!("{}--", inner),
+                }
             }
             ExprKind::If {
                 condition,

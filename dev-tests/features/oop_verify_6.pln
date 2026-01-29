@@ -1,0 +1,25 @@
+// 6. Interfaces
+interface Drawable {
+    fn draw(): String;
+}
+
+class Sprite implements Drawable {
+    fn draw(): String {
+        return "Drawing sprite";
+    }
+}
+
+let s: Drawable = Sprite();
+print("Drawable s draw: " + s.draw());
+
+class NotDrawable {
+    fn draw(): String {
+        return "Not really drawable though";
+    }
+}
+
+// Check if we can assign something that doesn't explicitly 'implements'
+// In Pleno, interfaces might be nominal or structural depending on implementation.
+// Let's see what happens.
+let n: Drawable = NotDrawable(); 
+print("NotDrawable n draw: " + n.draw());

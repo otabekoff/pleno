@@ -1,4 +1,4 @@
-## 13. Standard Library Highlights
+# Standard Library Highlights
 
 ### 13.1 String Operations
 
@@ -126,60 +126,65 @@ let jsonStr = JSON.stringify(obj);
 let prettyJson = JSON.stringify(obj, indent: 2);
 ```
 
-### 13.6 HTTP
-```pleno
-import http from "std:http";
-import { JSON } from "std:json";
+### 13.6 HTTP Client
 
-// --- HTTP Client ---
+```pleno
+import { Http } from "std:http";
 
 // GET request
-let responseBody = http.get("https://api.example.com/data");
-let data = JSON.parse(responseBody);
+async fn fetchData() {
+    let response = await Http.get("https://api.example.com/data");
+    
+    if (response.status == 200) {
+        let data = JSON.parse(response.body);
+        return data;
+    } else {
+        throw Error("Request failed: " + response.status);
+    }
+}
 
 // POST request
-let newUser = { name: "Alice" };
-let resp = http.post("https://api.example.com/users", JSON.stringify(newUser));
+async fn createUser(user: User) {
+    let response = await Http.post(
+        "https://api.example.com/users",
+        body: JSON.stringify(user),
+        headers: {
+            "Content-Type": "application/json"
+        }
+    );
+    
+    return JSON.parse(response.body);
+}
 
 // Other methods
-http.put("url", "body");
-http.delete("url");
-
-// --- HTTP Server ---
-
-let router = http.Router();
-
-router.get("/", fn(req, res) {
-    println("Received request");
-});
-
-router.post("/api/data", fn(req, res) {
-    println("Received data");
-});
-
-let server = http.Server(router);
-// server.listen(8080); // Blocking call
+await Http.put(url, body: data);
+await Http.delete(url);
+await Http.patch(url, body: data);
 ```
 
 ### 13.7 Date & Time
+
 ```pleno
-import time from "std:time";
+import { DateTime, Duration } from "std:time";
 
-// Current Unix timestamp (float seconds)
-let now = time.now();
-print(now);
+// Current date/time
+let now = DateTime.now();
+print(now.getTimestamp());         // Unix timestamp
 
-// Formatting
-let dateStr = time.format(now, "%Y-%m-%d %H:%M:%S"); // "2026-01-22 14:30:00"
+// Formatting (chrono-style format)
+print(now.format("%Y-%m-%d %H:%M:%S"));
 
 // Parsing
-let timestamp = time.parse("2026-01-22", "%Y-%m-%d");
+let parsed = DateTime.parse("2026-01-22", "%Y-%m-%d");
 
-// Struct access
-let parts = time.parts(now);
-print(parts.year);
-print(parts.month);
-print(parts.second);
+// Duration
+let duration = Duration.hours(2);
+let future = now.add(duration);
+let past = now.subtract(Duration.days(7));
+
+if (now.isAfter(past)) {
+    print("now is later");
+}
 ```
 
 ### 13.8 Regular Expressions
@@ -210,54 +215,3 @@ if (match) {
     print(match.group(2));  // "example.com"
 }
 ```
-
-### 13.9 Path Operations
-
-```pleno
-import path from "std:path";
-
-// Join path components
-let fullPath = path.join("folder", "subfolder", "file.txt");
-
-// Get directory name
-path.dirname("/home/user/file.txt");
-
-// Get file name
-path.basename("/home/user/file.txt");
-
-// Get extension
-path.extname("document.pdf");
-
-// Check existence
-path.exists("config.json");
-path.isFile("config.json");
-path.isDir("src");
-
-// Resolve to absolute path
-path.resolve("./relative/path");
-
-// Path separator
-path.separator;
-```
-
-### 13.10 Process Management
-
-```pleno
-import process from "std:process";
-
-// Get current working directory
-let cwd = process.cwd();
-
-// Get command line arguments
-let args = process.args();
-
-// Get environment variable
-let home = process.env("HOME");
-
-// Get process ID
-let pid = process.pid();
-
-// Exit with status code
-process.exit(0);
-```
-

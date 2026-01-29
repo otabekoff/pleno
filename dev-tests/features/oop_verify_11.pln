@@ -1,0 +1,14 @@
+// 11. @override on Interface Implementation
+interface I {
+    fn foo();
+}
+
+class C implements I {
+    @override
+    fn foo() {
+        print("C.foo");
+    }
+}
+
+let c = C();
+c.foo();

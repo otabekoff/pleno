@@ -1,4 +1,4 @@
-## 16. Package Manager (PLM - Pleno Module Manager)
+# Package Manager (PLM)
 
 ```bash
 # Initialize new project

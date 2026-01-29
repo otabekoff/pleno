@@ -45,6 +45,6 @@ pleno run hello.pln
 
 ## Next Steps
 
-- Explore the [Language Reference](../reference/spec.md)
+- Explore the [Language Specification](../specs/spec.md)
 - Learn about [Contributing](../guide/contributing.md)
 - Check out the [Examples](https://github.com/otabekoff/pleno/tree/main/examples)

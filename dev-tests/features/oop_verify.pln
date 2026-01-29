@@ -1,0 +1,178 @@
+// OOP Verification Test Suite
+
+// 1. Basic Class Definition, Fields, Constructor, and Methods
+class Person {
+    private name: String;
+    private age: Int;
+    public active: Bool;
+    
+    constructor(name: String, age: Int) {
+        this.name = name;
+        this.age = age;
+        this.active = true;
+    }
+    
+    public fn greet(): String {
+        return "Hello, I'm " + this.name;
+    }
+    
+    public fn getAge(): Int {
+        return this.age;
+    }
+    
+    public fn setAge(newAge: Int) {
+        if (newAge >= 0) {
+            this.age = newAge;
+        }
+    }
+}
+
+let alice = Person("Alice", 30);
+print("Alice name via greet: " + alice.greet());
+print("Alice initial age: " + alice.getAge());
+alice.setAge(31);
+print("Alice new age: " + alice.getAge());
+print("Alice active: " + alice.active);
+
+// 2. Inheritance and Super Calls
+class Animal {
+    protected name: String;
+    
+    constructor(name: String) {
+        this.name = name;
+    }
+    
+    public fn speak(): String {
+        return "Generic sound";
+    }
+}
+
+class Dog extends Animal {
+    private breed: String;
+    
+    constructor(name: String, breed: String) {
+        super(name);
+        this.breed = breed;
+    }
+    
+    @override
+    public fn speak(): String {
+        return "Woof! I'm " + this.name + " the " + this.breed;
+    }
+}
+
+let buck = Dog("Buck", "Beagle");
+print("Dog buck speaks: " + buck.speak());
+
+// 3. Properties (Getters/Setters)
+class Circle {
+    private radius: Float;
+    
+    constructor(radius: Float) {
+        this.radius = radius;
+    }
+    
+    property area: Float {
+        get {
+            return 3.14159 * this.radius * this.radius;
+        }
+    }
+    
+    property diameter: Float {
+        get {
+            return this.radius * 2.0;
+        }
+        set(value) {
+            this.radius = value / 2.0;
+        }
+    }
+}
+
+let c = Circle(5.0);
+print("Circle area: " + c.area);
+print("Circle diameter: " + c.diameter);
+c.diameter = 20.0;
+print("Circle new radius (via diameter): " + (c.diameter / 2.0));
+
+// 4. Static Members
+class Counter {
+    public static mut count = 0;
+    
+    public static fn increment() {
+        Counter.count++;
+    }
+}
+
+Counter.increment();
+Counter.increment();
+print("Counter static count: " + Counter.count);
+
+// 5. Abstract Classes
+abstract class Shape {
+    protected color: String;
+    
+    constructor(color: String) {
+        this.color = color;
+    }
+    
+    abstract fn area(): Float;
+}
+
+class Square extends Shape {
+    private side: Float;
+    
+    constructor(color: String, side: Float) {
+        super(color);
+        this.side = side;
+    }
+    
+    @override
+    fn area(): Float {
+        return this.side * this.side;
+    }
+}
+
+let sq = Square("Red", 4.0);
+print("Square area: " + sq.area());
+
+// 6. Interfaces
+interface Drawable {
+    fn draw(): String;
+}
+
+class Sprite implements Drawable {
+    @override
+    fn draw(): String {
+        return "Drawing sprite";
+    }
+}
+
+let s: Drawable = Sprite();
+print("Drawable s draw: " + s.draw());
+
+// 7. Access Modifiers check (behavioral)
+class Secret {
+    private data = "secret";
+    protected pData = "protected";
+    internal iData = "internal";
+}
+
+let sec = Secret();
+// We can't really "catch" compiler errors here in a runtime script, 
+// but we verify that public things work and non-public don't crash the VM if accessed (if not enforced yet)
+print("Secret created");
+
+// 8. Nested Classes
+class Outer {
+    class Inner {
+        public fn hello() => "Hello from Inner";
+    }
+    
+    public fn getInner() => Outer.Inner();
+}
+
+let outer = Outer();
+let inner = outer.getInner();
+print("Nested class hello: " + inner.hello());
+
+print("OOP Verification Complete!");

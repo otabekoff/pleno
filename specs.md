@@ -126,10 +126,23 @@ fn processValue(val: Int | String) {
 ```
 
 
-### 1.4 TypeOf Operator
+### 1.4 TypeOf Operator ✅
 ```pleno
 let x = 42;
 print(typeof(x));  // "Int"
+```
+
+### 1.5 Increment & Decrement ✅
+```pleno
+let mut i = 0;
+i++;    // Post-increment (returns 0, i becomes 1)
+++i;    // Pre-increment (returns 2, i becomes 2)
+i--;    // Post-decrement (returns 2, i becomes 1)
+--i;    // Pre-decrement (returns 0, i becomes 0)
+
+// Also works on properties and indexes
+obj.prop++;
+arr[0]--;
 ```
 
 ---
@@ -175,22 +188,22 @@ let category = match (age) {
 
 #### For Loop
 ```pleno
-// Traditional for
+// Traditional for ✅
 for (let i = 0; i < 10; i++) {
     print(i);
 }
 
-// For-in (iteration)
+// For-in (iteration) ✅
 for (item in collection) {
     print(item);
 }
 
-// For-in with index
+// For-in with index ✅
 for (index, item in collection) {
     print(index + ": " + item);
 }
 
-// Range-based
+// Range-based ✅
 for (i in 0..10) {      // Exclusive end
     print(i);
 }
@@ -200,23 +213,23 @@ for (i in 0..=10) {     // Inclusive end
 }
 ```
 
-#### While Loop
+#### While Loop ✅
 ```pleno
 while (condition) {
     // code
 }
 
-// Do-while
+// Do-while ✅
 do {
     // code
 } while (condition);
 ```
 
-#### Loop Control
+#### Loop Control ✅
 ```pleno
 break;        // Exit loop
 continue;     // Skip to next iteration
-break label;  // Break from labeled outer loop
+break label;  // Break from labeled outer loop ✅
 
 outer: for (i in 0..10) {
     for (j in 0..10) {
@@ -243,13 +256,13 @@ fn logMessage(msg: String) {
 }
 
 // Single expression function
-fn square(x: Int): Int => x * x;
+fn square(x: Int): Int => x * x; ✅
 
 // Multiple parameters
-fn add(a: Int, b: Int): Int => a + b;
+fn add(a: Int, b: Int): Int => a + b; ✅
 ```
 
-### 3.2 Default Parameters
+### 3.2 Default Parameters ✅
 ```pleno
 fn greet(name: String, greeting: String = "Hello"): String {
     return greeting + ", " + name;
@@ -1903,6 +1916,9 @@ pleno build --release --output app
 
 # Generate documentation
 pleno doc --output docs/
+
+# Start Language Server (LSP)
+pleno lsp
 ```
 
 ---

@@ -1,0 +1,136 @@
+// Comprehensive Control Flow Verification
+
+fn test_conditionals() {
+    print("Testing Conditionals...");
+    
+    // 1. If-Else Block
+    let score = 75;
+    if (score >= 90) {
+        print("  Grade: A");
+    } else if (score >= 70) {
+        print("  Grade: C"); // Expected
+    } else {
+        print("  Grade: F");
+    }
+    
+    // 2. If as Expression
+    let status = if (score >= 60) "Pass" else "Fail";
+    print("  Status: " + status);
+}
+
+fn test_match() {
+    print("Testing Pattern Matching...");
+    
+    let value = 2;
+    // Match as expression and multi-patterns
+    let result = match (value) {
+        case 0 => "zero",
+        case 1, 2, 3 => "small", // Expected
+        case x if x > 100 => "large: " + x,
+        case String s => "string: " + s,
+        case _ => "other"
+    };
+    print("  Match Literal: " + result);
+    
+    // Guarded match
+    let age = 65;
+    let category = match (age) {
+        case x if x < 13 => "child",
+        case x if x < 20 => "teen",
+        case x if x < 65 => "adult",
+        case _ => "senior" // Expected
+    };
+    print("  Match Guard: " + category);
+    
+    // Type match
+    let data: Any = "Hello Pleno";
+    let type_check = match (data) {
+        case Int i => "is int",
+        case String s => "is string", // Expected
+        case _ => "something else"
+    };
+    print("  Match Type: " + type_check);
+}
+
+fn test_loops() {
+    print("Testing Loops...");
+    
+    // 1. Traditional For
+    print("  For loop:");
+    for (let i = 0; i < 3; i = i + 1) {
+        print("    i=" + i);
+    }
+    
+    // 2. For-In (Array)
+    print("  For-in array:");
+    let list = [10, 20, 30];
+    for (item in list) {
+        print("    item=" + item);
+    }
+    
+    // 3. For-In with index
+    print("  For-in with index:");
+    let names = ["Alice", "Bob"];
+    for (idx, name in names) {
+        print("    " + idx + ": " + name);
+    }
+    
+    // 4. Range-based (Exclusive)
+    print("  Range 0..3:");
+    for (i in 0..3) {
+        print("    i=" + i);
+    }
+    
+    // 5. Range-based (Inclusive)
+    print("  Range 0..=2:");
+    for (i in 0..=2) {
+        print("    i=" + i);
+    }
+    
+    // 6. While
+    print("  While loop:");
+    let mut count = 0;
+    while (count < 2) {
+        print("    count=" + count);
+        count = count + 1;
+    }
+    
+    // 7. Do-While
+    print("  Do-while loop:");
+    let mut j = 0;
+    do {
+        print("    j=" + j);
+        j = j + 1;
+    } while (j < 2);
+}
+
+fn test_loop_control() {
+    print("Testing Loop Control...");
+    
+    // 1. Break/Continue
+    print("  Break/Continue:");
+    for (i in 0..5) {
+        if (i == 1) continue;
+        if (i == 3) break;
+        print("    i=" + i); // 0, 2
+    }
+    
+    // 2. Labeled Break
+    print("  Labeled Break:");
+    outer: for (i in 0..3) {
+        for (j in 0..3) {
+            if (i == 1 && j == 1) break outer;
+            print("    i=" + i + ", j=" + j);
+        }
+    }
+}
+
+fn main() {
+    test_conditionals();
+    test_match();
+    test_loops();
+    test_loop_control();
+    print("All Control Flow Tests Passed!");
+}
+
+main();

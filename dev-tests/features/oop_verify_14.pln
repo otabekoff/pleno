@@ -1,0 +1,4 @@
+// 14. String + Bool
+let b = true;
+print("Active: " + b);
+print("Inactive: " + false);

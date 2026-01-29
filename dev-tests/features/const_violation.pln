@@ -1,0 +1,6 @@
+fn main() {
+    const x = 10;
+    print("x = " + x);
+    x = 20; // Type error or assignment error
+}
+main();

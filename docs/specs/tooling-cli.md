@@ -1,4 +1,4 @@
-## 17. Tooling & CLI
+# Tooling & CLI
 
 ```bash
 # Run Pleno file
@@ -30,3 +30,7 @@ pleno build --release --output app
 
 # Generate documentation
 pleno doc --output docs/
+
+# Start Language Server (LSP)
+pleno lsp
+```

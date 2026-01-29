@@ -1,4 +1,6 @@
-## 15. Testing Framework
+# Testing Framework
+
+### 15.1 Testing Framework
 
 ```pleno
 import { test, assert, describe, beforeEach, afterEach } from "std:test";

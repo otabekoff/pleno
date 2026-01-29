@@ -1249,7 +1249,8 @@ impl VM {
                     let value = self.registers[base + a].clone();
                     let current_class = frame.current_class.as_ref().cloned();
                     let current_module = frame.current_module.as_ref().cloned();
-                    match &self.registers[base + b] {
+                    let target = self.registers[base + b].clone();
+                    match target {
                         Value::Map(map) => {
                             if map.borrow().is_immutable {
                                 return Err(self.throw_runtime_error("cannot modify immutable map"));
@@ -1270,7 +1271,9 @@ impl VM {
                                         current_class.as_ref(),
                                         current_module.as_ref(),
                                     ) {
-                                        return Err(RuntimeError::new("property access denied"));
+                                        return Err(
+                                            self.throw_runtime_error("property access denied")
+                                        );
                                     }
                                     self.call_function(
                                         info.function,
@@ -1293,20 +1296,22 @@ impl VM {
                                         current_class.as_ref(),
                                         current_module.as_ref(),
                                     ) {
-                                        return Err(RuntimeError::new("field access denied"));
+                                        return Err(self.throw_runtime_error("field access denied"));
                                     }
                                 }
                             }
                             object.borrow_mut().fields.insert(name, value);
                         }
                         Value::Class(class) => {
-                            if let Some(info) = resolve_static_setter(class, &name) {
+                            if let Some(info) = resolve_static_setter(&class, &name) {
                                 if !can_access_method(
                                     &info,
                                     current_class.as_ref(),
                                     current_module.as_ref(),
                                 ) {
-                                    return Err(RuntimeError::new("static property access denied"));
+                                    return Err(
+                                        self.throw_runtime_error("static property access denied")
+                                    );
                                 }
                                 self.call_function(
                                     info.function,
@@ -1331,7 +1336,9 @@ impl VM {
                                     current_class.as_ref(),
                                     current_module.as_ref(),
                                 ) {
-                                    return Err(RuntimeError::new("static field access denied"));
+                                    return Err(
+                                        self.throw_runtime_error("static field access denied")
+                                    );
                                 }
                             }
                             class.borrow_mut().static_fields.insert(name, value);
@@ -1439,7 +1446,9 @@ impl VM {
                                         current_class.as_ref(),
                                         frame.current_module.as_ref(),
                                     ) {
-                                        return Err(RuntimeError::new("method access denied"));
+                                        return Err(
+                                            self.throw_runtime_error("method access denied")
+                                        );
                                     }
                                     Value::BoundMethod {
                                         receiver: Box::new(Value::Map(map.clone())),
@@ -1487,7 +1496,9 @@ impl VM {
                                         current_class.as_ref(),
                                         frame.current_module.as_ref(),
                                     ) {
-                                        return Err(RuntimeError::new("property access denied"));
+                                        return Err(
+                                            self.throw_runtime_error("property access denied")
+                                        );
                                     }
                                     self.call_function(
                                         info.function,
@@ -1510,7 +1521,7 @@ impl VM {
                                         current_class.as_ref(),
                                         frame.current_module.as_ref(),
                                     ) {
-                                        return Err(RuntimeError::new("field access denied"));
+                                        return Err(self.throw_runtime_error("field access denied"));
                                     }
                                     field_value.unwrap_or(Value::Null)
                                 } else if let Some(value) = field_value {
@@ -1521,7 +1532,9 @@ impl VM {
                                         current_class.as_ref(),
                                         frame.current_module.as_ref(),
                                     ) {
-                                        return Err(RuntimeError::new("method access denied"));
+                                        return Err(
+                                            self.throw_runtime_error("method access denied")
+                                        );
                                     }
                                     Value::BoundMethod {
                                         receiver: Box::new(Value::Object(object.clone())),
@@ -1543,7 +1556,9 @@ impl VM {
                                     current_class.as_ref(),
                                     frame.current_module.as_ref(),
                                 ) {
-                                    return Err(RuntimeError::new("static property access denied"));
+                                    return Err(
+                                        self.throw_runtime_error("static property access denied")
+                                    );
                                 }
                                 self.call_function(
                                     info.function,
@@ -1568,7 +1583,9 @@ impl VM {
                                     current_class.as_ref(),
                                     frame.current_module.as_ref(),
                                 ) {
-                                    return Err(RuntimeError::new("static field access denied"));
+                                    return Err(
+                                        self.throw_runtime_error("static field access denied")
+                                    );
                                 }
                                 class
                                     .borrow()
@@ -1589,7 +1606,9 @@ impl VM {
                                     current_class.as_ref(),
                                     frame.current_module.as_ref(),
                                 ) {
-                                    return Err(RuntimeError::new("static method access denied"));
+                                    return Err(
+                                        self.throw_runtime_error("static method access denied")
+                                    );
                                 }
                                 Value::StaticMethod {
                                     function: info.function,
@@ -1619,7 +1638,9 @@ impl VM {
                                         current_class.as_ref(),
                                         frame.current_module.as_ref(),
                                     ) {
-                                        return Err(RuntimeError::new("method access denied"));
+                                        return Err(
+                                            self.throw_runtime_error("method access denied")
+                                        );
                                     }
                                     Value::BoundMethod {
                                         receiver: Box::new(Value::Set(set.clone())),
@@ -1653,7 +1674,9 @@ impl VM {
                                         current_class.as_ref(),
                                         frame.current_module.as_ref(),
                                     ) {
-                                        return Err(RuntimeError::new("method access denied"));
+                                        return Err(
+                                            self.throw_runtime_error("method access denied")
+                                        );
                                     }
                                     Value::BoundMethod {
                                         receiver: Box::new(Value::Array(array.clone())),
@@ -3931,6 +3954,20 @@ impl VM {
                 self.call_function(
                     function,
                     Some(*receiver.clone()),
+                    &args,
+                    return_reg_idx,
+                    None,
+                    None,
+                    Some(owner),
+                    false,
+                )?;
+            }
+            Value::StaticMethod {
+                function, owner, ..
+            } => {
+                self.call_function(
+                    function,
+                    None,
                     &args,
                     return_reg_idx,
                     None,

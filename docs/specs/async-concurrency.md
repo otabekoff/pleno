@@ -1,4 +1,4 @@
-## 9. Async/Concurrency
+# Async & Concurrency
 
 ### 9.1 Async/Await
 

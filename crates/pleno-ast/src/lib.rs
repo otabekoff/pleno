@@ -28,6 +28,10 @@ pub enum Literal {
 pub enum UnaryOp {
     Negate,
     Not,
+    PreIncrement,
+    PostIncrement,
+    PreDecrement,
+    PostDecrement,
 }
 
 #[derive(Debug, Clone, PartialEq)]

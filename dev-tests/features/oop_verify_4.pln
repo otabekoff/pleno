@@ -1,0 +1,12 @@
+// 4. Static Members
+class Counter {
+    public static mut count = 0;
+    
+    public static fn increment() {
+        Counter.count++;
+    }
+}
+
+Counter.increment();
+Counter.increment();
+print("Counter static count: " + Counter.count);

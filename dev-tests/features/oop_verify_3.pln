@@ -1,0 +1,29 @@
+// 3. Properties (Getters/Setters)
+class Circle {
+    private radius: Float;
+    
+    constructor(radius: Float) {
+        this.radius = radius;
+    }
+    
+    property area: Float {
+        get {
+            return 3.14159 * this.radius * this.radius;
+        }
+    }
+    
+    property diameter: Float {
+        get {
+            return this.radius * 2.0;
+        }
+        set(value) {
+            this.radius = value / 2.0;
+        }
+    }
+}
+
+let c = Circle(5.0);
+print("Circle area: " + c.area);
+print("Circle diameter: " + c.diameter);
+c.diameter = 20.0;
+print("Circle new radius (via diameter): " + (c.diameter / 2.0));

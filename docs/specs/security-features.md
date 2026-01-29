@@ -1,4 +1,6 @@
-## 20. Security Features
+# Security Features (Deferred)
+
+*Note: Sandboxing and advanced security features are planned for future releases.*
 
 ### 20.1 Safe Defaults
 - No implicit type coercion

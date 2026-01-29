@@ -1,8 +1,8 @@
 # Control Flow
 
-## Conditionals
+### 2.1 Conditionals
 
-### If-Else
+#### If-Else
 ```pleno
 if (condition) {
     // code
@@ -16,7 +16,7 @@ if (condition) {
 let status = if (score >= 60) "Pass" else "Fail";
 ```
 
-### Pattern Matching (Match Expression)
+#### Pattern Matching (Match Expression)
 ```pleno
 match (value) {
     case 0 => print("zero"),
@@ -35,9 +35,9 @@ let category = match (age) {
 };
 ```
 
-## Loops
+### 2.2 Loops
 
-### For Loop
+#### For Loop
 ```pleno
 // Traditional for
 for (let i = 0; i < 10; i++) {
@@ -64,7 +64,7 @@ for (i in 0..=10) {     // Inclusive end
 }
 ```
 
-### While Loop
+#### While Loop
 ```pleno
 while (condition) {
     // code
@@ -76,7 +76,7 @@ do {
 } while (condition);
 ```
 
-### Loop Control
+#### Loop Control
 ```pleno
 break;        // Exit loop
 continue;     // Skip to next iteration
