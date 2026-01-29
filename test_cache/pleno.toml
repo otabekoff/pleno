@@ -1,0 +1,6 @@
+[package]
+name = 'test_cache'
+version = '0.1.0'
+
+[dependencies]
+mock_dep = { git = './mock_dep' }

@@ -243,6 +243,22 @@ impl<'a> Resolver<'a> {
                     let req = VersionReq::parse(v_str)
                         .map_err(|_| PackageError::InvalidVersionReq(v_str.to_string()))?;
 
+                    // Prefer lockfile
+                    if let Some(lock_pkg) = lockfile.packages.iter().find(|p| p.name == *name) {
+                        let lock_version =
+                            Version::parse(&lock_pkg.version).unwrap_or(Version::new(0, 0, 0));
+                        if req.matches(&lock_version) {
+                            let sha = if lock_pkg.source.starts_with("git+") {
+                                lock_pkg.commit.clone()
+                            } else {
+                                lock_pkg.checksum.clone()
+                            };
+                            resolved
+                                .insert(name.clone(), (lock_version, lock_pkg.source.clone(), sha));
+                            continue;
+                        }
+                    }
+
                     // Logic similar to Version variant but with detail source
                     let source = if let Some(git) = &detail.git {
                         format!("git+{}", git)
@@ -412,28 +428,36 @@ pub struct PackageManager {
     pub packages_dir: PathBuf,
     pub cache_dir: PathBuf,
     pub registry_url: Option<String>,
+    pub offline: bool,
 }
 
 impl PackageManager {
     pub fn new<P: AsRef<Path>>(packages_dir: P) -> Self {
-        let cache_base = dirs::cache_dir().unwrap_or_else(|| {
-            // Fallback for systems without a standard cache dir
-            dirs::home_dir()
-                .map(|h| h.join(".pleno").join("cache"))
-                .unwrap_or_else(|| std::env::current_dir().unwrap().join(".pleno_cache"))
-        });
+        let cache_base = dirs::cache_dir()
+            .map(|d| d.join("pleno").join("cache"))
+            .unwrap_or_else(|| {
+                // Fallback for systems without a standard cache dir
+                dirs::home_dir()
+                    .map(|h| h.join(".pleno").join("cache"))
+                    .unwrap_or_else(|| std::env::current_dir().unwrap().join(".pleno_cache"))
+            });
 
         let manager = Self {
             packages_dir: packages_dir.as_ref().to_path_buf(),
             cache_dir: cache_base,
             registry_url: None,
+            offline: false,
         };
-        println!("Cache directory: {:?}", manager.cache_dir);
         manager
     }
 
     pub fn with_registry(mut self, url: String) -> Self {
         self.registry_url = Some(url);
+        self
+    }
+
+    pub fn with_offline(mut self, offline: bool) -> Self {
+        self.offline = offline;
         self
     }
 
@@ -459,14 +483,22 @@ impl PackageManager {
         let mut packages = Vec::new();
         for (name, (version, source, sha256)) in resolved {
             println!("Installing {} v{} from {}...", name, version, source);
-            self.fetch_package(&name, &source, sha256.as_deref())?;
+            let resolved_sha = self.fetch_package(&name, &source, sha256.as_deref())?;
 
             packages.push(LockPackage {
                 name,
                 version: version.to_string(),
-                source,
-                commit: None,
-                checksum: sha256,
+                source: source.clone(),
+                commit: if source.starts_with("git+") {
+                    resolved_sha.clone()
+                } else {
+                    None
+                },
+                checksum: if source.starts_with("http") {
+                    resolved_sha
+                } else {
+                    sha256
+                },
             });
         }
 
@@ -602,7 +634,8 @@ impl PackageManager {
         name: &str,
         source: &str,
         expected_sha: Option<&str>,
-    ) -> Result<(), PackageError> {
+    ) -> Result<Option<String>, PackageError> {
+        let mut resolved_sha = expected_sha.map(|s| s.to_string());
         let dest = self.packages_dir.join(name);
 
         // 1. Try global cache first if we have a SHA
@@ -613,12 +646,19 @@ impl PackageManager {
                 }
                 std::fs::create_dir_all(&dest)?;
                 self.copy_dir(&cache_path, &dest)?;
-                return Ok(());
+                return Ok(expected_sha.map(|s| s.to_string()));
             }
         }
 
         // 2. Fetch to a temporary location or directly to cache
         // Then copy to dest.
+
+        if self.offline {
+            return Err(PackageError::Io(std::io::Error::other(format!(
+                "Cannot fetch {name} in offline mode: not found in cache"
+            ))));
+        }
+
         // For simplicity, we fetch to 'dest' first, verify, then mirror to cache.
         if dest.exists() {
             std::fs::remove_dir_all(&dest)?;
@@ -638,6 +678,8 @@ impl PackageManager {
                     "git clone failed for {url}"
                 ))));
             }
+            // Resolve actual commit SHA
+            resolved_sha = Some(self.get_git_commit(&dest)?);
         } else if source.starts_with("http") {
             let resp = reqwest::blocking::get(source)
                 .map_err(|e| PackageError::Io(std::io::Error::other(e)))?;
@@ -661,14 +703,29 @@ impl PackageManager {
         }
 
         // 3. Mirror to cache if we have a SHA
-        if let Some(cache_path) = self.get_cache_path(name, expected_sha) {
-            if !cache_path.exists() {
-                std::fs::create_dir_all(&cache_path)?;
-                self.copy_dir(&dest, &cache_path)?;
+        if let Some(sha_to_cache) = &resolved_sha {
+            if let Some(cache_path) = self.get_cache_path(name, Some(sha_to_cache)) {
+                if !cache_path.exists() {
+                    std::fs::create_dir_all(&cache_path)?;
+                    self.copy_dir(&dest, &cache_path)?;
+                }
             }
         }
 
-        Ok(())
+        Ok(resolved_sha)
+    }
+
+    fn get_git_commit(&self, path: &Path) -> Result<String, PackageError> {
+        let output = std::process::Command::new("git")
+            .args(["rev-parse", "HEAD"])
+            .current_dir(path)
+            .output()?;
+        if !output.status.success() {
+            return Err(PackageError::Io(std::io::Error::other(
+                "git rev-parse failed",
+            )));
+        }
+        Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
     }
 
     fn get_cache_path(&self, name: &str, sha: Option<&str>) -> Option<PathBuf> {
