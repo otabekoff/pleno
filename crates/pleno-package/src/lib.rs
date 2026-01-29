@@ -1,3 +1,4 @@
+use semver::{Version, VersionReq};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -17,6 +18,257 @@ pub enum PackageError {
     MissingName,
     #[error("Missing 'version' field in manifest")]
     MissingVersion,
+    #[error("Invalid version requirement: {0}")]
+    InvalidVersionReq(String),
+    #[error("No compatible version found for {0} (requires {1})")]
+    NoCompatibleVersion(String, String),
+}
+
+pub trait Registry {
+    fn query(&self, name: &str, req: &VersionReq) -> Result<Vec<Version>, PackageError>;
+    fn fetch_source(
+        &self,
+        name: &str,
+        version: &Version,
+    ) -> Result<(String, Option<String>), PackageError>;
+    fn publish(&self, package: PublishPackage, token: &str) -> Result<(), PackageError>;
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct PublishPackage {
+    pub name: String,
+    pub version: String,
+    pub git_url: String,
+    pub commit: String,
+    pub sha256: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct RegistryMetadata {
+    pub name: String,
+    pub versions: HashMap<String, VersionMetadata>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct VersionMetadata {
+    pub url: String,
+    pub sha256: Option<String>,
+}
+
+pub struct RemoteRegistry {
+    pub base_url: String,
+}
+
+impl RemoteRegistry {
+    pub fn new(base_url: String) -> Self {
+        Self { base_url }
+    }
+}
+
+impl Registry for RemoteRegistry {
+    fn query(&self, name: &str, _req: &VersionReq) -> Result<Vec<Version>, PackageError> {
+        let url = format!("{}/packages/{}", self.base_url, name);
+        let resp =
+            reqwest::blocking::get(url).map_err(|e| PackageError::Io(std::io::Error::other(e)))?;
+
+        if !resp.status().is_success() {
+            return Ok(vec![]);
+        }
+
+        let metadata: RegistryMetadata = resp
+            .json()
+            .map_err(|e| PackageError::Io(std::io::Error::other(e)))?;
+
+        let mut versions = vec![];
+        for v_str in metadata.versions.keys() {
+            if let Ok(v) = Version::parse(v_str) {
+                versions.push(v);
+            }
+        }
+        Ok(versions)
+    }
+
+    fn fetch_source(
+        &self,
+        name: &str,
+        version: &Version,
+    ) -> Result<(String, Option<String>), PackageError> {
+        let url = format!("{}/packages/{}", self.base_url, name);
+        let resp =
+            reqwest::blocking::get(url).map_err(|e| PackageError::Io(std::io::Error::other(e)))?;
+
+        let metadata: RegistryMetadata = resp
+            .json()
+            .map_err(|e| PackageError::Io(std::io::Error::other(e)))?;
+
+        let v_str = version.to_string();
+        let v_meta = metadata
+            .versions
+            .get(&v_str)
+            .ok_or_else(|| PackageError::NoCompatibleVersion(name.to_string(), v_str))?;
+
+        Ok((v_meta.url.clone(), v_meta.sha256.clone()))
+    }
+
+    fn publish(&self, package: PublishPackage, token: &str) -> Result<(), PackageError> {
+        let url = format!("{}/packages/{}", self.base_url, package.name);
+        let client = reqwest::blocking::Client::new();
+        let resp = client
+            .post(url)
+            .header("Authorization", format!("Bearer {}", token))
+            .json(&package)
+            .send()
+            .map_err(|e| PackageError::Io(std::io::Error::other(e)))?;
+
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let err_msg = resp.text().unwrap_or_default();
+            return Err(PackageError::Io(std::io::Error::other(format!(
+                "Publish failed: {} - {}",
+                status, err_msg
+            ))));
+        }
+
+        Ok(())
+    }
+}
+
+pub struct Resolver<'a> {
+    registry: &'a dyn Registry,
+}
+
+impl<'a> Resolver<'a> {
+    pub fn new(registry: &'a dyn Registry) -> Self {
+        Self { registry }
+    }
+
+    pub fn resolve(
+        &self,
+        manifest: &Manifest,
+        lockfile: &Lockfile,
+        features: &[String],
+    ) -> Result<HashMap<String, (Version, String, Option<String>)>, PackageError> {
+        let mut resolved = HashMap::new();
+        let mut stack = Vec::new();
+        let mut active_features = std::collections::HashSet::new();
+        for f in features {
+            active_features.insert(f.clone());
+        }
+        // Always include default features if defined
+        if let Some(defaults) = manifest.features.get("default") {
+            for f in defaults {
+                active_features.insert(f.clone());
+            }
+        }
+
+        self.resolve_recursive(
+            manifest,
+            &mut resolved,
+            lockfile,
+            &mut stack,
+            &active_features,
+        )?;
+        Ok(resolved)
+    }
+
+    fn resolve_recursive(
+        &self,
+        manifest: &Manifest,
+        resolved: &mut HashMap<String, (Version, String, Option<String>)>,
+        lockfile: &Lockfile,
+        stack: &mut Vec<String>,
+        active_features: &std::collections::HashSet<String>,
+    ) -> Result<(), PackageError> {
+        if stack.contains(&manifest.package.name) {
+            return Ok(());
+        }
+        stack.push(manifest.package.name.clone());
+
+        for (name, dep) in &manifest.dependencies {
+            if resolved.contains_key(name) {
+                continue;
+            }
+
+            match dep {
+                Dependency::Version(v_str) => {
+                    let req = VersionReq::parse(v_str)
+                        .map_err(|_| PackageError::InvalidVersionReq(v_str.clone()))?;
+
+                    // Prefer lockfile if compatible
+                    if let Some(lock_pkg) = lockfile.packages.iter().find(|p| p.name == *name) {
+                        let lock_version =
+                            Version::parse(&lock_pkg.version).unwrap_or(Version::new(0, 0, 0));
+                        if req.matches(&lock_version) {
+                            resolved.insert(
+                                name.clone(),
+                                (
+                                    lock_version,
+                                    lock_pkg.source.clone(),
+                                    lock_pkg.checksum.clone(),
+                                ),
+                            );
+                            // Recursively resolve lock package dependencies
+                            // (Simplified for now: we'd need to fetch manifest of lock_version)
+                            continue;
+                        }
+                    }
+
+                    let versions = self.registry.query(name, &req)?;
+                    let best_version = versions
+                        .into_iter()
+                        .filter(|v| req.matches(v))
+                        .max()
+                        .ok_or_else(|| {
+                            PackageError::NoCompatibleVersion(name.clone(), v_str.clone())
+                        })?;
+                    let (source, sha256) = self.registry.fetch_source(name, &best_version)?;
+                    resolved.insert(name.clone(), (best_version, source, sha256));
+                }
+                Dependency::Detailed(detail) => {
+                    // Check if optional and enabled
+                    if detail.optional.unwrap_or(false) {
+                        let mut enabled = false;
+                        for (f_name, f_deps) in &manifest.features {
+                            if active_features.contains(f_name) && f_deps.contains(name) {
+                                enabled = true;
+                                break;
+                            }
+                        }
+                        if !enabled {
+                            continue;
+                        }
+                    }
+
+                    let v_str = detail.version.as_deref().unwrap_or("*");
+                    let req = VersionReq::parse(v_str)
+                        .map_err(|_| PackageError::InvalidVersionReq(v_str.to_string()))?;
+
+                    // Logic similar to Version variant but with detail source
+                    let source = if let Some(git) = &detail.git {
+                        format!("git+{}", git)
+                    } else if let Some(path) = &detail.path {
+                        path.clone()
+                    } else {
+                        // Fallback to registry
+                        let versions = self.registry.query(name, &req)?;
+                        let best = versions
+                            .into_iter()
+                            .filter(|v| req.matches(v))
+                            .max()
+                            .ok_or_else(|| {
+                                PackageError::NoCompatibleVersion(name.clone(), v_str.to_string())
+                            })?;
+                        let (s, _) = self.registry.fetch_source(name, &best)?;
+                        s
+                    };
+                    resolved.insert(name.clone(), (Version::new(0, 0, 0), source, None));
+                }
+            }
+        }
+
+        stack.pop();
+        Ok(())
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -25,9 +277,44 @@ pub struct Manifest {
     #[serde(default)]
     pub scripts: HashMap<String, String>,
     #[serde(default)]
-    pub dependencies: HashMap<String, String>,
+    pub features: HashMap<String, Vec<String>>,
+    #[serde(default)]
+    pub dependencies: HashMap<String, Dependency>,
     #[serde(rename = "dev-dependencies", default)]
-    pub dev_dependencies: HashMap<String, String>,
+    pub dev_dependencies: HashMap<String, Dependency>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(untagged)]
+pub enum Dependency {
+    Version(String),
+    Detailed(DependencyDetail),
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct DependencyDetail {
+    pub version: Option<String>,
+    pub git: Option<String>,
+    pub path: Option<String>,
+    pub branch: Option<String>,
+    pub tag: Option<String>,
+    pub rev: Option<String>,
+    pub optional: Option<bool>,
+    pub features: Option<Vec<String>>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(untagged)]
+pub enum DependencySource {
+    Git {
+        git: String,
+        branch: Option<String>,
+        tag: Option<String>,
+        rev: Option<String>,
+    },
+    Path {
+        path: String,
+    },
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -93,6 +380,7 @@ impl Manifest {
                 main: default_main(),
             },
             scripts: HashMap::new(),
+            features: HashMap::new(),
             dependencies: HashMap::new(),
             dev_dependencies: HashMap::new(),
         }
@@ -122,88 +410,216 @@ impl Manifest {
 
 pub struct PackageManager {
     pub packages_dir: PathBuf,
+    pub cache_dir: PathBuf,
+    pub registry_url: Option<String>,
 }
 
 impl PackageManager {
     pub fn new<P: AsRef<Path>>(packages_dir: P) -> Self {
-        Self {
+        let cache_base = dirs::cache_dir().unwrap_or_else(|| {
+            // Fallback for systems without a standard cache dir
+            dirs::home_dir()
+                .map(|h| h.join(".pleno").join("cache"))
+                .unwrap_or_else(|| std::env::current_dir().unwrap().join(".pleno_cache"))
+        });
+
+        let manager = Self {
             packages_dir: packages_dir.as_ref().to_path_buf(),
-        }
+            cache_dir: cache_base,
+            registry_url: None,
+        };
+        println!("Cache directory: {:?}", manager.cache_dir);
+        manager
     }
 
-    pub fn install_all(&self, manifest: &Manifest) -> Result<(), PackageError> {
-        let mut installed = HashMap::new();
+    pub fn with_registry(mut self, url: String) -> Self {
+        self.registry_url = Some(url);
+        self
+    }
+
+    pub fn install_all(
+        &self,
+        manifest: &Manifest,
+        features: &[String],
+    ) -> Result<(), PackageError> {
         let lockfile_path = Path::new("pleno.lock");
         let lockfile = Lockfile::load_from_file(lockfile_path)?;
 
-        let mut stack = Vec::new();
-        self.resolve_recursive(manifest, &mut installed, &lockfile, &mut stack)?;
+        let composite = CompositeRegistry {
+            local: self,
+            remote: self
+                .registry_url
+                .as_ref()
+                .map(|url| RemoteRegistry::new(url.clone())),
+        };
 
-        // Save new lockfile
+        let resolver = Resolver::new(&composite);
+        let resolved = resolver.resolve(manifest, &lockfile, features)?;
+
         let mut packages = Vec::new();
-        for (name, source) in installed {
+        for (name, (version, source, sha256)) in resolved {
+            println!("Installing {} v{} from {}...", name, version, source);
+            self.fetch_package(&name, &source, sha256.as_deref())?;
+
             packages.push(LockPackage {
                 name,
-                version: "0.0.0".to_string(), // Placeholder until we have real versioning
+                version: version.to_string(),
                 source,
                 commit: None,
-                checksum: None,
+                checksum: sha256,
             });
         }
+
         let new_lock = Lockfile { packages };
         new_lock.save_to_file(lockfile_path)?;
 
         Ok(())
     }
 
-    fn resolve_recursive(
-        &self,
-        manifest: &Manifest,
-        installed: &mut HashMap<String, String>,
-        lockfile: &Lockfile,
-        stack: &mut Vec<String>,
-    ) -> Result<(), PackageError> {
-        if stack.contains(&manifest.package.name) {
-            println!(
-                "Warning: Dependency cycle detected at {}",
-                manifest.package.name
-            );
-            return Ok(());
+    pub fn publish(&self, manifest: &Manifest) -> Result<(), PackageError> {
+        let token = std::env::var("PLENO_TOKEN")
+            .map_err(|_| PackageError::Io(std::io::Error::other("PLENO_TOKEN not set")))?;
+
+        // Extract Git metadata
+        let git_url = self.get_git_remote_url()?;
+        let commit = self.get_git_current_commit()?;
+
+        let publish_data = PublishPackage {
+            name: manifest.package.name.clone(),
+            version: manifest.package.version.clone(),
+            git_url,
+            commit,
+            sha256: None, // Optional: could hash the tree here
+        };
+
+        if let Some(registry_url) = &self.registry_url {
+            let remote = RemoteRegistry::new(registry_url.clone());
+            remote.publish(publish_data, &token)?;
+        } else {
+            return Err(PackageError::Io(std::io::Error::other(
+                "No registry configured for publishing",
+            )));
         }
-        stack.push(manifest.package.name.clone());
 
-        for (name, source) in &manifest.dependencies {
-            // Check lockfile first
-            let resolved_source = lockfile.get_dependency_source(name).unwrap_or(source);
-
-            if let Some(existing_source) = installed.get(name) {
-                if existing_source != resolved_source {
-                    println!(
-                        "Warning: Version mismatch for {}: {} vs {}",
-                        name, existing_source, resolved_source
-                    );
-                }
-                continue;
-            }
-
-            println!("Installing {} from {}...", name, resolved_source);
-            self.fetch_package(name, resolved_source)?;
-            installed.insert(name.clone(), resolved_source.clone());
-
-            // Load manifest of the installed package and resolve its dependencies
-            let pkg_dir = self.packages_dir.join(name);
-            let pkg_manifest_path = pkg_dir.join("pleno.toml");
-            if pkg_manifest_path.exists() {
-                let sub_manifest = Manifest::load_from_file(pkg_manifest_path)?;
-                self.resolve_recursive(&sub_manifest, installed, lockfile, stack)?;
-            }
-        }
-        stack.pop();
         Ok(())
     }
 
-    fn fetch_package(&self, name: &str, source: &str) -> Result<(), PackageError> {
+    fn get_git_remote_url(&self) -> Result<String, PackageError> {
+        let output = std::process::Command::new("git")
+            .args(["remote", "get-url", "origin"])
+            .output()?;
+        if !output.status.success() {
+            return Err(PackageError::Io(std::io::Error::other(
+                "git remote get-url failed",
+            )));
+        }
+        Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+    }
+
+    fn get_git_current_commit(&self) -> Result<String, PackageError> {
+        let output = std::process::Command::new("git")
+            .args(["rev-parse", "HEAD"])
+            .output()?;
+        if !output.status.success() {
+            return Err(PackageError::Io(std::io::Error::other(
+                "git rev-parse HEAD failed",
+            )));
+        }
+        Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+    }
+}
+
+pub struct CompositeRegistry<'a> {
+    pub local: &'a PackageManager,
+    pub remote: Option<RemoteRegistry>,
+}
+
+impl<'a> Registry for CompositeRegistry<'a> {
+    fn query(&self, name: &str, req: &VersionReq) -> Result<Vec<Version>, PackageError> {
+        let mut versions = self.local.query(name, req)?;
+        if let Some(remote) = &self.remote {
+            versions.extend(remote.query(name, req)?);
+        }
+        versions.sort();
+        versions.dedup();
+        Ok(versions)
+    }
+
+    fn fetch_source(
+        &self,
+        name: &str,
+        version: &Version,
+    ) -> Result<(String, Option<String>), PackageError> {
+        if let Ok(source) = self.local.fetch_source(name, version) {
+            return Ok(source);
+        }
+        if let Some(remote) = &self.remote {
+            return remote.fetch_source(name, version);
+        }
+        Err(PackageError::Io(std::io::Error::other(
+            "Package not found in any registry",
+        )))
+    }
+
+    fn publish(&self, package: PublishPackage, token: &str) -> Result<(), PackageError> {
+        if let Some(remote) = &self.remote {
+            remote.publish(package, token)
+        } else {
+            Err(PackageError::Io(std::io::Error::other(
+                "No remote registry configured for publishing",
+            )))
+        }
+    }
+}
+
+impl Registry for PackageManager {
+    fn query(&self, _name: &str, _req: &VersionReq) -> Result<Vec<Version>, PackageError> {
+        // Mock local registry: only has version 0.1.0
+        Ok(vec![Version::new(0, 1, 0)])
+    }
+
+    fn fetch_source(
+        &self,
+        _name: &str,
+        _version: &Version,
+    ) -> Result<(String, Option<String>), PackageError> {
+        // Mock local source: doesn't know where to fetch from
+        Err(PackageError::Io(std::io::Error::other(
+            "Local registry fetch not implemented",
+        )))
+    }
+
+    fn publish(&self, _package: PublishPackage, _token: &str) -> Result<(), PackageError> {
+        Err(PackageError::Io(std::io::Error::other(
+            "Local registry does not support publishing",
+        )))
+    }
+}
+
+impl PackageManager {
+    fn fetch_package(
+        &self,
+        name: &str,
+        source: &str,
+        expected_sha: Option<&str>,
+    ) -> Result<(), PackageError> {
         let dest = self.packages_dir.join(name);
+
+        // 1. Try global cache first if we have a SHA
+        if let Some(cache_path) = self.get_cache_path(name, expected_sha) {
+            if cache_path.exists() {
+                if dest.exists() {
+                    std::fs::remove_dir_all(&dest)?;
+                }
+                std::fs::create_dir_all(&dest)?;
+                self.copy_dir(&cache_path, &dest)?;
+                return Ok(());
+            }
+        }
+
+        // 2. Fetch to a temporary location or directly to cache
+        // Then copy to dest.
+        // For simplicity, we fetch to 'dest' first, verify, then mirror to cache.
         if dest.exists() {
             std::fs::remove_dir_all(&dest)?;
         }
@@ -222,12 +638,53 @@ impl PackageManager {
                     "git clone failed for {url}"
                 ))));
             }
+        } else if source.starts_with("http") {
+            let resp = reqwest::blocking::get(source)
+                .map_err(|e| PackageError::Io(std::io::Error::other(e)))?;
+            let bytes = resp
+                .bytes()
+                .map_err(|e| PackageError::Io(std::io::Error::other(e)))?;
+
+            if let Some(sha) = expected_sha {
+                self.verify_checksum(&bytes, sha)?;
+            }
+
+            let file_name = source.split('/').next_back().unwrap_or("package.pln");
+            std::fs::write(dest.join(file_name), bytes)?;
         } else if source.starts_with("./") || source.starts_with("../") || source.starts_with("/") {
             let src_path = PathBuf::from(source);
             self.copy_dir(&src_path, &dest)?;
         } else {
             return Err(PackageError::Io(std::io::Error::other(format!(
                 "Unsupported source: {source}"
+            ))));
+        }
+
+        // 3. Mirror to cache if we have a SHA
+        if let Some(cache_path) = self.get_cache_path(name, expected_sha) {
+            if !cache_path.exists() {
+                std::fs::create_dir_all(&cache_path)?;
+                self.copy_dir(&dest, &cache_path)?;
+            }
+        }
+
+        Ok(())
+    }
+
+    fn get_cache_path(&self, name: &str, sha: Option<&str>) -> Option<PathBuf> {
+        sha.map(|s| self.cache_dir.join("packages").join(name).join(s))
+    }
+
+    fn verify_checksum(&self, bytes: &[u8], expected: &str) -> Result<(), PackageError> {
+        use sha2::{Digest, Sha256};
+        let mut hasher = Sha256::new();
+        hasher.update(bytes);
+        let result = hasher.finalize();
+        let hex_result = hex::encode(result);
+        if hex_result != expected {
+            return Err(PackageError::Io(std::io::Error::other(format!(
+                "Checksum mismatch! Expected {}, got {}",
+                expected, hex_result
             ))));
         }
         Ok(())

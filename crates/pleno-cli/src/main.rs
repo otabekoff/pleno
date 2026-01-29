@@ -1,9 +1,10 @@
 use std::env;
 use std::fs;
-// CLI imports
-use pleno_package::Manifest;
 use std::path::PathBuf;
 use std::process;
+
+// CLI imports
+use pleno_package::{Dependency, Manifest};
 
 fn main() {
     let mut args = env::args().skip(1).peekable();
@@ -37,6 +38,7 @@ fn main() {
                 "init" => handle_init(&mut args),
                 "install" => handle_install(&mut args),
                 "run" => handle_plm_run(&mut args),
+                "publish" => handle_plm_publish(&mut args),
                 _ => {
                     eprintln!("Error: Unknown plm command '{}'", sub_command);
                     process::exit(1);
@@ -734,7 +736,21 @@ fn handle_init(args: &mut std::iter::Peekable<std::iter::Skip<std::env::Args>>) 
 }
 
 fn handle_install(args: &mut std::iter::Peekable<std::iter::Skip<std::env::Args>>) {
-    let pkg_name = args.next();
+    let mut pkg_name = None;
+    let mut features = Vec::new();
+
+    while let Some(arg) = args.next() {
+        if arg == "--features" {
+            if let Some(f_list) = args.next() {
+                for f in f_list.split(',') {
+                    features.push(f.to_string());
+                }
+            }
+        } else if pkg_name.is_none() && !arg.starts_with('-') {
+            pkg_name = Some(arg);
+        }
+    }
+
     let mut manifest = match Manifest::load_from_file("pleno.toml") {
         Ok(m) => m,
         Err(e) => {
@@ -743,38 +759,95 @@ fn handle_install(args: &mut std::iter::Peekable<std::iter::Skip<std::env::Args>
         }
     };
 
-    let manager = pleno_package::PackageManager::new("packages");
+    let registry_url = std::env::var("PLENO_REGISTRY")
+        .unwrap_or_else(|_| "https://registry.pleno.dev".to_string());
+    let manager = pleno_package::PackageManager::new("packages").with_registry(registry_url);
 
     if let Some(pkg) = pkg_name {
-        let (name, source) = if pkg.contains('/') || pkg.starts_with("git+") {
+        let (name, source) = if let Some(pos) = pkg.find('@') {
+            let (n, s) = pkg.split_at(pos);
+            (n.to_string(), s[1..].to_string())
+        } else if pkg.contains('/') || pkg.starts_with("git+") {
             let name = pkg.split('/').next_back().unwrap().replace(".git", "");
-            (name, pkg)
+            (name, pkg.clone())
         } else {
-            eprintln!(
-                "Error: Package source must be a Git URL (git+...) or local path (./...). Registry lookups are not yet supported."
-            );
+            eprintln!("Error: Package source must be 'name@version', a Git URL, or local path.");
             process::exit(1);
         };
 
-        manifest.dependencies.insert(name.clone(), source.clone());
+        let dep = if source.contains('/')
+            || source.starts_with("git+")
+            || source.starts_with("http")
+        {
+            Dependency::Detailed(pleno_package::DependencyDetail {
+                git: Some(source.clone()),
+                version: None,
+                path: None,
+                branch: None,
+                tag: None,
+                rev: None,
+                optional: None,
+                features: None,
+            })
+        } else if source.starts_with("./") || source.starts_with("../") || source.starts_with("/") {
+            Dependency::Detailed(pleno_package::DependencyDetail {
+                path: Some(source.clone()),
+                version: None,
+                git: None,
+                branch: None,
+                tag: None,
+                rev: None,
+                optional: None,
+                features: None,
+            })
+        } else {
+            Dependency::Version(source.clone())
+        };
+
+        manifest.dependencies.insert(name.clone(), dep);
         if let Err(e) = manifest.save_to_file("pleno.toml") {
             eprintln!("Failed to save pleno.toml: {}", e);
             process::exit(1);
         }
         println!("Added {} to dependencies", name);
 
-        if let Err(e) = manager.install_all(&manifest) {
+        if let Err(e) = manager.install_all(&manifest, &features) {
             eprintln!("Installation failed: {}", e);
             process::exit(1);
         }
     } else {
         println!("Installing dependencies...");
-        if let Err(e) = manager.install_all(&manifest) {
+        if let Err(e) = manager.install_all(&manifest, &features) {
             eprintln!("Installation failed: {}", e);
             process::exit(1);
         }
     }
     println!("Installation successful.");
+}
+
+fn handle_plm_publish(_args: &mut std::iter::Peekable<std::iter::Skip<std::env::Args>>) {
+    let manifest = match Manifest::load_from_file("pleno.toml") {
+        Ok(m) => m,
+        Err(e) => {
+            eprintln!("Failed to load pleno.toml: {}", e);
+            process::exit(1);
+        }
+    };
+
+    let registry_url = std::env::var("PLENO_REGISTRY")
+        .unwrap_or_else(|_| "https://registry.pleno.dev".to_string());
+
+    let manager = pleno_package::PackageManager::new("packages").with_registry(registry_url);
+
+    println!(
+        "Publishing {} v{}...",
+        manifest.package.name, manifest.package.version
+    );
+    if let Err(e) = manager.publish(&manifest) {
+        eprintln!("Publish failed: {}", e);
+        process::exit(1);
+    }
+    println!("Successfully published!");
 }
 
 fn handle_plm_run(args: &mut std::iter::Peekable<std::iter::Skip<std::env::Args>>) {
