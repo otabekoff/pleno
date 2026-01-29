@@ -2049,7 +2049,8 @@ fn main(args: String[]) {
 
 ---
 
-## 19. Performance Features
+## 19. Performance Features (Deferred for v2.0) ❌
+*Note: Advanced performance features like JIT and advanced GC hints are planned for future releases.*
 
 ### 19.1 JIT Compilation
 - Hot path optimization
@@ -2086,7 +2087,8 @@ fn criticalPath() {
 
 ---
 
-## 20. Security Features
+## 20. Security Features (Deferred) ❌
+*Note: Sandboxing and advanced security features are planned for future releases.*
 
 ### 20.1 Safe Defaults
 - No implicit type coercion
