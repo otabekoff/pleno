@@ -74,8 +74,8 @@ fn test_if_else_formatting() {
 
 #[test]
 fn test_while_formatting() {
-    let input = "while(x<10){x=x+1;}";
-    let expected = "while (x < 10) {\n    x = x + 1;\n}\n";
+    let input = "while(x > 0){x=x-1;}";
+    let expected = "while (x > 0) {\n    x = x - 1;\n}\n";
     let result = format_code(input, &FormatOptions::default()).unwrap();
     assert_eq!(result, expected);
 }

@@ -864,7 +864,7 @@ impl Formatter {
                         format!("{}: {}", key, self.format_expression(value, indent_level))
                     })
                     .collect();
-                format!("#({})", pairs.join(", "))
+                format!("({})", pairs.join(", "))
             }
             ExprKind::Is { left, ty } => {
                 format!("{} is {}", self.format_expression(left, indent_level), ty)
