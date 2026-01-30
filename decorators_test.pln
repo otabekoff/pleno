@@ -1,0 +1,93 @@
+// Decorator definition
+fn logged(target) {
+    return fn(...args) {
+        print("Calling function");
+        let result = target(...args);
+        print("Result: " + result);
+        return result;
+    };
+}
+
+print("Logged function: " + logged);
+
+
+fn add_one(target) {
+    return fn(...args) {
+        return target(...args) + 1;
+    };
+}
+
+// Using decorator
+@logged
+fn calculate(x, y) {
+    return x + y;
+}
+
+@add_one
+@logged
+fn calc_add(x, y) {
+    return x + y;
+}
+
+print("--- Test 1: Single Decorator ---");
+let res = calculate(2, 3);
+if (res == 5) {
+    print("Test 1 Passed");
+} else {
+    print("Test 1 Failed: " + res);
+}
+
+print("--- Test 2: Stacked Decorators ---");
+let res2 = calc_add(2, 3);
+if (res2 == 6) {
+    print("Test 2 Passed");
+} else {
+    print("Test 2 Failed: " + res2);
+}
+
+// Decorator with arguments
+fn repeat(n) {
+    return fn(target) {
+        return fn(...args) {
+            let mut res = null;
+            for (let mut i = 0; i < n; i++) {
+                res = target(...args);
+            }
+            return res;
+        };
+    };
+}
+
+@repeat(3)
+fn say_hi(name) {
+    print("Hi " + name);
+    return name;
+}
+
+// Class decorator
+fn serializable(cls) {
+    cls.is_serializable = true;
+    return cls;
+}
+
+@serializable
+class User {
+    fn constructor(name) {
+        this.name = name;
+    }
+}
+
+print("--- Test 3: Decorator with Arguments ---");
+let res3 = say_hi("Alice");
+if (res3 == "Alice") {
+    print("Test 3 Passed");
+} else {
+    print("Test 3 Failed: " + res3);
+}
+
+print("--- Test 4: Class Decorator ---");
+if (User.is_serializable) {
+    print("Test 4 Passed");
+} else {
+    print("Test 4 Failed");
+}

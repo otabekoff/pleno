@@ -4,7 +4,7 @@ use pleno_ast::{
 };
 use pleno_bytecode::{Chunk, FunctionProto, Instruction, Opcode, ParamSpec};
 use pleno_value::Value;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -2436,6 +2436,61 @@ impl Compiler {
                 }
             }
         }
+
+        // Apply decorators in reverse order
+        for annotation in decl.annotations.iter().rev() {
+            if annotation.name == "pure" || annotation.name == "native" {
+                continue;
+            }
+
+            // Compile decorator expression
+            // If no args: load(name)
+            // If args: call(name, args) -> returns decorator function
+            let decorator_reg = if annotation.args.is_empty() {
+                let expr = pleno_ast::Expr {
+                    kind: pleno_ast::ExprKind::Ident(annotation.name.clone()),
+                    span: pleno_ast::Span::new(0, 0),
+                };
+                self.compile_expr(&expr)?
+            } else {
+                // Call the decorator factory
+                let callee = pleno_ast::Expr {
+                    kind: pleno_ast::ExprKind::Ident(annotation.name.clone()),
+                    span: pleno_ast::Span::new(0, 0),
+                };
+                let args: Vec<pleno_ast::CallArg> = annotation
+                    .args
+                    .iter()
+                    .map(|arg| pleno_ast::CallArg::Positional(arg.clone()))
+                    .collect();
+
+                let expr = pleno_ast::Expr {
+                    kind: pleno_ast::ExprKind::Call {
+                        callee: Box::new(callee),
+                        args,
+                    },
+                    span: pleno_ast::Span::new(0, 0),
+                };
+                self.compile_expr(&expr)?
+            };
+
+            // Now call the decorator with the function/class as argument
+            // decorated = decorator(target)
+            let args_reg = self.registers.allocate()?;
+            self.emit(Opcode::NewArray, args_reg, 0, 0);
+            self.emit(Opcode::ArrayAppend, args_reg, dest, 0);
+
+            let new_dest = self.registers.allocate()?;
+            self.emit(Opcode::Call, new_dest, decorator_reg, args_reg);
+
+            self.free_temp(args_reg);
+            self.free_temp(decorator_reg);
+
+            // Move result back to dest
+            self.emit(Opcode::Move, dest, new_dest, 0);
+            self.free_temp(new_dest);
+        }
+
         Ok(dest)
     }
 
@@ -2565,24 +2620,34 @@ impl Compiler {
     }
 
     fn analyze_captures(&self, decl: &FunctionDecl, is_method: bool) -> Vec<String> {
-        let mut locals = HashMap::new();
+        let mut locals_map = HashMap::new();
+        let mut scope_stack = vec![HashSet::new()];
+
         for param in &decl.params {
-            locals.insert(param.name.clone(), ());
+            locals_map.insert(param.name.clone(), ());
+            scope_stack[0].insert(param.name.clone());
         }
         if is_method {
-            locals.insert("this".to_string(), ());
+            locals_map.insert("this".to_string(), ());
+            scope_stack[0].insert("this".to_string());
         }
-        self.collect_locals(&decl.body, &mut locals);
+
+        self.collect_locals(&decl.body, &mut locals_map);
+        for name in locals_map.keys() {
+            scope_stack[0].insert(name.clone());
+        }
+
         let mut used = HashMap::new();
         for param in &decl.params {
             if let Some(default) = &param.default {
-                self.collect_idents_expr(default, &mut used);
+                self.collect_idents_expr(default, &mut used, &mut scope_stack);
             }
         }
-        self.collect_idents(&decl.body, &mut used);
+        self.collect_idents(&decl.body, &mut used, &mut scope_stack);
+
         let mut captures = Vec::new();
         for name in used.keys() {
-            if !locals.contains_key(name)
+            if !locals_map.contains_key(name)
                 && (self.resolve_local(name).is_some() || self.captures.contains_key(name))
             {
                 captures.push(name.clone());
@@ -2645,6 +2710,7 @@ impl Compiler {
             properties,
             is_abstract,
             implements,
+            annotations,
         ) = match &stmt.kind {
             StmtKind::Class {
                 name,
@@ -2653,7 +2719,7 @@ impl Compiler {
                 methods,
                 superclass,
                 nested_classes,
-                annotations: _,
+                annotations,
                 implements,
                 is_abstract,
                 properties,
@@ -2668,6 +2734,7 @@ impl Compiler {
                 properties,
                 *is_abstract,
                 implements.clone(),
+                annotations,
             ),
             _ => return Err(CompileError::new("expected class statement")),
         };
@@ -2973,22 +3040,80 @@ impl Compiler {
                 let value_reg = if let Some(default) = &field.default {
                     self.compile_expr(default)?
                 } else {
-                    let reg = self.registers.allocate()?;
-                    self.emit(Opcode::LoadNull, reg, 0, 0);
-                    reg
+                    let r = self.registers.allocate()?;
+                    self.emit(Opcode::LoadNull, r, 0, 0);
+                    r
                 };
-                self.emit(Opcode::SetProperty, value_reg, class_reg, field_idx);
-                self.free_temp(value_reg);
+                self.emit(Opcode::SetStatic, class_reg, field_idx, value_reg);
                 self.emit(
                     Opcode::SetStaticFieldVisibility,
                     class_reg,
                     field_idx,
                     vis_code,
                 );
+                self.free_temp(value_reg);
             } else {
-                self.emit(Opcode::SetFieldVisibility, class_reg, field_idx, vis_code);
+                let vis_idx = self.add_constant(Value::String(std::rc::Rc::new(
+                    visibility_name(field.visibility.as_ref()).to_string(),
+                )));
+                let vis_reg = self.registers.allocate()?;
+                self.emit(Opcode::LoadConst, vis_reg, vis_idx, 0);
+                self.emit(Opcode::SetFieldVisibility, class_reg, field_idx, vis_reg);
+                self.free_temp(vis_reg);
             }
         }
+
+        // Apply decorators in reverse order
+        for annotation in annotations.iter().rev() {
+            if annotation.name == "pure" || annotation.name == "native" {
+                continue;
+            }
+
+            // Compile decorator expression
+            let decorator_reg = if annotation.args.is_empty() {
+                let expr = pleno_ast::Expr {
+                    kind: pleno_ast::ExprKind::Ident(annotation.name.clone()),
+                    span: pleno_ast::Span::new(0, 0),
+                };
+                self.compile_expr(&expr)?
+            } else {
+                // Call the decorator factory
+                let callee = pleno_ast::Expr {
+                    kind: pleno_ast::ExprKind::Ident(annotation.name.clone()),
+                    span: pleno_ast::Span::new(0, 0),
+                };
+                let args: Vec<pleno_ast::CallArg> = annotation
+                    .args
+                    .iter()
+                    .map(|arg| pleno_ast::CallArg::Positional(arg.clone()))
+                    .collect();
+
+                let expr = pleno_ast::Expr {
+                    kind: pleno_ast::ExprKind::Call {
+                        callee: Box::new(callee),
+                        args,
+                    },
+                    span: pleno_ast::Span::new(0, 0),
+                };
+                self.compile_expr(&expr)?
+            };
+
+            // Now call the decorator with the class as argument
+            let args_reg = self.registers.allocate()?;
+            self.emit(Opcode::NewArray, args_reg, 0, 0);
+            self.emit(Opcode::ArrayAppend, args_reg, class_reg, 0);
+
+            let new_dest = self.registers.allocate()?;
+            self.emit(Opcode::Call, new_dest, decorator_reg, args_reg);
+
+            self.free_temp(args_reg);
+            self.free_temp(decorator_reg);
+
+            // Move result back to class_reg
+            self.emit(Opcode::Move, class_reg, new_dest, 0);
+            self.free_temp(new_dest);
+        }
+
         for nested in nested_classes {
             if let StmtKind::Class {
                 name: nested_name, ..
@@ -3067,21 +3192,39 @@ impl Compiler {
         }
     }
 
-    fn collect_idents(&self, stmt: &Stmt, used: &mut HashMap<String, ()>) {
+    fn collect_idents(
+        &self,
+        stmt: &Stmt,
+        used: &mut HashMap<String, ()>,
+        scope: &mut Vec<HashSet<String>>,
+    ) {
         match &stmt.kind {
-            StmtKind::Expr(expr) => self.collect_idents_expr(expr, used),
+            StmtKind::Expr(expr) => self.collect_idents_expr(expr, used, scope),
             StmtKind::Let {
-                value: Some(value), ..
+                name,
+                value: Some(value),
+                ..
             } => {
-                self.collect_idents_expr(value, used);
+                self.collect_idents_expr(value, used, scope);
+                if let Some(s) = scope.last_mut() {
+                    s.insert(name.clone());
+                }
+            }
+            StmtKind::Let { name, .. } => {
+                if let Some(s) = scope.last_mut() {
+                    s.insert(name.clone());
+                }
             }
             StmtKind::Assign { name, value } => {
-                used.insert(name.clone(), ());
-                self.collect_idents_expr(value, used);
+                let is_shadowed = scope.iter().any(|s| s.contains(name));
+                if !is_shadowed {
+                    used.insert(name.clone(), ());
+                }
+                self.collect_idents_expr(value, used, scope);
             }
             StmtKind::AssignProperty { object, value, .. } => {
-                self.collect_idents_expr(object, used);
-                self.collect_idents_expr(value, used);
+                self.collect_idents_expr(object, used, scope);
+                self.collect_idents_expr(value, used, scope);
             }
             StmtKind::CFor {
                 init,
@@ -3089,85 +3232,178 @@ impl Compiler {
                 step,
                 body,
             } => {
+                scope.push(HashSet::new());
                 if let Some(init) = init {
-                    self.collect_idents(init, used);
+                    self.collect_idents(init, used, scope);
                 }
                 if let Some(condition) = condition {
-                    self.collect_idents_expr(condition, used);
+                    self.collect_idents_expr(condition, used, scope);
                 }
                 if let Some(step) = step {
-                    self.collect_idents(step, used);
+                    self.collect_idents(step, used, scope);
                 }
-                self.collect_idents(body, used);
+                self.collect_idents(body, used, scope);
+                scope.pop();
             }
             StmtKind::AssignIndex {
                 collection,
                 index,
                 value,
             } => {
-                self.collect_idents_expr(collection, used);
-                self.collect_idents_expr(index, used);
-                self.collect_idents_expr(value, used);
+                self.collect_idents_expr(collection, used, scope);
+                self.collect_idents_expr(index, used, scope);
+                self.collect_idents_expr(value, used, scope);
             }
             StmtKind::If {
                 condition,
                 then_branch,
                 else_branch,
             } => {
-                self.collect_idents_expr(condition, used);
-                self.collect_idents(then_branch, used);
+                self.collect_idents_expr(condition, used, scope);
+                self.collect_idents(then_branch, used, scope);
                 if let Some(else_branch) = else_branch {
-                    self.collect_idents(else_branch, used);
+                    self.collect_idents(else_branch, used, scope);
                 }
             }
             StmtKind::While { condition, body } => {
-                self.collect_idents_expr(condition, used);
-                self.collect_idents(body, used);
+                self.collect_idents_expr(condition, used, scope);
+                self.collect_idents(body, used, scope);
             }
-            StmtKind::For { iterable, body, .. } => {
-                self.collect_idents_expr(iterable, used);
-                self.collect_idents(body, used);
+            StmtKind::For {
+                iterable,
+                body,
+                names,
+                ..
+            } => {
+                self.collect_idents_expr(iterable, used, scope);
+                scope.push(HashSet::new());
+                for name in names {
+                    scope.last_mut().unwrap().insert(name.clone());
+                }
+                self.collect_idents(body, used, scope);
+                scope.pop();
             }
-            StmtKind::Fn { .. } => {}
+            StmtKind::Fn {
+                body, params, name, ..
+            } => {
+                // The function name itself is defined in the current scope
+                if let Some(s) = scope.last_mut() {
+                    s.insert(name.clone());
+                }
+
+                scope.push(HashSet::new());
+                for param in params {
+                    if let Some(default) = &param.default {
+                        self.collect_idents_expr(default, used, scope);
+                    }
+                    scope.last_mut().unwrap().insert(param.name.clone());
+                }
+                self.collect_idents(body, used, scope);
+                scope.pop();
+            }
             StmtKind::Return(Some(expr)) => {
-                self.collect_idents_expr(expr, used);
+                self.collect_idents_expr(expr, used, scope);
             }
             StmtKind::Block(items) => {
+                scope.push(HashSet::new());
                 for item in items {
-                    self.collect_idents(item, used);
+                    self.collect_idents(item, used, scope);
+                }
+                scope.pop();
+            }
+            StmtKind::Class {
+                name,
+                methods,
+                properties,
+                fields,
+                nested_classes,
+                ..
+            } => {
+                if let Some(s) = scope.last_mut() {
+                    s.insert(name.clone());
+                }
+
+                // We don't recurse into fields or nested classes names for simplicity,
+                // but we must recurse into method bodies and property bodies.
+                for method in methods {
+                    scope.push(HashSet::new());
+                    scope.last_mut().unwrap().insert("this".to_string());
+                    for p in &method.params {
+                        if let Some(d) = &p.default {
+                            self.collect_idents_expr(d, used, scope);
+                        }
+                        scope.last_mut().unwrap().insert(p.name.clone());
+                    }
+                    self.collect_idents(&method.body, used, scope);
+                    scope.pop();
+                }
+                for prop in properties {
+                    if let Some(getter) = &prop.getter {
+                        scope.push(HashSet::new());
+                        scope.last_mut().unwrap().insert("this".to_string());
+                        self.collect_idents(&getter.body, used, scope);
+                        scope.pop();
+                    }
+                    if let Some(setter) = &prop.setter {
+                        scope.push(HashSet::new());
+                        scope.last_mut().unwrap().insert("this".to_string());
+                        // Setters usually have one param (the value)
+                        for p in &setter.params {
+                            scope.last_mut().unwrap().insert(p.name.clone());
+                        }
+                        self.collect_idents(&setter.body, used, scope);
+                        scope.pop();
+                    }
+                }
+                for field in fields {
+                    if let Some(default) = &field.default {
+                        self.collect_idents_expr(default, used, scope);
+                    }
+                }
+                for nested in nested_classes {
+                    self.collect_idents(nested, used, scope);
                 }
             }
-            StmtKind::Class { .. } => {}
             _ => {}
         }
     }
 
-    fn collect_idents_expr(&self, expr: &Expr, used: &mut HashMap<String, ()>) {
+    fn collect_idents_expr(
+        &self,
+        expr: &Expr,
+        used: &mut HashMap<String, ()>,
+        scope: &mut Vec<HashSet<String>>,
+    ) {
         match &expr.kind {
             ExprKind::Ident(name) => {
-                used.insert(name.clone(), ());
+                let is_shadowed = scope.iter().any(|s| s.contains(name));
+                if !is_shadowed {
+                    used.insert(name.clone(), ());
+                }
             }
-            ExprKind::Unary { expr, .. } => self.collect_idents_expr(expr, used),
+            ExprKind::Unary { expr, .. } => self.collect_idents_expr(expr, used, scope),
             ExprKind::Binary { left, right, .. } => {
-                self.collect_idents_expr(left, used);
-                self.collect_idents_expr(right, used);
+                self.collect_idents_expr(left, used, scope);
+                self.collect_idents_expr(right, used, scope);
             }
-            ExprKind::Property { object, .. } => self.collect_idents_expr(object, used),
+            ExprKind::Property { object, .. } => self.collect_idents_expr(object, used, scope),
             ExprKind::Range { start, end, .. } => {
                 if let Some(start) = start {
-                    self.collect_idents_expr(start, used);
+                    self.collect_idents_expr(start, used, scope);
                 }
                 if let Some(end) = end {
-                    self.collect_idents_expr(end, used);
+                    self.collect_idents_expr(end, used, scope);
                 }
             }
             ExprKind::MapLiteral(items) => {
                 for item in items {
                     match item {
                         pleno_ast::MapItem::Entry(_, value) => {
-                            self.collect_idents_expr(value, used)
+                            self.collect_idents_expr(value, used, scope)
                         }
-                        pleno_ast::MapItem::Spread(expr) => self.collect_idents_expr(expr, used),
+                        pleno_ast::MapItem::Spread(expr) => {
+                            self.collect_idents_expr(expr, used, scope)
+                        }
                     }
                 }
             }
@@ -3175,52 +3411,71 @@ impl Compiler {
             | ExprKind::SetLiteral(items)
             | ExprKind::TupleLiteral(items) => {
                 for item in items {
-                    self.collect_idents_expr(item, used);
+                    self.collect_idents_expr(item, used, scope);
                 }
             }
             ExprKind::Index { collection, index } => {
-                self.collect_idents_expr(collection, used);
-                self.collect_idents_expr(index, used);
+                self.collect_idents_expr(collection, used, scope);
+                self.collect_idents_expr(index, used, scope);
             }
             ExprKind::Slice {
                 collection,
                 start,
                 end,
             } => {
-                self.collect_idents_expr(collection, used);
+                self.collect_idents_expr(collection, used, scope);
                 if let Some(start_expr) = start {
-                    self.collect_idents_expr(start_expr, used);
+                    self.collect_idents_expr(start_expr, used, scope);
                 }
                 if let Some(end_expr) = end {
-                    self.collect_idents_expr(end_expr, used);
+                    self.collect_idents_expr(end_expr, used, scope);
                 }
             }
             ExprKind::Call { callee, args } => {
-                self.collect_idents_expr(callee, used);
+                self.collect_idents_expr(callee, used, scope);
                 for arg in args {
                     match arg {
                         pleno_ast::CallArg::Positional(expr) => {
-                            self.collect_idents_expr(expr, used);
+                            self.collect_idents_expr(expr, used, scope);
                         }
                         pleno_ast::CallArg::Named(_, expr) => {
-                            self.collect_idents_expr(expr, used);
+                            self.collect_idents_expr(expr, used, scope);
                         }
                         pleno_ast::CallArg::Spread(expr) => {
-                            self.collect_idents_expr(expr, used);
+                            self.collect_idents_expr(expr, used, scope);
                         }
                         pleno_ast::CallArg::Placeholder => {}
                     }
                 }
             }
             ExprKind::Match { expr, arms } => {
-                self.collect_idents_expr(expr, used);
+                self.collect_idents_expr(expr, used, scope);
                 for arm in arms {
-                    self.collect_idents_expr(&arm.body, used);
+                    // Arm pattern can define locals, but for simplicity let's just recurse
+                    self.collect_idents_expr(&arm.body, used, scope);
                 }
             }
             ExprKind::Pipeline { left, right } => {
-                self.collect_idents_expr(left, used);
-                self.collect_idents_expr(right, used);
+                self.collect_idents_expr(left, used, scope);
+                self.collect_idents_expr(right, used, scope);
+            }
+            ExprKind::Lambda { params, body, .. } => {
+                scope.push(HashSet::new());
+                for param in params {
+                    if let Some(default) = &param.default {
+                        self.collect_idents_expr(default, used, scope);
+                    }
+                    scope.last_mut().unwrap().insert(param.name.clone());
+                }
+                self.collect_idents_expr(body, used, scope);
+                scope.pop();
+            }
+            ExprKind::Block(stmts) => {
+                scope.push(HashSet::new());
+                for stmt in stmts {
+                    self.collect_idents(stmt, used, scope);
+                }
+                scope.pop();
             }
             _ => {}
         }
