@@ -2735,13 +2735,20 @@ impl Parser {
                     self.advance();
                     pleno_ast::CallArg::Placeholder
                 } else if matches!(self.peek_kind(), TokenKind::Ident(_))
-                    && matches!(self.peek_next_kind(), Some(TokenKind::Colon))
+                    && matches!(
+                        self.peek_next_kind(),
+                        Some(TokenKind::Colon) | Some(TokenKind::Equal)
+                    )
                 {
                     let name = match self.advance().kind.clone() {
                         TokenKind::Ident(value) => value,
                         _ => unreachable!("ident checked"),
                     };
-                    self.expect(TokenKind::Colon, "Expected ':' in named argument")?;
+                    if *self.peek_kind() == TokenKind::Colon {
+                        self.advance();
+                    } else {
+                        self.expect(TokenKind::Equal, "Expected '=' in named argument")?;
+                    }
                     let value = self.parse_expr()?;
                     pleno_ast::CallArg::Named(name, value)
                 } else if self.matches(&TokenKind::Ellipsis) || self.matches(&TokenKind::DotDot) {

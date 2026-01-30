@@ -1,8 +1,11 @@
 pub mod gc;
 
 use gc::{GcObject, GcRc, MarkAndSweepGC};
+use serde::ser::SerializeStruct;
 use serde::{Deserialize, Serialize};
+use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
+use std::io::Write;
 use std::rc::Rc;
 
 pub trait VMProvider {
@@ -18,6 +21,7 @@ pub trait VMProvider {
     fn register_global(&mut self, name: String, value: Value);
     fn set_builtin_resolver(&mut self, resolver: fn(&str, &str) -> Option<NativeFunction>);
     fn check_is_instance(&self, value: &Value, type_val: &Value) -> bool;
+    fn get_named_args(&self) -> &HashMap<String, Value>;
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -146,6 +150,7 @@ pub enum Value {
         interface: GcRc<Interface>,
         type_args: Vec<Value>,
     },
+    File(GcRc<FileState>),
 }
 
 impl Value {
@@ -207,6 +212,7 @@ impl Value {
             Value::Variant { .. } => "Variant",
             Value::VariantConstructor { .. } => "VariantConstructor",
             Value::BoundInterface { .. } => "Interface",
+            Value::File(_) => "File",
         }
     }
 }
@@ -243,6 +249,52 @@ impl GcObject for ChannelState {
     }
 }
 
+pub struct FileState {
+    pub inner: RefCell<Option<Box<dyn Write>>>,
+    pub name: String,
+}
+
+impl std::fmt::Debug for FileState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "FileState({{ name: {} }})", self.name)
+    }
+}
+
+impl Serialize for FileState {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        // We only serialize the name, file handle is lost
+        let mut state = serializer.serialize_struct("FileState", 1)?;
+        state.serialize_field("name", &self.name)?;
+        state.end()
+    }
+}
+
+impl<'de> Deserialize<'de> for FileState {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        struct FileStateData {
+            name: String,
+        }
+        let data = FileStateData::deserialize(deserializer)?;
+        Ok(FileState {
+            inner: RefCell::new(None), // Deserialized files are closed
+            name: data.name,
+        })
+    }
+}
+
+impl GcObject for FileState {
+    fn mark(&self, _gc: &mut MarkAndSweepGC) {
+        // No references to other values
+    }
+}
+
 impl GcObject for Value {
     fn mark(&self, gc: &mut MarkAndSweepGC) {
         match self {
@@ -269,14 +321,14 @@ impl GcObject for Value {
             Value::Iterator(i) => gc.mark_object(&i.to_gc_object()),
             Value::BoundClass { class, type_args } => {
                 gc.mark_object(&class.to_gc_object());
-                for v in type_args {
-                    v.mark(gc);
+                for arg in type_args {
+                    arg.mark(gc);
                 }
             }
             Value::Enum(e) => gc.mark_object(&e.to_gc_object()),
             Value::Variant { data, .. } => {
-                for v in data {
-                    v.mark(gc);
+                for val in data {
+                    val.mark(gc);
                 }
             }
             Value::VariantConstructor { enum_type, .. } => {
@@ -287,10 +339,11 @@ impl GcObject for Value {
                 type_args,
             } => {
                 gc.mark_object(&interface.to_gc_object());
-                for v in type_args {
-                    v.mark(gc);
+                for arg in type_args {
+                    arg.mark(gc);
                 }
             }
+            Value::File(f) => gc.mark_object(&f.to_gc_object()),
             _ => {}
         }
     }
@@ -657,6 +710,7 @@ impl PartialEq for Value {
                     variant_name: vb,
                 },
             ) => ea.as_ptr() == eb.as_ptr() && va == vb,
+            (Value::File(a), Value::File(b)) => a.as_ptr() == b.as_ptr(),
             _ => false,
         }
     }
@@ -671,6 +725,7 @@ impl std::fmt::Display for Value {
             Value::Int(v) => write!(f, "{}", v),
             Value::Float(v) => write!(f, "{}", v),
             Value::String(v) => write!(f, "{}", v),
+            Value::File(v) => write!(f, "<file {}>", v.borrow().name),
             Value::Range(r) => {
                 if let Some(start) = r.start {
                     write!(f, "{}", start)?;

@@ -35,6 +35,7 @@ pub struct VM {
     pub multi_waiters: Vec<MultiWaiter>,
     pub builtin_resolver: Option<fn(&str, &str) -> Option<NativeFunction>>,
     pub run_depths: Vec<usize>,
+    pub current_named_args: HashMap<String, Value>,
 }
 
 #[derive(Debug, Clone)]
@@ -218,7 +219,11 @@ impl VMProvider for VM {
     }
 
     fn check_is_instance(&self, value: &Value, type_val: &Value) -> bool {
-        self.check_is_instance(value, type_val)
+        self.is_instance(value, type_val)
+    }
+
+    fn get_named_args(&self) -> &HashMap<String, Value> {
+        &self.current_named_args
     }
 }
 
@@ -248,6 +253,7 @@ impl VM {
             multi_waiters: Vec::new(),
             builtin_resolver: None,
             run_depths: Vec::new(),
+            current_named_args: HashMap::new(),
         }
     }
 
@@ -1174,7 +1180,7 @@ impl VM {
                 Opcode::Is => {
                     let value = &self.registers[base + b];
                     let type_val = &self.registers[base + c];
-                    let result = self.check_is_instance(value, type_val);
+                    let result = self.is_instance(value, type_val);
                     self.registers[base + a] = Value::Bool(result);
                 }
                 Opcode::TypeOf => {
@@ -1789,6 +1795,17 @@ impl VM {
                                     t.elements.get(idx).cloned().unwrap_or(Value::Null)
                                 } else {
                                     Value::Null
+                                }
+                            } else {
+                                Value::Null
+                            }
+                        }
+                        Value::File(f) => {
+                            if let Some(func) = self.builtin_resolver.and_then(|r| r("File", &name))
+                            {
+                                Value::BoundNativeMethod {
+                                    receiver: Box::new(Value::File(f.clone())),
+                                    function: func,
                                 }
                             } else {
                                 Value::Null
@@ -3163,7 +3180,7 @@ impl VM {
 }
 
 impl VM {
-    fn check_is_instance(&self, value: &Value, type_val: &Value) -> bool {
+    pub fn is_instance(&self, value: &Value, type_val: &Value) -> bool {
         match type_val {
             Value::String(s) => matches!(
                 (s.as_str(), value),
@@ -3599,24 +3616,20 @@ impl VM {
     ) -> Result<(), RuntimeError> {
         match callee {
             Value::NativeFunction(func) => {
-                if !named.is_empty() {
-                    return Err(RuntimeError::new(
-                        "named args not supported for native functions",
-                    ));
-                }
-                let result = func(self, &positional)?;
+                let prev_named = std::mem::replace(&mut self.current_named_args, named);
+                let result = func(self, &positional);
+                self.current_named_args = prev_named;
+                let result = result?;
                 self.registers[return_reg] = result;
                 Ok(())
             }
             Value::BoundNativeMethod { receiver, function } => {
-                if !named.is_empty() {
-                    return Err(RuntimeError::new(
-                        "named args not supported for native functions",
-                    ));
-                }
-                let mut merged_args = vec![*receiver];
+                let prev_named = std::mem::replace(&mut self.current_named_args, named);
+                let mut merged_args = vec![*receiver.clone()];
                 merged_args.extend(positional);
-                let result = function(self, &merged_args)?;
+                let result = function(self, &merged_args);
+                self.current_named_args = prev_named;
+                let result = result?;
                 self.registers[return_reg] = result;
                 Ok(())
             }

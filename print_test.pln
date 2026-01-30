@@ -1,2 +1,4 @@
-print("Testing", "multiple", "arguments", 1, 2, 3);
-print("Current behavior: " + "string concatenation");
+print("A", "B", "C"); // Expected: A B C
+print("A", "B", "C", sep=", "); // Expected: A, B, C
+print("A", end="!"); print("B"); // Expected: A!B
+print("Items:", 1, 2, 3, sep=" | ", end=".\n"); // Expected: Items: | 1 | 2 | 3.

@@ -145,6 +145,20 @@ obj.prop++;
 arr[0]--;
 ```
 
+### 1.6 String Interpolation ✅
+Strings support interpolation using the `${expression}` syntax. Expressions within `${}` are evaluated and their string representation is embedded in the literal.
+
+```pleno
+let name = "World";
+print("Hello, ${name}!"); // Hello, World!
+
+let x = 10, y = 20;
+print("Sum: ${x + y}");   // Sum: 30
+
+// Nested expressions and quotes are supported
+print("Result: ${"nested " + name}");
+```
+
 ---
 
 ## 2. Control Flow ✅
@@ -1301,7 +1315,23 @@ class GameObject {
 
 ## 13. Standard Library Highlights ✅
 
-### 13.1 String Operations
+### 13.1 Global Functions ✅
+
+#### `print(...values, sep=" ", end="\n")` ✅
+The `print` function outputs values to the standard output. It supports multiple arguments and keyword arguments for custom formatting.
+
+- `values`: Zero or more values to print.
+- `sep`: String to insert between values (default: `" "`).
+- `end`: String to append after all values (default: `"\n"`).
+
+```pleno
+print("A", "B", "C");             // Output: A B C\n
+print("A", "B", "C", sep=", ");   // Output: A, B, C\n
+print("A", end="!"); print("B");  // Output: A!B\n
+```
+
+### 13.2 String Operations
+Strings in Pleno provide various methods for manipulation.
 
 ```pleno
 let str = "Hello, World!";

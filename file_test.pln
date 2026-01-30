@@ -1,0 +1,28 @@
+print("Starting IO test using global IO");
+
+// Test stdout
+let out = IO.stdout();
+print("Printing to stdout object", file=out);
+
+// Test stderr
+let err = IO.stderr();
+print("Printing to stderr object", file=err);
+
+// Test file writing
+let logParams = "test_log.txt";
+let log = IO.open(logParams, "w");
+print("Line 1", file=log);
+print("Line 2", file=log, flush=true);
+log.write("Line 3\n");
+log.close();
+
+// Verify file content using IO.File.read
+// IO works as alias to std:io module which has File object
+let content = IO.File.read(logParams);
+print("Content of log:");
+print(content);
+
+// Cleanup
+IO.File.delete(logParams);
+
+print("File test complete");
