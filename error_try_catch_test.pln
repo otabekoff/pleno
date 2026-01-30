@@ -1,0 +1,44 @@
+// Test 7.1: Try-Catch-Finally
+print("Testing Try-Catch-Finally...");
+
+fn assert(condition: Bool, message: String) {
+    if (!condition) {
+        print("ASSERTION FAILED: " + message);
+        exit(1);
+    }
+}
+
+// Test 1: Basic try-catch
+print("Test 1: Basic try-catch");
+let caught = false;
+try {
+    throw "test error";
+} catch (e) {
+    caught = true;
+    assert(e == "test error", "Catch receives error value");
+}
+assert(caught, "Catch block executed");
+
+// Test 2: Finally block
+print("\nTest 2: Finally block");
+let finallyCalled = false;
+try {
+    throw "error";
+} catch (e) {
+    print("Caught: " + e);
+} finally {
+    finallyCalled = true;
+}
+assert(finallyCalled, "Finally block executed");
+
+// Test 3: Finally without catch
+print("\nTest 3: Finally without error");
+let finallyCount = 0;
+try {
+    finallyCount = 1;
+} finally {
+    finallyCount = 2;
+}
+assert(finallyCount == 2, "Finally executes even without error");
+
+print("\n✓ Try-Catch-Finally: All tests passed!");

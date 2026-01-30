@@ -1,0 +1,96 @@
+// Comprehensive Error Handling Test
+print("Testing Error Handling Features...");
+
+fn assert(condition: Bool, message: String) {
+    if (!condition) {
+        print("ASSERTION FAILED: " + message);
+        exit(1);
+    }
+}
+
+// ===== 7.1 Try-Catch-Finally =====
+print("\n=== 7.1 Try-Catch-Finally ===");
+
+// Test 1: Basic try-catch
+print("Test 1: Basic try-catch");
+let mut caught = false;
+try {
+    throw "test error";
+} catch (e) {
+    caught = true;
+    assert(e == "test error", "Catch receives error");
+}
+assert(caught, "Catch block executed");
+
+// Test 2: Finally block
+print("Test 2: Finally block");
+let mut finallyCalled = false;
+try {
+    throw "error";
+} catch (e) {
+    // Caught
+} finally {
+    finallyCalled = true;
+}
+assert(finallyCalled, "Finally executed");
+
+// Test 3: Try without error
+print("Test 3: Try without error");
+let mut noError = false;
+try {
+    noError = true;
+} catch (e) {
+    assert(false, "Should not catch");
+}
+assert(noError, "Try block executed");
+
+// ===== 7.3 Result Type =====
+print("\n=== 7.3 Result Type ===");
+
+// Test 4: Ok variant
+print("Test 4: Result Ok");
+let okResult = Ok(42);
+assert(okResult.isOk(), "isOk() returns true");
+assert(!okResult.isErr(), "isErr() returns false");
+assert(okResult.unwrap() == 42, "unwrap() returns value");
+
+// Test 5: Err variant
+print("Test 5: Result Err");
+let errResult = Err("failed");
+assert(errResult.isErr(), "isErr() returns true");
+assert(!errResult.isOk(), "isOk() returns false");
+assert(errResult.unwrapOr(0) == 0, "unwrapOr() returns default");
+
+// Test 6: Result with pattern matching
+print("Test 6: Result pattern matching");
+let result = Ok(100);
+match (result) {
+    case Ok(value) => assert(value == 100, "Pattern match Ok"),
+    case Err(error) => assert(false, "Should not match Err")
+}
+
+// ===== 7.4 Option Type =====
+print("\n=== 7.4 Option Type ===");
+
+// Test 7: Some variant
+print("Test 7: Option Some");
+let someVal = Some(50);
+assert(someVal.isSome(), "isSome() returns true");
+assert(!someVal.isNone(), "isNone() returns false");
+assert(someVal.unwrap() == 50, "unwrap() returns value");
+
+// Test 8: None variant
+print("Test 8: Option None");
+assert(None.isNone(), "isNone() returns true");
+assert(!None.isSome(), "isSome() returns false");
+assert(None.unwrapOr(25) == 25, "unwrapOr() returns default");
+
+// Test 9: Option with pattern matching
+print("Test 9: Option pattern matching");
+let option = Some(200);
+match (option) {
+    case Some(value) => assert(value == 200, "Pattern match Some"),
+    case None => assert(false, "Should not match None")
+}
+
+print("\n✓ All Error Handling Tests Passed!");

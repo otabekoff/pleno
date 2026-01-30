@@ -1,0 +1,39 @@
+// Test Result type with function
+print("Testing Result Type with Functions...");
+
+fn assert(condition: Bool, message: String) {
+    if (!condition) {
+        print("ASSERTION FAILED: " + message);
+        exit(1);
+    }
+}
+
+// Function that returns Result
+fn divide(a: Float, b: Float) {
+    if (b == 0.0) {
+        return Err("Division by zero");
+    }
+    return Ok(a / b);
+}
+
+// Test successful division
+let result1 = divide(10.0, 2.0);
+match (result1) {
+    case Ok(value) => {
+        print("Success: " + value);
+        assert(value == 5.0, "Division result correct");
+    },
+    case Err(error) => assert(false, "Should not error")
+}
+
+// Test division by zero
+let result2 = divide(10.0, 0.0);
+match (result2) {
+    case Ok(value) => assert(false, "Should have errored"),
+    case Err(error) => {
+        print("Error: " + error);
+        assert(error == "Division by zero", "Error message correct");
+    }
+}
+
+print("\n✓ Result Type with Functions: All tests passed!");

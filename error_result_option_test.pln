@@ -1,0 +1,32 @@
+// Test 7.3 & 7.4: Result and Option Types
+print("Testing Result and Option Types...");
+
+fn assert(condition: Bool, message: String) {
+    if (!condition) {
+        print("ASSERTION FAILED: " + message);
+        exit(1);
+    }
+}
+
+// Test Result Type
+print("Test 1: Result type with Ok");
+let successResult = Ok(42);
+assert(successResult.isOk(), "Result.isOk() works");
+assert(successResult.unwrap() == 42, "Result.unwrap() returns value");
+
+print("\nTest 2: Result type with Err");
+let errorResult = Err("failed");
+assert(errorResult.isErr(), "Result.isErr() works");
+assert(errorResult.unwrapOr(0) == 0, "Result.unwrapOr() returns default");
+
+// Test Option Type
+print("\nTest 3: Option type with Some");
+let someValue = Some(100);
+assert(someValue.isSome(), "Option.isSome() works");
+assert(someValue.unwrap() == 100, "Option.unwrap() returns value");
+
+print("\nTest 4: Option type with None");
+assert(None.isNone(), "Option.isNone() works");
+assert(None.unwrapOr(50) == 50, "Option.unwrapOr() returns default");
+
+print("\n✓ Result and Option Types: All tests passed!");
