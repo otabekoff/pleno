@@ -1,0 +1,15 @@
+// Test await on non-promise value
+print("Testing await on non-promise value...");
+
+async fn run() {
+    print("Awaiting 5...");
+    let val = await 5;
+    print("Result: " + val);
+    
+    // Also test awaiting a string
+    let s = await "hello";
+    print("Result string: " + s);
+}
+
+run();
+print("Done.");

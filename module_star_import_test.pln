@@ -1,0 +1,7 @@
+// Test star import with alias
+import * as Math from "./math_utils.pln";
+
+print("Testing Star Import with Alias...");
+print("Math.PI: " + Math.PI);
+print("Math.square(6.0): " + Math.square(6.0));
+print("Math.add(2.0, 3.0): " + Math.add(2.0, 3.0));

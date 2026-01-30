@@ -1,0 +1,14 @@
+// Inspect Channel
+print("Inspecting Channel...");
+try {
+    print("Type of Channel: " + typeof(Channel));
+    print("Channel value: " + Channel);
+    
+    // Try instantiation
+    let c = Channel(); 
+    print("Channel instantiated: " + c);
+    print("Type of instance: " + typeof(c));
+
+} catch (e) {
+    print("Error inspecting Channel: " + e);
+}

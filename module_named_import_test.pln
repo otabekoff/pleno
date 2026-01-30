@@ -1,0 +1,6 @@
+// Test named imports
+import { PI, square } from "./math_utils.pln";
+
+print("Testing Named Imports...");
+print("PI: " + PI);
+print("square(4.0): " + square(4.0));

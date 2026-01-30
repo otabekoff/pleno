@@ -1,0 +1,23 @@
+// Module definition file
+module MathUtils;
+
+export const PI = 3.14159;
+
+export fn square(x: Float): Float {
+    return x * x;
+}
+
+export fn add(a: Float, b: Float): Float {
+    return a + b;
+}
+
+// Private function (not exported)
+fn helperFunction(): Void {
+    print("This is a private helper");
+}
+
+export class Calculator {
+    public fn multiply(a: Float, b: Float): Float {
+        return a * b;
+    }
+}

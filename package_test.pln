@@ -1,0 +1,6 @@
+// Test Package Resolution
+import { VAL } from "testpkg";
+print("Imported VAL: " + VAL);
+fn assert(cond: Bool) { if (!cond) { exit(1); } }
+assert(VAL == 999);
+print("Package resolution verified!");

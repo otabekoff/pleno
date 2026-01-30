@@ -48,6 +48,7 @@ pub struct Function {
     pub module_path: Option<Rc<String>>,
     pub is_async: bool,
     pub is_pure: bool,
+    pub type_params: Vec<String>,
 }
 
 impl VMProvider for VM {
@@ -267,6 +268,7 @@ impl VM {
             module_path: None,
             is_async: false,
             is_pure: false,
+            type_params: Vec::new(),
             params: Vec::new(),
         };
         let func_index = self.functions.len();
@@ -655,6 +657,7 @@ impl VM {
                         module_path: frame.current_module_path.as_ref().cloned(),
                         is_async: proto.is_async,
                         is_pure: proto.is_pure,
+                        type_params: proto.type_params.clone(),
                     });
                     let captures = vec![Value::Null; c];
                     let state = self.gc.allocate(ClosureState::new(func_index, captures));
@@ -680,6 +683,7 @@ impl VM {
                         module_path: frame.current_module_path.as_ref().cloned(),
                         is_async: true,
                         is_pure: proto.is_pure,
+                        type_params: proto.type_params.clone(),
                     });
                     self.registers[base + a] = Value::Function(func_index);
                 }
@@ -703,6 +707,7 @@ impl VM {
                         module_path: frame.current_module_path.as_ref().cloned(),
                         is_async: proto.is_async,
                         is_pure: proto.is_pure,
+                        type_params: proto.type_params.clone(),
                     });
                     self.registers[base + a] = Value::Function(func_index);
                 }
@@ -2608,6 +2613,22 @@ impl VM {
                                 type_args: args,
                             };
                         }
+                        Value::Function(handle) => {
+                            let func_proto = self.functions.get(handle).cloned().unwrap();
+                            if args.len() != func_proto.type_params.len() {
+                                return Err(self.throw_runtime_error(&format!(
+                                    "Generic function type mismatch: expected {} args, found {}",
+                                    func_proto.type_params.len(),
+                                    args.len()
+                                )));
+                            }
+
+                            self.registers[base + a] = Value::BoundFunction {
+                                function: handle,
+                                type_args: args,
+                            };
+                        }
+
                         _ => return Err(RuntimeError::new("Specialize on non-class value")),
                     }
                 }
@@ -3921,6 +3942,7 @@ impl VM {
             | Value::BoundMethod { .. }
             | Value::Class(_)
             | Value::BoundClass { .. }
+            | Value::BoundFunction { .. }
             | Value::VariantConstructor { .. }
             | Value::Partial { .. } => true,
             Value::Map(map) => map.borrow().get("__call__").is_some(),
@@ -3941,6 +3963,20 @@ impl VM {
             }
             Value::Function(handle) => {
                 self.call_function(handle, None, &args, return_reg_idx, None, None, None, false)?;
+            }
+            Value::BoundFunction { function, .. } => {
+                // Type args are currently ignored during call as Pleno uses erasure or they are just for checking
+                // If reification is needed, we'd pass them to call_function
+                self.call_function(
+                    function,
+                    None,
+                    &args,
+                    return_reg_idx,
+                    None,
+                    None,
+                    None,
+                    false,
+                )?;
             }
             Value::Closure(state) => {
                 let borrowed = state.borrow();
@@ -4143,6 +4179,7 @@ impl VM {
             module_path: Some(Rc::new(resolved_key.clone())),
             is_async: false,
             is_pure: false,
+            type_params: Vec::new(),
         };
         let func_index = self.functions.len();
         self.functions.push(function);

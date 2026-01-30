@@ -150,6 +150,10 @@ pub enum Value {
         interface: GcRc<Interface>,
         type_args: Vec<Value>,
     },
+    BoundFunction {
+        function: usize,
+        type_args: Vec<Value>,
+    },
     File(GcRc<FileState>),
 }
 
@@ -212,6 +216,7 @@ impl Value {
             Value::Variant { .. } => "Variant",
             Value::VariantConstructor { .. } => "VariantConstructor",
             Value::BoundInterface { .. } => "Interface",
+            Value::BoundFunction { .. } => "Function",
             Value::File(_) => "File",
         }
     }
@@ -339,6 +344,14 @@ impl GcObject for Value {
                 type_args,
             } => {
                 gc.mark_object(&interface.to_gc_object());
+                for arg in type_args {
+                    arg.mark(gc);
+                }
+            }
+            Value::BoundFunction {
+                function: _, // usize, no marking needed
+                type_args,
+            } => {
                 for arg in type_args {
                     arg.mark(gc);
                 }
@@ -710,6 +723,16 @@ impl PartialEq for Value {
                     variant_name: vb,
                 },
             ) => ea.as_ptr() == eb.as_ptr() && va == vb,
+            (
+                Value::BoundFunction {
+                    function: fa,
+                    type_args: ta,
+                },
+                Value::BoundFunction {
+                    function: fb,
+                    type_args: tb,
+                },
+            ) => fa == fb && ta == tb,
             (Value::File(a), Value::File(b)) => a.as_ptr() == b.as_ptr(),
             _ => false,
         }
@@ -756,6 +779,20 @@ impl std::fmt::Display for Value {
                 write!(f, ">")
             }
             Value::Interface(i) => write!(f, "<interface {}>", i.borrow().name),
+            Value::BoundFunction { type_args, .. } => {
+                write!(f, "<fn")?;
+                if !type_args.is_empty() {
+                    write!(f, "<")?;
+                    for (i, arg) in type_args.iter().enumerate() {
+                        if i > 0 {
+                            write!(f, ", ")?;
+                        }
+                        write!(f, "{}", arg)?;
+                    }
+                    write!(f, ">")?;
+                }
+                write!(f, ">")
+            }
             Value::Function(_) => write!(f, "<fn>"),
             Value::BoundMethod { owner, .. } => write!(f, "<method of {}>", owner.borrow().name),
             Value::StaticMethod { owner, .. } => {

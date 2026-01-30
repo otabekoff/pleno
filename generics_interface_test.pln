@@ -1,0 +1,36 @@
+// 10.4 Generic Interfaces
+print("Testing Generic Interfaces...");
+
+fn assert(condition: Bool, message: String) {
+    if (!condition) {
+        print("ASSERTION FAILED: " + message);
+        exit(1);
+    }
+}
+
+interface Container<T> {
+    fn get(): T;
+}
+
+class IntContainer implements Container<Int> {
+    private val: Int;
+    constructor(v: Int) { this.val = v; }
+    
+    fn get(): Int { return this.val; }
+}
+
+let c = IntContainer(123);
+assert(c.get() == 123, "Generic Interface Implementation");
+
+// Generic Class implementing Generic Interface
+class Box<T> implements Container<T> {
+    private val: T;
+    constructor(v: T) { this.val = v; }
+    
+    fn get(): T { return this.val; }
+}
+
+let b = Box<String>("hello");
+assert(b.get() == "hello", "Generic Class implements Generic Interface");
+
+print("✓ Generic Interfaces Passed");

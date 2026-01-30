@@ -1,0 +1,7 @@
+// Test exported class
+import { Calculator } from "./math_utils.pln";
+
+print("Testing Exported Class...");
+let calc = Calculator();
+print("multiply(3.0, 4.0): " + calc.multiply(3.0, 4.0));
+print("✓ Exported class works!");

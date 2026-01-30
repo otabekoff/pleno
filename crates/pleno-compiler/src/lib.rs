@@ -2412,6 +2412,7 @@ impl Compiler {
             params: param_specs,
             is_async: decl.is_async,
             is_pure,
+            type_params: decl.generics.iter().map(|g| g.name.clone()).collect(),
         });
         let dest = self.registers.allocate()?;
         if store_as_function {
@@ -2539,6 +2540,7 @@ impl Compiler {
             params: param_specs,
             is_async: false,
             is_pure,
+            type_params: Vec::new(),
         });
 
         let dest = self.registers.allocate()?;
