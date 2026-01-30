@@ -1,0 +1,26 @@
+fn assert(condition, message) {
+    if (!condition) {
+        print("Assertion failed: ", message);
+        throw message;
+    }
+}
+
+let name = "World";
+let greeting = "Hello, ${name}!";
+print("Greeting:", greeting);
+assert(greeting == "Hello, World!", "Basic interpolation");
+
+let x = 10;
+let y = 20;
+let sum_str = "Sum: ${x + y}";
+print(sum_str);
+assert(sum_str == "Sum: 30", "Expression interpolation");
+
+let complex = "Result: ${ if (x > 5) "high" else "low" }";
+print(complex);
+assert(complex == "Result: high", "Conditional interpolation");
+
+// Test multi-argument print (comma separated)
+print("Multiple", "arguments", "test", 1, 2, 3);
+
+print("Interpolation with multiple args test:", "Hello, ${name}!", "Score: ${x}");

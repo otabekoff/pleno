@@ -370,6 +370,7 @@ fn run_file(path: &str) {
                 );
             } else {
                 eprintln!("Runtime error: {}", err.message);
+                eprintln!("DEBUG: Full error: {:?}", err);
             }
 
             if !err.stack_trace.is_empty() {

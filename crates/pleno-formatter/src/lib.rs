@@ -1037,6 +1037,21 @@ impl Formatter {
                     type_args.join(", ")
                 )
             }
+            ExprKind::InterpolatedString(segments) => {
+                let mut result = String::from("\"");
+                for segment in segments {
+                    match &segment.kind {
+                        ExprKind::Literal(Literal::String(s)) => result.push_str(s),
+                        _ => {
+                            result.push_str("${");
+                            result.push_str(&self.format_expression(segment, indent_level));
+                            result.push('}');
+                        }
+                    }
+                }
+                result.push('"');
+                result
+            }
         }
     }
 

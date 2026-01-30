@@ -1763,6 +1763,23 @@ impl VM {
                                 Value::Null
                             }
                         }
+                        Value::Range(r) => match name.as_str() {
+                            "start" => r.start.map(Value::Int).unwrap_or(Value::Null),
+                            "end" => r.end.map(Value::Int).unwrap_or(Value::Null),
+                            "inclusive" => Value::Bool(r.inclusive),
+                            _ => {
+                                if let Some(func) =
+                                    self.builtin_resolver.and_then(|r| r("Range", &name))
+                                {
+                                    Value::BoundNativeMethod {
+                                        receiver: Box::new(Value::Range(r.clone())),
+                                        function: func,
+                                    }
+                                } else {
+                                    Value::Null
+                                }
+                            }
+                        },
                         Value::Tuple(tuple) => {
                             let t = tuple.borrow();
                             if let Ok(idx) = name.parse::<usize>() {
