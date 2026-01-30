@@ -1,0 +1,37 @@
+// 10.2 Generic Classes
+print("Testing Generic Classes...");
+
+fn assert(condition: Bool, message: String) {
+    if (!condition) {
+        print("ASSERTION FAILED: " + message);
+        exit(1);
+    }
+}
+
+class Box<T> {
+    private value: T;
+    
+    constructor(value: T) {
+        this.value = value;
+    }
+    
+    public fn get(): T {
+        return this.value;
+    }
+    
+    public fn set(value: T): Void {
+        this.value = value;
+    }
+}
+
+// Test Int Box
+let intBox = Box<Int>(42);
+assert(intBox.get() == 42, "Box<Int> get");
+intBox.set(100);
+assert(intBox.get() == 100, "Box<Int> set");
+
+// Test String Box
+let strBox = Box<String>("hello");
+assert(strBox.get() == "hello", "Box<String> get");
+
+print("✓ Generic Classes Passed");

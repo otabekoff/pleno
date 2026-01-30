@@ -1,0 +1,66 @@
+// Comprehensive Async/Concurrency Test
+print("Testing Advanced Async/Concurrency...");
+
+fn assert(condition: Bool, message: String) {
+    if (!condition) {
+        print("ASSERTION FAILED: " + message);
+        exit(1);
+    }
+}
+
+async fn delay(ms: Int, val: Int): Promise<Int> {
+    // In a real env we might await a timer, here we just return
+    return val;
+}
+
+async fn runTests() {
+    // Test 1: Promise.all
+    print("Test 1: Promise.all");
+    let p1 = delay(100, 1);
+    let p2 = delay(200, 2);
+    let p3 = delay(300, 3);
+    
+    let allPromise = Promise.all([p1, p2, p3]);
+    let results = await allPromise;
+    
+    // Results should be an array [1, 2, 3]
+    print("Promise.all results: " + results);
+    assert(results[0] == 1, "Result 0 correct");
+    assert(results[1] == 2, "Result 1 correct");
+    assert(results[2] == 3, "Result 2 correct");
+
+    // Test 2: Promise.race (simulated)
+    print("Test 2: Promise.race");
+    let r1 = delay(1000, 10); // "Slow"
+    let r2 = delay(10, 20);   // "Fast"
+    // Since execution here is synchronous/immediate in this mock VM environment for delay,
+    // the first one registered or resolved might win depending on implementation.
+    // However, let's verify it returns *something*.
+    
+    let raceResult = await Promise.race([r1, r2]);
+    print("Race result: " + raceResult);
+    assert(raceResult == 10 || raceResult == 20, "Race returned one of the values");
+
+    // Test 3: Spawn
+    print("Test 3: Spawn");
+    let task = spawn(fn() => {
+        print("In spawned task");
+        return 99;
+    });
+    
+    let taskResult = await task;
+    print("Spawn result: " + taskResult);
+    assert(taskResult == 99, "Spawn returned correct value");
+
+    // Test 4: Channel (Expected to fail if not implemented)
+    print("Test 4: Channel (Checking existence)");
+    try {
+        let chan = Channel<Int>();
+        print("Channel created (Unexpected!)");
+    } catch (e) {
+        print("Channel creation failed as expected: " + e);
+    }
+}
+
+runTests();
+print("Tests initiated...");

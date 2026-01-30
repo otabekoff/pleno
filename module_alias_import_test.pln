@@ -1,0 +1,6 @@
+// Test import with alias
+import { square as sq, PI as pi } from "./math_utils.pln";
+
+print("Testing Import with Alias...");
+print("pi: " + pi);
+print("sq(3.0): " + sq(3.0));

@@ -1,0 +1,31 @@
+// 10.1 Generic Functions
+print("Testing Generic Functions...");
+
+fn assert(condition: Bool, message: String) {
+    if (!condition) {
+        print("ASSERTION FAILED: " + message);
+        exit(1);
+    }
+}
+
+// Basic identity function with explicit type
+fn identity<T>(value: T): T {
+    return value;
+}
+
+// Test with Int
+let num = identity<Int>(42);
+assert(num == 42, "Identity Int");
+
+// Test with String
+let str = identity<String>("hello");
+assert(str == "hello", "Identity String");
+
+// Test with Inference (if supported, based on user example)
+// Note: If inference is not fully supported, this might fail or require updates.
+// The parser tests hinted at support.
+let inferred = identity(3.14);
+print("Inferred value: " + inferred); 
+assert(inferred == 3.14, "Identity Inferred");
+
+print("✓ Generic Functions Passed");

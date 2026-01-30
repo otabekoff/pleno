@@ -1,0 +1,46 @@
+// Test Channel functionality
+print("Testing Channel...");
+
+fn assert(condition: Bool, message: String) {
+    if (!condition) {
+        print("ASSERTION FAILED: " + message);
+        exit(1);
+    }
+}
+
+async fn testChannel() {
+    print("Creating channel...");
+    let chan = Channel(); // Try without generics first
+    print("Channel created: " + chan);
+
+    // Spawn a sender
+    spawn(fn() => {
+        print("Sender starting...");
+        for (i in 0..5) {
+            print("Sending " + i);
+            chan.send(i);
+        }
+        // In a real channel we might close it, but let's see if close() exists
+        // chan.close(); 
+        print("Sender done.");
+    });
+
+    // Receiver
+    print("Receiver starting...");
+    for (i in 0..5) {
+        let val = await chan.recv(); // recv might return a Promise
+        print("Received: " + val);
+        assert(val == i, "Received correct value");
+    }
+    print("Receiver done.");
+}
+
+testChannel();
+// Need to keep VM alive? In mock/test env, maybe sleep or just hope spawn runs?
+// If execution ends, vm might exit.
+// But `testChannel` is async, so `testChannel()` returns a promise.
+// If we don't await it (we can't at top level), we rely on VM not exiting if tasks are pending.
+// Let's add a delay loop at end if needed, or rely on test runner.
+
+// Loop removed to allow event loop to handle microtasks
+print("Test function called. Waiting for async execution...");

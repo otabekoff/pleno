@@ -1,0 +1,52 @@
+// Test 9.1 & 9.2: Async/Await and Promises
+print("Testing Async/Await and Promises...");
+
+fn assert(condition: Bool, message: String) {
+    if (!condition) {
+        print("ASSERTION FAILED: " + message);
+        exit(1);
+    }
+}
+
+// Test 1: Async function declaration and call
+print("Test 1: Async function execution");
+async fn simpleAsync(): Promise<Int> {
+    return 42;
+}
+
+let p = simpleAsync();
+// print("Type of result: " + typeof(p)); // Should be Promise or similar
+
+// Test 2: Promise resolution
+print("Test 2: Promise resolution");
+let resolvedValue = 0;
+p.then(|val| => {
+    resolvedValue = val;
+    print("Promise resolved with: " + val);
+});
+
+// We need a way to wait for promises or tick the event loop.
+// Assuming the VM handles this or we can await at top level (if supported) or inside another async fn.
+
+async fn runTests() {
+    // Test 3: Await
+    print("Test 3: Await");
+    let val = await simpleAsync();
+    print("Await result: " + val);
+    assert(val == 42, "Await returned correct value");
+    
+    // Test 4: Promise constructor (if implemented)
+    // print("Test 4: Promise constructor");
+    // let p2 = Promise(|resolve, reject| => {
+    //    resolve(100);
+    // });
+    // let val2 = await p2;
+    // assert(val2 == 100, "Promise constructor works");
+}
+
+// Execute the async test runner
+// Note: Top-level await might not be supported, so calling an async function might just start it.
+// depending on VM implementation, we might need to keep the process alive?
+runTests(); 
+
+print("Async tests initiated...");

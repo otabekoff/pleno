@@ -1,0 +1,40 @@
+// 10.3 Generic Constraints
+print("Testing Generic Constraints...");
+
+fn assert(condition: Bool, message: String) {
+    if (!condition) {
+        print("ASSERTION FAILED: " + message);
+        exit(1);
+    }
+}
+
+// Interface for constraint test
+interface Printable {
+    fn toString(): String;
+}
+
+// Class implementing interface
+class User implements Printable {
+    public name: String;
+    constructor(name: String) { this.name = name; }
+    
+    public fn toString(): String {
+        return "User(" + this.name + ")";
+    }
+}
+
+// Function with constraint
+fn printIt<T: Printable>(item: T): String {
+    return item.toString();
+}
+
+let u = User("Alice");
+let s = printIt<User>(u);
+print("Result: " + s);
+assert(s == "User(Alice)", "Constraint check passed");
+
+// Negative test (conceptual): generic constraints are checked at runtime or compile time depending on impl.
+// Passing a non-Printable should fail.
+// try { printIt<Int>(42); } catch (e) { print("Caught expected error"); }
+
+print("✓ Generic Constraints Passed");

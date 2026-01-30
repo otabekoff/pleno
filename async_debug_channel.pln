@@ -1,0 +1,19 @@
+// Test Channel syntax
+print("Testing Channel syntax...");
+
+try {
+    // Just try to use the identifier Channel
+    // If it's not defined, it should throw ReferenceError or similar
+    let c = Channel;
+    print("Channel identifier exists");
+} catch (e) {
+    print("Channel identifier issue: " + e);
+}
+
+try {
+    // Try generic syntax
+    // let c = Channel<Int>(); // potentially syntax error if Channel is not a type/class
+} catch (e) {
+    print("Generic syntax issue: " + e);
+}
+print("Done.");
