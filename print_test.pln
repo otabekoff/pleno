@@ -1,0 +1,2 @@
+print("Testing", "multiple", "arguments", 1, 2, 3);
+print("Current behavior: " + "string concatenation");

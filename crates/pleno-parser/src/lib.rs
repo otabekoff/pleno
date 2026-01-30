@@ -2226,6 +2226,69 @@ impl Parser {
         self.parse_postfix_loop(expr, true)
     }
 
+    fn parse_interpolated_string(&mut self, value: String, span: Span) -> Result<Expr, ParseError> {
+        let mut segments = Vec::new();
+        let mut last_idx = 0;
+        let bytes = value.as_bytes();
+        let mut i = 0;
+
+        while i < bytes.len() {
+            if i + 1 < bytes.len() && bytes[i] == b'$' && bytes[i + 1] == b'{' {
+                // Add preceding literal segment
+                if i > last_idx {
+                    let literal = String::from_utf8_lossy(&bytes[last_idx..i]).to_string();
+                    segments.push(Expr::new(ExprKind::Literal(Literal::String(literal)), span));
+                }
+
+                // Find matching brace
+                let start_expr = i + 2;
+                let mut brace_count = 1;
+                let mut j = start_expr;
+                while j < bytes.len() && brace_count > 0 {
+                    if bytes[j] == b'{' {
+                        brace_count += 1;
+                    } else if bytes[j] == b'}' {
+                        brace_count -= 1;
+                    }
+                    j += 1;
+                }
+
+                if brace_count > 0 {
+                    return Err(ParseError {
+                        message: "Unterminated interpolation".to_string(),
+                        span,
+                    });
+                }
+
+                let expr_str = String::from_utf8_lossy(&bytes[start_expr..j - 1]).to_string();
+
+                // Parse the expression
+                let tokens = pleno_lexer::lex(&expr_str).map_err(|e| ParseError {
+                    message: format!("Lex error in interpolation: {}", e.message),
+                    span,
+                })?;
+                let mut sub_parser = Parser::new(tokens);
+                let expr = sub_parser.parse_expr().map_err(|e| ParseError {
+                    message: format!("Parse error in interpolation: {}", e.message),
+                    span,
+                })?;
+                segments.push(expr);
+
+                i = j;
+                last_idx = i;
+            } else {
+                i += 1;
+            }
+        }
+
+        if last_idx < bytes.len() {
+            let literal = String::from_utf8_lossy(&bytes[last_idx..]).to_string();
+            segments.push(Expr::new(ExprKind::Literal(Literal::String(literal)), span));
+        }
+
+        Ok(self.wrap_expr(ExprKind::InterpolatedString(segments), span))
+    }
+
     fn parse_atom(&mut self) -> Result<Expr, ParseError> {
         let token = self.advance();
         let start_span = token.span;
@@ -2237,7 +2300,11 @@ impl Parser {
                 Ok(self.wrap_expr(ExprKind::Literal(Literal::Float(value)), start_span))
             }
             TokenKind::String(value) => {
-                Ok(self.wrap_expr(ExprKind::Literal(Literal::String(value)), start_span))
+                if value.contains("${") {
+                    self.parse_interpolated_string(value, start_span)
+                } else {
+                    Ok(self.wrap_expr(ExprKind::Literal(Literal::String(value)), start_span))
+                }
             }
             TokenKind::Char(value) => {
                 Ok(self.wrap_expr(ExprKind::Literal(Literal::Char(value)), start_span))

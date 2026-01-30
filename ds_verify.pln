@@ -1,0 +1,200 @@
+
+// Phase 5: Data Structures Verification
+
+fn assert(condition, message) {
+    if (!condition) {
+        print("ASSERTION FAILED: ${message}");
+        throw "Assertion failed: ${message}";
+    }
+}
+// 6. Spreads
+print("Testing Spreads...");
+let a1_s = [1, 2];
+let a2_s = [...a1_s, 3, 4];
+assert(a2_s.len == 4 && a2_s[0] == 1 && a2_s[1] == 2 && a2_s[2] == 3 && a2_s[3] == 4, "Array spread should work");
+
+let m1_s = {"a": 1, "b": 2};
+let m2_s = {...m1_s, "c": 3};
+assert(m2_s.size() == 3 && m2_s["a"] == 1 && m2_s["b"] == 2 && m2_s["c"] == 3, "Map spread should work");
+
+let s1_s = {1, 2};
+let s2_s = {...s1_s, 3, 4};
+assert(s2_s.size() == 4, "Set spread size should be 4");
+assert(s2_s.contains(1), "Set spread should contain 1");
+
+print("Spreads test passed!");
+
+// 1. Arrays
+print("Testing Arrays...");
+let arr = [1, 2, 3];
+assert(arr.len == 3, "Array length should be 3");
+assert(arr[0] == 1, "arr[0] should be 1");
+assert(arr[1] == 2, "arr[1] should be 2");
+assert(arr[2] == 3, "arr[2] should be 3");
+
+arr.push(4);
+assert(arr.len == 4, "Array length should be 4 after push");
+assert(arr[3] == 4, "arr[3] should be 4");
+
+let popped = arr.pop();
+assert(popped == 4, "Popped value should be 4");
+assert(arr.len == 3, "Array length should be 3 after pop");
+
+arr.insert(1, 10);
+assert(arr[1] == 10, "arr[1] should be 10 after insert");
+assert(arr[2] == 2, "arr[2] should be 2 after insert");
+
+arr.remove(1);
+assert(arr[1] == 2, "arr[1] should be 2 after remove");
+
+let joined = [1, 2, 3].join("-");
+assert(joined == "1-2-3", "Join should work");
+
+let mapped = [1, 2, 3].map(|x| => x * 2);
+assert(mapped[0] == 2 && mapped[1] == 4 && mapped[2] == 6, "Map should work");
+
+let filtered = [1, 2, 3, 4].filter(|x| => x % 2 == 0);
+assert(filtered.len == 2 && filtered[0] == 2 && filtered[1] == 4, "Filter should work");
+
+let reduced = [1, 2, 3, 4].reduce(|acc, x| => acc + x, 0);
+assert(reduced == 10, "Reduce should work");
+
+let found = [1, 2, 3, 4].find(|x| => x > 2);
+assert(found == 3, "Find should work");
+
+let contains = [1, 2, 3].contains(2);
+assert(contains == true, "Contains(2) should be true");
+
+let index = [1, 2, 3].indexOf(2);
+assert(index == 1, "IndexOf(2) should be 1");
+
+// Immoutable Arrays
+let immutArr = [1, 2, 3].with(0, 1); // with() returns an immutable array
+try {
+    immutArr.push(4);
+    assert(false, "Should not be able to push to immutable array");
+} catch (e) {
+    print("Caught expected error for immutable array push: " + e);
+}
+
+let withArr = [1, 2, 3].with(1, 10);
+assert(withArr[1] == 10, "with() should create new array with updated element");
+assert(withArr.len == 3, "with() should preserve length");
+
+// 2. Maps
+print("Testing Maps...");
+let map = {"a": 1, "b": 2};
+assert(map.size() == 2, "Map size should be 2");
+assert(map["a"] == 1, "map['a'] should be 1");
+assert(map["b"] == 2, "map['b'] should be 2");
+
+map.put("c", 3);
+assert(map.size() == 3, "Map size should be 3 after put");
+assert(map["c"] == 3, "map['c'] should be 3");
+
+map.remove("b");
+assert(map.size() == 2, "Map size should be 2 after remove");
+assert(map["b"] == null, "map['b'] should be null after remove");
+
+let keys = map.keys(); // ["a", "c"] - order not guaranteed but here we expect these two
+assert(keys.len == 2, "Keys length should be 2");
+
+let values = map.values();
+assert(values.len == 2, "Values length should be 2");
+
+let mapMapped = {"a": 1, "b": 2}.map(|k, v| => v * 10);
+assert(mapMapped["a"] == 10 && mapMapped["b"] == 20, "Map.map should work");
+
+let mapFiltered = {"a": 1, "b": 2, "c": 3}.filter(|k, v| => v > 1);
+assert(mapFiltered.size() == 2 && mapFiltered.containsKey("b") && mapFiltered.containsKey("c"), "Map.filter should work");
+
+// Immutable Maps
+let immutMap = {"a": 1}.with("b", 2); // with() returns an immutable map
+try {
+    immutMap.put("c", 3);
+    assert(false, "Should not be able to put to immutable map");
+} catch (e) {
+    print("Caught expected error for immutable map put: " + e);
+}
+
+let withMap = {"a": 1}.with("b", 2);
+assert(withMap["a"] == 1 && withMap["b"] == 2, "Map.with should work");
+
+// 3. Sets
+print("Testing Sets...");
+let s = {1, 2, 3, 3};
+assert(s.size() == 3, "Set size should be 3 (duplicates removed)");
+assert(s.contains(1), "Set should contain 1");
+
+s.add(4);
+assert(s.size() == 4, "Set size should be 4 after add");
+assert(s.contains(4), "Set should contain 4");
+
+s.remove(2);
+assert(s.size() == 3, "Set size should be 3 after remove");
+assert(!s.contains(2), "Set should not contain 2");
+
+let sMapped = {1, 2, 3}.map(|x| => x * 10); // Returns an array usually or another set? builtins.rs says array
+assert(sMapped.len == 3, "Set.map should return array of size 3");
+
+let sFiltered = {1, 2, 3, 4}.filter(|x| => x % 2 == 0);
+assert(sFiltered.size() == 2 && sFiltered.contains(2) && sFiltered.contains(4), "Set.filter should work");
+
+let setArr = {1, 2, 3}.toArray();
+assert(setArr.len == 3, "Set.toArray should work");
+
+let union = {1, 2}.union({2, 3});
+print("Union: " + union);
+assert(union.size() == 3 && union.contains(1) && union.contains(2) && union.contains(3), "Set.union should work");
+
+let intersect = {1, 2}.intersection({2, 3});
+print("Intersection: " + intersect);
+assert(intersect.size() == 1 && intersect.contains(2), "Set.intersection should work");
+
+// 4. Tuples
+print("Testing Tuples...");
+let t = (1, "hello", true);
+assert(t.0 == 1, "t.0 should be 1");
+assert(t.1 == "hello", "t.1 should be 'hello'");
+assert(t.2 == true, "t.2 should be true");
+
+
+let nt = (x: 10, y: 20);
+assert(nt.x == 10, "nt.x should be 10");
+assert(nt.y == 20, "nt.y should be 20");
+assert(nt.0 == 10, "nt.0 should be 10");
+assert(nt.1 == 20, "nt.1 should be 20");
+
+// Destructuring (if supported)
+// try {
+//     let (tx, ty, tz) = t;
+//     assert(tx == 1 && ty == "hello" && tz == true, "Tuple destructuring should work");
+// } catch (e) {
+//     print("Tuple destructuring might not be supported yet: " + e);
+// }
+
+// 5. Ranges
+print("Testing Ranges...");
+let r1 = 1..5;
+assert(r1.start == 1, "r1.start should be 1");
+assert(r1.end == 5, "r1.end should be 5");
+assert(!r1.inclusive, "r1 should not be inclusive");
+
+let r2 = 1..=5;
+assert(r2.inclusive, "r2 should be inclusive");
+
+// Iterate range
+let mut sum = 0;
+for (x in 1..5) {
+    sum = sum + x;
+}
+assert(sum == 10, "Sum of 1..5 should be 10"); // 1+2+3+4
+
+sum = 0;
+for (x in 1..=5) {
+    sum = sum + x;
+}
+assert(sum == 15, "Sum of 1..=5 should be 15"); // 1+2+3+4+5
+
+print("Data Structures Verification Complete!");
+

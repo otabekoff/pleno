@@ -493,20 +493,50 @@ fn lex_string(
     start: usize,
 ) -> Result<(String, usize), LexError> {
     let mut value = String::new();
+    let mut brace_depth: usize = 0;
+    let mut in_quote = false;
+
     while let Some((idx, ch)) = chars.next() {
-        if ch == '"' {
+        if !in_quote && brace_depth == 0 && ch == '"' {
             return Ok((value, idx + 1));
         }
+
+        if ch == '"' {
+            if brace_depth > 0 {
+                in_quote = !in_quote;
+            }
+        }
+
+        if !in_quote {
+            if ch == '$' && chars.peek().map(|p| p.1) == Some('{') {
+                chars.next();
+                value.push_str("${");
+                brace_depth += 1;
+                continue;
+            }
+            if ch == '{' && brace_depth > 0 {
+                brace_depth += 1;
+            }
+            if ch == '}' && brace_depth > 0 {
+                brace_depth -= 1;
+            }
+        }
+
         if ch == '\\' {
             if let Some((_, esc)) = chars.next() {
-                value.push(match esc {
-                    'n' => '\n',
-                    'r' => '\r',
-                    't' => '\t',
-                    '"' => '"',
-                    '\\' => '\\',
-                    other => other,
-                });
+                if brace_depth > 0 {
+                    value.push('\\');
+                    value.push(esc);
+                } else {
+                    value.push(match esc {
+                        'n' => '\n',
+                        'r' => '\r',
+                        't' => '\t',
+                        '"' => '"',
+                        '\\' => '\\',
+                        other => other,
+                    });
+                }
             } else {
                 return Err(LexError {
                     message: "Unterminated string escape".to_string(),

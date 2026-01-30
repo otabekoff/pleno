@@ -154,6 +154,7 @@ pub enum ExprKind {
         args: Vec<CallArg>,
     },
     MacroSplice(Box<Expr>),
+    InterpolatedString(Vec<Expr>),
 }
 
 #[derive(Debug, Clone, PartialEq)]

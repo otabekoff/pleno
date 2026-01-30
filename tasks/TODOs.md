@@ -5,6 +5,8 @@ http://localhost:5173/pleno/specs/ is showing next page to introduction which is
 
 i++ ++i else if finallies
 
+after doing output files creation, remove them, clean the project. or don't create at the project root. instead log texts should be in .logs folder
+
 Now, as we have finished v1 of the Pleno programming language, we fully support specs.md and many other things not listed in it too. Now what I want is, you need to add those already implemented, but missed things in specs.md to be noted.
 
 Always do cargo clippy --workspace --all-targets --all-features -- -D warnings and github add    commit and push. gh?

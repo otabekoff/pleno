@@ -1318,12 +1318,37 @@ impl Compiler {
             ExprKind::MacroCall { .. } | ExprKind::MacroSplice(_) => {
                 Err(self.error("macro expansion is not implemented", expr.span))
             }
+            ExprKind::InterpolatedString(segments) => {
+                let reg = self.registers.allocate()?;
+                let const_idx = self.add_constant(Value::String(Rc::new("".into())));
+                self.emit(Opcode::LoadConst, reg, const_idx, 0);
+
+                let mut current_reg = reg;
+                for segment in segments {
+                    let seg_reg = self.compile_expr(segment)?;
+                    let next_reg = self.registers.allocate()?;
+                    self.emit(Opcode::Add, next_reg, current_reg, seg_reg);
+                    self.free_temp(current_reg);
+                    self.free_temp(seg_reg);
+                    current_reg = next_reg;
+                }
+                Ok(current_reg)
+            }
         }
     }
 
     fn add_constant(&mut self, value: Value) -> u8 {
+        for (idx, constant) in self.chunk.constants.iter().enumerate() {
+            if constant == &value {
+                return idx as u8;
+            }
+        }
         self.chunk.constants.push(value);
-        (self.chunk.constants.len() - 1) as u8
+        let idx = self.chunk.constants.len() - 1;
+        if idx > 255 {
+            panic!("too many constants in function (max 255)");
+        }
+        idx as u8
     }
 
     fn emit(&mut self, opcode: Opcode, a: u8, b: u8, c: u8) {
