@@ -1,4 +1,5 @@
-use pleno_value::Value;
+use pleno_value::{FileState, RuntimeError, Value};
+use std::cell::RefCell;
 use std::fs;
 use std::rc::Rc;
 
@@ -288,4 +289,61 @@ pub fn io_directory_delete_recursive(
         pleno_value::RuntimeError::new(format!("Directory.deleteRecursive failed: {}", e))
     })?;
     Ok(Value::Null)
+}
+
+pub fn io_open(
+    vm: &mut dyn pleno_value::VMProvider,
+    args: &[Value],
+) -> Result<Value, pleno_value::RuntimeError> {
+    let path = match args.first() {
+        Some(Value::String(s)) => s.as_str(),
+        _ => return Err(RuntimeError::new("open expects path string")),
+    };
+    let mode = match args.get(1) {
+        Some(Value::String(s)) => s.as_str(),
+        None => "r",
+        _ => return Err(RuntimeError::new("open mode must be string")),
+    };
+
+    let inner: Box<dyn std::io::Write> = match mode {
+        "w" => Box::new(fs::File::create(path).map_err(|e| RuntimeError::new(e.to_string()))?),
+        "a" => Box::new(
+            fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(path)
+                .map_err(|e| RuntimeError::new(e.to_string()))?,
+        ),
+        "r" => {
+            return Err(RuntimeError::new(
+                "read mode not supported for File objects yet",
+            ));
+        }
+        _ => return Err(RuntimeError::new("invalid mode")),
+    };
+
+    Ok(Value::File(vm.get_gc().allocate(FileState {
+        inner: RefCell::new(Some(inner)),
+        name: format!("<file {}>", path),
+    })))
+}
+
+pub fn io_stdout(
+    vm: &mut dyn pleno_value::VMProvider,
+    _args: &[Value],
+) -> Result<Value, pleno_value::RuntimeError> {
+    Ok(Value::File(vm.get_gc().allocate(FileState {
+        inner: RefCell::new(Some(Box::new(std::io::stdout()))),
+        name: "<stdout>".to_string(),
+    })))
+}
+
+pub fn io_stderr(
+    vm: &mut dyn pleno_value::VMProvider,
+    _args: &[Value],
+) -> Result<Value, pleno_value::RuntimeError> {
+    Ok(Value::File(vm.get_gc().allocate(FileState {
+        inner: RefCell::new(Some(Box::new(std::io::stderr()))),
+        name: "<stderr>".to_string(),
+    })))
 }

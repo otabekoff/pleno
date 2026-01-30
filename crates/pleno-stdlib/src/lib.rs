@@ -150,6 +150,9 @@ pub fn register(vm: &mut dyn VMProvider) {
         "File".to_string(),
         Value::Map(gc.allocate(MapState::new(file_obj))),
     );
+    io_module.insert("open".to_string(), Value::NativeFunction(io::io_open));
+    io_module.insert("stdout".to_string(), Value::NativeFunction(io::io_stdout));
+    io_module.insert("stderr".to_string(), Value::NativeFunction(io::io_stderr));
     io_module.insert(
         "Directory".to_string(),
         Value::Map(gc.allocate(MapState::new(dir_obj))),
@@ -320,6 +323,9 @@ pub fn register(vm: &mut dyn VMProvider) {
     for (name, value) in modules {
         if name == "std:reflect" {
             vm.register_global("Reflect".to_string(), value.clone());
+        }
+        if name == "std:io" {
+            vm.register_global("IO".to_string(), value.clone());
         }
         vm.register_module(name, value);
     }

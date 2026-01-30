@@ -399,6 +399,55 @@ fn native_set_iterator(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value,
     }
 }
 
+fn native_file_write(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    let file = match &args[0] {
+        Value::File(f) => f,
+        _ => return Err(RuntimeError::new("Expected file")),
+    };
+    let content = match args.get(1) {
+        Some(Value::String(s)) => s.as_str(),
+        _ => return Err(RuntimeError::new("Expected string content")),
+    };
+    let file_state = file.borrow();
+    let mut inner = file_state.inner.borrow_mut();
+    if let Some(writer) = inner.as_mut() {
+        let writer: &mut dyn Write = writer;
+        write!(writer, "{}", content)
+            .map_err(|e| RuntimeError::new(format!("Write failed: {}", e)))?;
+        Ok(Value::Null)
+    } else {
+        Err(RuntimeError::new("File is closed"))
+    }
+}
+
+fn native_file_flush(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    let file = match &args[0] {
+        Value::File(f) => f,
+        _ => return Err(RuntimeError::new("Expected file")),
+    };
+    let file_state = file.borrow();
+    let mut inner = file_state.inner.borrow_mut();
+    if let Some(writer) = inner.as_mut() {
+        writer
+            .flush()
+            .map_err(|e| RuntimeError::new(format!("Flush failed: {}", e)))?;
+        Ok(Value::Null)
+    } else {
+        Err(RuntimeError::new("File is closed"))
+    }
+}
+
+fn native_file_close(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    let file = match &args[0] {
+        Value::File(f) => f,
+        _ => return Err(RuntimeError::new("Expected file")),
+    };
+    let file_state = file.borrow();
+    let mut inner = file_state.inner.borrow_mut();
+    *inner = None;
+    Ok(Value::Null)
+}
+
 pub fn resolve_builtin_method(ty: &str, name: &str) -> Option<pleno_value::NativeFunction> {
     match (ty, name) {
         ("String", "toUpperCase") | ("String", "upper") => Some(native_string_upper),
@@ -468,6 +517,9 @@ pub fn resolve_builtin_method(ty: &str, name: &str) -> Option<pleno_value::Nativ
         ("Option", "expect") => Some(native_option_expect),
         ("Option", "isSome") => Some(native_option_is_some),
         ("Option", "isNone") => Some(native_option_is_none),
+        ("File", "write") => Some(native_file_write),
+        ("File", "flush") => Some(native_file_flush),
+        ("File", "close") => Some(native_file_close),
         ("Promise", "then") => Some(crate::promise::promise_then),
         ("Mutex", "lock") => Some(crate::concurrency::native_mutex_lock),
         ("Mutex", "unlock") => Some(crate::concurrency::native_mutex_unlock),
@@ -502,15 +554,69 @@ fn is_truthy(value: &Value) -> bool {
 // Global functions
 fn native_print(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
     vm.check_purity()?;
+    let named_args = vm.get_named_args();
+    let sep = named_args
+        .get("sep")
+        .and_then(|v| v.as_str())
+        .unwrap_or(" ");
+    let end = named_args
+        .get("end")
+        .and_then(|v| v.as_str())
+        .unwrap_or("\n");
+
+    let file_arg = named_args.get("file");
+    let flush_arg = named_args.get("flush");
+
     let mut out = String::new();
     for (idx, value) in args.iter().enumerate() {
         if idx > 0 {
-            out.push(' ');
+            out.push_str(sep);
         }
         out.push_str(&format!("{}", value));
     }
-    println!("{out}");
-    let _ = std::io::stdout().flush();
+    out.push_str(end);
+
+    if let Some(f_val) = file_arg {
+        match f_val {
+            Value::File(f) => {
+                let file_state = f.borrow();
+                let mut inner = file_state.inner.borrow_mut();
+                if let Some(writer) = inner.as_mut() {
+                    let writer: &mut dyn Write = writer;
+                    write!(writer, "{}", out).map_err(|e| {
+                        RuntimeError::new(format!("print failed to write to file: {}", e))
+                    })?;
+                } else {
+                    return Err(RuntimeError::new("print: file is closed"));
+                }
+            }
+            _ => return Err(RuntimeError::new("print: file argument must be a File")),
+        }
+    } else {
+        print!("{}", out);
+    }
+
+    let should_flush = if let Some(fl) = flush_arg {
+        fl.as_bool().unwrap_or(false)
+    } else {
+        file_arg.is_none()
+    };
+
+    if should_flush {
+        if let Some(f_val) = file_arg {
+            if let Value::File(f) = f_val {
+                let file_state = f.borrow();
+                let mut inner = file_state.inner.borrow_mut();
+                if let Some(writer) = inner.as_mut() {
+                    writer
+                        .flush()
+                        .map_err(|e| RuntimeError::new(format!("flush failed: {}", e)))?;
+                }
+            }
+        } else {
+            let _ = std::io::stdout().flush();
+        }
+    }
     Ok(Value::Null)
 }
 
