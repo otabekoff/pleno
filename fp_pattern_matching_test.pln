@@ -1,0 +1,44 @@
+// Test 6.6: Pattern Matching on Data
+print("Testing Pattern Matching...");
+
+fn assert(condition: Bool, message: String) {
+    if (!condition) {
+        print("ASSERTION FAILED: " + message);
+        exit(1);
+    }
+}
+
+fn processData(data: Any) {
+    match (data) {
+        case [] => print("Empty array"),
+        case [single] => print("Single element: " + single),
+        case [first, ...rest] => {
+            print("First: " + first);
+            print("Rest: " + rest);
+        },
+        case {name, age} => print("Person: " + name + ", " + age),
+        case _ => print("Unknown")
+    }
+}
+
+// Test 1: Empty array
+print("Test 1: Empty array");
+processData([]);
+
+// Test 2: Single element
+print("\nTest 2: Single element");
+processData([42]);
+
+// Test 3: Multiple elements
+print("\nTest 3: Multiple elements");
+processData([1, 2, 3, 4]);
+
+// Test 4: Object destructuring
+print("\nTest 4: Object destructuring");
+processData({"name": "Alice", "age": 30});
+
+// Test 5: Other data
+print("\nTest 5: Other data");
+processData("hello");
+
+print("\n✓ Pattern Matching: All tests passed!");

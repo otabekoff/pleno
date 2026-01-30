@@ -1,0 +1,6 @@
+// Test if _ placeholder is recognized
+fn add(a: Int, b: Int): Int => a + b;
+
+print("Testing _ placeholder...");
+let addFive = add(5, _);
+print(addFive(3));

@@ -399,7 +399,7 @@ fn native_set_iterator(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value,
     }
 }
 
-fn native_file_write(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+fn native_file_write(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
     let file = match &args[0] {
         Value::File(f) => f,
         _ => return Err(RuntimeError::new("Expected file")),
@@ -420,7 +420,7 @@ fn native_file_write(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, R
     }
 }
 
-fn native_file_flush(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+fn native_file_flush(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
     let file = match &args[0] {
         Value::File(f) => f,
         _ => return Err(RuntimeError::new("Expected file")),
@@ -437,7 +437,7 @@ fn native_file_flush(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, R
     }
 }
 
-fn native_file_close(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+fn native_file_close(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
     let file = match &args[0] {
         Value::File(f) => f,
         _ => return Err(RuntimeError::new("Expected file")),

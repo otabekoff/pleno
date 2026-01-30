@@ -1,0 +1,28 @@
+// Test if @pure annotation enforces purity
+print("Testing @pure annotation enforcement...");
+
+let mut globalCounter = 0;
+
+// This should be allowed - pure function
+@pure
+fn pureAdd(a: Int, b: Int): Int {
+    return a + b;
+}
+
+// This should fail if @pure is enforced - mutates global state
+@pure
+fn impureIncrement(x: Int): Int {
+    globalCounter++;  // Side effect!
+    return x + globalCounter;
+}
+
+print("Calling pureAdd(5, 3): " + pureAdd(5, 3));
+print("Calling impureIncrement(10): " + impureIncrement(10));
+print("Global counter: " + globalCounter);
+
+// If @pure is enforced, impureIncrement should have failed
+if (globalCounter > 0) {
+    print("WARNING: @pure annotation is NOT enforced - impure function was allowed to run");
+} else {
+    print("SUCCESS: @pure annotation is enforced");
+}

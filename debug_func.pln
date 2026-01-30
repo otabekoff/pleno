@@ -1,0 +1,18 @@
+// Test different function syntaxes
+print("Test 1: Lambda syntax");
+let f1 = |x, y| => x + y;
+print(f1(5, 3));
+
+print("\nTest 2: fn syntax with expression body");
+let f2 = fn(x: Int, y: Int): Int => x + y;
+print(f2);
+print(typeof(f2));
+print(f2(5, 3));
+
+print("\nTest 3: fn syntax with block body");
+let f3 = fn(x: Int, y: Int): Int {
+    return x + y;
+};
+print(f3);
+print(typeof(f3));
+print(f3(5, 3));

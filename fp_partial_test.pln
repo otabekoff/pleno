@@ -1,0 +1,32 @@
+// Comprehensive test for _ placeholder
+print("Testing Partial Application with _ Placeholder...");
+
+fn assert(condition: Bool, message: String) {
+    if (!condition) {
+        print("ASSERTION FAILED: " + message);
+        exit(1);
+    }
+}
+
+// Test 1: Simple partial application
+fn add(a: Int, b: Int): Int => a + b;
+let addFive = add(5, _);
+print("Test 1: add(5, _)");
+print("Type: " + typeof(addFive));
+print("Calling addFive(3): " + addFive(3));
+assert(addFive(3) == 8, "Partial application: add(5, _)(3) == 8");
+
+// Test 2: Multiple placeholders
+fn multiply(a: Int, b: Int, c: Int): Int => a * b * c;
+let partialMul = multiply(2, _, 5);
+print("\nTest 2: multiply(2, _, 5)");
+print("Calling partialMul(3): " + partialMul(3));
+assert(partialMul(3) == 30, "Multiple args: multiply(2, _, 5)(3) == 30");
+
+// Test 3: Placeholder in different position
+let mulByTen = multiply(_, 10, 1);
+print("\nTest 3: multiply(_, 10, 1)");
+print("Calling mulByTen(5): " + mulByTen(5));
+assert(mulByTen(5) == 50, "First arg placeholder: multiply(_, 10, 1)(5) == 50");
+
+print("\n✓ Partial Application: All tests passed!");

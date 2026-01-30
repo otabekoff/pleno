@@ -1,0 +1,12 @@
+// Simple try-catch test
+print("Testing basic try-catch...");
+
+try {
+    print("In try block");
+    throw "test error";
+    print("After throw - should not execute");
+} catch (e) {
+    print("Caught error: " + e);
+}
+
+print("After try-catch - execution continues");

@@ -1,0 +1,43 @@
+// Test 6.3: Immutable Data Structures
+print("Testing Immutable Data Structures...");
+
+fn assert(condition: Bool, message: String) {
+    if (!condition) {
+        print("ASSERTION FAILED: " + message);
+        exit(1);
+    }
+}
+
+// Immutable arrays - .with(index, value) creates new array with value at index
+print("Testing immutable arrays...");
+let list = [1, 2, 3];
+let newList = list.with(1, 99);  // Replace index 1 with 99
+assert(newList.length == 3, "Array .with() preserves length");
+assert(newList[1] == 99, "Array .with() updates value");
+assert(list[1] == 2, "Original array unchanged");
+
+// Immutable maps - .with(key, value) creates new map with key-value pair
+print("Testing immutable maps...");
+let config = {
+    "host": "localhost",
+    "port": 8080
+};
+let newConfig = config.with("timeout", 30);
+assert(newConfig.timeout == 30, "Map .with() adds new key");
+assert(newConfig.host == "localhost", "Map .with() preserves existing keys");
+assert(config.timeout == null, "Original map unchanged");
+
+// Test map update (should create new map)
+let updatedConfig = config.with("port", 9090);
+assert(updatedConfig.port == 9090, "Map .with() updates value");
+assert(config.port == 8080, "Original map port unchanged");
+
+// Immutable sets - .with(value) creates new set with value added
+print("Testing immutable sets...");
+let set1 = {1, 2, 3};
+let set2 = set1.with(4);
+assert(set2.contains(4), "Set .with() adds element");
+assert(set1.contains(4) == false, "Original set unchanged");
+assert(set2.contains(1) && set2.contains(2) && set2.contains(3), "Set .with() preserves existing elements");
+
+print("✓ Immutable Data Structures: All tests passed!");

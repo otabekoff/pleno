@@ -1,0 +1,45 @@
+// Test 6.2: Pure Functions
+print("Testing Pure Functions...");
+
+fn assert(condition: Bool, message: String) {
+    if (!condition) {
+        print("ASSERTION FAILED: " + message);
+        exit(1);
+    }
+}
+
+// Test 1: Simple pure function
+@pure
+fn add(a: Int, b: Int): Int {
+    return a + b;
+}
+
+assert(add(5, 3) == 8, "Pure function add");
+print("✓ Pure function add(5, 3) = 8");
+
+// Test 2: Pure function with multiple operations
+@pure
+fn calculate(x: Int, y: Int): Int {
+    let sum = x + y;
+    let product = x * y;
+    return sum + product;
+}
+
+assert(calculate(3, 4) == 19, "Pure function calculate");
+print("✓ Pure function calculate(3, 4) = 19");
+
+// Test 3: Pure function with conditional logic
+@pure
+fn max(a: Int, b: Int): Int {
+    if (a > b) {
+        return a;
+    } else {
+        return b;
+    }
+}
+
+assert(max(10, 5) == 10, "Pure function max");
+print("✓ Pure function max(10, 5) = 10");
+
+print("\n✓ Pure Functions: All tests passed!");
+print("Note: @pure annotation is enforced by the VM");

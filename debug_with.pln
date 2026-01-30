@@ -1,0 +1,12 @@
+// Debug .with() method
+print("Testing array .with() method...");
+let list = [1, 2, 3];
+print("Original list: " + list);
+print("Length: " + list.length);
+
+print("\nCalling list.with(4)...");
+let newList = list.with(4);
+print("New list: " + newList);
+print("New length: " + newList.length);
+print("Original list after: " + list);
+print("Original length after: " + list.length);

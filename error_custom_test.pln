@@ -1,0 +1,40 @@
+// Test custom exceptions
+print("Testing Custom Exceptions...");
+
+fn assert(condition: Bool, message: String) {
+    if (!condition) {
+        print("ASSERTION FAILED: " + message);
+        exit(1);
+    }
+}
+
+// Test 1: Custom error class
+class ValidationError {
+    public message: String;
+    public field: String;
+    
+    constructor(message: String, field: String) {
+        this.message = message;
+        this.field = field;
+    }
+}
+
+fn validateAge(age: Int) {
+    if (age < 0 || age > 150) {
+        throw ValidationError("Invalid age", "age");
+    }
+}
+
+// Test throwing and catching custom error
+try {
+    validateAge(-5);
+    assert(false, "Should have thrown");
+} catch (e) {
+    print("Caught custom error");
+    print("Message: " + e.message);
+    print("Field: " + e.field);
+    assert(e.message == "Invalid age", "Custom error message");
+    assert(e.field == "age", "Custom error field");
+}
+
+print("\n✓ Custom Exceptions: All tests passed!");

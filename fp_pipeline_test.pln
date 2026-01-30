@@ -1,0 +1,40 @@
+// Test 6.4: Pipeline Operator
+print("Testing Pipeline Operator...");
+
+fn assert(condition: Bool, message: String) {
+    if (!condition) {
+        print("ASSERTION FAILED: " + message);
+        exit(1);
+    }
+}
+
+// Helper functions
+fn double(x: Int): Int => x * 2;
+fn addTen(x: Int): Int => x + 10;
+fn square(x: Int): Int => x * x;
+
+// Test 1: Simple pipeline
+print("Test 1: Simple pipeline");
+let result1 = 5 |> double;
+print("5 |> double = " + result1);
+assert(result1 == 10, "Simple pipeline");
+
+// Test 2: Chained pipeline
+print("Test 2: Chained pipeline");
+let result2 = 5 |> double |> addTen;
+print("5 |> double |> addTen = " + result2);
+assert(result2 == 20, "Chained pipeline");
+
+// Test 3: Complex pipeline
+print("Test 3: Complex pipeline");
+let result3 = 3 |> square |> double |> addTen;
+print("3 |> square |> double |> addTen = " + result3);
+assert(result3 == 28, "Complex pipeline: (3^2)*2+10 = 28");
+
+// Test 4: Pipeline with lambda
+print("Test 4: Pipeline with lambda");
+let result4 = 10 |> (|x| => x - 5);
+print("10 |> (|x| => x - 5) = " + result4);
+assert(result4 == 5, "Pipeline with lambda");
+
+print("✓ Pipeline Operator: All tests passed!");

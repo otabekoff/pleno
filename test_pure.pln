@@ -1,0 +1,8 @@
+// Test if @pure annotation is recognized
+@pure
+fn add(a: Int, b: Int): Int {
+    return a + b;
+}
+
+print("Testing @pure annotation...");
+print(add(5, 3));

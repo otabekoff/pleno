@@ -1,0 +1,61 @@
+// Test 6.1: First-Class Functions
+print("Testing First-Class Functions...");
+
+fn assert(condition: Bool, message: String) {
+    if (!condition) {
+        print("ASSERTION FAILED: " + message);
+        exit(1);
+    }
+}
+
+// Functions as values
+let operation = fn(x: Int, y: Int): Int => x + y;
+assert(operation(5, 3) == 8, "Function as value");
+
+// Functions as parameters
+fn applyTwice(f: (Int) => Int, x: Int): Int {
+    return f(f(x));
+}
+
+let increment = fn(x: Int): Int => x + 1;
+assert(applyTwice(increment, 5) == 7, "Function as parameter");
+
+// Functions as return values
+fn makeMultiplier(factor: Int): (Int) => Int {
+    return |x| => x * factor;
+}
+
+let double = makeMultiplier(2);
+assert(double(5) == 10, "Function as return value");
+
+let triple = makeMultiplier(3);
+assert(triple(4) == 12, "Multiple function instances");
+
+// Lambda shorthand
+let square = |x| => x * x;
+assert(square(6) == 36, "Lambda shorthand");
+
+// Anonymous function with block body
+let add = fn(a: Int, b: Int): Int {
+    return a + b;
+};
+assert(add(10, 20) == 30, "Anonymous function");
+
+// Closures
+fn makeCounter(): () => Int {
+    let mut count = 0;
+    return fn() => {
+        count++;
+        return count;
+    };
+}
+
+let counter1 = makeCounter();
+assert(counter1() == 1, "Closure call 1");
+assert(counter1() == 2, "Closure call 2");
+assert(counter1() == 3, "Closure call 3");
+
+let counter2 = makeCounter();
+assert(counter2() == 1, "Independent closure");
+
+print("✓ First-Class Functions: All tests passed!");
