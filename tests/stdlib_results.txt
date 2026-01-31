@@ -1,0 +1,54 @@
+   Compiling pleno-stdlib v0.1.0 (D:\pleno\crates\pleno-stdlib)
+   Compiling pleno-repl v0.1.0 (D:\pleno\crates\pleno-repl)
+   Compiling pleno-cli v0.1.0 (D:\pleno\crates\pleno-cli)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 16.12s
+     Running `D:\project\rust\rust\zed\target\debug\pleno-cli.exe tests/stdlib_verification.pln`
+--- String Operations ---
+Length: 13
+ToUpper: HELLO, WORLD!
+ToLower: hello, world!
+Trim: abc
+Split: [Hello,  World!]
+Contains: true
+StartsWith: true
+EndsWith: true
+Replace: Hello, Pleno!
+Substring: Hello
+CharAt: H
+IndexOf: 4
+Repeat: abcabcabc
+
+--- Math Operations ---
+Abs: 5
+Ceil: 5
+Floor: 4
+Round: 5
+Max: 5
+Min: 1
+Pow: 8
+Sqrt: 4
+Random: 0.7573329667572272
+RandomInt: 6
+PI: 3.141592653589793
+E: 2.718281828459045
+
+--- JSON Handling ---
+Parsed Name: Alice
+Stringify: {"name":"Bob","age":25}
+Pretty Stringify: {"name":"Bob","age":25}
+
+--- File I/O ---
+Read: Hello IO
+Exists: true
+Exists after delete: false
+
+--- Date & Time ---
+Year: 2026
+Month: 1
+
+--- Regex ---
+Test Match: true
+FindAll: [[123], [456]]
+
+--- HTTP ---
+Http methods check...

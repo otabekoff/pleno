@@ -92,6 +92,22 @@ pub fn math_ceil(
     }
 }
 
+pub fn math_round(
+    _vm: &mut dyn pleno_value::VMProvider,
+    args: &[Value],
+) -> Result<Value, pleno_value::RuntimeError> {
+    if args.is_empty() {
+        return Err(pleno_value::RuntimeError::new(
+            "Math.round requires 1 argument",
+        ));
+    }
+    match args[0] {
+        Value::Int(i) => Ok(Value::Int(i)),
+        Value::Float(f) => Ok(Value::Int(f.round() as i64)),
+        _ => Err(pleno_value::RuntimeError::new("Expected number")),
+    }
+}
+
 pub fn math_sqrt(
     _vm: &mut dyn pleno_value::VMProvider,
     args: &[Value],
@@ -136,4 +152,32 @@ pub fn math_random(
 ) -> Result<Value, pleno_value::RuntimeError> {
     use rand::Rng;
     Ok(Value::Float(rand::thread_rng().r#gen()))
+}
+
+pub fn math_random_int(
+    _vm: &mut dyn pleno_value::VMProvider,
+    args: &[Value],
+) -> Result<Value, pleno_value::RuntimeError> {
+    use rand::Rng;
+    if args.len() < 2 {
+        return Err(pleno_value::RuntimeError::new(
+            "Math.randomInt requires min and max arguments",
+        ));
+    }
+    let min = match args[0] {
+        Value::Int(i) => i,
+        _ => return Err(pleno_value::RuntimeError::new("Expected integer min")),
+    };
+    let max = match args[1] {
+        Value::Int(i) => i,
+        _ => return Err(pleno_value::RuntimeError::new("Expected integer max")),
+    };
+
+    if min >= max {
+        return Err(pleno_value::RuntimeError::new(
+            "Math.randomInt: min must be less than max",
+        ));
+    }
+
+    Ok(Value::Int(rand::thread_rng().gen_range(min..=max)))
 }
