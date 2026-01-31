@@ -19,6 +19,9 @@ pleno format src/
 # Lint code
 pleno lint src/
 
+# Run with Sandboxing & Resource Limits
+pleno run script.pln --max-instructions 1000000 --max-memory 10485760 --allow-io false --allow-network false
+
 # Start REPL
 pleno
 

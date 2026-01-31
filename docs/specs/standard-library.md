@@ -215,3 +215,14 @@ if (match) {
     print(match.group(2));  // "example.com"
 }
 ```
+
+### 13.9 Low-level Networking
+```pleno
+import { Net } from "std:net";
+
+// TCP Listener
+let listener = Net.listen("127.0.0.1:8080");
+
+// TCP Connection
+let connection = Net.connect("google.com:80");
+```

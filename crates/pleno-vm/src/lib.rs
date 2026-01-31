@@ -241,6 +241,36 @@ impl VMProvider for VM {
             .unwrap_or(true)
     }
 
+    fn is_read_allowed(&self, path: &str) -> bool {
+        if let Some(config) = &self.sandbox_config {
+            if !config.allow_io {
+                return false;
+            }
+            if !config.allowed_read_paths.is_empty() {
+                return config
+                    .allowed_read_paths
+                    .iter()
+                    .any(|p| path.starts_with(p));
+            }
+        }
+        true
+    }
+
+    fn is_write_allowed(&self, path: &str) -> bool {
+        if let Some(config) = &self.sandbox_config {
+            if !config.allow_io {
+                return false;
+            }
+            if !config.allowed_write_paths.is_empty() {
+                return config
+                    .allowed_write_paths
+                    .iter()
+                    .any(|p| path.starts_with(p));
+            }
+        }
+        true
+    }
+
     fn get_max_memory(&self) -> usize {
         self.sandbox_config
             .as_ref()

@@ -941,6 +941,8 @@ fn handle_run(args: &mut std::iter::Peekable<std::iter::Skip<std::env::Args>>) {
     let mut max_instructions = 0;
     let mut allow_io = true;
     let mut allow_network = true;
+    let mut allowed_read_paths = Vec::new();
+    let mut allowed_write_paths = Vec::new();
     let mut sandbox_active = false;
 
     while let Some(arg) = args.next() {
@@ -964,6 +966,16 @@ fn handle_run(args: &mut std::iter::Peekable<std::iter::Skip<std::env::Args>>) {
                 allow_network = m.parse::<bool>().unwrap_or(true);
                 sandbox_active = true;
             }
+        } else if arg == "--allow-read" {
+            if let Some(m) = args.next() {
+                allowed_read_paths.push(m);
+                sandbox_active = true;
+            }
+        } else if arg == "--allow-write" {
+            if let Some(m) = args.next() {
+                allowed_write_paths.push(m);
+                sandbox_active = true;
+            }
         } else if target.is_none() {
             target = Some(arg);
         }
@@ -977,6 +989,8 @@ fn handle_run(args: &mut std::iter::Peekable<std::iter::Skip<std::env::Args>>) {
                     max_instructions,
                     allow_io,
                     allow_network,
+                    allowed_read_paths,
+                    allowed_write_paths,
                 })
             } else {
                 None

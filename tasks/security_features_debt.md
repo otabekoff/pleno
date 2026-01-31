@@ -1,21 +1,21 @@
 # Security Features Technical Debt
 
 ## Summary
-Audited specs.md section 20 (Security Features) against actual implementation. Pruwhat items.
+Audited specs.md section 20 (Security Features) against actual implementation. Pruned items completed in the Networking & Metadata pass.
 
 ## Status by Feature
 
 ### 20.2 Sandboxing
 | Feature | Status | Notes |
 |---------|--------|-------|
-| Network access control | ✅ IMPLEMENTED | Blocked in `std:http` via `allowNetwork: false` |
+| Low-level Network (`std:net`) | ✅ IMPLEMENTED | TCP support in `std:net` with `allowNetwork` checks. |
 
 ## Recommendations
 
 1. **Consider for next cycle**:
-   - Implement `std:http` and `std:net` with support for `allowNetwork` sandbox restriction.
-   - Refine `SandboxError` objects to include more metadata (e.g., peak memory used). ✅ IMPLEMENTED
+   - Implement `std:net` (TCP/UDP) with support for `allowNetwork` sandbox restriction. ✅ IMPLEMENTED
+   - Capability-based security model for granular file system permissions (e.g., read-only on specific directories). ✅ IMPLEMENTED
 
 2. **Defer to future**:
    - Full OS-level process sandboxing (using `seccomp` or similar).
-   - Capability-based security model for granular file system permissions (e.g., read-only on specific directories).
+   - Memory usage quotas per-module (advanced isolation).

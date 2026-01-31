@@ -1549,6 +1549,17 @@ if (match) {
 }
 ```
 
+### 13.9 Low-level Networking
+```pleno
+import { Net } from "std:net";
+
+// TCP Listener
+let listener = Net.listen("127.0.0.1:8080");
+
+// TCP Connection
+let connection = Net.connect("google.com:80");
+```
+
 ---
 
 ## 14. Advanced Features ✅
@@ -2114,15 +2125,20 @@ import { Sandbox } from "std:security";
 
 // Run untrusted code in sandbox
 let sandbox = Sandbox({
-    allowFileAccess: false,
-    allowNetworkAccess: false,
-    memoryLimit: 10 * 1024 * 1024  // 10 MB
+    allowIO: true,
+    allowedReadPaths: ["/tmp/data"],
+    allowNetwork: false,
+    maxMemory: 10 * 1024 * 1024  // 10 MB
 });
 
-let result = sandbox.run(fn() {
-    // Untrusted code here
-    return calculate(data);
-});
+try {
+    let result = sandbox.run(fn() {
+        // Untrusted code here
+        return calculate(data);
+    });
+} catch (e) {
+    println("Sandbox violation: " + e.message);
+}
 ```
 
 ---
