@@ -98,12 +98,12 @@ pub enum Value {
     BoundMethod {
         receiver: Box<Value>,
         function: usize,
-        owner: GcRc<Class>,
+        owner: MethodOwner,
         visibility: MethodVisibility,
     },
     StaticMethod {
         function: usize,
-        owner: GcRc<Class>,
+        owner: MethodOwner,
         visibility: MethodVisibility,
     },
     Closure(GcRc<ClosureState>),
@@ -138,7 +138,7 @@ pub enum Value {
     },
     Enum(GcRc<EnumType>),
     Variant {
-        enum_name: Rc<String>,
+        enum_type: GcRc<EnumType>,
         variant_name: Rc<String>,
         data: Vec<Value>,
     },
@@ -504,17 +504,46 @@ impl GcObject for Interface {
 pub struct EnumType {
     pub name: Rc<String>,
     pub variants: HashMap<String, EnumVariantDef>,
+    pub methods: HashMap<String, MethodInfo>,
+    pub static_methods: HashMap<String, MethodInfo>,
     pub module: Option<Rc<String>>,
+    #[serde(default)]
+    pub annotations: Vec<RuntimeAnnotation>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct EnumVariantDef {
     pub index: usize,
     pub param_count: usize,
+    #[serde(default)]
+    pub annotations: Vec<RuntimeAnnotation>,
 }
 
 impl GcObject for EnumType {
-    fn mark(&self, _gc: &mut MarkAndSweepGC) {}
+    fn mark(&self, gc: &mut MarkAndSweepGC) {
+        for m in self.methods.values() {
+            m.mark(gc);
+        }
+        for m in self.static_methods.values() {
+            m.mark(gc);
+        }
+    }
+
+    fn clear_refs(&mut self) {
+        self.methods.clear();
+        self.static_methods.clear();
+    }
+}
+
+impl PartialEq for EnumType {
+    fn eq(&self, other: &Self) -> bool {
+        self.name == other.name
+            && self.variants == other.variants
+            && self.methods == other.methods
+            && self.static_methods == other.static_methods
+            && self.module == other.module
+            && self.annotations == other.annotations
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -540,6 +569,8 @@ pub struct Class {
     pub implements: Vec<Value>,
     pub type_params: Vec<String>,
     pub type_constraints: HashMap<String, Vec<String>>,
+    #[serde(default)]
+    pub annotations: Vec<RuntimeAnnotation>,
 }
 
 impl GcObject for Class {
@@ -552,6 +583,27 @@ impl GcObject for Class {
         }
         for v in &self.implements {
             v.mark(gc);
+        }
+        for m in self.methods.values() {
+            m.mark(gc);
+        }
+        for m in self.static_methods.values() {
+            m.mark(gc);
+        }
+        for m in self.getters.values() {
+            m.mark(gc);
+        }
+        for m in self.setters.values() {
+            m.mark(gc);
+        }
+        for m in self.static_getters.values() {
+            m.mark(gc);
+        }
+        for m in self.static_setters.values() {
+            m.mark(gc);
+        }
+        for m in self.operators.values() {
+            m.mark(gc);
         }
     }
 
@@ -595,6 +647,7 @@ impl PartialEq for Class {
             && self.implements == other.implements
             && self.type_params == other.type_params
             && self.type_constraints == other.type_constraints
+            && self.annotations == other.annotations
     }
 }
 
@@ -607,11 +660,43 @@ pub enum MethodVisibility {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RuntimeAnnotation {
+    pub name: String,
+    pub args: Vec<Value>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum MethodOwner {
+    Class(GcRc<Class>),
+    Enum(GcRc<EnumType>),
+}
+
+impl MethodOwner {
+    pub fn name(&self) -> Rc<String> {
+        match self {
+            MethodOwner::Class(c) => c.borrow().name.clone(),
+            MethodOwner::Enum(e) => e.borrow().name.clone(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MethodInfo {
     pub function: usize,
     pub visibility: MethodVisibility,
-    pub owner: GcRc<Class>,
+    pub owner: MethodOwner,
     pub module: Option<Rc<String>>,
+    #[serde(default)]
+    pub annotations: Vec<RuntimeAnnotation>,
+}
+
+impl MethodInfo {
+    pub fn mark(&self, gc: &mut MarkAndSweepGC) {
+        match &self.owner {
+            MethodOwner::Class(c) => gc.mark_object(&c.to_gc_object()),
+            MethodOwner::Enum(e) => gc.mark_object(&e.to_gc_object()),
+        }
+    }
 }
 
 impl PartialEq for Value {
@@ -708,16 +793,16 @@ impl PartialEq for Value {
             (Value::Enum(a), Value::Enum(b)) => a.as_ptr() == b.as_ptr(),
             (
                 Value::Variant {
-                    enum_name: ea,
+                    enum_type: ea,
                     variant_name: va,
                     data: da,
                 },
                 Value::Variant {
-                    enum_name: eb,
+                    enum_type: eb,
                     variant_name: vb,
                     data: db,
                 },
-            ) => ea == eb && va == vb && da == db,
+            ) => ea.as_ptr() == eb.as_ptr() && va == vb && da == db,
             (
                 Value::VariantConstructor {
                     enum_type: ea,
@@ -800,9 +885,9 @@ impl std::fmt::Display for Value {
                 write!(f, ">")
             }
             Value::Function(_) => write!(f, "<fn>"),
-            Value::BoundMethod { owner, .. } => write!(f, "<method of {}>", owner.borrow().name),
+            Value::BoundMethod { owner, .. } => write!(f, "<method of {}>", owner.name()),
             Value::StaticMethod { owner, .. } => {
-                write!(f, "<static method of {}>", owner.borrow().name)
+                write!(f, "<static method of {}>", owner.name())
             }
             Value::Closure(c) => write!(f, "<closure {}>", c.borrow().function),
             Value::Thunk(_) => write!(f, "<thunk>"),
@@ -885,11 +970,11 @@ impl std::fmt::Display for Value {
             Value::Iterator(_) => write!(f, "<iterator>"),
             Value::Enum(e) => write!(f, "<enum {}>", e.borrow().name),
             Value::Variant {
-                enum_name,
+                enum_type,
                 variant_name,
                 data,
             } => {
-                write!(f, "{}.{}", enum_name, variant_name)?;
+                write!(f, "{}.{}", enum_type.borrow().name, variant_name)?;
                 if !data.is_empty() {
                     write!(f, "(")?;
                     for (i, v) in data.iter().enumerate() {

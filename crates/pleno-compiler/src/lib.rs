@@ -3,7 +3,7 @@ use pleno_ast::{
     Span, Stmt, StmtKind, Visibility,
 };
 use pleno_bytecode::{Chunk, FunctionProto, Instruction, Opcode, ParamSpec};
-use pleno_value::Value;
+use pleno_value::{RuntimeAnnotation, Value};
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
@@ -1018,7 +1018,7 @@ impl Compiler {
                 annotations,
             } => {
                 let is_pure = annotations.iter().any(|a| a.name == "pure");
-                Ok(self.compile_lambda(params, body, return_ty.as_deref(), is_pure)?)
+                Ok(self.compile_lambda(params, body, return_ty.as_deref(), is_pure, annotations)?)
             }
             ExprKind::Range {
                 start,
@@ -2341,6 +2341,92 @@ impl Compiler {
         Ok(())
     }
 
+    fn compile_annotation(
+        &mut self,
+        annotation: &pleno_ast::Annotation,
+    ) -> Result<RuntimeAnnotation, CompileError> {
+        let mut args = Vec::new();
+        for arg in &annotation.args {
+            match &arg.kind {
+                ExprKind::Literal(lit) => {
+                    let val = match lit {
+                        Literal::Int(i) => Value::Int(*i),
+                        Literal::Float(f) => Value::Float(*f),
+                        Literal::String(s) => Value::String(Rc::new(s.clone())),
+                        Literal::Bool(b) => Value::Bool(*b),
+                        Literal::Null => Value::Null,
+                        Literal::Char(c) => Value::String(Rc::new(c.to_string())),
+                    };
+                    args.push(val);
+                }
+                _ => return Err(self.error("annotation arguments must be literals", arg.span)),
+            }
+        }
+        Ok(RuntimeAnnotation {
+            name: annotation.name.clone(),
+            args,
+        })
+    }
+
+    fn emit_annotation_creation(
+        &mut self,
+        annotation: &RuntimeAnnotation,
+    ) -> Result<u8, CompileError> {
+        // Create [name, args] object
+        // For simplicity, we can create a simple object or Map.
+        // VM expects Object with "name" and "args" fields.
+        let obj_reg = self.registers.allocate()?;
+        self.emit(Opcode::NewObject, obj_reg, 0, 0); // Is NewObject taking class? OR just empty object?
+
+        // Actually NewObject usually takes a class.
+        // We can use NewMap instead for simplicity if VM supports checking Map/Object generic.
+        // VM SetAnnotations expects Object.
+
+        // Let's use Map for now?
+        // No, SetAnnotations code I wrote checks: `if let Value::Object(obj) = val`.
+        // And `Value::Object` wraps `Object` struct.
+        // `Object` struct has `class` field.
+        // If we don't have an Annotation class, we can't create Value::Object easily without a class.
+        // Wait, I should change SetAnnotations in VM to accept Map OR Object.
+        // OR I can use `Value::Map`.
+
+        // Let's change SetAnnotations in VM to simple check for map-like structure or just change it to match what we can emit here.
+        // Since we don't have "Annotation" class defined in stdlib yet (maybe we should?),
+        // using Maps is easier for internal representation.
+
+        // But for now, let's emit code to create a Map: { "name": ..., "args": ... }
+        // And I will update VM SetAnnotations to expect Map.
+
+        // Emit Map
+        self.emit(Opcode::NewMap, obj_reg, 0, 0);
+
+        // Set "name"
+        let name_key_idx = self.add_constant(Value::String(Rc::new("name".to_string())));
+        let name_val_idx = self.add_constant(Value::String(Rc::new(annotation.name.clone())));
+        let val_reg = self.registers.allocate()?;
+        self.emit(Opcode::LoadConst, val_reg, name_val_idx, 0);
+        self.emit(Opcode::SetProperty, val_reg, obj_reg, name_key_idx);
+
+        // Set "args"
+        let args_key_idx = self.add_constant(Value::String(Rc::new("args".to_string())));
+        let args_reg = self.registers.allocate()?;
+        self.emit(Opcode::NewArray, args_reg, 0, 0);
+
+        for arg in &annotation.args {
+            let arg_reg = self.registers.allocate()?;
+            let arg_idx = self.add_constant(arg.clone());
+            self.emit(Opcode::LoadConst, arg_reg, arg_idx, 0);
+            self.emit(Opcode::ArrayAppend, args_reg, arg_reg, 0);
+            self.free_temp(arg_reg);
+        }
+        self.emit(Opcode::SetProperty, args_reg, obj_reg, args_key_idx);
+
+        self.free_temp(val_reg);
+        self.free_temp(args_reg);
+
+        Ok(obj_reg)
+    }
+
     fn compile_function(
         &mut self,
         decl: &FunctionDecl,
@@ -2475,6 +2561,16 @@ impl Compiler {
             .collect();
 
         let is_pure = decl.annotations.iter().any(|a| a.name == "pure");
+        let mut runtime_annotations = Vec::new();
+        for anno in &decl.annotations {
+            if anno.name != "pure" && anno.name != "native" {
+                match self.compile_annotation(anno) {
+                    Ok(a) => runtime_annotations.push(a),
+                    Err(e) => return Err(e),
+                }
+            }
+        }
+
         self.chunk.functions.push(FunctionProto {
             name: decl.name.clone(),
             chunk: compiler.chunk,
@@ -2483,6 +2579,7 @@ impl Compiler {
             is_async: decl.is_async,
             is_pure,
             type_params: decl.generics.iter().map(|g| g.name.clone()).collect(),
+            annotations: runtime_annotations,
         });
         let dest = self.registers.allocate()?;
         if store_as_function {
@@ -2570,6 +2667,7 @@ impl Compiler {
         body: &pleno_ast::Expr,
         return_ty: Option<&str>,
         is_pure: bool,
+        annotations: &[pleno_ast::Annotation],
     ) -> Result<u8, CompileError> {
         let body_stmt = match &body.kind {
             ExprKind::Block(stmts) => Stmt {
@@ -2659,6 +2757,14 @@ impl Compiler {
             })
             .collect();
 
+        let mut runtime_annotations = Vec::new();
+        for anno in annotations {
+            if anno.name != "pure" && anno.name != "native" {
+                if let Ok(a) = self.compile_annotation(anno) {
+                    runtime_annotations.push(a);
+                }
+            }
+        }
         self.chunk.functions.push(FunctionProto {
             name: "<lambda>".to_string(),
             chunk: compiler.chunk,
@@ -2667,6 +2773,7 @@ impl Compiler {
             is_async: false,
             is_pure,
             type_params: Vec::new(),
+            annotations: runtime_annotations,
         });
 
         let dest = self.registers.allocate()?;
@@ -2914,6 +3021,24 @@ impl Compiler {
         let name_idx = self.add_constant(Value::String(name.clone().into()));
         self.emit(Opcode::DefineClass, class_reg, name_idx, methods_reg);
 
+        if !annotations.is_empty() {
+            let annos_reg = self.registers.allocate()?;
+            self.emit(Opcode::NewArray, annos_reg, 0, 0);
+            for anno in annotations {
+                if anno.name != "native" {
+                    // Skip "native" if it is processed elsewhere or just keep it?
+                    if let Ok(runtime_anno) = self.compile_annotation(anno) {
+                        if let Ok(obj_reg) = self.emit_annotation_creation(&runtime_anno) {
+                            self.emit(Opcode::ArrayAppend, annos_reg, obj_reg, 0);
+                            self.free_temp(obj_reg);
+                        }
+                    }
+                }
+            }
+            self.emit(Opcode::SetAnnotations, class_reg, annos_reg, 0);
+            self.free_temp(annos_reg);
+        }
+
         if !generics.is_empty() {
             let params_reg = self.registers.allocate()?;
             self.emit(Opcode::NewArray, params_reg, 0, 0);
@@ -3140,56 +3265,10 @@ impl Compiler {
             }
         }
 
-        // Apply decorators in reverse order
-        for annotation in annotations.iter().rev() {
-            if annotation.name == "pure" || annotation.name == "native" {
-                continue;
-            }
-
-            // Compile decorator expression
-            let decorator_reg = if annotation.args.is_empty() {
-                let expr = pleno_ast::Expr {
-                    kind: pleno_ast::ExprKind::Ident(annotation.name.clone()),
-                    span: pleno_ast::Span::new(0, 0),
-                };
-                self.compile_expr(&expr)?
-            } else {
-                // Call the decorator factory
-                let callee = pleno_ast::Expr {
-                    kind: pleno_ast::ExprKind::Ident(annotation.name.clone()),
-                    span: pleno_ast::Span::new(0, 0),
-                };
-                let args: Vec<pleno_ast::CallArg> = annotation
-                    .args
-                    .iter()
-                    .map(|arg| pleno_ast::CallArg::Positional(arg.clone()))
-                    .collect();
-
-                let expr = pleno_ast::Expr {
-                    kind: pleno_ast::ExprKind::Call {
-                        callee: Box::new(callee),
-                        args,
-                    },
-                    span: pleno_ast::Span::new(0, 0),
-                };
-                self.compile_expr(&expr)?
-            };
-
-            // Now call the decorator with the class as argument
-            let args_reg = self.registers.allocate()?;
-            self.emit(Opcode::NewArray, args_reg, 0, 0);
-            self.emit(Opcode::ArrayAppend, args_reg, class_reg, 0);
-
-            let new_dest = self.registers.allocate()?;
-            self.emit(Opcode::Call, new_dest, decorator_reg, args_reg);
-
-            self.free_temp(args_reg);
-            self.free_temp(decorator_reg);
-
-            // Move result back to class_reg
-            self.emit(Opcode::Move, class_reg, new_dest, 0);
-            self.free_temp(new_dest);
-        }
+        // NOTE: Annotations are now stored as metadata via SetAnnotations opcode.
+        // The decorator call pattern (calling annotation as function) is disabled.
+        // If decorator functionality is needed in the future, add a separate mechanism.
+        // for annotation in annotations.iter().rev() { ... }
 
         for nested in nested_classes {
             if let StmtKind::Class {
@@ -3224,6 +3303,18 @@ impl Compiler {
                 variant_name_idx,
                 param_count as u8,
             );
+        }
+
+        for method in &decl.methods {
+            let method_reg = self.compile_function(method, !method.is_static, true, None, None)?;
+            let name_idx = self.add_constant(Value::String(method.name.clone().into()));
+
+            if method.is_static {
+                self.emit(Opcode::AddStaticMethod, method_reg, enum_reg, name_idx);
+            } else {
+                self.emit(Opcode::AddMethod, method_reg, enum_reg, name_idx);
+            }
+            self.free_temp(method_reg);
         }
 
         Ok(enum_reg)
@@ -3855,7 +3946,7 @@ impl Compiler {
     }
 
     pub fn compile_lazy_thunk(&mut self, expr: &Expr) -> Result<u8, CompileError> {
-        let callable_reg = self.compile_lambda(&[], expr, None, false)?;
+        let callable_reg = self.compile_lambda(&[], expr, None, false, &[])?;
         let thunk_reg = self.registers.allocate()?;
         self.emit(Opcode::MakeThunk, thunk_reg, callable_reg, 0);
         self.free_temp(callable_reg);

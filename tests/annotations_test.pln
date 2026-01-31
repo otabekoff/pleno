@@ -1,0 +1,33 @@
+// Simple annotation test for classes
+
+@Author("PlenoUser")
+@Version(1, 0)
+class AnnotatedClass {
+    fn testMethod() {
+        return "tested";
+    }
+}
+
+fn checkAnnotations() {
+    println("Checking Class Annotations...");
+    let classAnnos = Reflect.getAnnotations(AnnotatedClass);
+    println("Class Annotation count: " + classAnnos.length);
+    
+    // Print first annotation if exists
+    if (classAnnos.length > 0) {
+        let anno = classAnnos[0];
+        println("First Annotation name: " + anno["name"]);
+        if (anno["args"].length > 0) {
+            println("  First arg: " + anno["args"][0]);
+        }
+    }
+    
+    // Test instance annotations (should return class annotations)
+    let instance = new AnnotatedClass();
+    let instanceAnnos = Reflect.getAnnotations(instance);
+    println("\nInstance Annotation count: " + instanceAnnos.length);
+    
+    println("\nAnnotation test complete!");
+}
+
+checkAnnotations();

@@ -1,0 +1,44 @@
+enum OrderStatus {
+    Pending,
+    Shipped(String),
+    Delivered
+
+    fn getDescription() {
+        match this {
+            case OrderStatus.Pending => { return "Order is pending"; }
+            case OrderStatus.Shipped(tracking) => { return "Order shipped with tracking: " + tracking; }
+            case OrderStatus.Delivered => { return "Order delivered"; }
+        }
+    }
+
+    static fn getVersion() {
+        return "1.0.0";
+    }
+}
+
+print("Enum Static Method Test:");
+print("Version: " + OrderStatus.getVersion());
+
+print("\nEnum Instance Method Test:");
+let p = OrderStatus.Pending;
+print("Pending: " + p.getDescription());
+
+let s = OrderStatus.Shipped("TR12345");
+print("Shipped: " + s.getDescription());
+
+let d = OrderStatus.Delivered;
+print("Delivered: " + d.getDescription());
+
+// Test this binding
+enum Counter {
+    Value(Int)
+
+    fn getValue() {
+        match this {
+            case Counter.Value(v) => { return v; }
+        }
+    }
+}
+
+let c = Counter.Value(42);
+print("\nCounter Value: " + c.getValue());

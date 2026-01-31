@@ -290,6 +290,10 @@ pub fn register(vm: &mut dyn VMProvider) {
         "callMethod".to_string(),
         Value::NativeFunction(reflect::reflect_call_method),
     );
+    reflect_module.insert(
+        "getAnnotations".to_string(),
+        Value::NativeFunction(reflect::reflect_get_annotations),
+    );
     let reflect_val = Value::Map(gc.allocate(MapState::new(reflect_module)));
     modules.insert("std:reflect".to_string(), reflect_val.clone());
 

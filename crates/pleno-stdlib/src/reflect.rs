@@ -1,4 +1,4 @@
-use pleno_value::{ArrayState, Class, RuntimeError, VMProvider, Value};
+use pleno_value::{ArrayState, Class, MethodOwner, RuntimeError, VMProvider, Value};
 use std::collections::HashSet;
 use std::rc::Rc;
 
@@ -7,7 +7,16 @@ pub fn reflect_get_type_name(
     args: &[Value],
 ) -> Result<Value, RuntimeError> {
     let value = args.first().cloned().unwrap_or(Value::Null);
-    Ok(Value::String(Rc::new(value.type_name().to_string())))
+    let type_name = match &value {
+        Value::Object(obj) => obj
+            .borrow()
+            .class
+            .as_ref()
+            .map(|c| c.borrow().name.to_string())
+            .unwrap_or_else(|| "Object".to_string()),
+        _ => value.type_name().to_string(),
+    };
+    Ok(Value::String(Rc::new(type_name)))
 }
 
 pub fn reflect_get_fields(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
@@ -185,7 +194,7 @@ pub fn reflect_call_method(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Va
                     let bound = Value::BoundMethod {
                         receiver: Box::new(Value::Object(obj.clone())),
                         function: method.function,
-                        owner: class.clone(),
+                        owner: MethodOwner::Class(class.clone()),
                         visibility: method.visibility.clone(),
                     };
                     vm.call(bound, arg_list)
@@ -200,4 +209,48 @@ pub fn reflect_call_method(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Va
             "Reflect.callMethod currently only supports object instances",
         )),
     }
+}
+
+pub fn reflect_get_annotations(
+    vm: &mut dyn VMProvider,
+    args: &[Value],
+) -> Result<Value, RuntimeError> {
+    if args.is_empty() {
+        return Err(RuntimeError::new(
+            "Reflect.getAnnotations(target) expects 1 argument",
+        ));
+    }
+    let target = &args[0];
+
+    let annotations = match target {
+        Value::Class(class) => class.borrow().annotations.clone(),
+        Value::Enum(enum_type) => enum_type.borrow().annotations.clone(),
+        Value::Object(obj) => {
+            // Return class annotations for object instance
+            obj.borrow()
+                .class
+                .as_ref()
+                .map(|c| c.borrow().annotations.clone())
+                .unwrap_or_default()
+        }
+        // For functions, annotations are stored in the FunctionProto which requires VM internal access
+        // This can be extended later with a VMProvider method
+        _ => Vec::new(),
+    };
+
+    let mut list = Vec::new();
+    let gc = vm.get_gc();
+    for anno in annotations {
+        // Convert RuntimeAnnotation to Map {name: ..., args: ...}
+        let mut map = std::collections::HashMap::new();
+        map.insert("name".to_string(), Value::String(Rc::new(anno.name)));
+
+        // Convert args to Value::Array
+        let args_val = Value::Array(gc.allocate(ArrayState::new(anno.args)));
+        map.insert("args".to_string(), args_val);
+
+        list.push(Value::Map(gc.allocate(pleno_value::MapState::new(map))));
+    }
+
+    Ok(Value::Array(gc.allocate(ArrayState::new(list))))
 }

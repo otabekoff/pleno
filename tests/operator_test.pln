@@ -1,0 +1,79 @@
+// Operator Overloading Test for Pleno
+
+class Vector {
+    x: Int;
+    y: Int;
+
+    constructor(x: Int, y: Int) {
+        this.x = x;
+        this.y = y;
+    }
+
+    operator +(other: Vector): Vector {
+        return Vector(this.x + other.x, this.y + other.y);
+    }
+
+    operator -(other: Vector): Vector {
+        return Vector(this.x - other.x, this.y - other.y);
+    }
+
+    operator *(scalar: Int): Vector {
+        return Vector(this.x * scalar, this.y * scalar);
+    }
+
+    operator %(scalar: Int): Vector {
+        return Vector(this.x % scalar, this.y % scalar);
+    }
+
+    operator ==(other: Vector): Bool {
+        return this.x == other.x && this.y == other.y;
+    }
+
+    operator !=(other: Vector): Bool {
+        return !(this == other);
+    }
+}
+
+// Test basic operator overloading
+let v1 = Vector(3, 4);
+let v2 = Vector(1, 2);
+
+print("Vector 1: (" + v1.x + ", " + v1.y + ")");
+print("Vector 2: (" + v2.x + ", " + v2.y + ")");
+
+// Test + operator
+let sum = v1 + v2;
+print("v1 + v2 = (" + sum.x + ", " + sum.y + ")");
+print("Test +: " + (sum.x == 4 && sum.y == 6 ? "PASS" : "FAIL"));
+
+// Test - operator
+let diff = v1 - v2;
+print("v1 - v2 = (" + diff.x + ", " + diff.y + ")");
+print("Test -: " + (diff.x == 2 && diff.y == 2 ? "PASS" : "FAIL"));
+
+// Test * operator
+let scaled = v1 * 2;
+print("v1 * 2 = (" + scaled.x + ", " + scaled.y + ")");
+print("Test *: " + (scaled.x == 6 && scaled.y == 8 ? "PASS" : "FAIL"));
+
+// Test % operator
+let mod = v1 % 2; // 3%2=1, 4%2=0
+print("v1 % 2 = (" + mod.x + ", " + mod.y + ")");
+print("Test %: " + (mod.x == 1 && mod.y == 0 ? "PASS" : "FAIL"));
+
+// Test == operator
+let v3 = Vector(3, 4);
+let eq1 = v1 == v3;
+let eq2 = v1 == v2;
+print("v1 == v3: " + eq1);
+print("v1 == v2: " + eq2);
+print("Test ==: " + (eq1 && !eq2 ? "PASS" : "FAIL"));
+
+// Test != operator
+let ne1 = v1 != v3; // should be false
+let ne2 = v1 != v2; // should be true
+print("v1 != v3: " + ne1);
+print("v1 != v2: " + ne2);
+print("Test !=: " + (!ne1 && ne2 ? "PASS" : "FAIL"));
+
+print("\n=== All operator overloading tests completed ===");

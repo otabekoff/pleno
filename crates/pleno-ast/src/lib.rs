@@ -383,6 +383,7 @@ pub struct PropertyDecl {
 pub struct EnumDecl {
     pub name: String,
     pub variants: Vec<EnumVariant>,
+    pub methods: Vec<FunctionDecl>,
     pub annotations: Vec<Annotation>,
     pub doc: Option<String>,
 }

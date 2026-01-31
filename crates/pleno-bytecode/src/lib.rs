@@ -118,6 +118,8 @@ pub enum Opcode {
     MakeCell,
     LoadCell,
     SetCell,
+    SetAnnotations,
+    AddStaticMethod,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -184,6 +186,8 @@ pub struct FunctionProto {
     pub is_async: bool,
     pub is_pure: bool,
     pub type_params: Vec<String>,
+    #[serde(default)]
+    pub annotations: Vec<pleno_value::RuntimeAnnotation>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
