@@ -1,0 +1,20 @@
+import Dotenv from "std:dotenv";
+import Process from "std:process";
+
+// Create a dummy .env file
+// Note: we can't write files easily from stdlib yet (IO module limited?), 
+// reusing existing .env if present or just relying on manual setup?
+// Actually we can implementation test by assuming .env exists or creating it via shell before run.
+// But let's assume we run with a pre-made .env
+
+print("Testing Dotenv...");
+Dotenv.config(".env.test");
+
+let val = Process.env("TEST_VAR");
+print("TEST_VAR:", val);
+
+if (val != "hello_world") {
+    throw Error("Dotenv failed");
+}
+
+print("Dotenv passed.");

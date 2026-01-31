@@ -2,11 +2,15 @@
 
 Make the http support all operations. And make a framework like express in nodejs.
 
-dotenv
+
 
 everytime after doing the tasks, if working according to or by tracking files, then don't forget to update them.
 
 Always update the docs.
+
+
+LLVM or cranelift support.
+
 
 Make bench folder benchmark project reporting about benchmarking of Pleno. Reports. Not only speed tests. Also, we need to compare with other languages like Python, Rust, Go, Kotlin, C, C++, Java, JavaScript, TypeScript, etc.
 
@@ -57,7 +61,6 @@ This is what Python tried with typing but without runtime enforcement.
 This is what our language can do correctly.
 
 
-Why even if we don't import the std libs, they are working? Is it good or no? I think it is not good. What if not imported? Gives error like unknown/unspecified/undefined/unimplemented/unregister/un-something stuff for unused things?
 
 Things shouldn't work minimally, they should work fully, completely. They should be ready. They should be thought in advance and done. Tasks should be done thinking for different and diverse and advanced usages too. They shouldn't be just satisfied. But should be battle ready, battle tested. 
 
@@ -68,8 +71,6 @@ Type checking is not working fully I think, we've to review and rethink and reco
 Char type working? What about all of the needed types list and are they working? And do every type we need exist?
 
 Set iteration is not supported yet? What are not really implemented yet? Find all technical debts. We can't release production ready v1 without such technical debts. Let's list each crate then go and enter and review each crate, each file, each line, each block, each comment, everything, let's check one by one and start collecting list of technical debts. Missing stuffs, unimplemented, partially done or not completed fully stuffs. And collect in one file to resolve later. Don't be lazy and do everything.
-
-i++ ++i else if finallies
 
 Should we left unprefixed stuffs? or prefixed stuffs of variables and function names as is or should we use it or are they planned for later? Let's reconsider this and review each of them.
 

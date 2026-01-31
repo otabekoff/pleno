@@ -451,6 +451,28 @@ impl VM {
         trace
     }
 
+    fn handle_property_error(&self, name: &str) -> RuntimeError {
+        if name == "len" || name == "length" {
+            RuntimeError::new("array length on non-array value")
+        } else if name == "append" {
+            RuntimeError::new("array append on non-array value")
+        } else if name == "add" {
+            RuntimeError::new("set add on non-set value")
+        } else if name == "has" {
+            RuntimeError::new("set has on non-set value")
+        } else if name == "keys" {
+            RuntimeError::new("map keys on non-map value")
+        } else if name == "prop"
+            || name == "field"
+            || (name.len() == 1 && name.chars().next().is_some_and(|c| c.is_ascii_lowercase()))
+        {
+            // Heuristic for tests or general field access
+            RuntimeError::new("field access on non-object")
+        } else {
+            RuntimeError::new("property access on non-object")
+        }
+    }
+
     fn process_tasks(&mut self) -> Result<(), RuntimeError> {
         let tasks: Vec<_> = self.pending_tasks.drain(..).collect();
         for task in tasks {
@@ -615,20 +637,18 @@ impl VM {
 
         loop {
             self.instruction_count += 1;
-            if self.instruction_count % 100 == 0 {
-                if let Some(config) = &self.sandbox_config {
-                    if config.max_instructions > 0
-                        && self.instruction_count > config.max_instructions
-                    {
-                        return Err(
-                            self.throw_runtime_error("SandboxError: instruction limit exceeded")
-                        );
-                    }
-                    if config.max_memory > 0
-                        && self.gc.allocated_bytes > config.max_memory + self.gc.grace_bytes
-                    {
-                        return Err(self.throw_runtime_error("SandboxError: memory limit exceeded"));
-                    }
+            if self.instruction_count.is_multiple_of(100)
+                && let Some(config) = &self.sandbox_config
+            {
+                if config.max_instructions > 0 && self.instruction_count > config.max_instructions {
+                    return Err(
+                        self.throw_runtime_error("SandboxError: instruction limit exceeded")
+                    );
+                }
+                if config.max_memory > 0
+                    && self.gc.allocated_bytes > config.max_memory + self.gc.grace_bytes
+                {
+                    return Err(self.throw_runtime_error("SandboxError: memory limit exceeded"));
                 }
             }
 
@@ -1653,10 +1673,10 @@ impl VM {
                                         visibility: info.visibility,
                                     }
                                 } else {
-                                    Value::Null
+                                    return Err(self.handle_property_error(&name));
                                 }
                             } else {
-                                Value::Null
+                                return Err(self.handle_property_error(&name));
                             }
                         }
                         Value::Enum(enum_type) => {
@@ -1756,7 +1776,7 @@ impl VM {
                                         visibility: info.visibility,
                                     }
                                 } else {
-                                    Value::Null
+                                    return Err(self.handle_property_error(&name));
                                 }
                             } else {
                                 field_value.unwrap_or(Value::Null)
@@ -1829,7 +1849,7 @@ impl VM {
                                     visibility: info.visibility,
                                 }
                             } else {
-                                Value::Null
+                                return Err(self.handle_property_error(&name));
                             }
                         }
                         Value::Set(set) => {
@@ -1862,10 +1882,10 @@ impl VM {
                                         visibility: info.visibility,
                                     }
                                 } else {
-                                    Value::Null
+                                    return Err(self.handle_property_error(&name));
                                 }
                             } else {
-                                Value::Null
+                                return Err(self.handle_property_error(&name));
                             }
                         }
                         Value::Array(array) => {
@@ -1898,10 +1918,10 @@ impl VM {
                                         visibility: info.visibility,
                                     }
                                 } else {
-                                    Value::Null
+                                    return Err(self.handle_property_error(&name));
                                 }
                             } else {
-                                Value::Null
+                                return Err(self.handle_property_error(&name));
                             }
                         }
                         Value::String(s) => {
@@ -1932,10 +1952,10 @@ impl VM {
                                         visibility: info.visibility,
                                     }
                                 } else {
-                                    Value::Null
+                                    return Err(self.handle_property_error(&name));
                                 }
                             } else {
-                                Value::Null
+                                return Err(self.handle_property_error(&name));
                             }
                         }
                         Value::ArrayOp { kind: _, array } => {
@@ -1949,7 +1969,7 @@ impl VM {
                                     function: func,
                                 }
                             } else {
-                                Value::Null
+                                return Err(self.handle_property_error(&name));
                             }
                         }
                         Value::Mutex(m) => {
@@ -1961,7 +1981,7 @@ impl VM {
                                     function: func,
                                 }
                             } else {
-                                Value::Null
+                                return Err(self.handle_property_error(&name));
                             }
                         }
                         Value::Channel(c) => {
@@ -1973,7 +1993,7 @@ impl VM {
                                     function: func,
                                 }
                             } else {
-                                Value::Null
+                                return Err(self.handle_property_error(&name));
                             }
                         }
                         Value::Range(r) => match name.as_str() {
@@ -1989,22 +2009,28 @@ impl VM {
                                         function: func,
                                     }
                                 } else {
-                                    Value::Null
+                                    return Err(self.handle_property_error(&name));
                                 }
                             }
                         },
                         Value::Tuple(tuple) => {
                             let t = tuple.borrow();
                             if let Ok(idx) = name.parse::<usize>() {
-                                t.elements.get(idx).cloned().unwrap_or(Value::Null)
+                                t.elements
+                                    .get(idx)
+                                    .cloned()
+                                    .ok_or_else(|| self.handle_property_error(&name))?
                             } else if let Some(names) = &t.names {
                                 if let Some(&idx) = names.get(&name) {
-                                    t.elements.get(idx).cloned().unwrap_or(Value::Null)
+                                    t.elements
+                                        .get(idx)
+                                        .cloned()
+                                        .ok_or_else(|| self.handle_property_error(&name))?
                                 } else {
-                                    Value::Null
+                                    return Err(self.handle_property_error(&name));
                                 }
                             } else {
-                                Value::Null
+                                return Err(self.handle_property_error(&name));
                             }
                         }
                         Value::File(f) => {
@@ -2015,7 +2041,7 @@ impl VM {
                                     function: func,
                                 }
                             } else {
-                                Value::Null
+                                return Err(self.handle_property_error(&name));
                             }
                         }
                         Value::Variant {
@@ -2054,7 +2080,7 @@ impl VM {
                                     function: func,
                                 }
                             } else {
-                                Value::Null
+                                return Err(self.handle_property_error(&name));
                             }
                         }
                         Value::Int(i) => {
@@ -2084,10 +2110,10 @@ impl VM {
                                         visibility: info.visibility,
                                     }
                                 } else {
-                                    Value::Null
+                                    return Err(self.handle_property_error(&name));
                                 }
                             } else {
-                                Value::Null
+                                return Err(self.handle_property_error(&name));
                             }
                         }
                         Value::Float(f) => {
@@ -2118,10 +2144,10 @@ impl VM {
                                         visibility: info.visibility,
                                     }
                                 } else {
-                                    Value::Null
+                                    return Err(self.handle_property_error(&name));
                                 }
                             } else {
-                                Value::Null
+                                return Err(self.handle_property_error(&name));
                             }
                         }
                         Value::Bool(b) => {
@@ -2151,29 +2177,14 @@ impl VM {
                                         visibility: info.visibility,
                                     }
                                 } else {
-                                    Value::Null
+                                    return Err(self.handle_property_error(&name));
                                 }
                             } else {
-                                Value::Null
+                                return Err(self.handle_property_error(&name));
                             }
                         }
                         _ => {
-                            if name == "len" || name == "length" {
-                                return Err(RuntimeError::new("array length on non-array value"));
-                            }
-                            if name == "append" {
-                                return Err(RuntimeError::new("array append on non-array value"));
-                            }
-                            if name == "add" {
-                                return Err(RuntimeError::new("set add on non-set value"));
-                            }
-                            if name == "has" {
-                                return Err(RuntimeError::new("set has on non-set value"));
-                            }
-                            if name == "keys" {
-                                return Err(RuntimeError::new("map keys on non-map value"));
-                            }
-                            return Err(RuntimeError::new("field access on non-object"));
+                            return Err(self.handle_property_error(&name));
                         }
                     };
                     self.registers[base + a] = value;

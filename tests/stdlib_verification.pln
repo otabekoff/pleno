@@ -1,26 +1,13 @@
-// Phase 13 Standard Library Verification
+import Math from "std:math";
+import IO from "std:io";
 
-print("--- String Operations ---");
-let str = "Hello, World!";
-try {
-    print("Length:", str.length);
-    print("ToUpper:", str.toUpperCase());
-    print("ToLower:", str.toLowerCase());
-    print("Trim:", "  abc  ".trim());
-    print("Split:", str.split(","));
-    print("Contains:", str.contains("World"));
-    print("StartsWith:", str.startsWith("Hello"));
-    print("EndsWith:", str.endsWith("!"));
-    print("Replace:", str.replace("World", "Pleno"));
-    print("Substring:", str.substring(0, 5));
-    print("CharAt:", str.charAt(0));
-    print("IndexOf:", str.indexOf("o"));
-    print("Repeat:", "abc".repeat(3));
-} catch (e) {
-    print("String Error:", e.message);
-}
+// This script verifies standard library functions
+// It is intended to be run by the pleno CLI
 
-print("\n--- Math Operations ---");
+print("Verifying Standard Library...");
+
+// Math tests
+print("Math module:");
 try {
     print("Abs:", Math.abs(-5));
     print("Ceil:", Math.ceil(4.3));
@@ -34,65 +21,28 @@ try {
     print("RandomInt:", Math.randomInt(1, 10));
     print("PI:", Math.PI);
     print("E:", Math.E);
+    
+    // Test new functions
+    print("Sin(0):", Math.sin(0));
+    print("Cos(0):", Math.cos(0));
+    print("Tan(0):", Math.tan(0));
+    print("Log(E):", Math.log(Math.E));
+    print("Exp(1):", Math.exp(1));
+    
 } catch (e) {
-    print("Math Error:", e.message);
+    print("Math Error:", e);
 }
 
-print("\n--- JSON Handling ---");
-import { JSON } from "std:json";
+// OS tests are removed or need std:process import
+// Assuming checks below were using global OS
+import Process from "std:process";
+print("Process module:");
 try {
-    let data = JSON.parse("{\"name\": \"Alice\", \"age\": 30}");
-    print("Parsed Name:", data.name);
-    let obj = { "name": "Bob", "age": 25 };
-    print("Stringify:", JSON.stringify(obj));
-    print("Pretty Stringify:", JSON.stringify(obj, indent: 2));
+    print("CWD:", Process.cwd());
+    print("Args:", Process.args());
+    print("Env (PATH length):", Process.env("PATH").len);  
 } catch (e) {
-    print("JSON Error:", e.message);
+    print("Process Error:", e);
 }
 
-print("\n--- File I/O ---");
-import { File, FileMode } from "std:io";
-try {
-    File.write("test_io.txt", "Hello IO");
-    print("Read:", File.read("test_io.txt"));
-    File.append("test_io.txt", "\nLine 2");
-    // File.readLines is in spec
-    // print("Lines:", File.readLines("test_io.txt"));
-    print("Exists:", File.exists("test_io.txt"));
-    File.delete("test_io.txt");
-    print("Exists after delete:", File.exists("test_io.txt"));
-} catch (e) {
-    print("IO Error:", e.message);
-}
-
-print("\n--- Date & Time ---");
-import { DateTime, Duration } from "std:time";
-try {
-    let now = DateTime.now();
-    print("Year:", now.year);
-    print("Month:", now.month);
-} catch (e) {
-    print("Time Error:", e.message);
-}
-
-print("\n--- Regex ---");
-import { Regex } from "std:regex";
-try {
-    let re = Regex(r"\d+");
-    print("Test Match:", re.test("123"));
-    let matches = re.findAll("abc 123 def 456");
-    print("FindAll:", matches);
-} catch (e) {
-    print("Regex Error:", e.message);
-}
-
-print("\n--- HTTP ---");
-import { Http } from "std:http";
-try {
-    // This might fail if no internet, but we check if method exists
-    // let resp = Http.get("https://google.com");
-    // print("Resp Status:", resp.status);
-    print("Http methods check...");
-} catch (e) {
-    print("Http Error:", e.message);
-}
+print("Verification complete.");

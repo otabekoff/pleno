@@ -238,7 +238,7 @@ fn test_option_type() {
 
 #[test]
 fn test_math_random() {
-    let value = eval(r#"Math.random();"#);
+    let value = eval(r#"import Math from "std:math"; Math.random();"#);
     match value {
         pleno_value::Value::Float(f) => {
             assert!((0.0..=1.0).contains(&f));
@@ -408,4 +408,16 @@ fn test_error_handling_with_option() {
     );
     assert!(result.is_ok());
     assert_eq!(result.unwrap(), pleno_value::Value::Int(100));
+}
+
+#[test]
+fn test_math_trig_functions() {
+    let value = eval(r#"import Math from "std:math"; Math.sin(0);"#);
+    assert_eq!(value, pleno_value::Value::Float(0.0));
+
+    let value2 = eval(r#"import Math from "std:math"; Math.cos(0);"#);
+    assert_eq!(value2, pleno_value::Value::Float(1.0));
+
+    let value3 = eval(r#"import Math from "std:math"; Math.tan(0);"#);
+    assert_eq!(value3, pleno_value::Value::Float(0.0));
 }
