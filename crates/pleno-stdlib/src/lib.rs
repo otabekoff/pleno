@@ -5,6 +5,7 @@ pub mod gc;
 pub mod http;
 pub mod io;
 pub mod json;
+pub mod log;
 pub mod math;
 pub mod net;
 pub mod path;
@@ -251,9 +252,19 @@ pub fn register(vm: &mut dyn VMProvider) {
     http_module.insert("get".to_string(), Value::NativeFunction(http::http_get));
     http_module.insert("post".to_string(), Value::NativeFunction(http::http_post));
     http_module.insert("put".to_string(), Value::NativeFunction(http::http_put));
+    http_module.insert("patch".to_string(), Value::NativeFunction(http::http_patch));
     http_module.insert(
         "delete".to_string(),
         Value::NativeFunction(http::http_delete),
+    );
+    http_module.insert("head".to_string(), Value::NativeFunction(http::http_head));
+    http_module.insert(
+        "options".to_string(),
+        Value::NativeFunction(http::http_options),
+    );
+    http_module.insert(
+        "request".to_string(),
+        Value::NativeFunction(http::http_request),
     );
     http_module.insert(
         "Router".to_string(),
@@ -425,6 +436,28 @@ pub fn register(vm: &mut dyn VMProvider) {
     modules.insert(
         "std:dotenv".to_string(),
         Value::Map(gc.allocate(MapState::new(dotenv_module)).unwrap()),
+    );
+
+    // std:log - Logging
+    let mut log_module = HashMap::new();
+    log_module.insert("trace".to_string(), Value::NativeFunction(log::log_trace));
+    log_module.insert("debug".to_string(), Value::NativeFunction(log::log_debug));
+    log_module.insert("info".to_string(), Value::NativeFunction(log::log_info));
+    log_module.insert("warn".to_string(), Value::NativeFunction(log::log_warn));
+    log_module.insert("error".to_string(), Value::NativeFunction(log::log_error));
+    log_module.insert("fatal".to_string(), Value::NativeFunction(log::log_fatal));
+    log_module.insert(
+        "setLevel".to_string(),
+        Value::NativeFunction(log::log_set_level),
+    );
+    log_module.insert(
+        "getLevel".to_string(),
+        Value::NativeFunction(log::log_get_level),
+    );
+    log_module.insert("create".to_string(), Value::NativeFunction(log::log_create));
+    modules.insert(
+        "std:log".to_string(),
+        Value::Map(gc.allocate(MapState::new(log_module)).unwrap()),
     );
 
     // Register each module in the VM

@@ -1929,6 +1929,7 @@ impl Parser {
 
             let name = match self.advance().kind.clone() {
                 TokenKind::Ident(name) => name,
+                TokenKind::Underscore => "_".to_string(),
                 other => {
                     return Err(ParseError {
                         message: format!("Expected parameter name, found {other:?}"),
@@ -3655,7 +3656,8 @@ impl Parser {
                 | None => {
                     return false;
                 }
-                // Literals and most binary operators are not allowed in types
+                // Literals, binary operators, and logical operators are not allowed in types
+                // When we see &&, ||, etc., this is definitely a comparison, not generics
                 Some(TokenKind::Int(_))
                 | Some(TokenKind::Float(_))
                 | Some(TokenKind::String(_))
@@ -3666,7 +3668,14 @@ impl Parser {
                 | Some(TokenKind::EqualEqual)
                 | Some(TokenKind::BangEqual)
                 | Some(TokenKind::LessEqual)
-                | Some(TokenKind::GreaterEqual) => {
+                | Some(TokenKind::GreaterEqual)
+                | Some(TokenKind::AndAnd)
+                | Some(TokenKind::OrOr)
+                | Some(TokenKind::Ampersand)
+                | Some(TokenKind::Percent)
+                | Some(TokenKind::Question)
+                | Some(TokenKind::Colon)
+                | Some(TokenKind::RParen) => {
                     return false;
                 }
                 _ => {}

@@ -477,11 +477,9 @@ impl Formatter {
                 }
             },
             StmtKind::Export(inner_stmt) => {
-                format!(
-                    "{}export {}",
-                    current_indent,
-                    self.format_statement(inner_stmt, indent_level)
-                )
+                // Format the inner statement without extra indent, then prefix with export
+                let inner = self.format_statement(inner_stmt, indent_level);
+                format!("{}export {}", current_indent, inner.trim_start())
             }
             StmtKind::ExportList(items) => {
                 let names: Vec<String> = items

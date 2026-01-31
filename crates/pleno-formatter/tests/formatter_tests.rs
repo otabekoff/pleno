@@ -147,7 +147,6 @@ fn test_lambda_formatting() {
 }
 
 #[test]
-#[ignore] // Parentheses are not preserved in AST - formatter cannot add them back
 fn test_complex_expressions() {
     let input = "let result=(x+y)*z/(a-b);";
     let expected = "let result = (x + y) * z / (a - b);\n";
@@ -164,7 +163,6 @@ fn test_try_catch_formatting() {
 }
 
 #[test]
-#[ignore] // Nested classes are not supported by the parser
 fn test_nested_classes() {
     let input = "class Outer{class Inner{fn test(){return 1;}}}";
     let expected = "class Outer {\n    class Inner {\n        fn test() {\n            return 1;\n        }\n    }\n}\n";
@@ -266,7 +264,6 @@ fn test_named_tuple_formatting() {
 }
 
 #[test]
-#[ignore] // Underscore parameters in function declarations are not supported by the parser
 fn test_underscore_parameter_formatting() {
     let input = "fn test(_,x,_){return x;}";
     let expected = "fn test(_, x, _) {\n    return x;\n}\n";
@@ -275,7 +272,6 @@ fn test_underscore_parameter_formatting() {
 }
 
 #[test]
-#[ignore] // Module blocks are not supported - parser expects 'module Name;' not 'module Name { ... }'
 fn test_module_declaration_formatting() {
     let input = "module MyModule{export fn test(){return 1;}}";
     let expected = "module MyModule {\n    export fn test() {\n        return 1;\n    }\n}\n";
