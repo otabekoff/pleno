@@ -29,7 +29,7 @@ pub fn process_args(vm: &mut dyn VMProvider, _args: &[Value]) -> Result<Value, R
         .map(|arg| Value::String(Rc::new(arg)))
         .collect();
     Ok(Value::Array(
-        gc.allocate(pleno_value::ArrayState::new(args)),
+        gc.allocate(pleno_value::ArrayState::new(args))?,
     ))
 }
 

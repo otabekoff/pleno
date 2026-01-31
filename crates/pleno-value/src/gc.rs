@@ -198,7 +198,10 @@ impl MarkAndSweepGC {
 
 pub struct GCManager {
     pub gc: MarkAndSweepGC,
-    pub current_allocation: usize,
+    pub current_allocation: usize, // number of objects
+    pub max_allocation: usize,     // max number of objects (0 = unlimited)
+    pub allocated_bytes: usize,    // total bytes allocated
+    pub max_bytes: usize,          // max bytes allowed (0 = unlimited)
 }
 
 impl GCManager {
@@ -206,15 +209,34 @@ impl GCManager {
         Self {
             gc: MarkAndSweepGC::new(threshold),
             current_allocation: 0,
+            max_allocation: 0,
+            allocated_bytes: 0,
+            max_bytes: 0,
         }
     }
 
-    pub fn allocate<T>(&mut self, value: T) -> GcRc<T>
+    pub fn track_allocation(&mut self, bytes: usize) -> Result<(), crate::RuntimeError> {
+        if self.max_bytes > 0 && self.allocated_bytes + bytes > self.max_bytes {
+            return Err(crate::RuntimeError::new(
+                "SandboxError: memory limit exceeded",
+            ));
+        }
+        if self.max_allocation > 0 && self.current_allocation + 1 > self.max_allocation {
+            return Err(crate::RuntimeError::new(
+                "SandboxError: object allocation limit exceeded",
+            ));
+        }
+        self.allocated_bytes += bytes;
+        self.current_allocation += 1;
+        Ok(())
+    }
+
+    pub fn allocate<T>(&mut self, value: T) -> Result<GcRc<T>, crate::RuntimeError>
     where
         T: GcObject + 'static,
     {
-        self.current_allocation += 1;
-        self.gc.allocate(value)
+        self.track_allocation(std::mem::size_of::<T>())?;
+        Ok(self.gc.allocate(value))
     }
 
     pub fn maybe_collect(&mut self, roots: &[&dyn GcObject]) {
@@ -226,6 +248,9 @@ impl GCManager {
     pub fn collect_garbage(&mut self, roots: &[&dyn GcObject]) {
         self.gc.collect(roots);
         self.current_allocation = self.gc.get_heap_size();
+        // Fallback: reset allocated_bytes to a rough estimate after collect
+        // In a real GC we would sum up the sizes of survivors
+        self.allocated_bytes = self.current_allocation * 128; // rough avg
     }
 
     pub fn collect_garbage_with<F>(&mut self, marker: F)

@@ -1,0 +1,4 @@
+fn test(): Int {
+    return 1;
+}
+print(test());

@@ -11,7 +11,7 @@ pub fn promise_constructor(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Va
     let executor = args[0].clone();
 
     // Create promise via VM which assigns an ID and registers it
-    let (id, promise) = vm.create_promise();
+    let (id, promise) = vm.create_promise()?;
 
     // Create bindable resolve/reject functions
     // We use BoundNativeMethod where the receiver is the promise itself (the map)
@@ -96,7 +96,7 @@ pub fn promise_then(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, Ru
     let _on_rejected = args.get(2).cloned();
 
     // Create a new dependent promise
-    let (child_id, child_promise) = vm.create_promise();
+    let (child_id, child_promise) = vm.create_promise()?;
 
     if let Value::Map(map) = parent {
         let mut b = map.borrow_mut();
@@ -137,12 +137,12 @@ pub fn promise_then(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, Ru
             };
 
             // Encode call info as an array: [callback, child_id]
-            let info = Value::Array(vm.get_gc().allocate(ArrayState::new(callback_info)));
+            let info = Value::Array(vm.get_gc().allocate(ArrayState::new(callback_info))?);
             callbacks.push(info);
 
             b.insert(
                 "callbacks".to_string(),
-                Value::Array(vm.get_gc().allocate(ArrayState::new(callbacks))),
+                Value::Array(vm.get_gc().allocate(ArrayState::new(callbacks))?),
             );
         }
     }
@@ -176,12 +176,12 @@ pub fn promise_all(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, Run
         );
         map.insert(
             "value".to_string(),
-            Value::Array(gc.allocate(ArrayState::new(vec![]))),
+            Value::Array(gc.allocate(ArrayState::new(vec![]))?),
         );
-        return Ok(Value::Map(gc.allocate(MapState::new(map))));
+        return Ok(Value::Map(gc.allocate(MapState::new(map))?));
     }
 
-    let (master_id, master_promise) = vm.create_promise();
+    let (master_id, master_promise) = vm.create_promise()?;
     let mut dependencies = Vec::new();
     let mut results = vec![Value::Null; promises.len()];
     let mut resolved_count = 0;
@@ -212,7 +212,7 @@ pub fn promise_all(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, Run
 
     if resolved_count == promises.len() {
         let gc = vm.get_gc();
-        let results_val = Value::Array(gc.allocate(ArrayState::new(results)));
+        let results_val = Value::Array(gc.allocate(ArrayState::new(results))?);
         vm.resolve_promise(master_id, results_val);
     } else {
         vm.register_multi_waiter(MultiWaiter {
@@ -248,7 +248,7 @@ pub fn promise_race(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, Ru
             let variant = map_borrow.get("variant").and_then(|v| v.as_str());
             if variant == Some("Resolved") {
                 let val = map_borrow.get("value").cloned().unwrap_or(Value::Null);
-                let (master_id, master_promise) = vm.create_promise();
+                let (master_id, master_promise) = vm.create_promise()?;
                 vm.resolve_promise(master_id, val);
                 return Ok(master_promise);
             } else if variant == Some("Pending") {
@@ -257,13 +257,13 @@ pub fn promise_race(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, Ru
         }
 
         if !is_promise {
-            let (master_id, master_promise) = vm.create_promise();
+            let (master_id, master_promise) = vm.create_promise()?;
             vm.resolve_promise(master_id, p.clone());
             return Ok(master_promise);
         }
     }
 
-    let (master_id, master_promise) = vm.create_promise();
+    let (master_id, master_promise) = vm.create_promise()?;
     let mut dependencies = Vec::new();
 
     for p in &promises {

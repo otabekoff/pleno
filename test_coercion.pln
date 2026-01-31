@@ -1,0 +1,17 @@
+// test_coercion.pln
+fn main() {
+    try {
+        let x = "5" + 5;
+        println("Result: " + x);
+    } catch (e) {
+        println("Caught: " + e.message);
+    }
+
+    try {
+        let y = 1 + "2";
+        println("Result: " + y);
+    } catch (e) {
+        println("Caught: " + e.message);
+    }
+}
+main();

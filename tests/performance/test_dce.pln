@@ -1,0 +1,23 @@
+fn used_fn() {
+    return "I am used";
+}
+
+fn unused_fn() {
+    return "I am unused and should be removed";
+}
+
+class UsedClass {
+    fn hello() { return "hello"; }
+}
+
+class UnusedClass {
+    fn goodbye() { return "goodbye"; }
+}
+
+fn main() {
+    print(used_fn());
+    let c = UsedClass();
+    print(c.hello());
+}
+
+main();

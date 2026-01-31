@@ -51,7 +51,7 @@ export default defineConfig({
         {
           text: 'Language Specification',
           items: [
-            { text: 'Introduction', link: '/specs/' },
+            { text: 'Introduction', link: '/specs/index' },
             { text: 'Core Syntax', link: '/specs/core-syntax-fundamentals' },
             { text: 'Control Flow', link: '/specs/control-flow' },
             { text: 'Functions', link: '/specs/functions' },

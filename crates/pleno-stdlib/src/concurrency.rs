@@ -7,7 +7,7 @@ pub fn native_mutex_new(vm: &mut dyn VMProvider, _args: &[Value]) -> Result<Valu
         locked: false,
         waiters: Vec::new(),
     };
-    Ok(Value::Mutex(vm.get_gc().allocate(state)))
+    Ok(Value::Mutex(vm.get_gc().allocate(state)?))
 }
 
 pub fn native_mutex_lock(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
@@ -21,7 +21,7 @@ pub fn native_mutex_lock(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Valu
         mutex.locked = true;
         Ok(Value::Null)
     } else {
-        let (id, promise) = vm.create_promise();
+        let (id, promise) = vm.create_promise()?;
         mutex.waiters.push(id as usize);
         Ok(promise)
     }
@@ -65,7 +65,7 @@ pub fn native_channel_new(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Val
         send_waiters: Vec::new(),
         recv_waiters: Vec::new(),
     };
-    Ok(Value::Channel(vm.get_gc().allocate(state)))
+    Ok(Value::Channel(vm.get_gc().allocate(state)?))
 }
 
 pub fn native_channel_send(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
@@ -95,7 +95,7 @@ pub fn native_channel_send(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Va
         Ok(Value::Null)
     } else {
         // Suspend sender
-        let (id, promise) = vm.create_promise();
+        let (id, promise) = vm.create_promise()?;
         chan.send_waiters.push((id as usize, value));
         Ok(promise)
     }
@@ -125,7 +125,7 @@ pub fn native_channel_recv(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Va
         Ok(sender_val)
     } else {
         // Suspend receiver
-        let (id, promise) = vm.create_promise();
+        let (id, promise) = vm.create_promise()?;
         chan.recv_waiters.push(id as usize);
         Ok(promise)
     }

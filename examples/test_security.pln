@@ -1,0 +1,30 @@
+// Test Security Features - Safe Defaults
+
+// Test 1: Type Coercion
+print("=== Type Coercion Tests ===");
+
+// String + Int - should this error or concatenate?
+// let coerce1 = "5" + 5;  // Test what happens
+
+// Test 2: Null Checking
+print("=== Null Checking Tests ===");
+let nullVal = null;
+// let nullProp = nullVal.property;  // Should error
+print("Null value:", nullVal);
+
+// Test 3: Bounds Checking
+print("=== Bounds Checking Tests ===");
+let arr = [1, 2, 3];
+print("Array:", arr);
+print("arr[0]:", arr[0]);
+print("arr[2]:", arr[2]);
+// print("arr[999]:", arr[999]);  // Should error - out of bounds
+// print("arr[-1]:", arr[-1]);    // Negative index behavior
+
+// Test 4: Integer Operations
+print("=== Integer Operations ===");
+let bigNum = 9223372036854775807;  // Max i64
+print("Big number:", bigNum);
+// let overflow = bigNum + 1;  // What happens on overflow?
+
+print("Basic security tests completed!");

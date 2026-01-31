@@ -3,9 +3,14 @@ use std::collections::HashMap;
 use std::rc::Rc;
 
 pub fn http_get(
-    _vm: &mut dyn pleno_value::VMProvider,
+    vm: &mut dyn pleno_value::VMProvider,
     args: &[Value],
 ) -> Result<Value, pleno_value::RuntimeError> {
+    if !vm.is_network_allowed() {
+        return Err(pleno_value::RuntimeError::new(
+            "SecurityError: Network access denied",
+        ));
+    }
     let url = match args.first() {
         Some(Value::String(s)) => s.as_str(),
         _ => return Err(pleno_value::RuntimeError::new("get() expects URL string")),
@@ -19,9 +24,14 @@ pub fn http_get(
 }
 
 pub fn http_post(
-    _vm: &mut dyn pleno_value::VMProvider,
+    vm: &mut dyn pleno_value::VMProvider,
     args: &[Value],
 ) -> Result<Value, pleno_value::RuntimeError> {
+    if !vm.is_network_allowed() {
+        return Err(pleno_value::RuntimeError::new(
+            "SecurityError: Network access denied",
+        ));
+    }
     let url = match args.first() {
         Some(Value::String(s)) => s.as_str(),
         _ => return Err(pleno_value::RuntimeError::new("post() expects URL string")),
@@ -43,9 +53,14 @@ pub fn http_post(
 }
 
 pub fn http_put(
-    _vm: &mut dyn pleno_value::VMProvider,
+    vm: &mut dyn pleno_value::VMProvider,
     args: &[Value],
 ) -> Result<Value, pleno_value::RuntimeError> {
+    if !vm.is_network_allowed() {
+        return Err(pleno_value::RuntimeError::new(
+            "SecurityError: Network access denied",
+        ));
+    }
     let url = match args.first() {
         Some(Value::String(s)) => s.as_str(),
         _ => return Err(pleno_value::RuntimeError::new("put() expects URL string")),
@@ -67,9 +82,14 @@ pub fn http_put(
 }
 
 pub fn http_delete(
-    _vm: &mut dyn pleno_value::VMProvider,
+    vm: &mut dyn pleno_value::VMProvider,
     args: &[Value],
 ) -> Result<Value, pleno_value::RuntimeError> {
+    if !vm.is_network_allowed() {
+        return Err(pleno_value::RuntimeError::new(
+            "SecurityError: Network access denied",
+        ));
+    }
     let url = match args.first() {
         Some(Value::String(s)) => s.as_str(),
         _ => {
@@ -100,7 +120,7 @@ pub fn http_router(
     router.insert("get".to_string(), Value::NativeFunction(http_router_get));
     router.insert("post".to_string(), Value::NativeFunction(http_router_post));
 
-    Ok(Value::Map(gc.allocate(pleno_value::MapState::new(router))))
+    Ok(Value::Map(gc.allocate(pleno_value::MapState::new(router))?))
 }
 
 pub fn http_router_get(
@@ -136,13 +156,18 @@ pub fn http_server(
         Value::NativeFunction(http_server_listen),
     );
 
-    Ok(Value::Map(gc.allocate(pleno_value::MapState::new(server))))
+    Ok(Value::Map(gc.allocate(pleno_value::MapState::new(server))?))
 }
 
 pub fn http_server_listen(
-    _vm: &mut dyn pleno_value::VMProvider,
+    vm: &mut dyn pleno_value::VMProvider,
     args: &[Value],
 ) -> Result<Value, pleno_value::RuntimeError> {
+    if !vm.is_network_allowed() {
+        return Err(pleno_value::RuntimeError::new(
+            "SecurityError: Network access denied",
+        ));
+    }
     if let Some(port) = args.first() {
         println!("Server mock listening on port {}", port);
     }

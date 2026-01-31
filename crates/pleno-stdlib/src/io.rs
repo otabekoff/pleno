@@ -4,9 +4,14 @@ use std::fs;
 use std::rc::Rc;
 
 pub fn io_file_read(
-    _vm: &mut dyn pleno_value::VMProvider,
+    vm: &mut dyn pleno_value::VMProvider,
     args: &[Value],
 ) -> Result<Value, pleno_value::RuntimeError> {
+    if !vm.is_io_allowed() {
+        return Err(pleno_value::RuntimeError::new(
+            "SecurityError: IO access denied",
+        ));
+    }
     let path = match args.first() {
         Some(Value::String(s)) => s.as_str(),
         _ => {
@@ -26,9 +31,14 @@ pub fn io_file_read(
 }
 
 pub fn io_file_write(
-    _vm: &mut dyn pleno_value::VMProvider,
+    vm: &mut dyn pleno_value::VMProvider,
     args: &[Value],
 ) -> Result<Value, pleno_value::RuntimeError> {
+    if !vm.is_io_allowed() {
+        return Err(pleno_value::RuntimeError::new(
+            "SecurityError: IO access denied",
+        ));
+    }
     let path = match args.first() {
         Some(Value::String(s)) => s.as_str(),
         _ => {
@@ -56,9 +66,14 @@ pub fn io_file_write(
 }
 
 pub fn io_file_exists(
-    _vm: &mut dyn pleno_value::VMProvider,
+    vm: &mut dyn pleno_value::VMProvider,
     args: &[Value],
 ) -> Result<Value, pleno_value::RuntimeError> {
+    if !vm.is_io_allowed() {
+        return Err(pleno_value::RuntimeError::new(
+            "SecurityError: IO access denied",
+        ));
+    }
     let path = match args.first() {
         Some(Value::String(s)) => s.as_str(),
         _ => {
@@ -72,9 +87,14 @@ pub fn io_file_exists(
 }
 
 pub fn io_file_append(
-    _vm: &mut dyn pleno_value::VMProvider,
+    vm: &mut dyn pleno_value::VMProvider,
     args: &[Value],
 ) -> Result<Value, pleno_value::RuntimeError> {
+    if !vm.is_io_allowed() {
+        return Err(pleno_value::RuntimeError::new(
+            "SecurityError: IO access denied",
+        ));
+    }
     let path = match args.first() {
         Some(Value::String(s)) => s.as_str(),
         _ => {
@@ -195,7 +215,8 @@ pub fn io_directory_list(
         )));
     }
     Ok(Value::Array(
-        vm.get_gc().allocate(pleno_value::ArrayState::new(results)),
+        vm.get_gc()
+            .allocate(pleno_value::ArrayState::new(results))?,
     ))
 }
 
@@ -223,7 +244,8 @@ pub fn io_directory_list_files(
         }
     }
     Ok(Value::Array(
-        vm.get_gc().allocate(pleno_value::ArrayState::new(results)),
+        vm.get_gc()
+            .allocate(pleno_value::ArrayState::new(results))?,
     ))
 }
 
@@ -251,7 +273,8 @@ pub fn io_directory_list_directories(
         }
     }
     Ok(Value::Array(
-        vm.get_gc().allocate(pleno_value::ArrayState::new(results)),
+        vm.get_gc()
+            .allocate(pleno_value::ArrayState::new(results))?,
     ))
 }
 
@@ -325,7 +348,7 @@ pub fn io_open(
     Ok(Value::File(vm.get_gc().allocate(FileState {
         inner: RefCell::new(Some(inner)),
         name: format!("<file {}>", path),
-    })))
+    })?))
 }
 
 pub fn io_stdout(
@@ -335,7 +358,7 @@ pub fn io_stdout(
     Ok(Value::File(vm.get_gc().allocate(FileState {
         inner: RefCell::new(Some(Box::new(std::io::stdout()))),
         name: "<stdout>".to_string(),
-    })))
+    })?))
 }
 
 pub fn io_stderr(
@@ -345,7 +368,7 @@ pub fn io_stderr(
     Ok(Value::File(vm.get_gc().allocate(FileState {
         inner: RefCell::new(Some(Box::new(std::io::stderr()))),
         name: "<stderr>".to_string(),
-    })))
+    })?))
 }
 
 pub fn io_file_copy(
@@ -434,6 +457,6 @@ pub fn io_file_read_lines(
     }
 
     Ok(Value::Array(
-        vm.get_gc().allocate(pleno_value::ArrayState::new(lines)),
+        vm.get_gc().allocate(pleno_value::ArrayState::new(lines))?,
     ))
 }

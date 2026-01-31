@@ -132,7 +132,7 @@ pub fn time_parts(
         Value::Int((nanoseconds / 1_000_000) as i64),
     );
 
-    Ok(Value::Map(vm.get_gc().allocate(MapState::new(entries))))
+    Ok(Value::Map(vm.get_gc().allocate(MapState::new(entries))?))
 }
 
 pub fn time_instance_format(
@@ -198,7 +198,7 @@ pub fn time_datetime_now(
         Value::Int((nanoseconds / 1_000_000) as i64),
     );
 
-    let map_val = Value::Map(vm.get_gc().allocate(MapState::new(entries)));
+    let map_val = Value::Map(vm.get_gc().allocate(MapState::new(entries))?);
 
     if let Value::Map(state) = &map_val {
         let mut state = state.borrow_mut();

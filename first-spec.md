@@ -6,41 +6,41 @@
 **Typing:** Dynamic with optional static typing and gradual typing support  
 **Design Philosophy:** Clarity, Safety, Expressiveness, Modern Best Practices
 
-## 20. Security Features
+## 19. Performance Features
 
-### 20.1 Safe Defaults
-- No implicit type coercion
-- Strict null checking
-- Bounds checking on arrays
-- Integer overflow detection
+### 19.1 JIT Compilation
+- Hot path optimization
+- Automatic inlining of small functions
+- Dead code elimination
 
-### 20.2 Sandboxing
+### 19.2 Memory Management
+- Generational garbage collection
+- Reference counting for immediate cleanup
+- Optional manual memory hints
+- Object pooling support
+
+### 19.3 Optimization Hints
 
 ```pleno
-import { Sandbox } from "std:security";
+// Inline hint
+@inline
+fn fastOperation(x: Int): Int {
+    return x * 2;
+}
 
-// Run untrusted code in sandbox
-let sandbox = Sandbox({
-    allowFileAccess: false,
-    allowNetworkAccess: false,
-    memoryLimit: 10 * 1024 * 1024  // 10 MB
-});
+// No optimization (for debugging)
+@no_optimize
+fn debugFunction() {
+    // Keep unoptimized for debugging
+}
 
-let result = sandbox.run(fn() {
-    // Untrusted code here
-    return calculate(data);
-});
+// Hot path hint
+@hot
+fn criticalPath() {
+    // Prioritize optimization
+}
 ```
 
 ---
 
-## Conclusion
-
-Pleno is designed to be:
-- **Easy to learn**: Familiar syntax, clear semantics
-- **Safe by default**: Strong typing, real encapsulation, memory safety
-- **Powerful**: OOP, functional, and procedural paradigms
-- **Modern**: Async/await, pattern matching, generics
-- **Practical**: Great standard library, package manager, tooling
-
-This specification provides a complete foundation for a modern programming language suitable for 2026 and beyond.
+[Performance Features Debt](./tasks/performance_features_debt.md)
