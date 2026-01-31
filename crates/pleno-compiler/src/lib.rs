@@ -2545,14 +2545,13 @@ impl Compiler {
                 .ok_or_else(|| CompileError::new("'this' not found in constructor"))?
                 .reg;
             for field in fields {
-                if !field.is_static {
-                    if let Some(default) = &field.default {
-                        let value_reg = compiler.compile_expr(default)?;
-                        let name_idx =
-                            compiler.add_constant(Value::String(field.name.clone().into()));
-                        compiler.emit(Opcode::SetProperty, value_reg, this_reg, name_idx);
-                        compiler.free_temp(value_reg);
-                    }
+                if !field.is_static
+                    && let Some(default) = &field.default
+                {
+                    let value_reg = compiler.compile_expr(default)?;
+                    let name_idx = compiler.add_constant(Value::String(field.name.clone().into()));
+                    compiler.emit(Opcode::SetProperty, value_reg, this_reg, name_idx);
+                    compiler.free_temp(value_reg);
                 }
             }
         }
@@ -2806,10 +2805,11 @@ impl Compiler {
 
         let mut runtime_annotations = Vec::new();
         for anno in annotations {
-            if anno.name != "pure" && anno.name != "native" {
-                if let Ok(a) = self.compile_annotation(anno) {
-                    runtime_annotations.push(a);
-                }
+            if anno.name != "pure"
+                && anno.name != "native"
+                && let Ok(a) = self.compile_annotation(anno)
+            {
+                runtime_annotations.push(a);
             }
         }
         self.chunk.functions.push(FunctionProto {
@@ -3074,11 +3074,11 @@ impl Compiler {
             for anno in annotations {
                 if anno.name != "native" {
                     // Skip "native" if it is processed elsewhere or just keep it?
-                    if let Ok(runtime_anno) = self.compile_annotation(anno) {
-                        if let Ok(obj_reg) = self.emit_annotation_creation(&runtime_anno) {
-                            self.emit(Opcode::ArrayAppend, annos_reg, obj_reg, 0);
-                            self.free_temp(obj_reg);
-                        }
+                    if let Ok(runtime_anno) = self.compile_annotation(anno)
+                        && let Ok(obj_reg) = self.emit_annotation_creation(&runtime_anno)
+                    {
+                        self.emit(Opcode::ArrayAppend, annos_reg, obj_reg, 0);
+                        self.free_temp(obj_reg);
                     }
                 }
             }
@@ -4298,10 +4298,8 @@ impl Compiler {
             StmtKind::Expr(expr) => {
                 self.expand_expr(expr, substitutions);
             }
-            StmtKind::Let { value, .. } => {
-                if let Some(v) = value {
-                    self.expand_expr(v, substitutions);
-                }
+            StmtKind::Let { value: Some(v), .. } => {
+                self.expand_expr(v, substitutions);
             }
             StmtKind::Assign { value, .. } => {
                 self.expand_expr(value, substitutions);
@@ -4342,10 +4340,8 @@ impl Compiler {
                 }
                 self.expand_stmt(body, substitutions);
             }
-            StmtKind::Return(expr) => {
-                if let Some(e) = expr {
-                    self.expand_expr(e, substitutions);
-                }
+            StmtKind::Return(Some(e)) => {
+                self.expand_expr(e, substitutions);
             }
             StmtKind::Fn {
                 params,

@@ -3680,15 +3680,7 @@ impl VM {
                         // For Map, we check entries. For Object, we check fields/properties.
                         let prop_val = match value {
                             Value::Map(m) => m.borrow().entries.get(&key).cloned(),
-                            Value::Object(obj) => {
-                                let obj_borrow = obj.borrow();
-                                if let Some(val) = obj_borrow.fields.get(&key) {
-                                    Some(val.clone())
-                                } else {
-                                    // Could be a method or property with getter, but let's stick to fields for now
-                                    None
-                                }
-                            }
+                            Value::Object(obj) => obj.borrow().fields.get(&key).cloned(),
                             _ => return false,
                         };
 
