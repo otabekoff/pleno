@@ -12,7 +12,7 @@ struct TestContext {
 
 #[derive(Default)]
 struct SuiteState {
-    name: String,
+    _name: String,
     before_each: Vec<Value>,
     after_each: Vec<Value>,
 }
@@ -31,7 +31,7 @@ pub fn test_describe(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, R
 
     CONTEXT.with(|ctx| {
         ctx.borrow_mut().suites.push(SuiteState {
-            name: name.to_string(),
+            _name: name.to_string(),
             ..Default::default()
         });
     });
