@@ -110,6 +110,12 @@ pub fn register(vm: &mut dyn VMProvider) {
         "delete".to_string(),
         Value::NativeFunction(io::io_file_delete),
     );
+    file_obj.insert("copy".to_string(), Value::NativeFunction(io::io_file_copy));
+    file_obj.insert("move".to_string(), Value::NativeFunction(io::io_file_move));
+    file_obj.insert(
+        "readLines".to_string(),
+        Value::NativeFunction(io::io_file_read_lines),
+    );
 
     let mut dir_obj = HashMap::new();
     dir_obj.insert(
@@ -189,6 +195,17 @@ pub fn register(vm: &mut dyn VMProvider) {
     );
     time_module.insert("parse".to_string(), Value::NativeFunction(time::time_parse));
     time_module.insert("parts".to_string(), Value::NativeFunction(time::time_parts));
+
+    let mut datetime_obj = HashMap::new();
+    datetime_obj.insert(
+        "now".to_string(),
+        Value::NativeFunction(time::time_datetime_now),
+    );
+
+    time_module.insert(
+        "DateTime".to_string(),
+        Value::Map(gc.allocate(MapState::new(datetime_obj))),
+    );
     modules.insert(
         "std:time".to_string(),
         Value::Map(gc.allocate(MapState::new(time_module))),

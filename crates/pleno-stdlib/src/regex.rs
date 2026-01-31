@@ -19,7 +19,42 @@ pub fn regex_constructor(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Valu
     );
     map.insert("pattern".to_string(), Value::String(pattern));
 
-    Ok(Value::Map(vm.get_gc().allocate(MapState::new(map))))
+    let map_val = Value::Map(vm.get_gc().allocate(MapState::new(map)));
+
+    // Bind methods
+    if let Value::Map(state) = &map_val {
+        let mut state = state.borrow_mut();
+        state.entries.insert(
+            "test".to_string(),
+            Value::BoundNativeMethod {
+                receiver: Box::new(map_val.clone()),
+                function: regex_test,
+            },
+        );
+        state.entries.insert(
+            "match".to_string(),
+            Value::BoundNativeMethod {
+                receiver: Box::new(map_val.clone()),
+                function: regex_match,
+            },
+        );
+        state.entries.insert(
+            "findAll".to_string(),
+            Value::BoundNativeMethod {
+                receiver: Box::new(map_val.clone()),
+                function: regex_find_all,
+            },
+        );
+        state.entries.insert(
+            "replace".to_string(),
+            Value::BoundNativeMethod {
+                receiver: Box::new(map_val.clone()),
+                function: regex_replace,
+            },
+        );
+    }
+
+    Ok(map_val)
 }
 
 pub fn regex_test(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {

@@ -347,3 +347,93 @@ pub fn io_stderr(
         name: "<stderr>".to_string(),
     })))
 }
+
+pub fn io_file_copy(
+    _vm: &mut dyn pleno_value::VMProvider,
+    args: &[Value],
+) -> Result<Value, pleno_value::RuntimeError> {
+    if args.len() < 2 {
+        return Err(pleno_value::RuntimeError::new(
+            "File.copy requires source and destination paths",
+        ));
+    }
+    let src = match &args[0] {
+        Value::String(s) => s.as_str(),
+        _ => {
+            return Err(pleno_value::RuntimeError::new(
+                "Expected source path string",
+            ));
+        }
+    };
+    let dst = match &args[1] {
+        Value::String(s) => s.as_str(),
+        _ => {
+            return Err(pleno_value::RuntimeError::new(
+                "Expected destination path string",
+            ));
+        }
+    };
+    fs::copy(src, dst)
+        .map_err(|e| pleno_value::RuntimeError::new(format!("File.copy failed: {}", e)))?;
+    Ok(Value::Null)
+}
+
+pub fn io_file_move(
+    _vm: &mut dyn pleno_value::VMProvider,
+    args: &[Value],
+) -> Result<Value, pleno_value::RuntimeError> {
+    if args.len() < 2 {
+        return Err(pleno_value::RuntimeError::new(
+            "File.move requires source and destination paths",
+        ));
+    }
+    let src = match &args[0] {
+        Value::String(s) => s.as_str(),
+        _ => {
+            return Err(pleno_value::RuntimeError::new(
+                "Expected source path string",
+            ));
+        }
+    };
+    let dst = match &args[1] {
+        Value::String(s) => s.as_str(),
+        _ => {
+            return Err(pleno_value::RuntimeError::new(
+                "Expected destination path string",
+            ));
+        }
+    };
+    fs::rename(src, dst)
+        .map_err(|e| pleno_value::RuntimeError::new(format!("File.move failed: {}", e)))?;
+    Ok(Value::Null)
+}
+
+pub fn io_file_read_lines(
+    vm: &mut dyn pleno_value::VMProvider,
+    args: &[Value],
+) -> Result<Value, pleno_value::RuntimeError> {
+    let path = match args.first() {
+        Some(Value::String(s)) => s.as_str(),
+        _ => {
+            return Err(pleno_value::RuntimeError::new(
+                "File.readLines expects path string",
+            ));
+        }
+    };
+
+    use std::io::BufRead;
+    let file = fs::File::open(path)
+        .map_err(|e| pleno_value::RuntimeError::new(format!("File.readLines failed: {}", e)))?;
+    let reader = std::io::BufReader::new(file);
+    let mut lines = Vec::new();
+
+    for line in reader.lines() {
+        let line = line
+            .map_err(|e| pleno_value::RuntimeError::new(format!("File.readLines failed: {}", e)))?;
+        lines.push(Value::String(Rc::new(line)));
+    }
+
+    Ok(Value::Array(
+        vm.get_gc().allocate(pleno_value::ArrayState::new(lines)),
+    ))
+}

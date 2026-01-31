@@ -62,6 +62,14 @@ pub fn register_builtins(vm: &mut dyn VMProvider) {
         Value::NativeFunction(crate::math::math_abs),
     );
     math_map.insert(
+        "min".to_string(),
+        Value::NativeFunction(crate::math::math_min),
+    );
+    math_map.insert(
+        "max".to_string(),
+        Value::NativeFunction(crate::math::math_max),
+    );
+    math_map.insert(
         "pow".to_string(),
         Value::NativeFunction(crate::math::math_pow),
     ); // needs modular math_pow
@@ -80,7 +88,17 @@ pub fn register_builtins(vm: &mut dyn VMProvider) {
     math_map.insert(
         "random".to_string(),
         Value::NativeFunction(crate::math::math_random),
-    ); // register random
+    );
+    math_map.insert(
+        "randomInt".to_string(),
+        Value::NativeFunction(crate::math::math_random_int),
+    );
+    math_map.insert(
+        "round".to_string(),
+        Value::NativeFunction(crate::math::math_round),
+    );
+    math_map.insert("PI".to_string(), Value::Float(std::f64::consts::PI));
+    math_map.insert("E".to_string(), Value::Float(std::f64::consts::E));
     let math_val = Value::Map(vm.get_gc().allocate(MapState::new(math_map)));
     vm.register_global("Math".to_string(), math_val);
 
