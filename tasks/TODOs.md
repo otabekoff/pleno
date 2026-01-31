@@ -8,6 +8,8 @@ everytime after doing the tasks, if working according to or by tracking files, t
 
 Always update the docs.
 
+Make bench folder benchmark project reporting about benchmarking of Pleno. Reports. Not only speed tests. Also, we need to compare with other languages like Python, Rust, Go, Kotlin, C, C++, Java, JavaScript, TypeScript, etc.
+
 Optimizations and error management in Pleno in a structured way, aslo fix the showing line numbers like Rust or other thing?
 
 We're not just creating a programming language. We're creating a production level, dynamic and type safe programming language that works. Unlike python it will have real encapsulation, constants and unlike other programming languages and python Pleno will have modern features and it fixes many things other programming languages doesn't have and inspires many best features from other pogramming languages. And it should be stable, based on specs and rules and ready for production.
