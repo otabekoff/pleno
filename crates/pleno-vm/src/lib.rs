@@ -4580,7 +4580,7 @@ impl VM {
                 )?;
             }
             Value::Closure(state) => {
-                let borrowed = state.borrow();
+                let _borrowed = state.borrow();
                 self.call_function(
                     Value::Closure(state.clone()),
                     None,

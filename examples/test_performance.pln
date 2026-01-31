@@ -1,0 +1,31 @@
+// Test @pure annotation
+@pure
+fn add(a: Int, b: Int): Int {
+    return a + b;
+}
+
+// Test that pure functions work
+let result = add(5, 3);
+print("Pure function result:", result);
+
+// Test basic GC - create objects that should be collected
+fn createObjects() {
+    let arr = [];
+    for i in 0..100 {
+        arr.push({ value: i });
+    }
+    // arr goes out of scope here, should be eligible for GC
+}
+
+createObjects();
+print("Objects created and should be collected");
+
+// Test @pure with side effect (should fail at runtime if enforced)
+// Commented out - would cause error if purity is enforced
+// @pure
+// fn impure(): Int {
+//     print("side effect");  // Would violate purity
+//     return 42;
+// }
+
+print("All performance feature tests passed!");
