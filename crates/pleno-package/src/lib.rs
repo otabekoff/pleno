@@ -564,6 +564,64 @@ impl PackageManager {
         Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
     }
 
+    pub fn update(&self, manifest: &mut Manifest) -> Result<(), PackageError> {
+        println!("Updating all packages...");
+        let lockfile_path = Path::new("pleno.lock");
+        // We delete the lockfile to force re-resolution of all dependencies
+        if lockfile_path.exists() {
+            std::fs::remove_file(lockfile_path)?;
+        }
+        self.install_all(manifest, &[])
+    }
+
+    pub fn remove(&self, manifest: &mut Manifest, name: &str) -> Result<(), PackageError> {
+        if manifest.dependencies.remove(name).is_some()
+            || manifest.dev_dependencies.remove(name).is_some()
+        {
+            println!("Removing {}...", name);
+            manifest.save_to_file("package.pln")?;
+            let dest = self.packages_dir.join(name);
+            if dest.exists() {
+                std::fs::remove_dir_all(dest)?;
+            }
+            // Re-install to update lockfile
+            self.install_all(manifest, &[])
+        } else {
+            println!("Package {} not found in dependencies", name);
+            Ok(())
+        }
+    }
+
+    pub fn run_script(&self, manifest: &Manifest, script_name: &str) -> Result<(), PackageError> {
+        if let Some(script) = manifest.scripts.get(script_name) {
+            println!("> {}", script);
+            let status = if cfg!(windows) {
+                std::process::Command::new("cmd")
+                    .arg("/C")
+                    .arg(script)
+                    .status()?
+            } else {
+                std::process::Command::new("sh")
+                    .arg("-c")
+                    .arg(script)
+                    .status()?
+            };
+
+            if !status.success() {
+                return Err(PackageError::Io(std::io::Error::other(format!(
+                    "Script '{}' exited with status {}",
+                    script_name, status
+                ))));
+            }
+            Ok(())
+        } else {
+            Err(PackageError::Io(std::io::Error::other(format!(
+                "Script '{}' not found",
+                script_name
+            ))))
+        }
+    }
+
     fn get_git_current_commit(&self) -> Result<String, PackageError> {
         let output = std::process::Command::new("git")
             .args(["rev-parse", "HEAD"])
