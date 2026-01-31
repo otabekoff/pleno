@@ -1,4 +1,6 @@
-use pleno_value::{Class, MethodInfo, MethodVisibility, RuntimeError, Value, gc::GcRc};
+use pleno_value::{
+    Class, EnumType, MethodInfo, MethodOwner, MethodVisibility, RuntimeError, Value, gc::GcRc,
+};
 use std::rc::Rc;
 
 pub fn resolve_method(class: &GcRc<Class>, name: &str) -> Option<MethodInfo> {
@@ -10,6 +12,14 @@ pub fn resolve_method(class: &GcRc<Class>, name: &str) -> Option<MethodInfo> {
         .superclass
         .as_ref()
         .and_then(|superclass| resolve_method(superclass, name))
+}
+
+pub fn resolve_enum_method(enum_type: &GcRc<EnumType>, name: &str) -> Option<MethodInfo> {
+    enum_type.borrow().methods.get(name).cloned()
+}
+
+pub fn resolve_enum_static_method(enum_type: &GcRc<EnumType>, name: &str) -> Option<MethodInfo> {
+    enum_type.borrow().static_methods.get(name).cloned()
 }
 
 pub fn resolve_field(class: &GcRc<Class>, name: &str) -> Option<MethodVisibility> {
@@ -93,10 +103,32 @@ pub fn can_access_method(
 ) -> bool {
     match method.visibility {
         MethodVisibility::Public => true,
-        MethodVisibility::Private => current_class.map(|c| c == &method.owner).unwrap_or(false),
-        MethodVisibility::Protected => current_class
-            .map(|c| is_subclass_of(c, &method.owner))
-            .unwrap_or(false),
+        MethodVisibility::Private => match &method.owner {
+            MethodOwner::Class(owner_class) => {
+                current_class.map(|c| c == owner_class).unwrap_or(false)
+            }
+            MethodOwner::Enum(_) => {
+                // For enums, we check module parity for private access
+                method
+                    .module
+                    .as_ref()
+                    .map(|m| Some(m) == current_module)
+                    .unwrap_or(true)
+            }
+        },
+        MethodVisibility::Protected => match &method.owner {
+            MethodOwner::Class(owner_class) => current_class
+                .map(|c| is_subclass_of(c, owner_class))
+                .unwrap_or(false),
+            MethodOwner::Enum(_) => {
+                // Enums don't have inheritance, so protected behaves like internal/private
+                method
+                    .module
+                    .as_ref()
+                    .map(|m| Some(m) == current_module)
+                    .unwrap_or(true)
+            }
+        },
         MethodVisibility::Internal => match (&method.module, current_module) {
             (Some(o), Some(c)) => o.as_str() == c.as_str(),
             (None, None) => true,
@@ -156,7 +188,7 @@ pub fn is_subclass_of(class: &GcRc<Class>, target: &GcRc<Class>) -> bool {
 
 pub fn parse_method_info(
     value: Value,
-    owner: &GcRc<Class>,
+    owner: MethodOwner,
     module: Option<&Rc<String>>,
 ) -> Result<MethodInfo, RuntimeError> {
     match value {
@@ -165,6 +197,7 @@ pub fn parse_method_info(
             visibility: MethodVisibility::Public,
             owner: owner.clone(),
             module: module.cloned(),
+            annotations: Vec::new(),
         }),
         Value::Array(array) => {
             let items = array.borrow();
@@ -187,6 +220,7 @@ pub fn parse_method_info(
                 visibility,
                 owner: owner.clone(),
                 module: module.cloned(),
+                annotations: Vec::new(),
             })
         }
         _ => Err(RuntimeError::new(

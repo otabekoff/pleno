@@ -1,0 +1,21 @@
+   Compiling pleno-stdlib v0.1.0 (D:\pleno\crates\pleno-stdlib)
+   Compiling pleno-repl v0.1.0 (D:\pleno\crates\pleno-repl)
+   Compiling pleno-cli v0.1.0 (D:\pleno\crates\pleno-cli)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 16.54s
+     Running `D:\project\rust\rust\zed\target\debug\pleno-cli.exe tests/reflect_test.pln`
+--- Type Name ---
+User type: User
+String type: String
+--- Fields ---
+Fields: [age, name]
+--- Methods ---
+Methods: [constructor, greet]
+--- Get Field ---
+Name: Alice
+--- Set Field ---
+New Name: Bob
+--- InstanceOf ---
+Is User? true
+Is String? false
+--- Call Method ---
+Hello, Bob

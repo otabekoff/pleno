@@ -1,0 +1,49 @@
+
+class User {
+    public name: String;
+    public age: Int;
+
+    constructor(name: String, age: Int) {
+        this.name = name;
+        this.age = age;
+    }
+
+    fn greet() {
+        print("Hello, " + this.name);
+    }
+}
+
+// 1. Get Type Name
+print("--- Type Name ---");
+let user = User("Alice", 30);
+print("User type: " + Reflect.getTypeName(user)); // Expected: User
+print("String type: " + Reflect.getTypeName("test")); // Expected: String
+
+// 2. Get Fields
+print("--- Fields ---");
+let fields = Reflect.getFields(user);
+print("Fields: " + fields); // Expected: ["name", "age"] (order may vary)
+
+// 3. Get Methods
+print("--- Methods ---");
+let methods = Reflect.getMethods(user);
+print("Methods: " + methods); // Expected: ["greet"]
+
+// 4. Get Field Value
+print("--- Get Field ---");
+let name = Reflect.getField(user, "name");
+print("Name: " + name); // Expected: Alice
+
+// 5. Set Field Value
+print("--- Set Field ---");
+Reflect.setField(user, "name", "Bob");
+print("New Name: " + user.name); // Expected: Bob
+
+// 6. Instance Of
+print("--- InstanceOf ---");
+print("Is User? " + Reflect.isInstanceOf(user, User)); // Expected: true
+print("Is String? " + Reflect.isInstanceOf(user, String)); // Expected: false
+
+// 7. Call Method
+print("--- Call Method ---");
+Reflect.callMethod(user, "greet", []); // Expected: Hello, Bob

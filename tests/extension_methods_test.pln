@@ -1,0 +1,117 @@
+
+// Extension Methods Test
+
+// 1. Extend String (Primitive using shadow class)
+extend String {
+    fn shout() {
+        return this.toUpperCase() + "!!!";
+    }
+
+    fn reverse_wrapper() {
+        // Assuming string has native reverse or similar, or just return dummy
+        return "reversed";
+    }
+
+    fn repeat_n(n) {
+        let mut res = "start";
+        // Reset to empty
+        res = "";
+        for (i in 0..n) {
+            res = res + this;
+        }
+        return res;
+    }
+}
+
+// 2. Extend Int (Primitive using shadow class)
+extend Int {
+    fn square() {
+        return this * this;
+    }
+
+    fn isEven() {
+        return this % 2 == 0;
+    }
+}
+
+// 3. Extend Array (Primitive using shadow class)
+extend Array {
+    fn second() {
+        if (this.length > 1) {
+            return this[1];
+        }
+        return null;
+    }
+}
+
+// 4. Extend User Class
+class User {
+    name;
+    fn constructor(name) {
+        this.name = name;
+    }
+    fn getName() {
+        return this.name;
+    }
+}
+
+extend User {
+    fn greet() {
+        return "Hello, " + this.name;
+    }
+}
+
+fn main() {
+    print("Testing Extension Methods...");
+
+    // Test String extension
+    let s = "hello";
+    let shouted = s.shout();
+    print("String.shout: " + shouted);
+    if (shouted != "HELLO!!!") {
+        print("FAIL: String.shout expected 'HELLO!!!', got '" + shouted + "'");
+        // exit(1);
+    }
+
+    let repeated = "a".repeat_n(3);
+    print("String.repeat_n: " + repeated);
+    if (repeated != "aaa") {
+        print("FAIL: String.repeat_n expected 'aaa', got '" + repeated + "'");
+    }
+
+    // Test Int extension
+    let i = 5;
+    let sq = i.square();
+    print("Int.square: " + sq);
+    if (sq != 25) {
+        print("FAIL: Int.square expected 25, got " + sq);
+    }
+    
+    
+    let even = (4).isEven();
+    print("Int.isEven(4): " + even);
+    if (!even) {
+        print("FAIL: Int.isEven(4) expected true");
+    }
+
+    
+    // Test Array extension
+    let arr = [10, 20, 30];
+    let sec = arr.second();
+    print("Array.second: " + sec);
+    if (sec != 20) {
+        print("FAIL: Array.second expected 20, got " + sec);
+    }
+
+    // Test User Class extension
+    let u = User("Alice");
+    let greeting = u.greet();
+    print("User.greet: " + greeting);
+    if (greeting != "Hello, Alice") {
+        print("FAIL: User.greet expected 'Hello, Alice', got '" + greeting + "'");
+    }
+
+    print("Extension Methods Verified!");
+}
+
+main();

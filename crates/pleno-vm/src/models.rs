@@ -1,5 +1,5 @@
 use pleno_value::{
-    Class, ClosureState, MultiWaiter, Value,
+    ClosureState, MethodOwner, MultiWaiter, Value,
     gc::{GcObject, GcRc, MarkAndSweepGC},
 };
 use std::collections::HashMap;
@@ -56,7 +56,7 @@ pub struct CallFrame {
     pub return_reg: usize,
     pub return_override: Option<Value>,
     pub closure_state: Option<GcRc<ClosureState>>,
-    pub current_class: Option<GcRc<Class>>,
+    pub current_owner: Option<MethodOwner>,
     pub current_module: Option<Rc<String>>,
     pub current_module_path: Option<Rc<String>>,
     pub exception_handlers: Vec<ExceptionHandler>,
@@ -70,8 +70,11 @@ impl GcObject for CallFrame {
         if let Some(state) = &self.closure_state {
             gc.mark_object(&state.to_gc_object());
         }
-        if let Some(class) = &self.current_class {
-            gc.mark_object(&class.to_gc_object());
+        if let Some(owner) = &self.current_owner {
+            match owner {
+                MethodOwner::Class(class) => gc.mark_object(&class.to_gc_object()),
+                MethodOwner::Enum(enum_type) => gc.mark_object(&enum_type.to_gc_object()),
+            }
         }
     }
 }

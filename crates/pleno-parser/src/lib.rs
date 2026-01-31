@@ -814,6 +814,19 @@ impl Parser {
         self.expect(TokenKind::LBrace, "Expected '{' before enum body")?;
         let mut variants = Vec::new();
         while !self.check(&TokenKind::RBrace) && !self.is_at_end() {
+            // Check if we reached methods (denoted by 'fn' or visibility or 'static')
+            if matches!(
+                self.peek_kind(),
+                TokenKind::KeywordFn
+                    | TokenKind::KeywordPublic
+                    | TokenKind::KeywordPrivate
+                    | TokenKind::KeywordProtected
+                    | TokenKind::KeywordInternal
+                    | TokenKind::KeywordStatic
+            ) {
+                break;
+            }
+
             let variant_name = match self.advance().kind.clone() {
                 TokenKind::Ident(value) => value,
                 other => {
@@ -869,12 +882,61 @@ impl Parser {
             // Allow trailing comma
             self.matches(&TokenKind::Comma);
         }
+
+        let mut methods = Vec::new();
+        while !self.check(&TokenKind::RBrace) && !self.is_at_end() {
+            let member_doc = self.token_docs.get(&self.index).cloned();
+            let member_annotations = self.parse_annotations()?;
+            let mut visibility = None;
+            let mut is_static = false;
+
+            loop {
+                match self.peek_kind() {
+                    TokenKind::KeywordPublic => {
+                        self.advance();
+                        visibility = Some(pleno_ast::Visibility::Public);
+                    }
+                    TokenKind::KeywordPrivate => {
+                        self.advance();
+                        visibility = Some(pleno_ast::Visibility::Private);
+                    }
+                    TokenKind::KeywordProtected => {
+                        self.advance();
+                        visibility = Some(pleno_ast::Visibility::Protected);
+                    }
+                    TokenKind::KeywordInternal => {
+                        self.advance();
+                        visibility = Some(pleno_ast::Visibility::Internal);
+                    }
+                    TokenKind::KeywordStatic => {
+                        self.advance();
+                        is_static = true;
+                    }
+                    _ => break,
+                }
+            }
+
+            let mut decl = self.parse_function_decl(FunctionDeclarationConfig {
+                kind: pleno_ast::FunctionKind::Method,
+                allow_modifiers: true,
+                visibility,
+                is_static: Some(is_static),
+                annotations: member_annotations,
+                is_async: false, // For now enums don't have async methods easily
+                is_abstract: false,
+                doc: member_doc,
+            })?;
+            decl.is_static = is_static;
+            methods.push(decl);
+        }
+
         self.expect(TokenKind::RBrace, "Expected '}' after enum body")?;
 
         Ok(self.wrap_stmt(
             StmtKind::Enum(pleno_ast::EnumDecl {
                 name,
                 variants,
+                methods,
                 annotations,
                 doc,
             }),
