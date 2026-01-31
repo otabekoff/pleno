@@ -146,6 +146,86 @@ pub fn math_pow(
     Ok(Value::Float(base.powf(exp)))
 }
 
+pub fn math_sin(
+    _vm: &mut dyn pleno_value::VMProvider,
+    args: &[Value],
+) -> Result<Value, pleno_value::RuntimeError> {
+    if args.is_empty() {
+        return Err(pleno_value::RuntimeError::new(
+            "Math.sin requires 1 argument",
+        ));
+    }
+    match args[0] {
+        Value::Int(i) => Ok(Value::Float((i as f64).sin())),
+        Value::Float(f) => Ok(Value::Float(f.sin())),
+        _ => Err(pleno_value::RuntimeError::new("Expected number")),
+    }
+}
+
+pub fn math_cos(
+    _vm: &mut dyn pleno_value::VMProvider,
+    args: &[Value],
+) -> Result<Value, pleno_value::RuntimeError> {
+    if args.is_empty() {
+        return Err(pleno_value::RuntimeError::new(
+            "Math.cos requires 1 argument",
+        ));
+    }
+    match args[0] {
+        Value::Int(i) => Ok(Value::Float((i as f64).cos())),
+        Value::Float(f) => Ok(Value::Float(f.cos())),
+        _ => Err(pleno_value::RuntimeError::new("Expected number")),
+    }
+}
+
+pub fn math_tan(
+    _vm: &mut dyn pleno_value::VMProvider,
+    args: &[Value],
+) -> Result<Value, pleno_value::RuntimeError> {
+    if args.is_empty() {
+        return Err(pleno_value::RuntimeError::new(
+            "Math.tan requires 1 argument",
+        ));
+    }
+    match args[0] {
+        Value::Int(i) => Ok(Value::Float((i as f64).tan())),
+        Value::Float(f) => Ok(Value::Float(f.tan())),
+        _ => Err(pleno_value::RuntimeError::new("Expected number")),
+    }
+}
+
+pub fn math_log(
+    _vm: &mut dyn pleno_value::VMProvider,
+    args: &[Value],
+) -> Result<Value, pleno_value::RuntimeError> {
+    if args.is_empty() {
+        return Err(pleno_value::RuntimeError::new(
+            "Math.log requires 1 argument",
+        ));
+    }
+    match args[0] {
+        Value::Int(i) => Ok(Value::Float((i as f64).ln())),
+        Value::Float(f) => Ok(Value::Float(f.ln())),
+        _ => Err(pleno_value::RuntimeError::new("Expected number")),
+    }
+}
+
+pub fn math_exp(
+    _vm: &mut dyn pleno_value::VMProvider,
+    args: &[Value],
+) -> Result<Value, pleno_value::RuntimeError> {
+    if args.is_empty() {
+        return Err(pleno_value::RuntimeError::new(
+            "Math.exp requires 1 argument",
+        ));
+    }
+    match args[0] {
+        Value::Int(i) => Ok(Value::Float((i as f64).exp())),
+        Value::Float(f) => Ok(Value::Float(f.exp())),
+        _ => Err(pleno_value::RuntimeError::new("Expected number")),
+    }
+}
+
 pub fn math_random(
     _vm: &mut dyn pleno_value::VMProvider,
     _args: &[Value],

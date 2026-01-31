@@ -1,0 +1,12 @@
+// Dotenv standard library module
+// Loads environment variables from .env file
+
+export class Dotenv {
+    /**
+     * Load environment variables from .env file
+     * @param path Optional path to .env file (default: ".env")
+     */
+    public static fn config(path) {
+        return __native_dotenv_config(path);
+    }
+}

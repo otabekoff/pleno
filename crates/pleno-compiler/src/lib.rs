@@ -170,9 +170,17 @@ impl Compiler {
         self.module_mode = true;
         self.module_exports.clear();
         self.module_name = None;
+
+        self.referenced_entities = self.collect_references(&program.statements);
+        let boxed = self.find_boxed_vars(&program.statements);
+        self.boxed_vars.push(boxed);
+
         for stmt in &program.statements {
             self.compile_stmt(stmt)?;
         }
+
+        self.boxed_vars.pop();
+
         let exports_reg = self.registers.allocate()?;
         self.emit(Opcode::NewMap, exports_reg, 0, 0);
         for item in self.module_exports.clone() {
@@ -596,10 +604,9 @@ impl Compiler {
 
                 if annotations.iter().any(|a| a.name == "inline")
                     && self.referenced_entities.contains(name)
+                    && let Some(scope) = self.inline_functions.last_mut()
                 {
-                    if let Some(scope) = self.inline_functions.last_mut() {
-                        scope.insert(name.clone(), decl.clone());
-                    }
+                    scope.insert(name.clone(), decl.clone());
                 }
 
                 let func_reg = self.compile_function(&decl, false, true, None, None)?;
@@ -1309,12 +1316,12 @@ impl Compiler {
                 "spread operator only allowed in collection literals",
             )),
             ExprKind::Call { callee, args } => {
-                if let ExprKind::Ident(name) = &callee.kind {
-                    if let Some(decl) = self.resolve_inline_function(name).cloned() {
-                        let dest = self.registers.allocate()?;
-                        self.compile_inlined_call(&decl, args, dest, expr.span)?;
-                        return Ok(dest);
-                    }
+                if let ExprKind::Ident(name) = &callee.kind
+                    && let Some(decl) = self.resolve_inline_function(name).cloned()
+                {
+                    let dest = self.registers.allocate()?;
+                    self.compile_inlined_call(&decl, args, dest, expr.span)?;
+                    return Ok(dest);
                 }
                 if let Some(params) = match &callee.kind {
                     ExprKind::Ident(name) => self.resolve_fn_signature(name),
@@ -4190,10 +4197,26 @@ impl Compiler {
     fn collect_stmt_refs(&self, stmt: &Stmt, referenced: &mut HashSet<String>) {
         match &stmt.kind {
             StmtKind::Expr(expr) => self.collect_expr_refs(expr, referenced),
-            StmtKind::Let { value, .. } => {
-                if let Some(value) = value {
-                    self.collect_expr_refs(value, referenced)
+            StmtKind::Export(stmt) => {
+                match &stmt.kind {
+                    StmtKind::Let { name, .. }
+                    | StmtKind::Fn { name, .. }
+                    | StmtKind::Class { name, .. } => {
+                        referenced.insert(name.clone());
+                    }
+                    _ => {}
                 }
+                self.collect_stmt_refs(stmt, referenced);
+            }
+            StmtKind::ExportList(items) => {
+                for item in items {
+                    referenced.insert(item.name.clone());
+                }
+            }
+            StmtKind::Let {
+                value: Some(value), ..
+            } => {
+                self.collect_expr_refs(value, referenced);
             }
             StmtKind::If {
                 condition,
@@ -4218,7 +4241,14 @@ impl Compiler {
             StmtKind::Fn { body, .. } => {
                 self.collect_stmt_refs(body, referenced);
             }
-            StmtKind::Class { methods, .. } => {
+            StmtKind::Class {
+                methods,
+                superclass,
+                ..
+            } => {
+                if let Some(superclass) = superclass {
+                    referenced.insert(superclass.clone());
+                }
                 for method in methods {
                     self.collect_stmt_refs(&method.body, referenced);
                 }

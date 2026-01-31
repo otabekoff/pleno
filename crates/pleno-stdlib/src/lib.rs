@@ -1,5 +1,6 @@
 pub mod builtins;
 pub mod concurrency;
+pub mod dotenv;
 pub mod gc;
 pub mod http;
 pub mod io;
@@ -221,7 +222,22 @@ pub fn register(vm: &mut dyn VMProvider) {
     math_module.insert("max".to_string(), Value::NativeFunction(math::math_max));
     math_module.insert("floor".to_string(), Value::NativeFunction(math::math_floor));
     math_module.insert("ceil".to_string(), Value::NativeFunction(math::math_ceil));
+    math_module.insert("round".to_string(), Value::NativeFunction(math::math_round));
+    math_module.insert("pow".to_string(), Value::NativeFunction(math::math_pow));
     math_module.insert("sqrt".to_string(), Value::NativeFunction(math::math_sqrt));
+    math_module.insert(
+        "random".to_string(),
+        Value::NativeFunction(math::math_random),
+    );
+    math_module.insert(
+        "randomInt".to_string(),
+        Value::NativeFunction(math::math_random_int),
+    );
+    math_module.insert("sin".to_string(), Value::NativeFunction(math::math_sin));
+    math_module.insert("cos".to_string(), Value::NativeFunction(math::math_cos));
+    math_module.insert("tan".to_string(), Value::NativeFunction(math::math_tan));
+    math_module.insert("log".to_string(), Value::NativeFunction(math::math_log));
+    math_module.insert("exp".to_string(), Value::NativeFunction(math::math_exp));
     math_module.insert("PI".to_string(), Value::Float(std::f64::consts::PI));
     math_module.insert("E".to_string(), Value::Float(std::f64::consts::E));
 
@@ -398,6 +414,17 @@ pub fn register(vm: &mut dyn VMProvider) {
     modules.insert(
         "std:net".to_string(),
         Value::Map(gc.allocate(MapState::new(net_module)).unwrap()),
+    );
+
+    // std:dotenv
+    let mut dotenv_module = HashMap::new();
+    dotenv_module.insert(
+        "config".to_string(),
+        Value::NativeFunction(dotenv::dotenv_config),
+    );
+    modules.insert(
+        "std:dotenv".to_string(),
+        Value::Map(gc.allocate(MapState::new(dotenv_module)).unwrap()),
     );
 
     // Register each module in the VM

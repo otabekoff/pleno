@@ -8,7 +8,7 @@ use std::io::Write;
 use std::rc::Rc;
 
 fn native_to_string(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
-    let val = match args.get(0) {
+    let val = match args.first() {
         Some(v) => v,
         None => return Ok(Value::String(Rc::new("".to_string()))),
     };
@@ -62,6 +62,82 @@ pub fn register_builtins(vm: &mut dyn VMProvider) {
         Value::NativeFunction(native_error_constructor),
     );
 
+    // Native bindings for std lib wrappers (math.pln, http.pln)
+    vm.register_global(
+        "__native_math_sin".to_string(),
+        Value::NativeFunction(crate::math::math_sin),
+    );
+    vm.register_global(
+        "__native_math_cos".to_string(),
+        Value::NativeFunction(crate::math::math_cos),
+    );
+    vm.register_global(
+        "__native_math_tan".to_string(),
+        Value::NativeFunction(crate::math::math_tan),
+    );
+    vm.register_global(
+        "__native_math_log".to_string(),
+        Value::NativeFunction(crate::math::math_log),
+    );
+    vm.register_global(
+        "__native_math_exp".to_string(),
+        Value::NativeFunction(crate::math::math_exp),
+    );
+    vm.register_global(
+        "__native_math_abs".to_string(),
+        Value::NativeFunction(crate::math::math_abs),
+    );
+    vm.register_global(
+        "__native_math_pow".to_string(),
+        Value::NativeFunction(crate::math::math_pow),
+    );
+    vm.register_global(
+        "__native_math_sqrt".to_string(),
+        Value::NativeFunction(crate::math::math_sqrt),
+    );
+    vm.register_global(
+        "__native_math_random".to_string(),
+        Value::NativeFunction(crate::math::math_random),
+    );
+    vm.register_global(
+        "__native_math_random_int".to_string(),
+        Value::NativeFunction(crate::math::math_random_int),
+    );
+    vm.register_global(
+        "__native_math_floor".to_string(),
+        Value::NativeFunction(crate::math::math_floor),
+    );
+    vm.register_global(
+        "__native_math_ceil".to_string(),
+        Value::NativeFunction(crate::math::math_ceil),
+    );
+    vm.register_global(
+        "__native_math_round".to_string(),
+        Value::NativeFunction(crate::math::math_round),
+    );
+
+    vm.register_global(
+        "__native_http_get".to_string(),
+        Value::NativeFunction(crate::http::http_get),
+    );
+    vm.register_global(
+        "__native_http_post".to_string(),
+        Value::NativeFunction(crate::http::http_post),
+    );
+    vm.register_global(
+        "__native_http_put".to_string(),
+        Value::NativeFunction(crate::http::http_put),
+    );
+    vm.register_global(
+        "__native_http_delete".to_string(),
+        Value::NativeFunction(crate::http::http_delete),
+    );
+
+    vm.register_global(
+        "__native_dotenv_config".to_string(),
+        Value::NativeFunction(crate::dotenv::dotenv_config),
+    );
+
     // Result type constructors
     vm.register_global("Ok".to_string(), Value::NativeFunction(native_result_ok));
     vm.register_global("Err".to_string(), Value::NativeFunction(native_result_err));
@@ -85,84 +161,7 @@ pub fn register_builtins(vm: &mut dyn VMProvider) {
         Value::NativeFunction(crate::promise::promise_constructor),
     );
 
-    // Modules registered as globals for backward compatibility
-    let mut math_map = HashMap::new();
-    math_map.insert(
-        "abs".to_string(),
-        Value::NativeFunction(crate::math::math_abs),
-    );
-    math_map.insert(
-        "min".to_string(),
-        Value::NativeFunction(crate::math::math_min),
-    );
-    math_map.insert(
-        "max".to_string(),
-        Value::NativeFunction(crate::math::math_max),
-    );
-    math_map.insert(
-        "pow".to_string(),
-        Value::NativeFunction(crate::math::math_pow),
-    ); // needs modular math_pow
-    math_map.insert(
-        "sqrt".to_string(),
-        Value::NativeFunction(crate::math::math_sqrt),
-    );
-    math_map.insert(
-        "floor".to_string(),
-        Value::NativeFunction(crate::math::math_floor),
-    );
-    math_map.insert(
-        "ceil".to_string(),
-        Value::NativeFunction(crate::math::math_ceil),
-    );
-    math_map.insert(
-        "random".to_string(),
-        Value::NativeFunction(crate::math::math_random),
-    );
-    math_map.insert(
-        "randomInt".to_string(),
-        Value::NativeFunction(crate::math::math_random_int),
-    );
-    math_map.insert(
-        "round".to_string(),
-        Value::NativeFunction(crate::math::math_round),
-    );
-    math_map.insert("PI".to_string(), Value::Float(std::f64::consts::PI));
-    math_map.insert("E".to_string(), Value::Float(std::f64::consts::E));
-    let math_val = Value::Map(vm.get_gc().allocate(MapState::new(math_map)).unwrap());
-    vm.register_global("Math".to_string(), math_val);
-
-    let mut json_map = HashMap::new();
-    json_map.insert(
-        "parse".to_string(),
-        Value::NativeFunction(crate::json::json_parse),
-    );
-    json_map.insert(
-        "stringify".to_string(),
-        Value::NativeFunction(crate::json::json_stringify),
-    );
-    let json_val = Value::Map(vm.get_gc().allocate(MapState::new(json_map)).unwrap());
-    vm.register_global("JSON".to_string(), json_val);
-
-    let mut os_map = HashMap::new();
-    os_map.insert(
-        "exit".to_string(),
-        Value::NativeFunction(crate::process::process_exit),
-    );
-    os_map.insert(
-        "getenv".to_string(),
-        Value::NativeFunction(crate::process::process_env),
-    );
-    os_map.insert(
-        "args".to_string(),
-        Value::NativeFunction(crate::process::process_args),
-    );
-    os_map.insert(
-        "cwd".to_string(),
-        Value::NativeFunction(crate::process::process_cwd),
-    );
-    let os_val = Value::Map(vm.get_gc().allocate(MapState::new(os_map)).unwrap());
-    vm.register_global("OS".to_string(), os_val);
+    // Global Math, JSON, OS removed. Import from std modules.
 
     // Promise methods
     let mut promise_obj_map = HashMap::new();
