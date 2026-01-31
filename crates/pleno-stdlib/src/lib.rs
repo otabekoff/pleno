@@ -5,6 +5,7 @@ pub mod http;
 pub mod io;
 pub mod json;
 pub mod math;
+pub mod net;
 pub mod path;
 pub mod process;
 pub mod promise;
@@ -383,6 +384,21 @@ pub fn register(vm: &mut dyn VMProvider) {
     );
     let security_val = Value::Map(gc.allocate(MapState::new(security_module)).unwrap());
     modules.insert("std:security".to_string(), security_val.clone());
+
+    // std:net - Low-Level Networking
+    let mut net_module = HashMap::new();
+    net_module.insert(
+        "listen".to_string(),
+        Value::NativeFunction(net::net_tcp_listen),
+    );
+    net_module.insert(
+        "connect".to_string(),
+        Value::NativeFunction(net::net_tcp_connect),
+    );
+    modules.insert(
+        "std:net".to_string(),
+        Value::Map(gc.allocate(MapState::new(net_module)).unwrap()),
+    );
 
     // Register each module in the VM
     for (name, value) in modules {

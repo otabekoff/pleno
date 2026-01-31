@@ -28,6 +28,12 @@ pub trait VMProvider {
     fn is_network_allowed(&self) -> bool {
         true
     }
+    fn is_read_allowed(&self, _path: &str) -> bool {
+        true
+    }
+    fn is_write_allowed(&self, _path: &str) -> bool {
+        true
+    }
     fn get_max_memory(&self) -> usize {
         0 // 0 means unlimited
     }
@@ -49,6 +55,8 @@ pub struct SandboxConfig {
     pub allow_network: bool,
     pub max_memory: usize,
     pub max_instructions: u64,
+    pub allowed_read_paths: Vec<String>,
+    pub allowed_write_paths: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

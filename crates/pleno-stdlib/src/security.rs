@@ -1,5 +1,6 @@
 use pleno_value::{MapState, RuntimeError, SandboxConfig, VMProvider, Value};
 use std::collections::HashMap;
+use std::rc::Rc;
 
 pub fn sandbox_new(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
     let config_val = args.first().cloned();
@@ -21,6 +22,20 @@ pub fn sandbox_new(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, Run
         if let Some(Value::Int(limit)) = borrowed.entries.get("maxInstructions") {
             config.max_instructions = *limit as u64;
         }
+        if let Some(Value::Array(paths)) = borrowed.entries.get("allowedReadPaths") {
+            for v in &paths.borrow().elements {
+                if let Value::String(s) = v {
+                    config.allowed_read_paths.push(s.to_string());
+                }
+            }
+        }
+        if let Some(Value::Array(paths)) = borrowed.entries.get("allowedWritePaths") {
+            for v in &paths.borrow().elements {
+                if let Value::String(s) = v {
+                    config.allowed_write_paths.push(s.to_string());
+                }
+            }
+        }
     }
 
     // Create the sandbox object
@@ -37,6 +52,30 @@ pub fn sandbox_new(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, Run
     sandbox_data.insert(
         "_maxInstructions".to_string(),
         Value::Int(config.max_instructions as i64),
+    );
+
+    let mut read_paths = Vec::new();
+    for p in &config.allowed_read_paths {
+        read_paths.push(Value::String(Rc::new(p.clone())));
+    }
+    sandbox_data.insert(
+        "_allowedReadPaths".to_string(),
+        Value::Array(
+            vm.get_gc()
+                .allocate(pleno_value::ArrayState::new(read_paths))?,
+        ),
+    );
+
+    let mut write_paths = Vec::new();
+    for p in &config.allowed_write_paths {
+        write_paths.push(Value::String(Rc::new(p.clone())));
+    }
+    sandbox_data.insert(
+        "_allowedWritePaths".to_string(),
+        Value::Array(
+            vm.get_gc()
+                .allocate(pleno_value::ArrayState::new(write_paths))?,
+        ),
     );
 
     let gc = vm.get_gc();
@@ -68,6 +107,8 @@ pub fn sandbox_run(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, Run
     let mut allow_network = false;
     let mut max_memory = 0;
     let mut max_instructions = 0;
+    let mut allowed_read_paths = Vec::new();
+    let mut allowed_write_paths = Vec::new();
 
     if let Value::Map(map) = receiver {
         let borrowed = map.borrow();
@@ -83,6 +124,20 @@ pub fn sandbox_run(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, Run
         if let Some(Value::Int(v)) = borrowed.entries.get("_maxInstructions") {
             max_instructions = *v as u64;
         }
+        if let Some(Value::Array(paths)) = borrowed.entries.get("_allowedReadPaths") {
+            for v in &paths.borrow().elements {
+                if let Value::String(s) = v {
+                    allowed_read_paths.push(s.to_string());
+                }
+            }
+        }
+        if let Some(Value::Array(paths)) = borrowed.entries.get("_allowedWritePaths") {
+            for v in &paths.borrow().elements {
+                if let Value::String(s) = v {
+                    allowed_write_paths.push(s.to_string());
+                }
+            }
+        }
     } else {
         return Err(RuntimeError::new(
             "Sandbox.run called on non-sandbox object",
@@ -94,6 +149,8 @@ pub fn sandbox_run(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, Run
         allow_network,
         max_memory,
         max_instructions,
+        allowed_read_paths,
+        allowed_write_paths,
     };
 
     // Create Sandbox using VMProvider trait

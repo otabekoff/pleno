@@ -7,11 +7,6 @@ pub fn io_file_read(
     vm: &mut dyn pleno_value::VMProvider,
     args: &[Value],
 ) -> Result<Value, pleno_value::RuntimeError> {
-    if !vm.is_io_allowed() {
-        return Err(pleno_value::RuntimeError::new(
-            "SecurityError: IO access denied",
-        ));
-    }
     let path = match args.first() {
         Some(Value::String(s)) => s.as_str(),
         _ => {
@@ -20,6 +15,11 @@ pub fn io_file_read(
             ));
         }
     };
+    if !vm.is_read_allowed(path) {
+        return Err(pleno_value::RuntimeError::new(
+            "SecurityError: Read access denied",
+        ));
+    }
 
     match fs::read_to_string(path) {
         Ok(content) => Ok(Value::String(Rc::new(content))),
@@ -34,11 +34,6 @@ pub fn io_file_write(
     vm: &mut dyn pleno_value::VMProvider,
     args: &[Value],
 ) -> Result<Value, pleno_value::RuntimeError> {
-    if !vm.is_io_allowed() {
-        return Err(pleno_value::RuntimeError::new(
-            "SecurityError: IO access denied",
-        ));
-    }
     let path = match args.first() {
         Some(Value::String(s)) => s.as_str(),
         _ => {
@@ -47,6 +42,11 @@ pub fn io_file_write(
             ));
         }
     };
+    if !vm.is_write_allowed(path) {
+        return Err(pleno_value::RuntimeError::new(
+            "SecurityError: Write access denied",
+        ));
+    }
     let content = match args.get(1) {
         Some(Value::String(s)) => s.as_str(),
         _ => {
@@ -69,11 +69,6 @@ pub fn io_file_exists(
     vm: &mut dyn pleno_value::VMProvider,
     args: &[Value],
 ) -> Result<Value, pleno_value::RuntimeError> {
-    if !vm.is_io_allowed() {
-        return Err(pleno_value::RuntimeError::new(
-            "SecurityError: IO access denied",
-        ));
-    }
     let path = match args.first() {
         Some(Value::String(s)) => s.as_str(),
         _ => {
@@ -82,6 +77,11 @@ pub fn io_file_exists(
             ));
         }
     };
+    if !vm.is_read_allowed(path) {
+        return Err(pleno_value::RuntimeError::new(
+            "SecurityError: Read access denied",
+        ));
+    }
 
     Ok(Value::Bool(std::path::Path::new(path).exists()))
 }
@@ -90,11 +90,6 @@ pub fn io_file_append(
     vm: &mut dyn pleno_value::VMProvider,
     args: &[Value],
 ) -> Result<Value, pleno_value::RuntimeError> {
-    if !vm.is_io_allowed() {
-        return Err(pleno_value::RuntimeError::new(
-            "SecurityError: IO access denied",
-        ));
-    }
     let path = match args.first() {
         Some(Value::String(s)) => s.as_str(),
         _ => {
@@ -103,6 +98,11 @@ pub fn io_file_append(
             ));
         }
     };
+    if !vm.is_write_allowed(path) {
+        return Err(pleno_value::RuntimeError::new(
+            "SecurityError: Write access denied",
+        ));
+    }
     let content = match args.get(1) {
         Some(Value::String(s)) => s.as_str(),
         _ => {
@@ -129,11 +129,6 @@ pub fn io_file_delete(
     vm: &mut dyn pleno_value::VMProvider,
     args: &[Value],
 ) -> Result<Value, pleno_value::RuntimeError> {
-    if !vm.is_io_allowed() {
-        return Err(pleno_value::RuntimeError::new(
-            "SecurityError: IO access denied",
-        ));
-    }
     let path = match args.first() {
         Some(Value::String(s)) => s.as_str(),
         _ => {
@@ -142,6 +137,11 @@ pub fn io_file_delete(
             ));
         }
     };
+    if !vm.is_write_allowed(path) {
+        return Err(pleno_value::RuntimeError::new(
+            "SecurityError: Write access denied",
+        ));
+    }
 
     fs::remove_file(path)
         .map_err(|e| pleno_value::RuntimeError::new(format!("File.delete failed: {}", e)))?;
@@ -152,11 +152,6 @@ pub fn io_directory_create(
     vm: &mut dyn pleno_value::VMProvider,
     args: &[Value],
 ) -> Result<Value, pleno_value::RuntimeError> {
-    if !vm.is_io_allowed() {
-        return Err(pleno_value::RuntimeError::new(
-            "SecurityError: IO access denied",
-        ));
-    }
     let path = match args.first() {
         Some(Value::String(s)) => s.as_str(),
         _ => {
@@ -165,6 +160,11 @@ pub fn io_directory_create(
             ));
         }
     };
+    if !vm.is_write_allowed(path) {
+        return Err(pleno_value::RuntimeError::new(
+            "SecurityError: Write access denied",
+        ));
+    }
     fs::create_dir(path)
         .map_err(|e| pleno_value::RuntimeError::new(format!("Directory.create failed: {}", e)))?;
     Ok(Value::Null)
@@ -174,11 +174,6 @@ pub fn io_directory_exists(
     vm: &mut dyn pleno_value::VMProvider,
     args: &[Value],
 ) -> Result<Value, pleno_value::RuntimeError> {
-    if !vm.is_io_allowed() {
-        return Err(pleno_value::RuntimeError::new(
-            "SecurityError: IO access denied",
-        ));
-    }
     let path = match args.first() {
         Some(Value::String(s)) => s.as_str(),
         _ => {
@@ -187,6 +182,11 @@ pub fn io_directory_exists(
             ));
         }
     };
+    if !vm.is_read_allowed(path) {
+        return Err(pleno_value::RuntimeError::new(
+            "SecurityError: Read access denied",
+        ));
+    }
     let meta = fs::metadata(path);
     Ok(Value::Bool(meta.map(|m| m.is_dir()).unwrap_or(false)))
 }
@@ -195,11 +195,6 @@ pub fn io_directory_delete(
     vm: &mut dyn pleno_value::VMProvider,
     args: &[Value],
 ) -> Result<Value, pleno_value::RuntimeError> {
-    if !vm.is_io_allowed() {
-        return Err(pleno_value::RuntimeError::new(
-            "SecurityError: IO access denied",
-        ));
-    }
     let path = match args.first() {
         Some(Value::String(s)) => s.as_str(),
         _ => {
@@ -208,6 +203,11 @@ pub fn io_directory_delete(
             ));
         }
     };
+    if !vm.is_write_allowed(path) {
+        return Err(pleno_value::RuntimeError::new(
+            "SecurityError: Write access denied",
+        ));
+    }
     fs::remove_dir(path)
         .map_err(|e| pleno_value::RuntimeError::new(format!("Directory.delete failed: {}", e)))?;
     Ok(Value::Null)
@@ -217,11 +217,6 @@ pub fn io_directory_list(
     vm: &mut dyn pleno_value::VMProvider,
     args: &[Value],
 ) -> Result<Value, pleno_value::RuntimeError> {
-    if !vm.is_io_allowed() {
-        return Err(pleno_value::RuntimeError::new(
-            "SecurityError: IO access denied",
-        ));
-    }
     let path = match args.first() {
         Some(Value::String(s)) => s.as_str(),
         _ => {
@@ -230,6 +225,11 @@ pub fn io_directory_list(
             ));
         }
     };
+    if !vm.is_read_allowed(path) {
+        return Err(pleno_value::RuntimeError::new(
+            "SecurityError: Read access denied",
+        ));
+    }
     let entries = fs::read_dir(path)
         .map_err(|e| pleno_value::RuntimeError::new(format!("Directory.list failed: {}", e)))?;
     let mut results = Vec::new();
@@ -257,6 +257,11 @@ pub fn io_directory_list_files(
             ));
         }
     };
+    if !vm.is_read_allowed(path) {
+        return Err(pleno_value::RuntimeError::new(
+            "SecurityError: Read access denied",
+        ));
+    }
     let entries = fs::read_dir(path)
         .map_err(|e| pleno_value::RuntimeError::new(format!("Directory.list failed: {}", e)))?;
     let mut results = Vec::new();
@@ -286,6 +291,11 @@ pub fn io_directory_list_directories(
             ));
         }
     };
+    if !vm.is_read_allowed(path) {
+        return Err(pleno_value::RuntimeError::new(
+            "SecurityError: Read access denied",
+        ));
+    }
     let entries = fs::read_dir(path)
         .map_err(|e| pleno_value::RuntimeError::new(format!("Directory.list failed: {}", e)))?;
     let mut results = Vec::new();
@@ -307,11 +317,6 @@ pub fn io_directory_create_recursive(
     vm: &mut dyn pleno_value::VMProvider,
     args: &[Value],
 ) -> Result<Value, pleno_value::RuntimeError> {
-    if !vm.is_io_allowed() {
-        return Err(pleno_value::RuntimeError::new(
-            "SecurityError: IO access denied",
-        ));
-    }
     let path = match args.first() {
         Some(Value::String(s)) => s.as_str(),
         _ => {
@@ -320,6 +325,11 @@ pub fn io_directory_create_recursive(
             ));
         }
     };
+    if !vm.is_write_allowed(path) {
+        return Err(pleno_value::RuntimeError::new(
+            "SecurityError: Write access denied",
+        ));
+    }
     fs::create_dir_all(path).map_err(|e| {
         pleno_value::RuntimeError::new(format!("Directory.createRecursive failed: {}", e))
     })?;
@@ -330,11 +340,6 @@ pub fn io_directory_delete_recursive(
     vm: &mut dyn pleno_value::VMProvider,
     args: &[Value],
 ) -> Result<Value, pleno_value::RuntimeError> {
-    if !vm.is_io_allowed() {
-        return Err(pleno_value::RuntimeError::new(
-            "SecurityError: IO access denied",
-        ));
-    }
     let path = match args.first() {
         Some(Value::String(s)) => s.as_str(),
         _ => {
@@ -343,6 +348,11 @@ pub fn io_directory_delete_recursive(
             ));
         }
     };
+    if !vm.is_write_allowed(path) {
+        return Err(pleno_value::RuntimeError::new(
+            "SecurityError: Write access denied",
+        ));
+    }
     fs::remove_dir_all(path).map_err(|e| {
         pleno_value::RuntimeError::new(format!("Directory.deleteRecursive failed: {}", e))
     })?;
@@ -353,11 +363,6 @@ pub fn io_open(
     vm: &mut dyn pleno_value::VMProvider,
     args: &[Value],
 ) -> Result<Value, pleno_value::RuntimeError> {
-    if !vm.is_io_allowed() {
-        return Err(pleno_value::RuntimeError::new(
-            "SecurityError: IO access denied",
-        ));
-    }
     let path = match args.first() {
         Some(Value::String(s)) => s.as_str(),
         _ => return Err(RuntimeError::new("open expects path string")),
@@ -367,6 +372,20 @@ pub fn io_open(
         None => "r",
         _ => return Err(RuntimeError::new("open mode must be string")),
     };
+
+    match mode {
+        "r" => {
+            if !vm.is_read_allowed(path) {
+                return Err(RuntimeError::new("SecurityError: Read access denied"));
+            }
+        }
+        "w" | "a" => {
+            if !vm.is_write_allowed(path) {
+                return Err(RuntimeError::new("SecurityError: Write access denied"));
+            }
+        }
+        _ => {}
+    }
 
     let inner: Box<dyn std::io::Write> = match mode {
         "w" => Box::new(fs::File::create(path).map_err(|e| RuntimeError::new(e.to_string()))?),
@@ -395,6 +414,11 @@ pub fn io_stdout(
     vm: &mut dyn pleno_value::VMProvider,
     _args: &[Value],
 ) -> Result<Value, pleno_value::RuntimeError> {
+    if !vm.is_io_allowed() {
+        return Err(pleno_value::RuntimeError::new(
+            "SecurityError: IO access denied",
+        ));
+    }
     Ok(Value::File(vm.get_gc().allocate(FileState {
         inner: RefCell::new(Some(Box::new(std::io::stdout()))),
         name: "<stdout>".to_string(),
@@ -405,6 +429,11 @@ pub fn io_stderr(
     vm: &mut dyn pleno_value::VMProvider,
     _args: &[Value],
 ) -> Result<Value, pleno_value::RuntimeError> {
+    if !vm.is_io_allowed() {
+        return Err(pleno_value::RuntimeError::new(
+            "SecurityError: IO access denied",
+        ));
+    }
     Ok(Value::File(vm.get_gc().allocate(FileState {
         inner: RefCell::new(Some(Box::new(std::io::stderr()))),
         name: "<stderr>".to_string(),
@@ -415,16 +444,6 @@ pub fn io_file_copy(
     vm: &mut dyn pleno_value::VMProvider,
     args: &[Value],
 ) -> Result<Value, pleno_value::RuntimeError> {
-    if !vm.is_io_allowed() {
-        return Err(pleno_value::RuntimeError::new(
-            "SecurityError: IO access denied",
-        ));
-    }
-    if args.len() < 2 {
-        return Err(pleno_value::RuntimeError::new(
-            "File.copy requires source and destination paths",
-        ));
-    }
     let src = match &args[0] {
         Value::String(s) => s.as_str(),
         _ => {
@@ -441,6 +460,16 @@ pub fn io_file_copy(
             ));
         }
     };
+    if !vm.is_read_allowed(src) {
+        return Err(RuntimeError::new(
+            "SecurityError: Read access denied (source)",
+        ));
+    }
+    if !vm.is_write_allowed(dst) {
+        return Err(RuntimeError::new(
+            "SecurityError: Write access denied (destination)",
+        ));
+    }
     fs::copy(src, dst)
         .map_err(|e| pleno_value::RuntimeError::new(format!("File.copy failed: {}", e)))?;
     Ok(Value::Null)
@@ -450,11 +479,6 @@ pub fn io_file_move(
     vm: &mut dyn pleno_value::VMProvider,
     args: &[Value],
 ) -> Result<Value, pleno_value::RuntimeError> {
-    if !vm.is_io_allowed() {
-        return Err(pleno_value::RuntimeError::new(
-            "SecurityError: IO access denied",
-        ));
-    }
     if args.len() < 2 {
         return Err(pleno_value::RuntimeError::new(
             "File.move requires source and destination paths",
@@ -476,6 +500,16 @@ pub fn io_file_move(
             ));
         }
     };
+    if !vm.is_read_allowed(src) {
+        return Err(pleno_value::RuntimeError::new(
+            "SecurityError: Read access denied (source)",
+        ));
+    }
+    if !vm.is_write_allowed(dst) {
+        return Err(pleno_value::RuntimeError::new(
+            "SecurityError: Write access denied (destination)",
+        ));
+    }
     fs::rename(src, dst)
         .map_err(|e| pleno_value::RuntimeError::new(format!("File.move failed: {}", e)))?;
     Ok(Value::Null)
@@ -485,11 +519,6 @@ pub fn io_file_read_lines(
     vm: &mut dyn pleno_value::VMProvider,
     args: &[Value],
 ) -> Result<Value, pleno_value::RuntimeError> {
-    if !vm.is_io_allowed() {
-        return Err(pleno_value::RuntimeError::new(
-            "SecurityError: IO access denied",
-        ));
-    }
     let path = match args.first() {
         Some(Value::String(s)) => s.as_str(),
         _ => {
@@ -498,6 +527,11 @@ pub fn io_file_read_lines(
             ));
         }
     };
+    if !vm.is_read_allowed(path) {
+        return Err(pleno_value::RuntimeError::new(
+            "SecurityError: Read access denied",
+        ));
+    }
 
     use std::io::BufRead;
     let file = fs::File::open(path)
