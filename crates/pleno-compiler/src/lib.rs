@@ -30,7 +30,7 @@ pub struct Compiler {
     fn_signatures: Vec<HashMap<String, Vec<ParamOwnership>>>,
     loop_counter: u32,
     loop_stack: Vec<LoopContext>,
-    captures: HashMap<String, usize>,
+    captures: HashMap<String, (usize, bool)>,
     is_top_level: bool,
     current_super: Option<String>,
     module_mode: bool,
@@ -40,6 +40,7 @@ pub struct Compiler {
     current_span: pleno_ast::Span,
     next_labels: Vec<String>,
     type_aliases: HashMap<String, String>,
+    boxed_vars: Vec<HashSet<String>>,
 }
 
 #[derive(Debug, Clone)]
@@ -76,6 +77,7 @@ impl Compiler {
             current_span: pleno_ast::Span::new(0, 0),
             next_labels: Vec::new(),
             type_aliases: HashMap::new(),
+            boxed_vars: vec![HashSet::new()],
         }
     }
 
@@ -90,9 +92,16 @@ impl Compiler {
         self.module_mode = false;
         self.module_exports.clear();
         self.module_name = None;
+
+        let boxed = self.find_boxed_vars(&program.statements);
+        self.boxed_vars.push(boxed);
+
         for stmt in &program.statements {
             self.compile_stmt(stmt)?;
         }
+
+        self.boxed_vars.pop();
+
         let return_reg = match self.last_expr_register {
             Some(reg) => reg,
             None => {
@@ -232,12 +241,23 @@ impl Compiler {
                     if let Some(ty_name) = &local.ty {
                         self.emit_type_check(value_reg, ty_name)?;
                     }
-                    self.emit(Opcode::Move, local.reg, value_reg, 0);
+                    if local.is_boxed {
+                        self.emit(Opcode::SetCell, local.reg, value_reg, 0);
+                    } else {
+                        self.emit(Opcode::Move, local.reg, value_reg, 0);
+                    }
                     self.ownership_states
                         .insert(local.reg, OwnershipState::Available);
-                } else if let Some(index) = self.captures.get(name).cloned() {
+                } else if let Some((index, is_boxed)) = self.captures.get(name).cloned() {
                     // Update capture
-                    self.emit(Opcode::SetCapture, value_reg, index as u8, 0);
+                    if is_boxed {
+                        let cell_reg = self.registers.allocate()?;
+                        self.emit(Opcode::LoadCapture, cell_reg, index as u8, 0);
+                        self.emit(Opcode::SetCell, cell_reg, value_reg, 0);
+                        self.free_temp(cell_reg);
+                    } else {
+                        self.emit(Opcode::SetCapture, value_reg, index as u8, 0);
+                    }
                 } else {
                     return Err(
                         self.error(&format!("unknown local or global: {}", name), stmt.span)
@@ -274,11 +294,14 @@ impl Compiler {
                 Ok(())
             }
             StmtKind::Block(statements) => {
+                let boxed = self.find_boxed_vars(statements);
+                self.boxed_vars.push(boxed);
                 self.locals.push(HashMap::new());
                 for stmt in statements {
                     self.compile_stmt(stmt)?;
                 }
                 self.pop_scope();
+                self.boxed_vars.pop();
                 Ok(())
             }
             StmtKind::If {
@@ -489,7 +512,7 @@ impl Compiler {
                     .iter()
                     .map(|param| ParamOwnership {
                         name: param.name.clone(),
-                        hint: parse_ownership_hint(param.ty.as_deref()),
+                        ownership: param.ownership.clone(),
                     })
                     .collect::<Vec<_>>();
                 if let Some(scope) = self.fn_signatures.last_mut() {
@@ -791,19 +814,37 @@ impl Compiler {
                     {
                         return Err(self.error("use of moved value", expr.span));
                     }
+                    let reg = if local.is_boxed {
+                        let dest = self.registers.allocate()?;
+                        self.emit(Opcode::LoadCell, dest, local.reg, 0);
+                        dest
+                    } else {
+                        local.reg
+                    };
                     if self.lazy_locals.contains_key(&local.reg) {
                         let dest = self.registers.allocate()?;
-                        self.emit(Opcode::ForceThunk, dest, local.reg, 0);
+                        self.emit(Opcode::ForceThunk, dest, reg, 0);
+                        if local.is_boxed {
+                            self.free_temp(reg);
+                        }
                         Ok(dest)
                     } else {
-                        Ok(local.reg)
+                        Ok(reg)
                     }
-                } else if let Some(index) = self.captures.get(name) {
+                } else if let Some((index, is_boxed)) = self.captures.get(name).cloned() {
                     let dest = self.registers.allocate()?;
-                    self.emit(Opcode::LoadCapture, dest, *index as u8, 0);
+                    self.emit(Opcode::LoadCapture, dest, index as u8, 0);
+                    let val_reg = if is_boxed {
+                        let val = self.registers.allocate()?;
+                        self.emit(Opcode::LoadCell, val, dest, 0);
+                        self.free_temp(dest);
+                        val
+                    } else {
+                        dest
+                    };
                     let forced = self.registers.allocate()?;
-                    self.emit(Opcode::ForceThunk, forced, dest, 0);
-                    self.free_temp(dest);
+                    self.emit(Opcode::ForceThunk, forced, val_reg, 0);
+                    self.free_temp(val_reg);
                     Ok(forced)
                 } else {
                     let dest = self.registers.allocate()?;
@@ -1072,6 +1113,8 @@ impl Compiler {
                 Ok(dest)
             }
             ExprKind::Block(stmts) => {
+                let boxed = self.find_boxed_vars(stmts);
+                self.boxed_vars.push(boxed);
                 self.locals.push(HashMap::new());
                 for stmt in stmts {
                     self.compile_stmt(stmt)?;
@@ -1085,6 +1128,7 @@ impl Compiler {
                     }
                 };
                 self.pop_scope();
+                self.boxed_vars.pop();
                 Ok(reg)
             }
             ExprKind::SetLiteral(items) => {
@@ -1476,12 +1520,24 @@ impl Compiler {
                     if is_pre {
                         self.emit(Opcode::Move, return_reg, current_val, 0);
                     }
-                } else if let Some(index) = self.captures.get(name).cloned() {
+                } else if let Some((index, is_boxed)) = self.captures.get(name).cloned() {
                     let temp = self.registers.allocate()?;
                     self.emit(Opcode::LoadCapture, temp, index as u8, 0);
+                    let val_in_temp = if is_boxed {
+                        let inner = self.registers.allocate()?;
+                        self.emit(Opcode::LoadCell, inner, temp, 0);
+                        inner
+                    } else {
+                        temp
+                    };
                     let val = self.registers.allocate()?;
-                    self.emit(Opcode::ForceThunk, val, temp, 0);
-                    self.free_temp(temp);
+                    self.emit(Opcode::ForceThunk, val, val_in_temp, 0);
+                    if is_boxed {
+                        self.free_temp(val_in_temp);
+                    } else {
+                        // temp is val_in_temp
+                        self.free_temp(temp);
+                    }
 
                     if !is_pre {
                         self.emit(Opcode::Move, return_reg, val, 0);
@@ -1497,7 +1553,12 @@ impl Compiler {
                         self.emit(Opcode::Move, return_reg, val, 0);
                     }
 
-                    self.emit(Opcode::SetCapture, val, index as u8, 0);
+                    if is_boxed {
+                        self.emit(Opcode::SetCell, temp, val, 0);
+                        self.free_temp(temp);
+                    } else {
+                        self.emit(Opcode::SetCapture, val, index as u8, 0);
+                    }
                     self.free_temp(val);
                 } else {
                     return Err(self.error(&format!("undefined variable: {}", name), expr.span));
@@ -2301,7 +2362,7 @@ impl Compiler {
         compiler.captures = captures
             .iter()
             .enumerate()
-            .map(|(idx, name)| (name.clone(), idx))
+            .map(|(idx, info)| (info.name.clone(), (idx, info.is_boxed)))
             .collect();
         compiler.current_super = current_super;
         let mut params = Vec::new();
@@ -2400,6 +2461,15 @@ impl Compiler {
                     has_default,
                     is_variadic,
                     is_keyword_only,
+                    ownership: if name == "this" {
+                        pleno_ast::Ownership::None
+                    } else {
+                        decl.params
+                            .iter()
+                            .find(|param| param.name == *name)
+                            .map(|param| param.ownership.clone())
+                            .unwrap_or(pleno_ast::Ownership::None)
+                    },
                 }
             })
             .collect();
@@ -2420,10 +2490,10 @@ impl Compiler {
         } else {
             let capture_count = captures.len() as u8;
             self.emit(Opcode::Closure, dest, func_index as u8, capture_count);
-            for (idx, name) in captures.iter().enumerate() {
-                let reg = if let Some(local) = self.resolve_local(name) {
+            for (idx, info) in captures.iter().enumerate() {
+                let reg = if let Some(local) = self.resolve_local(&info.name) {
                     local.reg
-                } else if let Some(capture_idx) = self.captures.get(name) {
+                } else if let Some((capture_idx, _)) = self.captures.get(&info.name) {
                     let temp = self.registers.allocate()?;
                     self.emit(Opcode::LoadCapture, temp, *capture_idx as u8, 0);
                     temp
@@ -2534,7 +2604,7 @@ impl Compiler {
         compiler.captures = captures
             .iter()
             .enumerate()
-            .map(|(idx, name)| (name.clone(), idx))
+            .map(|(idx, info)| (info.name.clone(), (idx, info.is_boxed)))
             .collect();
 
         for param in params {
@@ -2585,6 +2655,7 @@ impl Compiler {
                 has_default: p.default.is_some(),
                 is_variadic: p.is_variadic,
                 is_keyword_only: p.is_keyword_only,
+                ownership: p.ownership.clone(),
             })
             .collect();
 
@@ -2601,10 +2672,10 @@ impl Compiler {
         let dest = self.registers.allocate()?;
         let capture_count = captures.len() as u8;
         self.emit(Opcode::Closure, dest, func_index as u8, capture_count);
-        for (idx, name) in captures.iter().enumerate() {
-            let reg = if let Some(local) = self.resolve_local(name) {
+        for (idx, info) in captures.iter().enumerate() {
+            let reg = if let Some(local) = self.resolve_local(&info.name) {
                 local.reg
-            } else if let Some(capture_idx) = self.captures.get(name) {
+            } else if let Some((capture_idx, _)) = self.captures.get(&info.name) {
                 let temp = self.registers.allocate()?;
                 self.emit(Opcode::LoadCapture, temp, *capture_idx as u8, 0);
                 temp
@@ -2619,7 +2690,7 @@ impl Compiler {
         Ok(dest)
     }
 
-    fn analyze_captures(&self, decl: &FunctionDecl, is_method: bool) -> Vec<String> {
+    fn analyze_captures(&self, decl: &FunctionDecl, is_method: bool) -> Vec<CaptureInfo> {
         let mut locals_map = HashMap::new();
         let mut scope_stack = vec![HashSet::new()];
 
@@ -2647,10 +2718,18 @@ impl Compiler {
 
         let mut captures = Vec::new();
         for name in used.keys() {
-            if !locals_map.contains_key(name)
-                && (self.resolve_local(name).is_some() || self.captures.contains_key(name))
-            {
-                captures.push(name.clone());
+            if !locals_map.contains_key(name) {
+                if let Some(local) = self.resolve_local(name) {
+                    captures.push(CaptureInfo {
+                        name: name.clone(),
+                        is_boxed: local.is_boxed,
+                    });
+                } else if let Some((_, is_boxed)) = self.captures.get(name) {
+                    captures.push(CaptureInfo {
+                        name: name.clone(),
+                        is_boxed: *is_boxed,
+                    });
+                }
             }
         }
         captures
@@ -2880,6 +2959,10 @@ impl Compiler {
         if is_abstract {
             self.emit(Opcode::SetAbstract, class_reg, 0, 0);
         }
+        let is_pooled = annotations.iter().any(|a| a.name == "pooled");
+        if is_pooled {
+            self.emit(Opcode::SetPooled, class_reg, 1, 0);
+        }
 
         // Compile Implements
         if !implements.is_empty() {
@@ -3044,7 +3127,7 @@ impl Compiler {
                     self.emit(Opcode::LoadNull, r, 0, 0);
                     r
                 };
-                self.emit(Opcode::SetStatic, class_reg, field_idx, value_reg);
+                self.emit(Opcode::SetProperty, value_reg, class_reg, field_idx);
                 self.emit(
                     Opcode::SetStaticFieldVisibility,
                     class_reg,
@@ -3053,13 +3136,7 @@ impl Compiler {
                 );
                 self.free_temp(value_reg);
             } else {
-                let vis_idx = self.add_constant(Value::String(std::rc::Rc::new(
-                    visibility_name(field.visibility.as_ref()).to_string(),
-                )));
-                let vis_reg = self.registers.allocate()?;
-                self.emit(Opcode::LoadConst, vis_reg, vis_idx, 0);
-                self.emit(Opcode::SetFieldVisibility, class_reg, field_idx, vis_reg);
-                self.free_temp(vis_reg);
+                self.emit(Opcode::SetFieldVisibility, class_reg, field_idx, vis_code);
             }
         }
 
@@ -3195,7 +3272,7 @@ impl Compiler {
     fn collect_idents(
         &self,
         stmt: &Stmt,
-        used: &mut HashMap<String, ()>,
+        used: &mut HashMap<String, bool>,
         scope: &mut Vec<HashSet<String>>,
     ) {
         match &stmt.kind {
@@ -3218,7 +3295,7 @@ impl Compiler {
             StmtKind::Assign { name, value } => {
                 let is_shadowed = scope.iter().any(|s| s.contains(name));
                 if !is_shadowed {
-                    used.insert(name.clone(), ());
+                    used.insert(name.clone(), true);
                 }
                 self.collect_idents_expr(value, used, scope);
             }
@@ -3371,17 +3448,30 @@ impl Compiler {
     fn collect_idents_expr(
         &self,
         expr: &Expr,
-        used: &mut HashMap<String, ()>,
+        used: &mut HashMap<String, bool>,
         scope: &mut Vec<HashSet<String>>,
     ) {
         match &expr.kind {
             ExprKind::Ident(name) => {
                 let is_shadowed = scope.iter().any(|s| s.contains(name));
                 if !is_shadowed {
-                    used.insert(name.clone(), ());
+                    used.entry(name.clone()).or_insert(false);
                 }
             }
-            ExprKind::Unary { expr, .. } => self.collect_idents_expr(expr, used, scope),
+            ExprKind::Unary { op, expr } => match op {
+                pleno_ast::UnaryOp::PreIncrement
+                | pleno_ast::UnaryOp::PostIncrement
+                | pleno_ast::UnaryOp::PreDecrement
+                | pleno_ast::UnaryOp::PostDecrement => {
+                    if let ExprKind::Ident(name) = &expr.kind {
+                        let is_shadowed = scope.iter().any(|s| s.contains(name));
+                        if !is_shadowed {
+                            used.insert(name.clone(), true);
+                        }
+                    }
+                }
+                _ => self.collect_idents_expr(expr, used, scope),
+            },
             ExprKind::Binary { left, right, .. } => {
                 self.collect_idents_expr(left, used, scope);
                 self.collect_idents_expr(right, used, scope);
@@ -3487,6 +3577,13 @@ struct Local {
     reg: u8,
     mutable: bool,
     ty: Option<String>,
+    is_boxed: bool,
+}
+
+#[derive(Debug, Clone)]
+struct CaptureInfo {
+    name: String,
+    is_boxed: bool,
 }
 
 #[derive(Clone)]
@@ -3725,39 +3822,44 @@ impl Compiler {
         mutable: bool,
         ty: Option<String>,
     ) -> Result<(), CompileError> {
+        let is_boxed = self.boxed_vars.iter().any(|s| s.contains(&name));
+        let final_reg = if is_boxed {
+            let cell_reg = self.registers.allocate()?;
+            self.emit(Opcode::MakeCell, cell_reg, reg, 0);
+            if !self.is_local_reg(reg) && Some(reg) != self.last_expr_register {
+                self.registers.free(reg);
+            }
+            cell_reg
+        } else {
+            reg
+        };
+
         let scope = self
             .locals
             .last_mut()
             .ok_or_else(|| CompileError::new("scope missing"))?;
-        scope.insert(name, Local { reg, mutable, ty });
+
+        scope.insert(
+            name,
+            Local {
+                reg: final_reg,
+                mutable,
+                ty,
+                is_boxed,
+            },
+        );
+        let _ = scope;
+
         self.ownership_states.insert(reg, OwnershipState::Available);
         Ok(())
     }
 
-    fn compile_lazy_thunk(&mut self, expr: &Expr) -> Result<u8, CompileError> {
-        let body_stmt = Stmt {
-            kind: StmtKind::Return(Some(expr.clone())),
-            span: expr.span,
-        };
-        let decl = FunctionDecl {
-            name: "lazy_thunk".to_string(),
-            generics: Vec::new(),
-            params: Vec::new(),
-            return_ty: None,
-            body: Box::new(body_stmt),
-            is_static: false,
-            is_abstract: false,
-            is_async: false,
-            visibility: None,
-            kind: FunctionKind::Method,
-            annotations: Vec::new(),
-            doc: None,
-        };
-        let thunk_fn = self.compile_function(&decl, false, false, None, None)?;
-        let dest = self.registers.allocate()?;
-        self.emit(Opcode::MakeThunk, dest, thunk_fn, 0);
-        self.free_temp(thunk_fn);
-        Ok(dest)
+    pub fn compile_lazy_thunk(&mut self, expr: &Expr) -> Result<u8, CompileError> {
+        let callable_reg = self.compile_lambda(&[], expr, None, false)?;
+        let thunk_reg = self.registers.allocate()?;
+        self.emit(Opcode::MakeThunk, thunk_reg, callable_reg, 0);
+        self.free_temp(callable_reg);
+        Ok(thunk_reg)
     }
 
     fn resolve_local(&self, name: &str) -> Option<Local> {
@@ -3803,6 +3905,220 @@ impl Compiler {
         None
     }
 
+    fn find_boxed_vars(&self, stmts: &[Stmt]) -> HashSet<String> {
+        let mut boxed = HashSet::new();
+        for stmt in stmts {
+            self.find_closures_and_captures_in_stmt(stmt, &mut boxed);
+        }
+        boxed
+    }
+
+    fn find_closures_and_captures_in_stmt(&self, stmt: &Stmt, boxed: &mut HashSet<String>) {
+        match &stmt.kind {
+            StmtKind::Expr(expr) => self.find_closures_and_captures_in_expr(expr, boxed),
+            StmtKind::Let {
+                value: Some(val), ..
+            } => self.find_closures_and_captures_in_expr(val, boxed),
+            StmtKind::Assign { value, .. } => self.find_closures_and_captures_in_expr(value, boxed),
+            StmtKind::Block(stmts) => {
+                for s in stmts {
+                    self.find_closures_and_captures_in_stmt(s, boxed);
+                }
+            }
+            StmtKind::If {
+                condition,
+                then_branch,
+                else_branch,
+            } => {
+                self.find_closures_and_captures_in_expr(condition, boxed);
+                self.find_closures_and_captures_in_stmt(then_branch, boxed);
+                if let Some(eb) = else_branch {
+                    self.find_closures_and_captures_in_stmt(eb, boxed);
+                }
+            }
+            StmtKind::While { condition, body } => {
+                self.find_closures_and_captures_in_expr(condition, boxed);
+                self.find_closures_and_captures_in_stmt(body, boxed);
+            }
+            StmtKind::For { iterable, body, .. } => {
+                self.find_closures_and_captures_in_expr(iterable, boxed);
+                self.find_closures_and_captures_in_stmt(body, boxed);
+            }
+            StmtKind::CFor {
+                init,
+                condition,
+                step,
+                body,
+            } => {
+                if let Some(init) = init {
+                    self.find_closures_and_captures_in_stmt(init, boxed);
+                }
+                if let Some(condition) = condition {
+                    self.find_closures_and_captures_in_expr(condition, boxed);
+                }
+                if let Some(step) = step {
+                    self.find_closures_and_captures_in_stmt(step, boxed);
+                }
+                self.find_closures_and_captures_in_stmt(body, boxed);
+            }
+            StmtKind::Fn {
+                name,
+                generics,
+                params,
+                body,
+                annotations,
+                is_async,
+                ..
+            } => {
+                let decl = FunctionDecl {
+                    name: name.clone(),
+                    generics: generics.clone(),
+                    params: params.clone(),
+                    return_ty: None,
+                    body: body.clone(),
+                    is_static: false,
+                    is_abstract: false,
+                    is_async: *is_async,
+                    visibility: None,
+                    kind: FunctionKind::Method,
+                    annotations: annotations.clone(),
+                    doc: None,
+                };
+                let captures = self.analyze_captures_names(&decl, false);
+                for name in captures {
+                    boxed.insert(name);
+                }
+                self.find_closures_and_captures_in_stmt(body, boxed);
+            }
+            StmtKind::Return(Some(expr)) => self.find_closures_and_captures_in_expr(expr, boxed),
+            _ => {}
+        }
+    }
+
+    fn find_closures_and_captures_in_expr(&self, expr: &Expr, boxed: &mut HashSet<String>) {
+        match &expr.kind {
+            ExprKind::Lambda { params, body, .. } => {
+                let body_stmt = match &body.kind {
+                    ExprKind::Block(stmts) => Stmt {
+                        kind: StmtKind::Block(stmts.clone()),
+                        span: body.span,
+                    },
+                    _ => Stmt {
+                        kind: StmtKind::Return(Some((**body).clone())),
+                        span: body.span,
+                    },
+                };
+                let decl = FunctionDecl {
+                    name: "anonymous".to_string(),
+                    generics: Vec::new(),
+                    params: params.clone(),
+                    return_ty: None,
+                    body: Box::new(body_stmt),
+                    is_static: false,
+                    is_abstract: false,
+                    is_async: false,
+                    visibility: None,
+                    kind: FunctionKind::Method,
+                    annotations: Vec::new(),
+                    doc: None,
+                };
+                let captures = self.analyze_captures_names(&decl, false);
+                for name in captures {
+                    boxed.insert(name);
+                }
+                self.find_closures_and_captures_in_expr(body, boxed);
+            }
+            ExprKind::Binary { left, right, .. } => {
+                self.find_closures_and_captures_in_expr(left, boxed);
+                self.find_closures_and_captures_in_expr(right, boxed);
+            }
+            ExprKind::Unary { expr, .. } => self.find_closures_and_captures_in_expr(expr, boxed),
+            ExprKind::Call { callee, args } => {
+                self.find_closures_and_captures_in_expr(callee, boxed);
+                for arg in args {
+                    match arg {
+                        pleno_ast::CallArg::Positional(e)
+                        | pleno_ast::CallArg::Named(_, e)
+                        | pleno_ast::CallArg::Spread(e) => {
+                            self.find_closures_and_captures_in_expr(e, boxed);
+                        }
+                        pleno_ast::CallArg::Placeholder => {}
+                    }
+                }
+            }
+            ExprKind::Block(stmts) => {
+                for s in stmts {
+                    self.find_closures_and_captures_in_stmt(s, boxed);
+                }
+            }
+            ExprKind::MapLiteral(items) => {
+                for item in items {
+                    match item {
+                        pleno_ast::MapItem::Entry(_, e) | pleno_ast::MapItem::Spread(e) => {
+                            self.find_closures_and_captures_in_expr(e, boxed);
+                        }
+                    }
+                }
+            }
+            ExprKind::ArrayLiteral(items)
+            | ExprKind::SetLiteral(items)
+            | ExprKind::TupleLiteral(items) => {
+                for item in items {
+                    self.find_closures_and_captures_in_expr(item, boxed);
+                }
+            }
+            ExprKind::Index { collection, index } => {
+                self.find_closures_and_captures_in_expr(collection, boxed);
+                self.find_closures_and_captures_in_expr(index, boxed);
+            }
+            ExprKind::Property { object, .. } => {
+                self.find_closures_and_captures_in_expr(object, boxed)
+            }
+            ExprKind::Match { expr, arms } => {
+                self.find_closures_and_captures_in_expr(expr, boxed);
+                for arm in arms {
+                    self.find_closures_and_captures_in_expr(&arm.body, boxed);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn analyze_captures_names(&self, decl: &FunctionDecl, is_method: bool) -> Vec<String> {
+        let mut locals_map = HashMap::new();
+        let mut scope_stack = vec![HashSet::new()];
+
+        for param in &decl.params {
+            locals_map.insert(param.name.clone(), ());
+            scope_stack[0].insert(param.name.clone());
+        }
+        if is_method {
+            locals_map.insert("this".to_string(), ());
+            scope_stack[0].insert("this".to_string());
+        }
+
+        self.collect_locals(&decl.body, &mut locals_map);
+        for name in locals_map.keys() {
+            scope_stack[0].insert(name.clone());
+        }
+
+        let mut used = HashMap::new();
+        for param in &decl.params {
+            if let Some(default) = &param.default {
+                self.collect_idents_expr(default, &mut used, &mut scope_stack);
+            }
+        }
+        self.collect_idents(&decl.body, &mut used, &mut scope_stack);
+
+        let mut captures = Vec::new();
+        for (name, is_mutated) in used {
+            if is_mutated && !locals_map.contains_key(&name) {
+                captures.push(name);
+            }
+        }
+        captures
+    }
+
     fn enforce_call_ownership(
         &mut self,
         params: &[ParamOwnership],
@@ -3846,31 +4162,23 @@ impl Compiler {
             {
                 return Err(self.error("use of moved value", span));
             }
-            match param.hint {
-                OwnershipHint::Move => {
+            match param.ownership {
+                pleno_ast::Ownership::Move => {
                     self.ownership_states
                         .insert(local.reg, OwnershipState::Moved);
                 }
-                OwnershipHint::RefMut => {
+                pleno_ast::Ownership::BorrowMut => {
                     if !local.mutable {
                         return Err(
                             self.error("cannot take mutable reference to immutable binding", span)
                         );
                     }
                 }
-                OwnershipHint::Ref | OwnershipHint::None => {}
+                pleno_ast::Ownership::Borrow | pleno_ast::Ownership::None => {}
             }
         }
         Ok(())
     }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum OwnershipHint {
-    None,
-    Move,
-    Ref,
-    RefMut,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -3880,25 +4188,9 @@ enum OwnershipState {
 }
 
 #[derive(Debug, Clone)]
-struct ParamOwnership {
-    name: String,
-    hint: OwnershipHint,
-}
-
-fn parse_ownership_hint(ty: Option<&str>) -> OwnershipHint {
-    let Some(ty) = ty.map(str::trim) else {
-        return OwnershipHint::None;
-    };
-    if ty.strip_prefix("move ").is_some_and(|r| !r.is_empty()) {
-        return OwnershipHint::Move;
-    }
-    if ty.strip_prefix("&mut ").is_some_and(|r| !r.is_empty()) {
-        return OwnershipHint::RefMut;
-    }
-    if ty.starts_with('&') {
-        return OwnershipHint::Ref;
-    }
-    OwnershipHint::None
+pub struct ParamOwnership {
+    pub name: String,
+    pub ownership: pleno_ast::Ownership,
 }
 
 struct RegisterAllocator {

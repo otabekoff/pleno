@@ -1,0 +1,60 @@
+   Compiling pleno-vm v0.1.0 (D:\pleno\crates\pleno-vm)
+   Compiling pleno-repl v0.1.0 (D:\pleno\crates\pleno-repl)
+   Compiling pleno-cli v0.1.0 (D:\pleno\crates\pleno-cli)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 11.69s
+     Running `D:\project\rust\rust\zed\target\debug\pleno-cli.exe tests/phase12_verification.pln`
+DEBUG: GetGlobal constant index: 0
+DEBUG: GetGlobal lookup: 'print'
+DEBUG: GetGlobal value for 'print': NativeFunction(0x7ff716a8eb40)
+Lazy Evaluation Test
+DEBUG: GetGlobal constant index: 0
+DEBUG: GetGlobal lookup: 'print'
+DEBUG: GetGlobal value for 'print': NativeFunction(0x7ff716a8eb40)
+Count before access:  0
+DEBUG: GetGlobal constant index: 0
+DEBUG: GetGlobal lookup: 'print'
+DEBUG: GetGlobal value for 'print': NativeFunction(0x7ff716a8eb40)
+Evaluating lazy variable (x =  30 )
+DEBUG: GetGlobal constant index: 0
+DEBUG: GetGlobal lookup: 'print'
+DEBUG: GetGlobal value for 'print': NativeFunction(0x7ff716a8eb40)
+Count after access:  0
+DEBUG: GetGlobal constant index: 0
+DEBUG: GetGlobal lookup: 'print'
+DEBUG: GetGlobal value for 'print': NativeFunction(0x7ff716a8eb40)
+Lazy x again:  30
+DEBUG: GetGlobal constant index: 0
+DEBUG: GetGlobal lookup: 'print'
+DEBUG: GetGlobal value for 'print': NativeFunction(0x7ff716a8eb40)
+Count after second access:  0
+DEBUG: GetGlobal constant index: 0
+DEBUG: GetGlobal lookup: 'print'
+DEBUG: GetGlobal value for 'print': NativeFunction(0x7ff716a8eb40)
+
+--- Infinite Ranges ---
+DEBUG: GetGlobal constant index: 0
+DEBUG: GetGlobal lookup: 'print'
+DEBUG: GetGlobal value for 'print': NativeFunction(0x7ff716a8eb40)
+Infinite loop ran for:  6  iterations
+DEBUG: GetGlobal constant index: 0
+DEBUG: GetGlobal lookup: 'print'
+DEBUG: GetGlobal value for 'print': NativeFunction(0x7ff716a8eb40)
+
+--- Ownership Hints ---
+DEBUG: GetGlobal constant index: 12
+DEBUG: GetGlobal lookup: 'test_ownership'
+DEBUG: GetGlobal value for 'test_ownership': Function(2)
+DEBUG: GetGlobal constant index: 0
+DEBUG: GetGlobal lookup: 'print'
+DEBUG: GetGlobal value for 'print': NativeFunction(0x7ff716a8eb40)
+Ownership test function called
+DEBUG: GetGlobal constant index: 0
+DEBUG: GetGlobal lookup: 'print'
+DEBUG: GetGlobal value for 'print': NativeFunction(0x7ff716a8eb40)
+
+--- Memory Pooling ---
+DEBUG: GetGlobal constant index: 0
+DEBUG: GetGlobal lookup: 'print'
+DEBUG: GetGlobal value for 'print': NativeFunction(0x7ff716a8eb40)
+
+--- Phase 12 Verification COMPLETE ---

@@ -1,3 +1,4 @@
+use pleno_ast::Ownership;
 use pleno_common::Span;
 use pleno_value::Value;
 use serde::{Deserialize, Serialize};
@@ -55,6 +56,7 @@ pub enum Opcode {
     IterValues,
     IterEntries,
     DefineClass,
+    SetPooled,
     DefineInterface,
     SetSuper,
     SetStatic,
@@ -113,6 +115,9 @@ pub enum Opcode {
     AssertNotNull,
     MakeThunk,
     ForceThunk,
+    MakeCell,
+    LoadCell,
+    SetCell,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -187,4 +192,5 @@ pub struct ParamSpec {
     pub has_default: bool,
     pub is_variadic: bool,
     pub is_keyword_only: bool,
+    pub ownership: Ownership,
 }

@@ -1,0 +1,263 @@
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 3.21s
+     Running `D:\project\rust\rust\zed\target\debug\pleno-cli.exe tests/phase12_verification.pln`
+DEBUG: Before instructions access
+DEBUG: Code len: 131
+DEBUG: Const len: 20
+DEBUG: Creating VM
+DEBUG: Registering stdlib
+DEBUG: Calling vm.execute
+DEBUG: VM::execute starting. max_registers = 24
+DEBUG: Created script function object
+DEBUG: Pushed function. Total functions: 1
+DEBUG: Cleared registers. Extending to 24
+DEBUG: Extended registers successfully
+DEBUG: Pushed initial frame
+DEBUG: Calling run_until(0)
+DEBUG: VM executing GetGlobal at IP 0 frame_base 0 (regs: 24)
+DEBUG: GetGlobal constant index: 0
+DEBUG: GetGlobal lookup: 'print'
+DEBUG: GetGlobal value for 'print': NativeFunction(0x7ff71430d0e0)
+DEBUG: VM executing ForceThunk at IP 1 frame_base 0 (regs: 24)
+DEBUG: VM executing NewArray at IP 2 frame_base 0 (regs: 24)
+DEBUG: VM executing LoadConst at IP 3 frame_base 0 (regs: 24)
+DEBUG: VM executing ArrayAppend at IP 4 frame_base 0 (regs: 24)
+DEBUG: VM executing Call at IP 5 frame_base 0 (regs: 24)
+Lazy Evaluation Test
+DEBUG: VM executing LoadInt at IP 6 frame_base 0 (regs: 24)
+DEBUG: VM executing Closure at IP 7 frame_base 0 (regs: 24)
+DEBUG: VM executing Capture at IP 8 frame_base 0 (regs: 24)
+DEBUG: VM executing MakeThunk at IP 9 frame_base 0 (regs: 24)
+DEBUG: VM executing GetGlobal at IP 10 frame_base 0 (regs: 24)
+DEBUG: GetGlobal constant index: 0
+DEBUG: GetGlobal lookup: 'print'
+DEBUG: GetGlobal value for 'print': NativeFunction(0x7ff71430d0e0)
+DEBUG: VM executing ForceThunk at IP 11 frame_base 0 (regs: 24)
+DEBUG: VM executing NewArray at IP 12 frame_base 0 (regs: 24)
+DEBUG: VM executing LoadConst at IP 13 frame_base 0 (regs: 24)
+DEBUG: VM executing ArrayAppend at IP 14 frame_base 0 (regs: 24)
+DEBUG: VM executing ArrayAppend at IP 15 frame_base 0 (regs: 24)
+DEBUG: VM executing Call at IP 16 frame_base 0 (regs: 24)
+Count before access:  0
+DEBUG: VM executing GetGlobal at IP 17 frame_base 0 (regs: 24)
+DEBUG: GetGlobal constant index: 0
+DEBUG: GetGlobal lookup: 'print'
+DEBUG: GetGlobal value for 'print': NativeFunction(0x7ff71430d0e0)
+DEBUG: VM executing ForceThunk at IP 18 frame_base 0 (regs: 24)
+DEBUG: VM executing NewArray at IP 19 frame_base 0 (regs: 24)
+DEBUG: VM executing LoadConst at IP 20 frame_base 0 (regs: 24)
+DEBUG: VM executing ArrayAppend at IP 21 frame_base 0 (regs: 24)
+DEBUG: VM executing ForceThunk at IP 22 frame_base 0 (regs: 24)
+DEBUG: VM executing LoadCapture at IP 0 frame_base 24 (regs: 27)
+DEBUG: VM executing ForceThunk at IP 1 frame_base 24 (regs: 27)
+DEBUG: VM executing LoadInt at IP 2 frame_base 24 (regs: 27)
+DEBUG: VM executing Add at IP 3 frame_base 24 (regs: 27)
+DEBUG: VM executing SetCapture at IP 4 frame_base 24 (regs: 27)
+DEBUG: VM executing LoadInt at IP 5 frame_base 24 (regs: 27)
+DEBUG: VM executing LoadInt at IP 6 frame_base 24 (regs: 27)
+DEBUG: VM executing Add at IP 7 frame_base 24 (regs: 27)
+DEBUG: VM executing Return at IP 8 frame_base 24 (regs: 27)
+DEBUG: VM executing ArrayAppend at IP 23 frame_base 0 (regs: 24)
+DEBUG: VM executing LoadConst at IP 24 frame_base 0 (regs: 24)
+DEBUG: VM executing ArrayAppend at IP 25 frame_base 0 (regs: 24)
+DEBUG: VM executing Call at IP 26 frame_base 0 (regs: 24)
+Evaluating lazy variable (x =  30 )
+DEBUG: VM executing GetGlobal at IP 27 frame_base 0 (regs: 24)
+DEBUG: GetGlobal constant index: 0
+DEBUG: GetGlobal lookup: 'print'
+DEBUG: GetGlobal value for 'print': NativeFunction(0x7ff71430d0e0)
+DEBUG: VM executing ForceThunk at IP 28 frame_base 0 (regs: 24)
+DEBUG: VM executing NewArray at IP 29 frame_base 0 (regs: 24)
+DEBUG: VM executing LoadConst at IP 30 frame_base 0 (regs: 24)
+DEBUG: VM executing ArrayAppend at IP 31 frame_base 0 (regs: 24)
+DEBUG: VM executing ArrayAppend at IP 32 frame_base 0 (regs: 24)
+DEBUG: VM executing Call at IP 33 frame_base 0 (regs: 24)
+Count after access:  0
+DEBUG: VM executing GetGlobal at IP 34 frame_base 0 (regs: 24)
+DEBUG: GetGlobal constant index: 0
+DEBUG: GetGlobal lookup: 'print'
+DEBUG: GetGlobal value for 'print': NativeFunction(0x7ff71430d0e0)
+DEBUG: VM executing ForceThunk at IP 35 frame_base 0 (regs: 24)
+DEBUG: VM executing NewArray at IP 36 frame_base 0 (regs: 24)
+DEBUG: VM executing LoadConst at IP 37 frame_base 0 (regs: 24)
+DEBUG: VM executing ArrayAppend at IP 38 frame_base 0 (regs: 24)
+DEBUG: VM executing ForceThunk at IP 39 frame_base 0 (regs: 24)
+DEBUG: VM executing ArrayAppend at IP 40 frame_base 0 (regs: 24)
+DEBUG: VM executing Call at IP 41 frame_base 0 (regs: 24)
+Lazy x again:  30
+DEBUG: VM executing GetGlobal at IP 42 frame_base 0 (regs: 24)
+DEBUG: GetGlobal constant index: 0
+DEBUG: GetGlobal lookup: 'print'
+DEBUG: GetGlobal value for 'print': NativeFunction(0x7ff71430d0e0)
+DEBUG: VM executing ForceThunk at IP 43 frame_base 0 (regs: 24)
+DEBUG: VM executing NewArray at IP 44 frame_base 0 (regs: 24)
+DEBUG: VM executing LoadConst at IP 45 frame_base 0 (regs: 24)
+DEBUG: VM executing ArrayAppend at IP 46 frame_base 0 (regs: 24)
+DEBUG: VM executing ArrayAppend at IP 47 frame_base 0 (regs: 24)
+DEBUG: VM executing Call at IP 48 frame_base 0 (regs: 24)
+Count after second access:  0
+DEBUG: VM executing GetGlobal at IP 49 frame_base 0 (regs: 24)
+DEBUG: GetGlobal constant index: 0
+DEBUG: GetGlobal lookup: 'print'
+DEBUG: GetGlobal value for 'print': NativeFunction(0x7ff71430d0e0)
+DEBUG: VM executing ForceThunk at IP 50 frame_base 0 (regs: 24)
+DEBUG: VM executing NewArray at IP 51 frame_base 0 (regs: 24)
+DEBUG: VM executing LoadConst at IP 52 frame_base 0 (regs: 24)
+DEBUG: VM executing ArrayAppend at IP 53 frame_base 0 (regs: 24)
+DEBUG: VM executing Call at IP 54 frame_base 0 (regs: 24)
+
+--- Infinite Ranges ---
+DEBUG: VM executing LoadInt at IP 55 frame_base 0 (regs: 24)
+DEBUG: VM executing LoadInt at IP 56 frame_base 0 (regs: 24)
+DEBUG: VM executing LoadInt at IP 57 frame_base 0 (regs: 24)
+DEBUG: VM executing Add at IP 58 frame_base 0 (regs: 24)
+DEBUG: VM executing Move at IP 59 frame_base 0 (regs: 24)
+DEBUG: VM executing LoadInt at IP 60 frame_base 0 (regs: 24)
+DEBUG: VM executing Ge at IP 61 frame_base 0 (regs: 24)
+DEBUG: VM executing JumpIfNot at IP 62 frame_base 0 (regs: 24)
+DEBUG: VM executing LoadInt at IP 64 frame_base 0 (regs: 24)
+DEBUG: VM executing Add at IP 65 frame_base 0 (regs: 24)
+DEBUG: VM executing Move at IP 66 frame_base 0 (regs: 24)
+DEBUG: VM executing Jump at IP 67 frame_base 0 (regs: 24)
+DEBUG: VM executing LoadInt at IP 57 frame_base 0 (regs: 24)
+DEBUG: VM executing Add at IP 58 frame_base 0 (regs: 24)
+DEBUG: VM executing Move at IP 59 frame_base 0 (regs: 24)
+DEBUG: VM executing LoadInt at IP 60 frame_base 0 (regs: 24)
+DEBUG: VM executing Ge at IP 61 frame_base 0 (regs: 24)
+DEBUG: VM executing JumpIfNot at IP 62 frame_base 0 (regs: 24)
+DEBUG: VM executing LoadInt at IP 64 frame_base 0 (regs: 24)
+DEBUG: VM executing Add at IP 65 frame_base 0 (regs: 24)
+DEBUG: VM executing Move at IP 66 frame_base 0 (regs: 24)
+DEBUG: VM executing Jump at IP 67 frame_base 0 (regs: 24)
+DEBUG: VM executing LoadInt at IP 57 frame_base 0 (regs: 24)
+DEBUG: VM executing Add at IP 58 frame_base 0 (regs: 24)
+DEBUG: VM executing Move at IP 59 frame_base 0 (regs: 24)
+DEBUG: VM executing LoadInt at IP 60 frame_base 0 (regs: 24)
+DEBUG: VM executing Ge at IP 61 frame_base 0 (regs: 24)
+DEBUG: VM executing JumpIfNot at IP 62 frame_base 0 (regs: 24)
+DEBUG: VM executing LoadInt at IP 64 frame_base 0 (regs: 24)
+DEBUG: VM executing Add at IP 65 frame_base 0 (regs: 24)
+DEBUG: VM executing Move at IP 66 frame_base 0 (regs: 24)
+DEBUG: VM executing Jump at IP 67 frame_base 0 (regs: 24)
+DEBUG: VM executing LoadInt at IP 57 frame_base 0 (regs: 24)
+DEBUG: VM executing Add at IP 58 frame_base 0 (regs: 24)
+DEBUG: VM executing Move at IP 59 frame_base 0 (regs: 24)
+DEBUG: VM executing LoadInt at IP 60 frame_base 0 (regs: 24)
+DEBUG: VM executing Ge at IP 61 frame_base 0 (regs: 24)
+DEBUG: VM executing JumpIfNot at IP 62 frame_base 0 (regs: 24)
+DEBUG: VM executing LoadInt at IP 64 frame_base 0 (regs: 24)
+DEBUG: VM executing Add at IP 65 frame_base 0 (regs: 24)
+DEBUG: VM executing Move at IP 66 frame_base 0 (regs: 24)
+DEBUG: VM executing Jump at IP 67 frame_base 0 (regs: 24)
+DEBUG: VM executing LoadInt at IP 57 frame_base 0 (regs: 24)
+DEBUG: VM executing Add at IP 58 frame_base 0 (regs: 24)
+DEBUG: VM executing Move at IP 59 frame_base 0 (regs: 24)
+DEBUG: VM executing LoadInt at IP 60 frame_base 0 (regs: 24)
+DEBUG: VM executing Ge at IP 61 frame_base 0 (regs: 24)
+DEBUG: VM executing JumpIfNot at IP 62 frame_base 0 (regs: 24)
+DEBUG: VM executing LoadInt at IP 64 frame_base 0 (regs: 24)
+DEBUG: VM executing Add at IP 65 frame_base 0 (regs: 24)
+DEBUG: VM executing Move at IP 66 frame_base 0 (regs: 24)
+DEBUG: VM executing Jump at IP 67 frame_base 0 (regs: 24)
+DEBUG: VM executing LoadInt at IP 57 frame_base 0 (regs: 24)
+DEBUG: VM executing Add at IP 58 frame_base 0 (regs: 24)
+DEBUG: VM executing Move at IP 59 frame_base 0 (regs: 24)
+DEBUG: VM executing LoadInt at IP 60 frame_base 0 (regs: 24)
+DEBUG: VM executing Ge at IP 61 frame_base 0 (regs: 24)
+DEBUG: VM executing JumpIfNot at IP 62 frame_base 0 (regs: 24)
+DEBUG: VM executing Jump at IP 63 frame_base 0 (regs: 24)
+DEBUG: VM executing GetGlobal at IP 68 frame_base 0 (regs: 24)
+DEBUG: GetGlobal constant index: 0
+DEBUG: GetGlobal lookup: 'print'
+DEBUG: GetGlobal value for 'print': NativeFunction(0x7ff71430d0e0)
+DEBUG: VM executing ForceThunk at IP 69 frame_base 0 (regs: 24)
+DEBUG: VM executing NewArray at IP 70 frame_base 0 (regs: 24)
+DEBUG: VM executing LoadConst at IP 71 frame_base 0 (regs: 24)
+DEBUG: VM executing ArrayAppend at IP 72 frame_base 0 (regs: 24)
+DEBUG: VM executing ArrayAppend at IP 73 frame_base 0 (regs: 24)
+DEBUG: VM executing LoadConst at IP 74 frame_base 0 (regs: 24)
+DEBUG: VM executing ArrayAppend at IP 75 frame_base 0 (regs: 24)
+DEBUG: VM executing Call at IP 76 frame_base 0 (regs: 24)
+Infinite loop ran for:  6  iterations
+DEBUG: VM executing GetGlobal at IP 77 frame_base 0 (regs: 24)
+DEBUG: GetGlobal constant index: 0
+DEBUG: GetGlobal lookup: 'print'
+DEBUG: GetGlobal value for 'print': NativeFunction(0x7ff71430d0e0)
+DEBUG: VM executing ForceThunk at IP 78 frame_base 0 (regs: 24)
+DEBUG: VM executing NewArray at IP 79 frame_base 0 (regs: 24)
+DEBUG: VM executing LoadConst at IP 80 frame_base 0 (regs: 24)
+DEBUG: VM executing ArrayAppend at IP 81 frame_base 0 (regs: 24)
+DEBUG: VM executing Call at IP 82 frame_base 0 (regs: 24)
+
+--- Ownership Hints ---
+DEBUG: VM executing FunctionRef at IP 83 frame_base 0 (regs: 24)
+DEBUG: VM executing SetGlobal at IP 84 frame_base 0 (regs: 24)
+DEBUG: VM executing GetGlobal at IP 85 frame_base 0 (regs: 24)
+DEBUG: GetGlobal constant index: 12
+DEBUG: GetGlobal lookup: 'test_ownership'
+DEBUG: GetGlobal value for 'test_ownership': Function(2)
+DEBUG: VM executing ForceThunk at IP 86 frame_base 0 (regs: 24)
+DEBUG: VM executing NewArray at IP 87 frame_base 0 (regs: 24)
+DEBUG: VM executing LoadInt at IP 88 frame_base 0 (regs: 24)
+DEBUG: VM executing ArrayAppend at IP 89 frame_base 0 (regs: 24)
+DEBUG: VM executing LoadConst at IP 90 frame_base 0 (regs: 24)
+DEBUG: VM executing ArrayAppend at IP 91 frame_base 0 (regs: 24)
+DEBUG: VM executing LoadInt at IP 92 frame_base 0 (regs: 24)
+DEBUG: VM executing ArrayAppend at IP 93 frame_base 0 (regs: 24)
+DEBUG: VM executing Call at IP 94 frame_base 0 (regs: 24)
+DEBUG: VM executing GetGlobal at IP 0 frame_base 24 (regs: 31)
+DEBUG: GetGlobal constant index: 0
+DEBUG: GetGlobal lookup: 'print'
+DEBUG: GetGlobal value for 'print': NativeFunction(0x7ff71430d0e0)
+DEBUG: VM executing ForceThunk at IP 1 frame_base 24 (regs: 31)
+DEBUG: VM executing NewArray at IP 2 frame_base 24 (regs: 31)
+DEBUG: VM executing LoadConst at IP 3 frame_base 24 (regs: 31)
+DEBUG: VM executing ArrayAppend at IP 4 frame_base 24 (regs: 31)
+DEBUG: VM executing Call at IP 5 frame_base 24 (regs: 31)
+Ownership test function called
+DEBUG: VM executing Return at IP 6 frame_base 24 (regs: 31)
+DEBUG: VM executing GetGlobal at IP 95 frame_base 0 (regs: 24)
+DEBUG: GetGlobal constant index: 0
+DEBUG: GetGlobal lookup: 'print'
+DEBUG: GetGlobal value for 'print': NativeFunction(0x7ff71430d0e0)
+DEBUG: VM executing ForceThunk at IP 96 frame_base 0 (regs: 24)
+DEBUG: VM executing NewArray at IP 97 frame_base 0 (regs: 24)
+DEBUG: VM executing LoadConst at IP 98 frame_base 0 (regs: 24)
+DEBUG: VM executing ArrayAppend at IP 99 frame_base 0 (regs: 24)
+DEBUG: VM executing Call at IP 100 frame_base 0 (regs: 24)
+
+--- Memory Pooling ---
+DEBUG: VM executing NewMap at IP 101 frame_base 0 (regs: 24)
+DEBUG: VM executing NewMap at IP 102 frame_base 0 (regs: 24)
+DEBUG: VM executing NewMap at IP 103 frame_base 0 (regs: 24)
+DEBUG: VM executing NewMap at IP 104 frame_base 0 (regs: 24)
+DEBUG: VM executing NewMap at IP 105 frame_base 0 (regs: 24)
+DEBUG: VM executing NewMap at IP 106 frame_base 0 (regs: 24)
+DEBUG: VM executing NewMap at IP 107 frame_base 0 (regs: 24)
+DEBUG: VM executing FunctionRef at IP 108 frame_base 0 (regs: 24)
+DEBUG: VM executing NewArray at IP 109 frame_base 0 (regs: 24)
+DEBUG: VM executing ArrayAppend at IP 110 frame_base 0 (regs: 24)
+DEBUG: VM executing LoadConst at IP 111 frame_base 0 (regs: 24)
+DEBUG: VM executing ArrayAppend at IP 112 frame_base 0 (regs: 24)
+DEBUG: VM executing LoadConst at IP 113 frame_base 0 (regs: 24)
+DEBUG: VM executing SetIndex at IP 114 frame_base 0 (regs: 24)
+DEBUG: VM executing DefineClass at IP 115 frame_base 0 (regs: 24)
+DEBUG: VM executing SetStatic at IP 116 frame_base 0 (regs: 24)
+DEBUG: VM executing SetGetters at IP 117 frame_base 0 (regs: 24)
+DEBUG: VM executing SetSetters at IP 118 frame_base 0 (regs: 24)
+DEBUG: VM executing SetStaticGetters at IP 119 frame_base 0 (regs: 24)
+DEBUG: VM executing SetStaticSetters at IP 120 frame_base 0 (regs: 24)
+DEBUG: VM executing SetOperators at IP 121 frame_base 0 (regs: 24)
+DEBUG: VM executing SetFieldVisibility at IP 122 frame_base 0 (regs: 24)
+DEBUG: VM executing SetGlobal at IP 123 frame_base 0 (regs: 24)
+DEBUG: VM executing GetGlobal at IP 124 frame_base 0 (regs: 24)
+DEBUG: GetGlobal constant index: 0
+DEBUG: GetGlobal lookup: 'print'
+DEBUG: GetGlobal value for 'print': NativeFunction(0x7ff71430d0e0)
+DEBUG: VM executing ForceThunk at IP 125 frame_base 0 (regs: 24)
+DEBUG: VM executing NewArray at IP 126 frame_base 0 (regs: 24)
+DEBUG: VM executing LoadConst at IP 127 frame_base 0 (regs: 24)
+DEBUG: VM executing ArrayAppend at IP 128 frame_base 0 (regs: 24)
+DEBUG: VM executing Call at IP 129 frame_base 0 (regs: 24)
+
+--- Phase 12 Verification COMPLETE ---
+DEBUG: VM executing Return at IP 130 frame_base 0 (regs: 24)

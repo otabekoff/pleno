@@ -1014,12 +1014,14 @@ name = "pleno-ast"
 version = "0.1.0"
 dependencies = [
  "pleno-common",
+ "serde",
 ]
 
 [[package]]
 name = "pleno-bytecode"
 version = "0.1.0"
 dependencies = [
+ "pleno-ast",
  "pleno-common",
  "pleno-value",
  "serde",

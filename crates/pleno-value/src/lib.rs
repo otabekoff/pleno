@@ -155,6 +155,7 @@ pub enum Value {
         type_args: Vec<Value>,
     },
     File(GcRc<FileState>),
+    Cell(GcRc<CellState>),
 }
 
 impl Value {
@@ -199,6 +200,7 @@ impl Value {
             Value::StaticMethod { .. } => "StaticMethod",
             Value::Closure(_) => "Closure",
             Value::Thunk(_) => "Thunk",
+            Value::Cell(_) => "Cell",
             Value::NativeFunction(_) => "NativeFunction",
             Value::BoundNativeMethod { .. } => "NativeMethod",
             Value::Map(_) => "Map",
@@ -357,6 +359,7 @@ impl GcObject for Value {
                 }
             }
             Value::File(f) => gc.mark_object(&f.to_gc_object()),
+            Value::Cell(c) => gc.mark_object(&c.to_gc_object()),
             _ => {}
         }
     }
@@ -533,6 +536,7 @@ pub struct Class {
     pub static_setters: HashMap<String, MethodInfo>,
     pub module: Option<Rc<String>>,
     pub is_abstract: bool,
+    pub is_pooled: bool,
     pub implements: Vec<Value>,
     pub type_params: Vec<String>,
     pub type_constraints: HashMap<String, Vec<String>>,
@@ -587,6 +591,7 @@ impl PartialEq for Class {
             && self.static_setters == other.static_setters
             && self.module == other.module
             && self.is_abstract == other.is_abstract
+            && self.is_pooled == other.is_pooled
             && self.implements == other.implements
             && self.type_params == other.type_params
             && self.type_constraints == other.type_constraints
@@ -733,6 +738,7 @@ impl PartialEq for Value {
                     type_args: tb,
                 },
             ) => fa == fb && ta == tb,
+            (Value::Cell(a), Value::Cell(b)) => a.as_ptr() == b.as_ptr(),
             (Value::File(a), Value::File(b)) => a.as_ptr() == b.as_ptr(),
             _ => false,
         }
@@ -918,6 +924,7 @@ impl std::fmt::Display for Value {
                 }
                 write!(f, ">")
             }
+            Value::Cell(val) => write!(f, "<cell {}>", val.borrow().value),
         }
     }
 }
@@ -1245,5 +1252,26 @@ impl GcObject for IteratorState {
             IteratorState::Map { map, .. } => map.borrow_mut().clear_refs(),
             IteratorState::Set { set, .. } => set.borrow_mut().clear(),
         }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CellState {
+    pub value: Value,
+}
+
+impl CellState {
+    pub fn new(value: Value) -> Self {
+        Self { value }
+    }
+}
+
+impl GcObject for CellState {
+    fn mark(&self, gc: &mut MarkAndSweepGC) {
+        self.value.mark(gc);
+    }
+
+    fn clear_refs(&mut self) {
+        self.value = Value::Null;
     }
 }

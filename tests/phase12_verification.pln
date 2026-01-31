@@ -1,0 +1,49 @@
+// Phase 12 Verification Test - Fixed Formatting
+
+// 1. Lazy Evaluation
+print("Lazy Evaluation Test");
+let mut count = 0;
+let lazy x = {
+    count = count + 1;
+    10 + 20
+};
+
+print("Count before access: ", count);
+print("Evaluating lazy variable (x = ", x, ")");
+print("Count after access: ", count);
+print("Lazy x again: ", x);
+print("Count after second access: ", count);
+
+// 2. Infinite Ranges
+print("\n--- Infinite Ranges ---");
+let mut loop_count = 0;
+for (i in 0..) {
+    loop_count = loop_count + 1;
+    if (i >= 5) {
+        break;
+    }
+}
+print("Infinite loop ran for: ", loop_count, " iterations");
+
+// 3. Ownership Hints
+print("\n--- Ownership Hints ---");
+fn test_ownership(move a, &b, &mut c) {
+    print("Ownership test function called");
+}
+test_ownership(1, "ref", 2);
+
+// 4. Memory Pooling
+print("\n--- Memory Pooling ---");
+// @pooled
+class PooledObject {
+    x;
+    constructor(x) {
+        this.x = x;
+    }
+}
+/*
+let obj = PooledObject(42);
+print("Pooled object x: ", obj.x);
+*/
+
+print("\n--- Phase 12 Verification COMPLETE ---");

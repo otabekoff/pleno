@@ -848,6 +848,7 @@ impl Parser {
                         default: None,
                         is_variadic: false,
                         is_keyword_only: false,
+                        ownership: pleno_ast::Ownership::None,
                     });
                     if !self.matches(&TokenKind::Comma) {
                         break;
@@ -1507,6 +1508,7 @@ impl Parser {
                         default: None,
                         is_variadic: false,
                         is_keyword_only: false,
+                        ownership: pleno_ast::Ownership::None,
                     }],
                     return_ty: Some("Void".to_string()),
                     body,
@@ -1776,6 +1778,18 @@ impl Parser {
             } else {
                 false
             };
+            let ownership = if self.matches(&TokenKind::KeywordMove) {
+                pleno_ast::Ownership::Move
+            } else if self.matches(&TokenKind::Ampersand) {
+                if self.matches(&TokenKind::KeywordMut) {
+                    pleno_ast::Ownership::BorrowMut
+                } else {
+                    pleno_ast::Ownership::Borrow
+                }
+            } else {
+                pleno_ast::Ownership::None
+            };
+
             let name = match self.advance().kind.clone() {
                 TokenKind::Ident(name) => name,
                 other => {
@@ -1807,6 +1821,7 @@ impl Parser {
                 default,
                 is_variadic,
                 is_keyword_only: keyword_only,
+                ownership,
             });
             if is_variadic && !matches!(self.peek_kind(), TokenKind::RParen) {
                 return Err(ParseError {
@@ -1843,6 +1858,7 @@ impl Parser {
                 default: None,
                 is_variadic: false,
                 is_keyword_only: false,
+                ownership: pleno_ast::Ownership::None,
             });
             if !self.matches(&TokenKind::Comma) {
                 break;
@@ -2213,6 +2229,7 @@ impl Parser {
                 default: None,
                 is_variadic: false,
                 is_keyword_only: false,
+                ownership: pleno_ast::Ownership::None,
             });
             if !self.matches(&TokenKind::Comma) {
                 break;

@@ -1,4 +1,5 @@
 pub use pleno_common::Span;
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum CommentKind {
@@ -393,6 +394,14 @@ pub struct EnumVariant {
     pub doc: Option<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Ownership {
+    Move,
+    Borrow,
+    BorrowMut,
+    None,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Param {
     pub name: String,
@@ -400,6 +409,7 @@ pub struct Param {
     pub default: Option<Expr>,
     pub is_variadic: bool,
     pub is_keyword_only: bool,
+    pub ownership: Ownership,
 }
 
 #[derive(Debug, Clone, PartialEq)]
