@@ -7,6 +7,12 @@ use pleno_value::{RuntimeAnnotation, Value};
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
+#[derive(Debug, Clone)]
+struct MacroDef {
+    params: Vec<String>,
+    body: Stmt,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct CompileError {
     pub message: String,
@@ -40,6 +46,7 @@ pub struct Compiler {
     current_span: pleno_ast::Span,
     next_labels: Vec<String>,
     type_aliases: HashMap<String, String>,
+    macros: HashMap<String, MacroDef>,
     boxed_vars: Vec<HashSet<String>>,
 }
 
@@ -77,6 +84,7 @@ impl Compiler {
             current_span: pleno_ast::Span::new(0, 0),
             next_labels: Vec::new(),
             type_aliases: HashMap::new(),
+            macros: HashMap::new(),
             boxed_vars: vec![HashSet::new()],
         }
     }
@@ -716,7 +724,18 @@ impl Compiler {
                 }
                 Ok(())
             }
-            StmtKind::MacroDecl { .. } => Ok(()),
+            StmtKind::MacroDecl {
+                name, params, body, ..
+            } => {
+                self.macros.insert(
+                    name.clone(),
+                    MacroDef {
+                        params: params.clone(),
+                        body: (**body).clone(),
+                    },
+                );
+                Ok(())
+            }
         }
     }
 
@@ -1359,8 +1378,36 @@ impl Compiler {
                 self.free_temp(expr_reg);
                 Ok(dest)
             }
-            ExprKind::MacroCall { .. } | ExprKind::MacroSplice(_) => {
-                Err(self.error("macro expansion is not implemented", expr.span))
+            ExprKind::MacroCall { name, args } => {
+                let macro_def = self
+                    .macros
+                    .get(name)
+                    .ok_or_else(|| self.error(&format!("macro not found: {}", name), expr.span))?
+                    .clone();
+                if args.len() != macro_def.params.len() {
+                    return Err(self.error("macro argument count mismatch", expr.span));
+                }
+                let mut substitutions: HashMap<String, pleno_ast::Expr> = HashMap::new();
+                for (param, arg) in macro_def.params.iter().zip(args.iter()) {
+                    if let pleno_ast::CallArg::Positional(arg_expr) = arg {
+                        substitutions.insert(param.clone(), arg_expr.clone());
+                    } else {
+                        return Err(
+                            self.error("macro only supports positional arguments", expr.span)
+                        );
+                    }
+                }
+                let mut expanded_body = macro_def.body.clone();
+                self.expand_stmt(&mut expanded_body, &substitutions);
+                self.compile_stmt(&expanded_body)?;
+                Ok(self.last_expr_register.unwrap_or_else(|| {
+                    let reg = self.registers.allocate().unwrap();
+                    self.emit(Opcode::LoadNull, reg, 0, 0);
+                    reg
+                }))
+            }
+            ExprKind::MacroSplice(_) => {
+                Err(self.error("macro splice is not implemented", expr.span))
             }
             ExprKind::InterpolatedString(segments) => {
                 let reg = self.registers.allocate()?;
@@ -4234,6 +4281,257 @@ impl Compiler {
             }
         }
         Ok(())
+    }
+
+    fn expand_stmt(
+        &self,
+        stmt: &mut pleno_ast::Stmt,
+        substitutions: &HashMap<String, pleno_ast::Expr>,
+    ) {
+        use pleno_ast::StmtKind;
+        match &mut stmt.kind {
+            StmtKind::Block(stmts) => {
+                for s in stmts {
+                    self.expand_stmt(s, substitutions);
+                }
+            }
+            StmtKind::Expr(expr) => {
+                self.expand_expr(expr, substitutions);
+            }
+            StmtKind::Let { value, .. } => {
+                if let Some(v) = value {
+                    self.expand_expr(v, substitutions);
+                }
+            }
+            StmtKind::Assign { value, .. } => {
+                self.expand_expr(value, substitutions);
+            }
+            StmtKind::If {
+                condition,
+                then_branch,
+                else_branch,
+            } => {
+                self.expand_expr(condition, substitutions);
+                self.expand_stmt(then_branch, substitutions);
+                if let Some(eb) = else_branch {
+                    self.expand_stmt(eb, substitutions);
+                }
+            }
+            StmtKind::While { condition, body } => {
+                self.expand_expr(condition, substitutions);
+                self.expand_stmt(body, substitutions);
+            }
+            StmtKind::For { iterable, body, .. } => {
+                self.expand_expr(iterable, substitutions);
+                self.expand_stmt(body, substitutions);
+            }
+            StmtKind::CFor {
+                init,
+                condition,
+                step,
+                body,
+            } => {
+                if let Some(i) = init {
+                    self.expand_stmt(i, substitutions);
+                }
+                if let Some(c) = condition {
+                    self.expand_expr(c, substitutions);
+                }
+                if let Some(s) = step {
+                    self.expand_stmt(s, substitutions);
+                }
+                self.expand_stmt(body, substitutions);
+            }
+            StmtKind::Return(expr) => {
+                if let Some(e) = expr {
+                    self.expand_expr(e, substitutions);
+                }
+            }
+            StmtKind::Fn {
+                params,
+                body,
+                annotations,
+                ..
+            } => {
+                for p in params {
+                    if let Some(d) = &mut p.default {
+                        self.expand_expr(d, substitutions);
+                    }
+                }
+                for a in annotations {
+                    for arg in &mut a.args {
+                        self.expand_expr(arg, substitutions);
+                    }
+                }
+                self.expand_stmt(body, substitutions);
+            }
+            StmtKind::Class {
+                fields,
+                methods,
+                properties,
+                annotations,
+                nested_classes,
+                ..
+            } => {
+                for f in fields {
+                    if let Some(d) = &mut f.default {
+                        self.expand_expr(d, substitutions);
+                    }
+                }
+                for m in methods {
+                    self.expand_stmt(&mut m.body, substitutions);
+                }
+                for p in properties {
+                    if let Some(g) = &mut p.getter {
+                        self.expand_stmt(&mut g.body, substitutions);
+                    }
+                    if let Some(s) = &mut p.setter {
+                        self.expand_stmt(&mut s.body, substitutions);
+                    }
+                }
+                for a in annotations {
+                    for arg in &mut a.args {
+                        self.expand_expr(arg, substitutions);
+                    }
+                }
+                for nc in nested_classes {
+                    self.expand_stmt(nc, substitutions);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn expand_expr(
+        &self,
+        expr: &mut pleno_ast::Expr,
+        substitutions: &HashMap<String, pleno_ast::Expr>,
+    ) {
+        use pleno_ast::ExprKind;
+        match &mut expr.kind {
+            ExprKind::Ident(name) => {
+                if let Some(sub) = substitutions.get(name) {
+                    *expr = sub.clone();
+                }
+            }
+            ExprKind::Unary { expr, .. } => {
+                self.expand_expr(expr, substitutions);
+            }
+            ExprKind::Binary { left, right, .. } => {
+                self.expand_expr(left, substitutions);
+                self.expand_expr(right, substitutions);
+            }
+            ExprKind::Call { callee, args } | ExprKind::SafeCall { callee, args } => {
+                self.expand_expr(callee, substitutions);
+                for arg in args {
+                    match arg {
+                        pleno_ast::CallArg::Positional(e) => self.expand_expr(e, substitutions),
+                        pleno_ast::CallArg::Named(_, e) => self.expand_expr(e, substitutions),
+                        pleno_ast::CallArg::Spread(e) => self.expand_expr(e, substitutions),
+                        _ => {}
+                    }
+                }
+            }
+            ExprKind::Property { object, .. } | ExprKind::SafeProperty { object, .. } => {
+                self.expand_expr(object, substitutions)
+            }
+            ExprKind::Index { collection, index } => {
+                self.expand_expr(collection, substitutions);
+                self.expand_expr(index, substitutions);
+            }
+            ExprKind::ArrayLiteral(elements)
+            | ExprKind::TupleLiteral(elements)
+            | ExprKind::SetLiteral(elements) => {
+                for e in elements {
+                    self.expand_expr(e, substitutions);
+                }
+            }
+            ExprKind::MapLiteral(items) => {
+                for item in items {
+                    match item {
+                        pleno_ast::MapItem::Entry(_, e) => self.expand_expr(e, substitutions),
+                        pleno_ast::MapItem::Spread(e) => self.expand_expr(e, substitutions),
+                    }
+                }
+            }
+            ExprKind::NamedTupleLiteral(entries) => {
+                for (_, e) in entries {
+                    self.expand_expr(e, substitutions);
+                }
+            }
+            ExprKind::Range { start, end, .. } => {
+                if let Some(s) = start {
+                    self.expand_expr(s, substitutions);
+                }
+                if let Some(e) = end {
+                    self.expand_expr(e, substitutions);
+                }
+            }
+            ExprKind::Paren(expr) | ExprKind::Spread(expr) | ExprKind::AssertNotNull(expr) => {
+                self.expand_expr(expr, substitutions);
+            }
+            ExprKind::Lambda {
+                params,
+                body,
+                annotations,
+                ..
+            } => {
+                for p in params {
+                    if let Some(d) = &mut p.default {
+                        self.expand_expr(d, substitutions);
+                    }
+                }
+                for a in annotations {
+                    for arg in &mut a.args {
+                        self.expand_expr(arg, substitutions);
+                    }
+                }
+                self.expand_expr(body, substitutions);
+            }
+            ExprKind::InterpolatedString(segments) => {
+                for s in segments {
+                    self.expand_expr(s, substitutions);
+                }
+            }
+            ExprKind::Match { expr: e, arms } => {
+                self.expand_expr(e, substitutions);
+                for arm in arms {
+                    if let Some(g) = &mut arm.guard {
+                        self.expand_expr(g, substitutions);
+                    }
+                    self.expand_expr(&mut arm.body, substitutions);
+                }
+            }
+            ExprKind::Block(stmts) => {
+                for s in stmts {
+                    self.expand_stmt(s, substitutions);
+                }
+            }
+            ExprKind::If {
+                condition,
+                then_branch,
+                else_branch,
+            } => {
+                self.expand_expr(condition, substitutions);
+                self.expand_expr(then_branch, substitutions);
+                self.expand_expr(else_branch, substitutions);
+            }
+            ExprKind::Pipeline { left, right } => {
+                self.expand_expr(left, substitutions);
+                self.expand_expr(right, substitutions);
+            }
+            ExprKind::MacroCall { args, .. } => {
+                for arg in args {
+                    match arg {
+                        pleno_ast::CallArg::Positional(e) => self.expand_expr(e, substitutions),
+                        pleno_ast::CallArg::Named(_, e) => self.expand_expr(e, substitutions),
+                        pleno_ast::CallArg::Spread(e) => self.expand_expr(e, substitutions),
+                        _ => {}
+                    }
+                }
+            }
+            _ => {}
+        }
     }
 
     fn enforce_arg_ownership(

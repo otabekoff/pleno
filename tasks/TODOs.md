@@ -10,6 +10,8 @@ after doing output files creation, remove them, clean the project. or don't crea
 Debug mode, production mode logs for development.
 Remove debug logs.
 
+Implementation Plan, Walkthrough, Task and more.
+
 
 Now, as we have finished v1 of the Pleno programming language, we fully support specs.md and many other things not listed in it too. Now what I want is, you need to add those already implemented, but missed things in specs.md to be noted.
 

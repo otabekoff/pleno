@@ -3361,7 +3361,7 @@ impl Parser {
                     break;
                 }
             }
-            self.expect(TokenKind::RParen, "Expected ')' after type")?;
+            self.expect(TokenKind::RParen, "Expected 'RParen' after type list")?;
 
             if self.matches(&TokenKind::FatArrow) {
                 let return_ty = self.parse_type()?;
@@ -3377,6 +3377,39 @@ impl Parser {
                 let type_str = params.into_iter().next().unwrap();
                 return self.parse_type_postfix(type_str);
             }
+        }
+
+        // Structural object types: { "key": Type, ... }
+        if self.matches(&TokenKind::LBrace) {
+            let mut fields = Vec::new();
+            if !self.check(&TokenKind::RBrace) {
+                loop {
+                    let key = match self.advance().kind.clone() {
+                        TokenKind::String(name) => format!("\"{}\"", name),
+                        TokenKind::Ident(name) => name,
+                        other => {
+                            return Err(ParseError {
+                                message: format!(
+                                    "Expected field name in object type, found {other:?}"
+                                ),
+                                span: self.previous_span(),
+                            });
+                        }
+                    };
+                    self.expect(TokenKind::Colon, "Expected ':' after field name")?;
+                    let ty = self.parse_type()?;
+                    fields.push(format!("{}: {}", key, ty));
+                    if self.matches(&TokenKind::Comma) {
+                        if self.check(&TokenKind::RBrace) {
+                            break;
+                        }
+                        continue;
+                    }
+                    break;
+                }
+            }
+            self.expect(TokenKind::RBrace, "Expected '}' after object type")?;
+            return self.parse_type_postfix(format!("{{ {} }}", fields.join(", ")));
         }
 
         let mut type_str = match self.advance().kind.clone() {

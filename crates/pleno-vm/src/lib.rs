@@ -3659,19 +3659,68 @@ impl VM {
 impl VM {
     pub fn is_instance(&self, value: &Value, type_val: &Value) -> bool {
         match type_val {
-            Value::String(s) => matches!(
-                (s.as_str(), value),
-                ("Int", Value::Int(_))
-                    | ("Float", Value::Float(_))
-                    | ("Bool", Value::Bool(_))
-                    | ("String", Value::String(_))
-                    | ("Array", Value::Array(_))
-                    | ("Map", Value::Map(_))
-                    | ("Set", Value::Set(_))
-                    | ("Object", Value::Map(_) | Value::Object(_))
-                    | ("Null", Value::Null)
-                    | ("Any", _)
-            ),
+            Value::String(s) => {
+                let s = s.as_str().trim();
+                if s.starts_with('{') && s.ends_with('}') {
+                    // Basic structural check: { "key": Type, ... }
+                    let content = &s[1..s.len() - 1].trim();
+                    if content.is_empty() {
+                        return matches!(value, Value::Map(_) | Value::Object(_));
+                    }
+                    let parts = content.split(',');
+                    for part in parts {
+                        let sub_parts: Vec<&str> = part.splitn(2, ':').collect();
+                        if sub_parts.len() != 2 {
+                            continue;
+                        }
+                        let key = sub_parts[0].trim().replace("\"", "");
+                        let expected_ty_name = sub_parts[1].trim();
+
+                        // Check if value has this property and if it matches expected_ty_name
+                        // For Map, we check entries. For Object, we check fields/properties.
+                        let prop_val = match value {
+                            Value::Map(m) => m.borrow().entries.get(&key).cloned(),
+                            Value::Object(obj) => {
+                                let obj_borrow = obj.borrow();
+                                if let Some(val) = obj_borrow.fields.get(&key) {
+                                    Some(val.clone())
+                                } else {
+                                    // Could be a method or property with getter, but let's stick to fields for now
+                                    None
+                                }
+                            }
+                            _ => return false,
+                        };
+
+                        match prop_val {
+                            Some(val) => {
+                                if !self.is_instance(
+                                    &val,
+                                    &Value::String(Rc::new(expected_ty_name.to_string())),
+                                ) {
+                                    return false;
+                                }
+                            }
+                            None => return false,
+                        }
+                    }
+                    true
+                } else {
+                    matches!(
+                        (s, value),
+                        ("Int", Value::Int(_))
+                            | ("Float", Value::Float(_))
+                            | ("Bool", Value::Bool(_))
+                            | ("String", Value::String(_))
+                            | ("Array", Value::Array(_))
+                            | ("Map", Value::Map(_))
+                            | ("Set", Value::Set(_))
+                            | ("Object", Value::Map(_) | Value::Object(_))
+                            | ("Null", Value::Null)
+                            | ("Any", _)
+                    )
+                }
+            }
             Value::Class(target_class) => match value {
                 Value::Object(obj) => {
                     if let Some(instance_class) = &obj.borrow().class {

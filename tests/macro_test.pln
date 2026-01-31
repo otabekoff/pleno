@@ -1,0 +1,27 @@
+macro repeat(n, body) {
+    for (i in 0..n) {
+        body;
+    }
+}
+
+print("Testing macro repeat!:");
+repeat!(3, print("  hello from repeat"));
+
+macro if_then(cond, then_do) {
+    if (cond) {
+        then_do;
+    }
+}
+
+print("Testing macro if_then!:");
+if_then!(true, print("  this should print"));
+if_then!(false, print("  this should NOT print"));
+
+macro log_val(val) {
+    print("LOG: " + val);
+}
+
+let x = 42;
+log_val!(x);
+
+print("Macro tests passed");

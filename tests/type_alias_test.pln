@@ -1,0 +1,26 @@
+type MyInt = Int;
+type Number = Int | Float;
+type Named = { "name": String };
+
+let x: MyInt = 10;
+print("x is MyInt (Int): " + x);
+
+let mut n: Number = 10;
+print("n is Number (Int): " + n);
+n = 10.5;
+print("n is Number (Float): " + n);
+
+let obj: Named = { "name": "Pleno" };
+print("obj.name: " + obj.name);
+
+type StringOrInt = String | Int;
+let s: StringOrInt = "hello";
+let i: StringOrInt = 42;
+
+print("StringOrInt s: " + s);
+print("StringOrInt i: " + i);
+
+// Intersection types (if supported by emit_type_check)
+// type AB = A & B; 
+
+print("Type Alias and Union tests passed parsing/compilation");
