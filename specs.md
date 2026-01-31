@@ -41,7 +41,7 @@ const list = [1, 2, 3];
 // list.push(4);      // ERROR: Cannot mutate constant value
 ```
 
-#### Deep Immutability
+#### Deep Immutability ✅
 ```pleno
 const deep obj = {
     name: "Alice",
@@ -50,6 +50,9 @@ const deep obj = {
 // obj.name = "Bob";           // ERROR
 // obj.scores.push(88);         // ERROR
 // obj.scores[0] = 100;         // ERROR
+
+// Note: 'let deep' is also supported for runtime-initialized immutability.
+let deep data = fetchData(); 
 ```
 
 ### 1.3 Type System
@@ -829,7 +832,7 @@ let result = [1, 2, 3, 4, 5]
 // reduce(map(filter([1,2,3,4,5], fn), fn), fn, 0)
 ```
 
-### 6.5 Partial Application & Currying
+### 6.5 Partial Application & Currying ✅
 
 ```pleno
 fn add(a: Int, b: Int, c: Int): Int {
@@ -1548,9 +1551,9 @@ if (match) {
 
 ---
 
-## 14. Advanced Features
+## 14. Advanced Features ✅
 
-### 14.1 Reflection & Metaprogramming
+### 14.1 Reflection & Metaprogramming ✅
 
 ```pleno
 import { Reflect } from "std:reflect";
@@ -1580,7 +1583,7 @@ if (Reflect.isInstanceOf(user, User)) {
 Reflect.callMethod(user, "someMethod", [arg1, arg2]);
 ```
 
-### 14.2 Macros (Compile-time Code Generation)
+### 14.2 Macros (Compile-time Code Generation) ✅
 
 ```pleno
 // Define macro
@@ -1601,7 +1604,7 @@ repeat!(3, {
 // print("Hello");
 ```
 
-### 14.3 Operator Overloading
+### 14.3 Operator Overloading ✅
 
 ```pleno
 class Vector {
@@ -1646,7 +1649,7 @@ print(v1 == v2);           // false
 print(v1[0]);              // 1.0
 ```
 
-### 14.4 Extension Methods
+### 14.4 Extension Methods ✅
 
 ```pleno
 // Extend existing types
@@ -1678,7 +1681,7 @@ let numbers = [1, 2, 3];
 print(numbers.second());  // Some(2)
 ```
 
-### 14.5 Annotations & Metadata
+### 14.5 Annotations & Metadata ✅
 
 ```pleno
 // Define custom annotation
@@ -1708,7 +1711,7 @@ fn createUser(user: User): User {
 let annotations = Reflect.getAnnotations(getUsers);
 ```
 
-### 14.6 Enum Types
+### 14.6 Enum Types ✅
 
 ```pleno
 // Simple enum
@@ -1760,7 +1763,7 @@ enum Direction {
 }
 ```
 
-### 14.7 Type Aliases
+### 14.7 Type Aliases ✅
 
 ```pleno
 // Simple type alias
@@ -1785,7 +1788,7 @@ let handler: Handler = fn(req, res) => {
 };
 ```
 
-### 14.8 Union & Intersection Types
+### 14.8 Union & Intersection Types ✅
 
 ```pleno
 // Union type
@@ -1818,7 +1821,7 @@ fn displayPerson(p: Person) {
 
 ---
 
-## 15. Testing Framework
+## 15. Testing Framework ✅
 
 ```pleno
 import { test, assert, describe, beforeEach, afterEach } from "std:test";
