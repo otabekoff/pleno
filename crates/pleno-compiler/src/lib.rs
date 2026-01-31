@@ -13,6 +13,40 @@ struct MacroDef {
     body: Stmt,
 }
 
+#[derive(Debug, Clone)]
+struct Local {
+    reg: u8,
+    mutable: bool,
+    ty: Option<String>,
+    is_boxed: bool,
+}
+
+#[derive(Debug, Clone)]
+struct CaptureInfo {
+    name: String,
+    is_boxed: bool,
+}
+
+#[derive(Clone)]
+struct LoopContext {
+    break_jumps: Vec<usize>,
+    continue_jumps: Vec<usize>,
+    continue_target: Option<usize>,
+    labels: Vec<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum OwnershipState {
+    Available,
+    Moved,
+}
+
+#[derive(Debug, Clone)]
+pub struct ParamOwnership {
+    pub name: String,
+    pub ownership: pleno_ast::Ownership,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct CompileError {
     pub message: String,
@@ -34,6 +68,9 @@ pub struct Compiler {
     lazy_locals: HashMap<u8, bool>,
     ownership_states: HashMap<u8, OwnershipState>,
     fn_signatures: Vec<HashMap<String, Vec<ParamOwnership>>>,
+    inline_functions: Vec<HashMap<String, FunctionDecl>>,
+    inline_return_stack: Vec<Vec<usize>>,
+    referenced_entities: HashSet<String>,
     loop_counter: u32,
     loop_stack: Vec<LoopContext>,
     captures: HashMap<String, (usize, bool)>,
@@ -72,6 +109,9 @@ impl Compiler {
             lazy_locals: HashMap::new(),
             ownership_states: HashMap::new(),
             fn_signatures: vec![HashMap::new()],
+            inline_functions: vec![HashMap::new()],
+            inline_return_stack: Vec::new(),
+            referenced_entities: HashSet::new(),
             loop_counter: 0,
             loop_stack: Vec::new(),
             captures: HashMap::new(),
@@ -100,6 +140,8 @@ impl Compiler {
         self.module_mode = false;
         self.module_exports.clear();
         self.module_name = None;
+
+        self.referenced_entities = self.collect_references(&program.statements);
 
         let boxed = self.find_boxed_vars(&program.statements);
         self.boxed_vars.push(boxed);
@@ -304,7 +346,7 @@ impl Compiler {
             StmtKind::Block(statements) => {
                 let boxed = self.find_boxed_vars(statements);
                 self.boxed_vars.push(boxed);
-                self.locals.push(HashMap::new());
+                self.push_scope();
                 for stmt in statements {
                     self.compile_stmt(stmt)?;
                 }
@@ -337,7 +379,7 @@ impl Compiler {
                 step,
                 body,
             } => {
-                self.locals.push(HashMap::new());
+                self.push_scope();
 
                 if let Some(init_stmt) = init {
                     self.compile_stmt(init_stmt)?;
@@ -489,6 +531,11 @@ impl Compiler {
                 Ok(())
             }
             StmtKind::Class { name, .. } => {
+                // Dead Code Elimination: Only compile if referenced
+                if !self.referenced_entities.contains(name) && self.is_top_level {
+                    return Ok(());
+                }
+
                 let class_reg = self.compile_class_declaration(stmt)?;
                 if self.is_top_level {
                     let name_idx = self.add_constant(Value::String(name.clone().into()));
@@ -523,9 +570,15 @@ impl Compiler {
                         ownership: param.ownership.clone(),
                     })
                     .collect::<Vec<_>>();
+                // Dead Code Elimination: Only compile if referenced
+                if !self.referenced_entities.contains(name) && self.is_top_level {
+                    return Ok(());
+                }
+
                 if let Some(scope) = self.fn_signatures.last_mut() {
                     scope.insert(name.clone(), ownership);
                 }
+
                 let decl = FunctionDecl {
                     name: name.clone(),
                     generics: generics.clone(),
@@ -540,6 +593,15 @@ impl Compiler {
                     annotations: annotations.clone(),
                     doc: None,
                 };
+
+                if annotations.iter().any(|a| a.name == "inline")
+                    && self.referenced_entities.contains(name)
+                {
+                    if let Some(scope) = self.inline_functions.last_mut() {
+                        scope.insert(name.clone(), decl.clone());
+                    }
+                }
+
                 let func_reg = self.compile_function(&decl, false, true, None, None)?;
                 if self.is_top_level {
                     let name_idx = self.add_constant(Value::String(name.clone().into()));
@@ -567,7 +629,13 @@ impl Compiler {
                         reg
                     }
                 };
-                self.emit(Opcode::Return, reg, 0, 0);
+                if !self.inline_return_stack.is_empty() {
+                    self.last_expr_register = Some(reg);
+                    let jump = self.emit_jump(Opcode::Jump, 0);
+                    self.inline_return_stack.last_mut().unwrap().push(jump);
+                } else {
+                    self.emit(Opcode::Return, reg, 0, 0);
+                }
                 Ok(())
             }
             StmtKind::Break(label) => self.compile_break_stmt(label.as_deref(), stmt.span),
@@ -1134,7 +1202,7 @@ impl Compiler {
             ExprKind::Block(stmts) => {
                 let boxed = self.find_boxed_vars(stmts);
                 self.boxed_vars.push(boxed);
-                self.locals.push(HashMap::new());
+                self.push_scope();
                 for stmt in stmts {
                     self.compile_stmt(stmt)?;
                 }
@@ -1241,6 +1309,13 @@ impl Compiler {
                 "spread operator only allowed in collection literals",
             )),
             ExprKind::Call { callee, args } => {
+                if let ExprKind::Ident(name) = &callee.kind {
+                    if let Some(decl) = self.resolve_inline_function(name).cloned() {
+                        let dest = self.registers.allocate()?;
+                        self.compile_inlined_call(&decl, args, dest, expr.span)?;
+                        return Ok(dest);
+                    }
+                }
                 if let Some(params) = match &callee.kind {
                     ExprKind::Ident(name) => self.resolve_fn_signature(name),
                     _ => None,
@@ -1331,7 +1406,7 @@ impl Compiler {
                 let mut end_jumps = Vec::new();
 
                 for arm in arms {
-                    self.locals.push(HashMap::new());
+                    self.push_scope();
                     let mut fail_jumps = Vec::new();
 
                     self.compile_pattern(&arm.pattern, value_reg, &mut fail_jumps)?;
@@ -1354,7 +1429,7 @@ impl Compiler {
                         self.patch_jump(f_jump)?;
                     }
 
-                    self.locals.pop();
+                    self.pop_scope();
 
                     // If it was a wildcard or identity match without a guard, we don't need to check further arms
                     if arm.guard.is_none()
@@ -1443,6 +1518,9 @@ impl Compiler {
     }
 
     fn emit(&mut self, opcode: Opcode, a: u8, b: u8, c: u8) {
+        if opcode == Opcode::Move && a == b {
+            return;
+        }
         self.chunk.code.push(Instruction::new(opcode, a, b, c));
         self.chunk.spans.push(self.current_span);
     }
@@ -1762,7 +1840,7 @@ impl Compiler {
                 self.free_temp(is_match_reg);
             }
 
-            self.locals.push(HashMap::new());
+            self.push_scope();
             self.insert_local(catch.name.clone(), error_reg, false, catch.ty.clone())?;
             self.compile_stmt(&catch.body)?;
             self.pop_scope();
@@ -2024,7 +2102,7 @@ impl Compiler {
         inclusive: bool,
         body: &Stmt,
     ) -> Result<(), CompileError> {
-        self.locals.push(HashMap::new());
+        self.push_scope();
         let start_reg = self.compile_expr(start)?;
         self.insert_local(name.to_string(), start_reg, true, None)?;
 
@@ -2072,7 +2150,7 @@ impl Compiler {
         start: &Expr,
         body: &Stmt,
     ) -> Result<(), CompileError> {
-        self.locals.push(HashMap::new());
+        self.push_scope();
         let start_reg = self.compile_expr(start)?;
         self.insert_local(name.to_string(), start_reg, true, None)?;
 
@@ -2108,7 +2186,7 @@ impl Compiler {
         iterable: &Expr,
         body: &Stmt,
     ) -> Result<(), CompileError> {
-        self.locals.push(HashMap::new());
+        self.push_scope();
         let source_reg = self.compile_expr(iterable)?;
         let iter_reg = self.registers.allocate()?;
 
@@ -2399,10 +2477,10 @@ impl Compiler {
                     let val = match lit {
                         Literal::Int(i) => Value::Int(*i),
                         Literal::Float(f) => Value::Float(*f),
-                        Literal::String(s) => Value::String(Rc::new(s.clone())),
+                        Literal::String(s) => Value::String(s.clone().into()),
                         Literal::Bool(b) => Value::Bool(*b),
                         Literal::Null => Value::Null,
-                        Literal::Char(c) => Value::String(Rc::new(c.to_string())),
+                        Literal::Char(c) => Value::String(c.to_string().into()),
                     };
                     args.push(val);
                 }
@@ -2422,13 +2500,6 @@ impl Compiler {
         // Create [name, args] object
         // For simplicity, we can create a simple object or Map.
         // VM expects Object with "name" and "args" fields.
-        let obj_reg = self.registers.allocate()?;
-        self.emit(Opcode::NewObject, obj_reg, 0, 0); // Is NewObject taking class? OR just empty object?
-
-        // Actually NewObject usually takes a class.
-        // We can use NewMap instead for simplicity if VM supports checking Map/Object generic.
-        // VM SetAnnotations expects Object.
-
         // Let's use Map for now?
         // No, SetAnnotations code I wrote checks: `if let Value::Object(obj) = val`.
         // And `Value::Object` wraps `Object` struct.
@@ -2444,6 +2515,7 @@ impl Compiler {
         // But for now, let's emit code to create a Map: { "name": ..., "args": ... }
         // And I will update VM SetAnnotations to expect Map.
 
+        let obj_reg = self.registers.allocate()?;
         // Emit Map
         self.emit(Opcode::NewMap, obj_reg, 0, 0);
 
@@ -2453,6 +2525,7 @@ impl Compiler {
         let val_reg = self.registers.allocate()?;
         self.emit(Opcode::LoadConst, val_reg, name_val_idx, 0);
         self.emit(Opcode::SetProperty, val_reg, obj_reg, name_key_idx);
+        self.free_temp(val_reg);
 
         // Set "args"
         let args_key_idx = self.add_constant(Value::String(Rc::new("args".to_string())));
@@ -2467,8 +2540,6 @@ impl Compiler {
             self.free_temp(arg_reg);
         }
         self.emit(Opcode::SetProperty, args_reg, obj_reg, args_key_idx);
-
-        self.free_temp(val_reg);
         self.free_temp(args_reg);
 
         Ok(obj_reg)
@@ -2485,7 +2556,7 @@ impl Compiler {
         let captures = self.analyze_captures(decl, is_method);
         let mut compiler = Compiler::new(String::new());
         compiler.is_top_level = false;
-        compiler.locals = vec![HashMap::new()];
+        compiler.push_scope();
         compiler.module_name = self.module_name.clone();
         compiler.captures = captures
             .iter()
@@ -2614,11 +2685,14 @@ impl Compiler {
 
         self.chunk.functions.push(FunctionProto {
             name: decl.name.clone(),
-            chunk: compiler.chunk,
+            chunk: compiler.chunk.clone(),
             arity,
             params: param_specs,
             is_async: decl.is_async,
             is_pure,
+            is_inline: decl.annotations.iter().any(|a| a.name == "inline"),
+            is_hot: decl.annotations.iter().any(|a| a.name == "hot"),
+            no_optimize: decl.annotations.iter().any(|a| a.name == "no_optimize"),
             type_params: decl.generics.iter().map(|g| g.name.clone()).collect(),
             annotations: runtime_annotations,
         });
@@ -2647,7 +2721,12 @@ impl Compiler {
 
         // Apply decorators in reverse order
         for annotation in decl.annotations.iter().rev() {
-            if annotation.name == "pure" || annotation.name == "native" {
+            if annotation.name == "pure"
+                || annotation.name == "native"
+                || annotation.name == "inline"
+                || annotation.name == "hot"
+                || annotation.name == "no_optimize"
+            {
                 continue;
             }
 
@@ -2699,6 +2778,7 @@ impl Compiler {
             self.free_temp(new_dest);
         }
 
+        compiler.pop_scope();
         Ok(dest)
     }
 
@@ -2738,7 +2818,7 @@ impl Compiler {
         let captures = self.analyze_captures(&decl, false);
         let mut compiler = Compiler::new(self.source.clone());
         compiler.is_top_level = false;
-        compiler.locals = vec![HashMap::new()];
+        compiler.push_scope();
         compiler.module_name = self.module_name.clone();
         compiler.captures = captures
             .iter()
@@ -2809,11 +2889,14 @@ impl Compiler {
         }
         self.chunk.functions.push(FunctionProto {
             name: "<lambda>".to_string(),
-            chunk: compiler.chunk,
+            chunk: compiler.chunk.clone(),
             arity,
             params: param_specs,
             is_async: false,
             is_pure,
+            is_inline: false,
+            is_hot: false,
+            no_optimize: false,
             type_params: Vec::new(),
             annotations: runtime_annotations,
         });
@@ -2836,6 +2919,7 @@ impl Compiler {
                 self.free_temp(reg);
             }
         }
+        compiler.pop_scope();
         Ok(dest)
     }
 
@@ -3700,556 +3784,29 @@ impl Compiler {
                 }
                 scope.pop();
             }
-            _ => {}
-        }
-    }
-}
-
-#[derive(Debug, Clone)]
-struct Local {
-    reg: u8,
-    mutable: bool,
-    ty: Option<String>,
-    is_boxed: bool,
-}
-
-#[derive(Debug, Clone)]
-struct CaptureInfo {
-    name: String,
-    is_boxed: bool,
-}
-
-#[derive(Clone)]
-struct LoopContext {
-    break_jumps: Vec<usize>,
-    continue_jumps: Vec<usize>,
-    continue_target: Option<usize>,
-    labels: Vec<String>,
-}
-
-impl Compiler {
-    fn push_loop(&mut self, continue_target: Option<usize>) {
-        let labels = std::mem::take(&mut self.next_labels);
-        self.loop_stack.push(LoopContext {
-            break_jumps: Vec::new(),
-            continue_jumps: Vec::new(),
-            continue_target,
-            labels,
-        });
-    }
-
-    fn pop_loop(&mut self) -> Option<LoopContext> {
-        self.loop_stack.pop()
-    }
-
-    fn patch_loop_jumps(
-        &mut self,
-        loop_ctx: LoopContext,
-        loop_end: usize,
-    ) -> Result<(), CompileError> {
-        let continue_target = loop_ctx.continue_target.unwrap_or(loop_end);
-        for jump in loop_ctx.continue_jumps {
-            self.patch_jump_to(jump, continue_target)?;
-        }
-        for jump in loop_ctx.break_jumps {
-            self.patch_jump_to(jump, loop_end)?;
-        }
-        Ok(())
-    }
-
-    fn emit_type_check(&mut self, reg: u8, ty_name: &str) -> Result<(), CompileError> {
-        // Parse the type string to handle optional and union types
-        let (base_types, is_optional) = self.parse_type_string(ty_name);
-
-        // Check if value is null (for optional types)
-        if is_optional {
-            let null_check_reg = self.registers.allocate()?;
-            self.emit(Opcode::LoadNull, null_check_reg, 0, 0);
-            self.emit(Opcode::Eq, null_check_reg, reg, null_check_reg);
-            let skip_null_check = self.emit_jump(Opcode::JumpIfNot, null_check_reg);
-            // If null, type check passes for optional types
-            let ok_jump = self.emit_jump(Opcode::Jump, 0);
-            self.patch_jump(skip_null_check)?;
-            self.free_temp(null_check_reg);
-
-            // Continue to check base type
-            self.emit_type_check_for_types(reg, &base_types, ty_name)?;
-
-            self.patch_jump(ok_jump)?;
-            Ok(())
-        } else {
-            self.emit_type_check_for_types(reg, &base_types, ty_name)
-        }
-    }
-
-    fn split_aware(&self, s: &str, sep: char) -> Vec<String> {
-        let mut parts = Vec::new();
-        let mut current = String::new();
-        let mut depth = 0;
-        for c in s.chars() {
-            if c == sep && depth == 0 {
-                parts.push(current.trim().to_string());
-                current = String::new();
-            } else {
-                if c == '<' {
-                    depth += 1;
-                }
-                if c == '>' {
-                    depth -= 1;
-                }
-                current.push(c);
-            }
-        }
-        parts.push(current.trim().to_string());
-        parts.into_iter().filter(|s| !s.is_empty()).collect()
-    }
-
-    fn parse_type_string(&self, ty_name: &str) -> (Vec<Vec<String>>, bool) {
-        let mut name = ty_name.trim();
-        let mut is_optional = false;
-        if name.ends_with('?') {
-            is_optional = true;
-            name = name.strip_suffix('?').unwrap().trim();
-        }
-
-        // Expand alias if it exists
-        let expanded = self
-            .type_aliases
-            .get(name)
-            .map(|s| s.as_str())
-            .unwrap_or(name);
-
-        let union_parts = self.split_aware(expanded, '|');
-        let mut union_types = Vec::new();
-
-        for part in union_parts {
-            let intersections = self.split_aware(&part, '&');
-            if !intersections.is_empty() {
-                union_types.push(intersections);
-            }
-        }
-
-        (union_types, is_optional)
-    }
-
-    fn emit_reified_type(&mut self, ty_name: &str) -> Result<u8, CompileError> {
-        let ty_name = ty_name.trim();
-        if let Some(start_idx) = ty_name.find('<') {
-            let base_name = ty_name[..start_idx].trim();
-            let args_str = &ty_name[start_idx + 1..ty_name.len() - 1]; // Assuming it ends with >
-            let args = self.split_aware(args_str, ',');
-
-            let base_reg = self.registers.allocate()?;
-            let name_idx =
-                self.add_constant(Value::String(std::rc::Rc::new(base_name.to_string())));
-            self.emit(Opcode::GetGlobal, base_reg, name_idx, 0);
-
-            let args_reg = self.registers.allocate()?;
-            self.emit(Opcode::NewArray, args_reg, 0, 0);
-            for arg_name in args {
-                let arg_type_reg = self.emit_reified_type(&arg_name)?;
-                self.emit(Opcode::ArrayAppend, args_reg, arg_type_reg, 0);
-                self.free_temp(arg_type_reg);
-            }
-
-            let dest = self.registers.allocate()?;
-            self.emit(Opcode::Specialize, dest, base_reg, args_reg);
-            self.free_temp(base_reg);
-            self.free_temp(args_reg);
-            Ok(dest)
-        } else {
-            let type_reg = self.registers.allocate()?;
-            let name_idx = self.add_constant(Value::String(std::rc::Rc::new(ty_name.to_string())));
-            self.emit(Opcode::GetGlobal, type_reg, name_idx, 0);
-
-            // Handle primitives if global is null
-            let is_null_reg = self.registers.allocate()?;
-            self.emit(Opcode::LoadNull, is_null_reg, 0, 0);
-            self.emit(Opcode::Eq, is_null_reg, type_reg, is_null_reg);
-            let skip_primitive_load = self.emit_jump(Opcode::JumpIfNot, is_null_reg);
-            self.emit(Opcode::LoadConst, type_reg, name_idx, 0);
-            self.patch_jump(skip_primitive_load)?;
-            self.free_temp(is_null_reg);
-
-            Ok(type_reg)
-        }
-    }
-
-    fn emit_type_check_for_types(
-        &mut self,
-        reg: u8,
-        types: &[Vec<String>],
-        original_ty_name: &str,
-    ) -> Result<(), CompileError> {
-        if types.is_empty() {
-            return Ok(());
-        }
-
-        // types is OR of ANDs: (A & B) | (C & D)
-        let mut success_jumps = Vec::new();
-        let mut temp_regs = Vec::new();
-
-        for group in types {
-            let mut next_group_jumps = Vec::new();
-
-            for ty_name in group {
-                let type_reg = self.emit_reified_type(ty_name)?;
-                temp_regs.push(type_reg);
-
-                let is_match_reg = self.registers.allocate()?;
-                temp_regs.push(is_match_reg);
-                self.emit(Opcode::Is, is_match_reg, reg, type_reg);
-
-                // If this specific type in the AND block fails, jump to the next OR group
-                let fail_jump = self.emit_jump(Opcode::JumpIfNot, is_match_reg);
-                next_group_jumps.push(fail_jump);
-            }
-
-            // If we reached here, all types in the group matched
-            let success_jump = self.emit_jump(Opcode::Jump, 0);
-            success_jumps.push(success_jump);
-
-            // Path all fail jumps for this group to start of NEXT group
-            for jump in next_group_jumps {
-                self.patch_jump(jump)?;
-            }
-        }
-
-        // If we get here, none of the groups matched
-        // Throw type error - use original type name to preserve optional/union syntax
-        let error_msg = format!("Type error: expected {}, found ", original_ty_name);
-        let msg_idx = self.add_constant(Value::String(error_msg.into()));
-        let msg_reg = self.registers.allocate()?;
-        self.emit(Opcode::LoadConst, msg_reg, msg_idx, 0);
-
-        let actual_type_reg = self.registers.allocate()?;
-        self.emit(Opcode::TypeOf, actual_type_reg, reg, 0);
-
-        let final_msg_reg = self.registers.allocate()?;
-        self.emit(Opcode::Add, final_msg_reg, msg_reg, actual_type_reg);
-
-        self.emit(Opcode::Throw, final_msg_reg, 0, 0);
-
-        // Patch all success jumps to skip error
-        let final_ok_jump = self.emit_jump(Opcode::Jump, 0);
-        for jump in success_jumps {
-            self.patch_jump(jump)?;
-        }
-        self.patch_jump(final_ok_jump)?;
-
-        // Free temp registers
-        for temp_reg in temp_regs {
-            self.free_temp(temp_reg);
-        }
-        self.free_temp(msg_reg);
-        self.free_temp(actual_type_reg);
-        self.free_temp(final_msg_reg);
-
-        Ok(())
-    }
-
-    fn insert_local(
-        &mut self,
-        name: String,
-        reg: u8,
-        mutable: bool,
-        ty: Option<String>,
-    ) -> Result<(), CompileError> {
-        let is_boxed = self.boxed_vars.iter().any(|s| s.contains(&name));
-        let final_reg = if is_boxed {
-            let cell_reg = self.registers.allocate()?;
-            self.emit(Opcode::MakeCell, cell_reg, reg, 0);
-            if !self.is_local_reg(reg) && Some(reg) != self.last_expr_register {
-                self.registers.free(reg);
-            }
-            cell_reg
-        } else {
-            reg
-        };
-
-        let scope = self
-            .locals
-            .last_mut()
-            .ok_or_else(|| CompileError::new("scope missing"))?;
-
-        scope.insert(
-            name,
-            Local {
-                reg: final_reg,
-                mutable,
-                ty,
-                is_boxed,
-            },
-        );
-        let _ = scope;
-
-        self.ownership_states.insert(reg, OwnershipState::Available);
-        Ok(())
-    }
-
-    pub fn compile_lazy_thunk(&mut self, expr: &Expr) -> Result<u8, CompileError> {
-        let callable_reg = self.compile_lambda(&[], expr, None, false, &[])?;
-        let thunk_reg = self.registers.allocate()?;
-        self.emit(Opcode::MakeThunk, thunk_reg, callable_reg, 0);
-        self.free_temp(callable_reg);
-        Ok(thunk_reg)
-    }
-
-    fn resolve_local(&self, name: &str) -> Option<Local> {
-        for scope in self.locals.iter().rev() {
-            if let Some(local) = scope.get(name) {
-                return Some(local.clone());
-            }
-        }
-        None
-    }
-
-    fn is_local_reg(&self, reg: u8) -> bool {
-        self.locals
-            .iter()
-            .any(|scope| scope.values().any(|local| local.reg == reg))
-    }
-
-    fn free_temp(&mut self, reg: u8) {
-        if !self.is_local_reg(reg) && Some(reg) != self.last_expr_register {
-            self.registers.free(reg);
-        }
-    }
-
-    fn pop_scope(&mut self) {
-        if let Some(scope) = self.locals.pop() {
-            for local in scope.values() {
-                if Some(local.reg) != self.last_expr_register {
-                    self.registers.free(local.reg);
-                }
-                self.lazy_locals.remove(&local.reg);
-                self.ownership_states.remove(&local.reg);
-            }
-        }
-        self.fn_signatures.pop();
-    }
-
-    fn resolve_fn_signature(&self, name: &str) -> Option<&Vec<ParamOwnership>> {
-        for scope in self.fn_signatures.iter().rev() {
-            if let Some(sig) = scope.get(name) {
-                return Some(sig);
-            }
-        }
-        None
-    }
-
-    fn find_boxed_vars(&self, stmts: &[Stmt]) -> HashSet<String> {
-        let mut boxed = HashSet::new();
-        for stmt in stmts {
-            self.find_closures_and_captures_in_stmt(stmt, &mut boxed);
-        }
-        boxed
-    }
-
-    fn find_closures_and_captures_in_stmt(&self, stmt: &Stmt, boxed: &mut HashSet<String>) {
-        match &stmt.kind {
-            StmtKind::Expr(expr) => self.find_closures_and_captures_in_expr(expr, boxed),
-            StmtKind::Let {
-                value: Some(val), ..
-            } => self.find_closures_and_captures_in_expr(val, boxed),
-            StmtKind::Assign { value, .. } => self.find_closures_and_captures_in_expr(value, boxed),
-            StmtKind::Block(stmts) => {
-                for s in stmts {
-                    self.find_closures_and_captures_in_stmt(s, boxed);
-                }
-            }
-            StmtKind::If {
+            ExprKind::If {
                 condition,
                 then_branch,
                 else_branch,
             } => {
-                self.find_closures_and_captures_in_expr(condition, boxed);
-                self.find_closures_and_captures_in_stmt(then_branch, boxed);
-                if let Some(eb) = else_branch {
-                    self.find_closures_and_captures_in_stmt(eb, boxed);
-                }
+                self.collect_idents_expr(condition, used, scope);
+                self.collect_idents_expr(then_branch, used, scope);
+                self.collect_idents_expr(else_branch, used, scope);
             }
-            StmtKind::While { condition, body } => {
-                self.find_closures_and_captures_in_expr(condition, boxed);
-                self.find_closures_and_captures_in_stmt(body, boxed);
-            }
-            StmtKind::For { iterable, body, .. } => {
-                self.find_closures_and_captures_in_expr(iterable, boxed);
-                self.find_closures_and_captures_in_stmt(body, boxed);
-            }
-            StmtKind::CFor {
-                init,
-                condition,
-                step,
-                body,
-            } => {
-                if let Some(init) = init {
-                    self.find_closures_and_captures_in_stmt(init, boxed);
-                }
-                if let Some(condition) = condition {
-                    self.find_closures_and_captures_in_expr(condition, boxed);
-                }
-                if let Some(step) = step {
-                    self.find_closures_and_captures_in_stmt(step, boxed);
-                }
-                self.find_closures_and_captures_in_stmt(body, boxed);
-            }
-            StmtKind::Fn {
-                name,
-                generics,
-                params,
-                body,
-                annotations,
-                is_async,
-                ..
-            } => {
-                let decl = FunctionDecl {
-                    name: name.clone(),
-                    generics: generics.clone(),
-                    params: params.clone(),
-                    return_ty: None,
-                    body: body.clone(),
-                    is_static: false,
-                    is_abstract: false,
-                    is_async: *is_async,
-                    visibility: None,
-                    kind: FunctionKind::Method,
-                    annotations: annotations.clone(),
-                    doc: None,
-                };
-                let captures = self.analyze_captures_names(&decl, false);
-                for name in captures {
-                    boxed.insert(name);
-                }
-                self.find_closures_and_captures_in_stmt(body, boxed);
-            }
-            StmtKind::Return(Some(expr)) => self.find_closures_and_captures_in_expr(expr, boxed),
-            _ => {}
-        }
-    }
-
-    fn find_closures_and_captures_in_expr(&self, expr: &Expr, boxed: &mut HashSet<String>) {
-        match &expr.kind {
-            ExprKind::Lambda { params, body, .. } => {
-                let body_stmt = match &body.kind {
-                    ExprKind::Block(stmts) => Stmt {
-                        kind: StmtKind::Block(stmts.clone()),
-                        span: body.span,
-                    },
-                    _ => Stmt {
-                        kind: StmtKind::Return(Some((**body).clone())),
-                        span: body.span,
-                    },
-                };
-                let decl = FunctionDecl {
-                    name: "anonymous".to_string(),
-                    generics: Vec::new(),
-                    params: params.clone(),
-                    return_ty: None,
-                    body: Box::new(body_stmt),
-                    is_static: false,
-                    is_abstract: false,
-                    is_async: false,
-                    visibility: None,
-                    kind: FunctionKind::Method,
-                    annotations: Vec::new(),
-                    doc: None,
-                };
-                let captures = self.analyze_captures_names(&decl, false);
-                for name in captures {
-                    boxed.insert(name);
-                }
-                self.find_closures_and_captures_in_expr(body, boxed);
-            }
-            ExprKind::Binary { left, right, .. } => {
-                self.find_closures_and_captures_in_expr(left, boxed);
-                self.find_closures_and_captures_in_expr(right, boxed);
-            }
-            ExprKind::Unary { expr, .. } => self.find_closures_and_captures_in_expr(expr, boxed),
-            ExprKind::Call { callee, args } => {
-                self.find_closures_and_captures_in_expr(callee, boxed);
+            ExprKind::MacroCall { args, .. } => {
                 for arg in args {
                     match arg {
                         pleno_ast::CallArg::Positional(e)
                         | pleno_ast::CallArg::Named(_, e)
                         | pleno_ast::CallArg::Spread(e) => {
-                            self.find_closures_and_captures_in_expr(e, boxed);
+                            self.collect_idents_expr(e, used, scope);
                         }
-                        pleno_ast::CallArg::Placeholder => {}
+                        _ => {}
                     }
-                }
-            }
-            ExprKind::Block(stmts) => {
-                for s in stmts {
-                    self.find_closures_and_captures_in_stmt(s, boxed);
-                }
-            }
-            ExprKind::MapLiteral(items) => {
-                for item in items {
-                    match item {
-                        pleno_ast::MapItem::Entry(_, e) | pleno_ast::MapItem::Spread(e) => {
-                            self.find_closures_and_captures_in_expr(e, boxed);
-                        }
-                    }
-                }
-            }
-            ExprKind::ArrayLiteral(items)
-            | ExprKind::SetLiteral(items)
-            | ExprKind::TupleLiteral(items) => {
-                for item in items {
-                    self.find_closures_and_captures_in_expr(item, boxed);
-                }
-            }
-            ExprKind::Index { collection, index } => {
-                self.find_closures_and_captures_in_expr(collection, boxed);
-                self.find_closures_and_captures_in_expr(index, boxed);
-            }
-            ExprKind::Property { object, .. } => {
-                self.find_closures_and_captures_in_expr(object, boxed)
-            }
-            ExprKind::Match { expr, arms } => {
-                self.find_closures_and_captures_in_expr(expr, boxed);
-                for arm in arms {
-                    self.find_closures_and_captures_in_expr(&arm.body, boxed);
                 }
             }
             _ => {}
         }
-    }
-
-    fn analyze_captures_names(&self, decl: &FunctionDecl, is_method: bool) -> Vec<String> {
-        let mut locals_map = HashMap::new();
-        let mut scope_stack = vec![HashSet::new()];
-
-        for param in &decl.params {
-            locals_map.insert(param.name.clone(), ());
-            scope_stack[0].insert(param.name.clone());
-        }
-        if is_method {
-            locals_map.insert("this".to_string(), ());
-            scope_stack[0].insert("this".to_string());
-        }
-
-        self.collect_locals(&decl.body, &mut locals_map);
-        for name in locals_map.keys() {
-            scope_stack[0].insert(name.clone());
-        }
-
-        let mut used = HashMap::new();
-        for param in &decl.params {
-            if let Some(default) = &param.default {
-                self.collect_idents_expr(default, &mut used, &mut scope_stack);
-            }
-        }
-        self.collect_idents(&decl.body, &mut used, &mut scope_stack);
-
-        let mut captures = Vec::new();
-        for (name, is_mutated) in used {
-            if is_mutated && !locals_map.contains_key(&name) {
-                captures.push(name);
-            }
-        }
-        captures
     }
 
     fn enforce_call_ownership(
@@ -4559,18 +4116,697 @@ impl Compiler {
         }
         Ok(())
     }
-}
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum OwnershipState {
-    Available,
-    Moved,
-}
+    fn resolve_inline_function(&self, name: &str) -> Option<&FunctionDecl> {
+        for scope in self.inline_functions.iter().rev() {
+            if let Some(decl) = scope.get(name) {
+                return Some(decl);
+            }
+        }
+        None
+    }
 
-#[derive(Debug, Clone)]
-pub struct ParamOwnership {
-    pub name: String,
-    pub ownership: pleno_ast::Ownership,
+    fn compile_inlined_call(
+        &mut self,
+        decl: &FunctionDecl,
+        args: &[pleno_ast::CallArg],
+        dest: u8,
+        _span: Span,
+    ) -> Result<(), CompileError> {
+        self.push_scope();
+
+        // Map arguments to parameters
+        for (i, param) in decl.params.iter().enumerate() {
+            let arg_reg = if i < args.len() {
+                match &args[i] {
+                    pleno_ast::CallArg::Positional(expr) => self.compile_expr(expr)?,
+                    _ => {
+                        return Err(CompileError::new(
+                            "Inlining only supported for positional arguments",
+                        ));
+                    }
+                }
+            } else if let Some(default) = &param.default {
+                self.compile_expr(default)?
+            } else {
+                let r = self.registers.allocate()?;
+                self.emit(Opcode::LoadNull, r, 0, 0);
+                r
+            };
+            self.insert_local(param.name.clone(), arg_reg, true, param.ty.clone())?;
+        }
+
+        let old_last_expr = self.last_expr_register;
+        let mut return_jumps = Vec::new();
+        self.inline_return_stack.push(return_jumps);
+
+        self.compile_stmt(&decl.body)?;
+
+        if let Some(reg) = self.last_expr_register {
+            self.emit(Opcode::Move, dest, reg, 0);
+        } else {
+            self.emit(Opcode::LoadNull, dest, 0, 0);
+        }
+
+        return_jumps = self.inline_return_stack.pop().unwrap();
+        self.last_expr_register = old_last_expr;
+        self.pop_scope();
+
+        let end_pos = self.chunk.code.len();
+        for jump in return_jumps {
+            self.patch_jump_to(jump, end_pos)?;
+        }
+        Ok(())
+    }
+
+    fn collect_references(&self, stmts: &[Stmt]) -> HashSet<String> {
+        let mut referenced = HashSet::new();
+        for stmt in stmts {
+            self.collect_stmt_refs(stmt, &mut referenced);
+        }
+        referenced
+    }
+
+    fn collect_stmt_refs(&self, stmt: &Stmt, referenced: &mut HashSet<String>) {
+        match &stmt.kind {
+            StmtKind::Expr(expr) => self.collect_expr_refs(expr, referenced),
+            StmtKind::Let { value, .. } => {
+                if let Some(value) = value {
+                    self.collect_expr_refs(value, referenced)
+                }
+            }
+            StmtKind::If {
+                condition,
+                then_branch,
+                else_branch,
+            } => {
+                self.collect_expr_refs(condition, referenced);
+                self.collect_stmt_refs(then_branch, referenced);
+                if let Some(eb) = else_branch {
+                    self.collect_stmt_refs(eb, referenced);
+                }
+            }
+            StmtKind::While { condition, body } => {
+                self.collect_expr_refs(condition, referenced);
+                self.collect_stmt_refs(body, referenced);
+            }
+            StmtKind::Block(stmts) => {
+                for s in stmts {
+                    self.collect_stmt_refs(s, referenced);
+                }
+            }
+            StmtKind::Fn { body, .. } => {
+                self.collect_stmt_refs(body, referenced);
+            }
+            StmtKind::Class { methods, .. } => {
+                for method in methods {
+                    self.collect_stmt_refs(&method.body, referenced);
+                }
+            }
+            StmtKind::Return(Some(expr)) => self.collect_expr_refs(expr, referenced),
+            _ => {}
+        }
+    }
+
+    fn collect_expr_refs(&self, expr: &Expr, referenced: &mut HashSet<String>) {
+        match &expr.kind {
+            ExprKind::Ident(name) => {
+                referenced.insert(name.clone());
+            }
+            ExprKind::Call { callee, args } => {
+                self.collect_expr_refs(callee, referenced);
+                for arg in args {
+                    match arg {
+                        pleno_ast::CallArg::Positional(e) => self.collect_expr_refs(e, referenced),
+                        pleno_ast::CallArg::Named(_, e) => self.collect_expr_refs(e, referenced),
+                        pleno_ast::CallArg::Spread(e) => self.collect_expr_refs(e, referenced),
+                        _ => {}
+                    }
+                }
+            }
+            ExprKind::Binary { left, right, .. } => {
+                self.collect_expr_refs(left, referenced);
+                self.collect_expr_refs(right, referenced);
+            }
+            ExprKind::Unary { expr, .. } => self.collect_expr_refs(expr, referenced),
+            ExprKind::Property { object, .. } => self.collect_expr_refs(object, referenced),
+            ExprKind::Index { collection, index } => {
+                self.collect_expr_refs(collection, referenced);
+                self.collect_expr_refs(index, referenced);
+            }
+            ExprKind::ArrayLiteral(exprs) => {
+                for e in exprs {
+                    self.collect_expr_refs(e, referenced);
+                }
+            }
+            ExprKind::MapLiteral(items) => {
+                for item in items {
+                    match item {
+                        pleno_ast::MapItem::Entry(_, value) => {
+                            self.collect_expr_refs(value, referenced)
+                        }
+                        pleno_ast::MapItem::Spread(expr) => {
+                            self.collect_expr_refs(expr, referenced)
+                        }
+                    }
+                }
+            }
+            ExprKind::Lambda { body, .. } => {
+                let body_stmt = match &body.kind {
+                    ExprKind::Block(stmts) => Stmt {
+                        kind: StmtKind::Block(stmts.clone()),
+                        span: body.span,
+                    },
+                    _ => Stmt {
+                        kind: StmtKind::Return(Some((**body).clone())),
+                        span: body.span,
+                    },
+                };
+                self.collect_stmt_refs(&body_stmt, referenced)
+            }
+            _ => {}
+        }
+    }
+
+    fn push_loop(&mut self, continue_target: Option<usize>) {
+        let labels = std::mem::take(&mut self.next_labels);
+        self.loop_stack.push(LoopContext {
+            break_jumps: Vec::new(),
+            continue_jumps: Vec::new(),
+            continue_target,
+            labels,
+        });
+    }
+
+    fn pop_loop(&mut self) -> Option<LoopContext> {
+        self.loop_stack.pop()
+    }
+
+    fn patch_loop_jumps(
+        &mut self,
+        loop_ctx: LoopContext,
+        loop_end: usize,
+    ) -> Result<(), CompileError> {
+        let continue_target = loop_ctx.continue_target.unwrap_or(loop_end);
+        for jump in loop_ctx.continue_jumps {
+            self.patch_jump_to(jump, continue_target)?;
+        }
+        for jump in loop_ctx.break_jumps {
+            self.patch_jump_to(jump, loop_end)?;
+        }
+        Ok(())
+    }
+
+    fn emit_type_check(&mut self, reg: u8, ty_name: &str) -> Result<(), CompileError> {
+        // Parse the type string to handle optional and union types
+        let (base_types, is_optional) = self.parse_type_string(ty_name);
+
+        // Check if value is null (for optional types)
+        if is_optional {
+            let null_check_reg = self.registers.allocate()?;
+            self.emit(Opcode::LoadNull, null_check_reg, 0, 0);
+            self.emit(Opcode::Eq, null_check_reg, reg, null_check_reg);
+            let skip_null_check = self.emit_jump(Opcode::JumpIfNot, null_check_reg);
+            // If null, type check passes for optional types
+            let ok_jump = self.emit_jump(Opcode::Jump, 0);
+            self.patch_jump(skip_null_check)?;
+            self.free_temp(null_check_reg);
+
+            // Continue to check base type
+            self.emit_type_check_for_types(reg, &base_types, ty_name)?;
+
+            self.patch_jump(ok_jump)?;
+            Ok(())
+        } else {
+            self.emit_type_check_for_types(reg, &base_types, ty_name)
+        }
+    }
+
+    fn split_aware(&self, s: &str, sep: char) -> Vec<String> {
+        let mut parts = Vec::new();
+        let mut current = String::new();
+        let mut depth = 0;
+        for c in s.chars() {
+            if c == sep && depth == 0 {
+                parts.push(current.trim().to_string());
+                current = String::new();
+            } else {
+                if c == '<' {
+                    depth += 1;
+                }
+                if c == '>' {
+                    depth -= 1;
+                }
+                current.push(c);
+            }
+        }
+        parts.push(current.trim().to_string());
+        parts.into_iter().filter(|s| !s.is_empty()).collect()
+    }
+
+    fn parse_type_string(&self, ty_name: &str) -> (Vec<Vec<String>>, bool) {
+        let mut name = ty_name.trim();
+        let mut is_optional = false;
+        if name.ends_with('?') {
+            is_optional = true;
+            name = name.strip_suffix('?').unwrap().trim();
+        }
+
+        // Expand alias if it exists
+        let expanded = self
+            .type_aliases
+            .get(name)
+            .map(|s| s.as_str())
+            .unwrap_or(name);
+
+        let union_parts = self.split_aware(expanded, '|');
+        let mut union_types = Vec::new();
+
+        for part in union_parts {
+            let intersections = self.split_aware(&part, '&');
+            if !intersections.is_empty() {
+                union_types.push(intersections);
+            }
+        }
+
+        (union_types, is_optional)
+    }
+
+    fn emit_reified_type(&mut self, ty_name: &str) -> Result<u8, CompileError> {
+        let ty_name = ty_name.trim();
+        if let Some(start_idx) = ty_name.find('<') {
+            let base_name = ty_name[..start_idx].trim();
+            let args_str = &ty_name[start_idx + 1..ty_name.len() - 1]; // Assuming it ends with >
+            let args = self.split_aware(args_str, ',');
+
+            let base_reg = self.registers.allocate()?;
+            let name_idx =
+                self.add_constant(Value::String(std::rc::Rc::new(base_name.to_string())));
+            self.emit(Opcode::GetGlobal, base_reg, name_idx, 0);
+
+            let args_reg = self.registers.allocate()?;
+            self.emit(Opcode::NewArray, args_reg, 0, 0);
+            for arg_name in args {
+                let arg_type_reg = self.emit_reified_type(&arg_name)?;
+                self.emit(Opcode::ArrayAppend, args_reg, arg_type_reg, 0);
+                self.free_temp(arg_type_reg);
+            }
+
+            let dest = self.registers.allocate()?;
+            self.emit(Opcode::Specialize, dest, base_reg, args_reg);
+            self.free_temp(base_reg);
+            self.free_temp(args_reg);
+            Ok(dest)
+        } else {
+            let type_reg = self.registers.allocate()?;
+            let name_idx = self.add_constant(Value::String(std::rc::Rc::new(ty_name.to_string())));
+            self.emit(Opcode::GetGlobal, type_reg, name_idx, 0);
+
+            // Handle primitives if global is null
+            let is_null_reg = self.registers.allocate()?;
+            self.emit(Opcode::LoadNull, is_null_reg, 0, 0);
+            self.emit(Opcode::Eq, is_null_reg, type_reg, is_null_reg);
+            let skip_primitive_load = self.emit_jump(Opcode::JumpIfNot, is_null_reg);
+            self.emit(Opcode::LoadConst, type_reg, name_idx, 0);
+            self.patch_jump(skip_primitive_load)?;
+            self.free_temp(is_null_reg);
+
+            Ok(type_reg)
+        }
+    }
+
+    fn emit_type_check_for_types(
+        &mut self,
+        reg: u8,
+        types: &[Vec<String>],
+        original_ty_name: &str,
+    ) -> Result<(), CompileError> {
+        if types.is_empty() {
+            return Ok(());
+        }
+
+        // types is OR of ANDs: (A & B) | (C & D)
+        let mut success_jumps = Vec::new();
+        let mut temp_regs = Vec::new();
+
+        for group in types {
+            let mut next_group_jumps = Vec::new();
+
+            for ty_name in group {
+                let type_reg = self.emit_reified_type(ty_name)?;
+                temp_regs.push(type_reg);
+
+                let is_match_reg = self.registers.allocate()?;
+                temp_regs.push(is_match_reg);
+                self.emit(Opcode::Is, is_match_reg, reg, type_reg);
+
+                // If this specific type in the AND block fails, jump to the next OR group
+                let fail_jump = self.emit_jump(Opcode::JumpIfNot, is_match_reg);
+                next_group_jumps.push(fail_jump);
+            }
+
+            // If we reached here, all types in the group matched
+            let success_jump = self.emit_jump(Opcode::Jump, 0);
+            success_jumps.push(success_jump);
+
+            // Path all fail jumps for this group to start of NEXT group
+            for jump in next_group_jumps {
+                self.patch_jump(jump)?;
+            }
+        }
+
+        // If we get here, none of the groups matched
+        // Throw type error - use original type name to preserve optional/union syntax
+        let error_msg = format!("Type error: expected {}, found ", original_ty_name);
+        let msg_idx = self.add_constant(Value::String(error_msg.into()));
+        let msg_reg = self.registers.allocate()?;
+        self.emit(Opcode::LoadConst, msg_reg, msg_idx, 0);
+
+        let actual_type_reg = self.registers.allocate()?;
+        self.emit(Opcode::TypeOf, actual_type_reg, reg, 0);
+
+        let final_msg_reg = self.registers.allocate()?;
+        self.emit(Opcode::Add, final_msg_reg, msg_reg, actual_type_reg);
+
+        self.emit(Opcode::Throw, final_msg_reg, 0, 0);
+
+        // Patch all success jumps to skip error
+        let final_ok_jump = self.emit_jump(Opcode::Jump, 0);
+        for jump in success_jumps {
+            self.patch_jump(jump)?;
+        }
+        self.patch_jump(final_ok_jump)?;
+
+        // Free temp registers
+        for temp_reg in temp_regs {
+            self.free_temp(temp_reg);
+        }
+        self.free_temp(msg_reg);
+        self.free_temp(actual_type_reg);
+        self.free_temp(final_msg_reg);
+
+        Ok(())
+    }
+
+    pub fn compile_lazy_thunk(&mut self, expr: &Expr) -> Result<u8, CompileError> {
+        let callable_reg = self.compile_lambda(&[], expr, None, false, &[])?;
+        let thunk_reg = self.registers.allocate()?;
+        self.emit(Opcode::MakeThunk, thunk_reg, callable_reg, 0);
+        self.free_temp(callable_reg);
+        Ok(thunk_reg)
+    }
+
+    fn insert_local(
+        &mut self,
+        name: String,
+        reg: u8,
+        mutable: bool,
+        ty: Option<String>,
+    ) -> Result<(), CompileError> {
+        let is_boxed = self.find_boxed_vars(&[]).contains(&name); // Placeholder for scoped boxed check
+        if let Some(scope) = self.locals.last_mut() {
+            if scope.contains_key(&name) {
+                return Err(CompileError::new(format!(
+                    "Local '{}' already defined",
+                    name
+                )));
+            }
+            scope.insert(
+                name,
+                Local {
+                    reg,
+                    mutable,
+                    ty,
+                    is_boxed,
+                },
+            );
+        }
+        Ok(())
+    }
+
+    fn resolve_local(&self, name: &str) -> Option<Local> {
+        for scope in self.locals.iter().rev() {
+            if let Some(local) = scope.get(name) {
+                return Some(local.clone());
+            }
+        }
+        None
+    }
+
+    fn is_local_reg(&self, reg: u8) -> bool {
+        self.locals
+            .iter()
+            .any(|scope| scope.values().any(|local| local.reg == reg))
+    }
+
+    fn free_temp(&mut self, reg: u8) {
+        if !self.is_local_reg(reg) && Some(reg) != self.last_expr_register {
+            self.registers.free(reg);
+        }
+    }
+
+    fn push_scope(&mut self) {
+        self.locals.push(HashMap::new());
+        self.fn_signatures.push(HashMap::new());
+        self.inline_functions.push(HashMap::new());
+    }
+
+    fn pop_scope(&mut self) {
+        if let Some(scope) = self.locals.pop() {
+            for local in scope.values() {
+                if Some(local.reg) != self.last_expr_register {
+                    self.registers.free(local.reg);
+                }
+                self.lazy_locals.remove(&local.reg);
+                self.ownership_states.remove(&local.reg);
+            }
+        }
+        self.fn_signatures.pop();
+        self.inline_functions.pop();
+    }
+
+    fn resolve_fn_signature(&self, name: &str) -> Option<&Vec<ParamOwnership>> {
+        for scope in self.fn_signatures.iter().rev() {
+            if let Some(sig) = scope.get(name) {
+                return Some(sig);
+            }
+        }
+        None
+    }
+
+    fn find_boxed_vars(&self, stmts: &[Stmt]) -> HashSet<String> {
+        let mut boxed = HashSet::new();
+        for stmt in stmts {
+            self.find_closures_and_captures_in_stmt(stmt, &mut boxed);
+        }
+        boxed
+    }
+
+    fn find_closures_and_captures_in_stmt(&self, stmt: &Stmt, boxed: &mut HashSet<String>) {
+        match &stmt.kind {
+            StmtKind::Expr(expr) => self.find_closures_and_captures_in_expr(expr, boxed),
+            StmtKind::Let {
+                value: Some(val), ..
+            } => self.find_closures_and_captures_in_expr(val, boxed),
+            StmtKind::Assign { value, .. } => self.find_closures_and_captures_in_expr(value, boxed),
+            StmtKind::Block(stmts) => {
+                for s in stmts {
+                    self.find_closures_and_captures_in_stmt(s, boxed);
+                }
+            }
+            StmtKind::If {
+                condition,
+                then_branch,
+                else_branch,
+            } => {
+                self.find_closures_and_captures_in_expr(condition, boxed);
+                self.find_closures_and_captures_in_stmt(then_branch, boxed);
+                if let Some(eb) = else_branch {
+                    self.find_closures_and_captures_in_stmt(eb, boxed);
+                }
+            }
+            StmtKind::While { condition, body } => {
+                self.find_closures_and_captures_in_expr(condition, boxed);
+                self.find_closures_and_captures_in_stmt(body, boxed);
+            }
+            StmtKind::For { iterable, body, .. } => {
+                self.find_closures_and_captures_in_expr(iterable, boxed);
+                self.find_closures_and_captures_in_stmt(body, boxed);
+            }
+            StmtKind::CFor {
+                init,
+                condition,
+                step,
+                body,
+            } => {
+                if let Some(init) = init {
+                    self.find_closures_and_captures_in_stmt(init, boxed);
+                }
+                if let Some(condition) = condition {
+                    self.find_closures_and_captures_in_expr(condition, boxed);
+                }
+                if let Some(step) = step {
+                    self.find_closures_and_captures_in_stmt(step, boxed);
+                }
+                self.find_closures_and_captures_in_stmt(body, boxed);
+            }
+            StmtKind::Fn {
+                name,
+                generics,
+                params,
+                body,
+                annotations,
+                is_async,
+                ..
+            } => {
+                let decl = FunctionDecl {
+                    name: name.clone(),
+                    generics: generics.clone(),
+                    params: params.clone(),
+                    return_ty: None,
+                    body: body.clone(),
+                    is_static: false,
+                    is_abstract: false,
+                    is_async: *is_async,
+                    visibility: None,
+                    kind: FunctionKind::Method,
+                    annotations: annotations.clone(),
+                    doc: None,
+                };
+                let captures = self.analyze_captures_names(&decl, false);
+                for name in captures {
+                    boxed.insert(name);
+                }
+                self.find_closures_and_captures_in_stmt(body, boxed);
+            }
+            StmtKind::Return(Some(expr)) => self.find_closures_and_captures_in_expr(expr, boxed),
+            _ => {}
+        }
+    }
+
+    fn find_closures_and_captures_in_expr(&self, expr: &Expr, boxed: &mut HashSet<String>) {
+        match &expr.kind {
+            ExprKind::Lambda { params, body, .. } => {
+                let body_stmt = match &body.kind {
+                    ExprKind::Block(stmts) => Stmt {
+                        kind: StmtKind::Block(stmts.clone()),
+                        span: body.span,
+                    },
+                    _ => Stmt {
+                        kind: StmtKind::Return(Some((**body).clone())),
+                        span: body.span,
+                    },
+                };
+                let decl = FunctionDecl {
+                    name: "anonymous".to_string(),
+                    generics: Vec::new(),
+                    params: params.clone(),
+                    return_ty: None,
+                    body: Box::new(body_stmt),
+                    is_static: false,
+                    is_abstract: false,
+                    is_async: false,
+                    visibility: None,
+                    kind: FunctionKind::Method,
+                    annotations: Vec::new(),
+                    doc: None,
+                };
+                let captures = self.analyze_captures_names(&decl, false);
+                for name in captures {
+                    boxed.insert(name);
+                }
+                self.find_closures_and_captures_in_expr(body, boxed);
+            }
+            ExprKind::Binary { left, right, .. } => {
+                self.find_closures_and_captures_in_expr(left, boxed);
+                self.find_closures_and_captures_in_expr(right, boxed);
+            }
+            ExprKind::Unary { expr, .. } => self.find_closures_and_captures_in_expr(expr, boxed),
+            ExprKind::Call { callee, args } => {
+                self.find_closures_and_captures_in_expr(callee, boxed);
+                for arg in args {
+                    match arg {
+                        pleno_ast::CallArg::Positional(e)
+                        | pleno_ast::CallArg::Named(_, e)
+                        | pleno_ast::CallArg::Spread(e) => {
+                            self.find_closures_and_captures_in_expr(e, boxed);
+                        }
+                        pleno_ast::CallArg::Placeholder => {}
+                    }
+                }
+            }
+            ExprKind::Block(stmts) => {
+                for s in stmts {
+                    self.find_closures_and_captures_in_stmt(s, boxed);
+                }
+            }
+            ExprKind::MapLiteral(items) => {
+                for item in items {
+                    match item {
+                        pleno_ast::MapItem::Entry(_, e) | pleno_ast::MapItem::Spread(e) => {
+                            self.find_closures_and_captures_in_expr(e, boxed);
+                        }
+                    }
+                }
+            }
+            ExprKind::ArrayLiteral(items)
+            | ExprKind::SetLiteral(items)
+            | ExprKind::TupleLiteral(items) => {
+                for item in items {
+                    self.find_closures_and_captures_in_expr(item, boxed);
+                }
+            }
+            ExprKind::Index { collection, index } => {
+                self.find_closures_and_captures_in_expr(collection, boxed);
+                self.find_closures_and_captures_in_expr(index, boxed);
+            }
+            ExprKind::Property { object, .. } => {
+                self.find_closures_and_captures_in_expr(object, boxed)
+            }
+            ExprKind::Match { expr, arms } => {
+                self.find_closures_and_captures_in_expr(expr, boxed);
+                for arm in arms {
+                    self.find_closures_and_captures_in_expr(&arm.body, boxed);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn analyze_captures_names(&self, decl: &FunctionDecl, is_method: bool) -> Vec<String> {
+        let mut locals_map = HashMap::new();
+        let mut scope_stack = vec![HashSet::new()];
+
+        for param in &decl.params {
+            locals_map.insert(param.name.clone(), ());
+            scope_stack[0].insert(param.name.clone());
+        }
+        if is_method {
+            locals_map.insert("this".to_string(), ());
+            scope_stack[0].insert("this".to_string());
+        }
+
+        self.collect_locals(&decl.body, &mut locals_map);
+        for name in locals_map.keys() {
+            scope_stack[0].insert(name.clone());
+        }
+
+        let mut used = HashMap::new();
+        for param in &decl.params {
+            if let Some(default) = &param.default {
+                self.collect_idents_expr(default, &mut used, &mut scope_stack);
+            }
+        }
+        self.collect_idents(&decl.body, &mut used, &mut scope_stack);
+
+        let mut captures = Vec::new();
+        for (name, is_mutated) in used {
+            if is_mutated && !locals_map.contains_key(&name) {
+                captures.push(name);
+            }
+        }
+        captures
+    }
 }
 
 struct RegisterAllocator {

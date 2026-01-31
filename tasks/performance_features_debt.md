@@ -10,23 +10,23 @@ Audited specs.md section 19 (Performance Features) against actual implementation
 |---------|--------|-------|
 | Hot path optimization | ❌ NOT IMPLEMENTED | No JIT compiler exists |
 | Automatic inlining | ❌ NOT IMPLEMENTED | No inlining pass |
-| Dead code elimination | ❌ NOT IMPLEMENTED | No DCE pass |
+| Dead code elimination | ✅ IMPLEMENTED | Constant boolean conditions in if statements |
 
 ### 19.2 Memory Management
 | Feature | Status | Notes |
 |---------|--------|-------|
 | Generational GC | ❌ NOT IMPLEMENTED | Only Mark-and-Sweep in `pleno-value/src/gc.rs` |
 | Reference counting | ✅ IMPLEMENTED | Uses `Rc<RefCell<T>>` wrapper (`GcRc`) |
-| Manual memory hints | ❌ NOT IMPLEMENTED | No API for hints |
+| Manual memory hints | ✅ IMPLEMENTED | `GC.collect()`, `GC.heapSize()`, `GC.isEnabled()` in stdlib |
 | Object pooling | ❌ NOT IMPLEMENTED | No pool support |
 
 ### 19.3 Optimization Hints
 | Annotation | Status | Notes |
 |------------|--------|-------|
 | `@pure` | ✅ IMPLEMENTED | Compiler checks `is_pure` flag |
-| `@inline` | ❌ NOT IMPLEMENTED | Annotation parsed but not used |
-| `@no_optimize` | ❌ NOT IMPLEMENTED | Annotation parsed but not used |
-| `@hot` | ❌ NOT IMPLEMENTED | Annotation parsed but not used |
+| `@inline` | ✅ IMPLEMENTED | Stored in `FunctionProto.is_inline` |
+| `@no_optimize` | ✅ IMPLEMENTED | Stored in `FunctionProto.no_optimize` |
+| `@hot` | ✅ IMPLEMENTED | Stored in `FunctionProto.is_hot` |
 
 ## Existing Implementation
 

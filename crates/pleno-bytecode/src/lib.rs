@@ -185,6 +185,9 @@ pub struct FunctionProto {
     pub params: Vec<ParamSpec>,
     pub is_async: bool,
     pub is_pure: bool,
+    pub is_inline: bool,
+    pub is_hot: bool,
+    pub no_optimize: bool,
     pub type_params: Vec<String>,
     #[serde(default)]
     pub annotations: Vec<pleno_value::RuntimeAnnotation>,

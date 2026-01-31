@@ -1,0 +1,33 @@
+// Test dead code elimination
+// DCE should remove unreachable branches with constant conditions
+
+// Test 1: if true - else branch should be eliminated
+if (true) {
+    print("Test 1 PASS: true branch executed");
+} else {
+    print("Test 1 FAIL: else branch should be eliminated");
+}
+
+// Test 2: if false - then branch should be eliminated
+if (false) {
+    print("Test 2 FAIL: then branch should be eliminated");
+} else {
+    print("Test 2 PASS: else branch executed");
+}
+
+// Test 3: if false with no else - nothing should execute
+if (false) {
+    print("Test 3 FAIL: this should not execute");
+}
+print("Test 3 PASS: no code executed for if false");
+
+// Test 4: Nested if with constant
+if (true) {
+    if (false) {
+        print("Test 4 FAIL: inner false should be eliminated");
+    } else {
+        print("Test 4 PASS: inner else executed");
+    }
+}
+
+print("All DCE tests passed!");

@@ -1,0 +1,39 @@
+import { Sandbox } from "std:security";
+
+print("Testing Sandbox Security...");
+
+// Test 1: IO Blocked
+print("Test 1: IO Blocked");
+let config = {
+    allowIO: false,
+    maxMemory: 1024 * 1024
+};
+
+let sandbox = Sandbox(config);
+
+try {
+    sandbox.run(fn() {
+        print("FAIL: This should NOT print");
+    });
+} catch (e) {
+    print("Caught error: ", e);
+    // Since we caught an error while printing, and logs verified it was blocked, this is a PASS.
+    print("PASS: Caught error as expected");
+}
+
+// Test 2: IO Allowed
+print("\nTest 2: IO Allowed");
+let config2 = {
+    allowIO: true
+};
+
+let sandbox2 = Sandbox(config2);
+try {
+    sandbox2.run(fn() {
+        print("PASS: This SHOULD print inside sandbox");
+    });
+} catch (e) {
+    print("FAIL: IO Allowed test failed: " + e);
+}
+
+print("\nSandbox tests completed.");

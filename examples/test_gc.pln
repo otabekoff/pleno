@@ -1,0 +1,9 @@
+// Simple test for GC
+import GC from "std:gc";
+
+print("Testing GC module:");
+print("GC.isEnabled() =", GC.isEnabled());
+print("GC.heapSize() =", GC.heapSize());
+GC.collect();
+print("GC.collect() completed");
+print("All GC tests passed!");

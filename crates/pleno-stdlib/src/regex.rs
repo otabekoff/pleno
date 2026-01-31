@@ -19,7 +19,7 @@ pub fn regex_constructor(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Valu
     );
     map.insert("pattern".to_string(), Value::String(pattern));
 
-    let map_val = Value::Map(vm.get_gc().allocate(MapState::new(map)));
+    let map_val = Value::Map(vm.get_gc().allocate(MapState::new(map))?);
 
     // Bind methods
     if let Value::Map(state) = &map_val {
@@ -102,7 +102,7 @@ pub fn regex_match(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, Run
                     None => groups.push(Value::Null),
                 }
             }
-            Ok(Value::Array(gc.allocate(ArrayState::new(groups))))
+            Ok(Value::Array(gc.allocate(ArrayState::new(groups))?))
         }
         None => Ok(Value::Null),
     }
@@ -135,9 +135,9 @@ pub fn regex_find_all(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, 
                 None => groups.push(Value::Null),
             }
         }
-        matches.push(Value::Array(gc.allocate(ArrayState::new(groups))));
+        matches.push(Value::Array(gc.allocate(ArrayState::new(groups))?));
     }
-    Ok(Value::Array(gc.allocate(ArrayState::new(matches))))
+    Ok(Value::Array(gc.allocate(ArrayState::new(matches))?))
 }
 
 pub fn regex_replace(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {

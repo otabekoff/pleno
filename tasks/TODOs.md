@@ -1,8 +1,57 @@
-
 ## Priority: Standard Library & GC Integration
+
+Make the http support all operations. And make a framework like express in nodejs.
 
 http://localhost:5173/pleno/specs/ is showing next page to introduction which is itself, and causing loop on docs.
 
+
+a real type-safe dynamic language
+
+| Feature                 | Why                          |
+| ----------------------- | ---------------------------- |
+| Dynamic                 | No type annotations required |
+| Type-safe               | No weird JS/Python bugs      |
+| JIT possible            | Types known at runtime       |
+| AOT possible            | Type profiles                |
+| IDE inference           | Runtime → static info        |
+| Zero undefined behavior | Unlike C, Python, JS         |
+
+You can even do:
+
+x = 5
+x = "hello"
+
+
+But:
+
+x + 3   // ❌ runtime type error
+
+
+Instead of corrupting memory or returning garbage.
+
+🧠 The correct modern model (2026)
+
+The winning design is:
+
+Gradually-Typed, Runtime-Verified, Type-Safe Dynamic Language
+
+Which means:
+
+• Types exist
+• Types are checked
+• But they are not mandatory to write
+
+This is what Python tried with typing but without runtime enforcement.
+This is what our language can do correctly.
+
+
+Why even if we don't import the std libs, they are working? Is it good or no? I think it is not good. What if not imported? Gives error like unknown/unspecified/undefined/unimplemented/unregister/un-something stuff for unused things?
+
+Things shouldn't work minimally, they should work fully, completely. They should be ready. They should be thought in advance and done. Tasks should be done thinking for different and diverse and advanced usages too. They shouldn't be just satisfied. But should be battle ready, battle tested. 
+
+Always don't forget to make the project clean, mainly project root. Don't make it trashbox.
+
+Type checking is not working fully I think, we've to review and rethink and reconsider and rework on it.
 
 Char type working? What about all of the needed types list and are they working? And do every type we need exist?
 
@@ -13,6 +62,8 @@ i++ ++i else if finallies
 Should we left unprefixed stuffs? or prefixed stuffs of variables and function names as is or should we use it or are they planned for later? Let's reconsider this and review each of them.
 
 Work on each crate and make the working and complete and doing their job fully.
+
+Let's do bench.
 
 On commit check each of the crate, test, clippy, fmt, and more. build, build workspace, also do these in workspace level too.
 

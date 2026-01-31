@@ -11,34 +11,38 @@ pub fn is_truthy(value: &Value) -> bool {
     }
 }
 
-pub fn add_values(a: Value, b: Value) -> Result<Value, RuntimeError> {
+pub fn add_values(
+    vm: &mut dyn pleno_value::VMProvider,
+    a: Value,
+    b: Value,
+) -> Result<Value, RuntimeError> {
     match (&a, &b) {
-        (Value::Int(a_val), Value::Int(b_val)) => Ok(Value::Int(a_val + b_val)),
+        (Value::Int(a_val), Value::Int(b_val)) => a_val
+            .checked_add(*b_val)
+            .map(Value::Int)
+            .ok_or_else(|| RuntimeError::new("integer overflow in addition")),
         (Value::Float(a_val), Value::Float(b_val)) => Ok(Value::Float(a_val + b_val)),
         (Value::Int(a_val), Value::Float(b_val)) => Ok(Value::Float(*a_val as f64 + b_val)),
         (Value::Float(a_val), Value::Int(b_val)) => Ok(Value::Float(a_val + *b_val as f64)),
         (Value::String(a_str), Value::String(b_str)) => {
             let mut res = a_str.as_str().to_string();
             res.push_str(b_str.as_str());
+            vm.get_gc().track_allocation(res.len())?;
             Ok(Value::String(Rc::new(res)))
         }
-        (Value::String(a_str), _) => {
-            let mut res = a_str.as_str().to_string();
-            res.push_str(&b.to_string());
-            Ok(Value::String(Rc::new(res)))
-        }
-        (_, Value::String(b_str)) => {
-            let mut res = a.to_string();
-            res.push_str(b_str.as_str());
-            Ok(Value::String(Rc::new(res)))
-        }
-        _ => Err(RuntimeError::new("invalid operands for +")),
+        // No implicit type coercion - require explicit .toString() conversion
+        _ => Err(RuntimeError::new(
+            "invalid operands for + (use .toString() for string concatenation)",
+        )),
     }
 }
 
 pub fn sub_values(a: Value, b: Value) -> Result<Value, RuntimeError> {
     match (a, b) {
-        (Value::Int(a), Value::Int(b)) => Ok(Value::Int(a - b)),
+        (Value::Int(a), Value::Int(b)) => a
+            .checked_sub(b)
+            .map(Value::Int)
+            .ok_or_else(|| RuntimeError::new("integer overflow in subtraction")),
         (Value::Float(a), Value::Float(b)) => Ok(Value::Float(a - b)),
         (Value::Int(a), Value::Float(b)) => Ok(Value::Float(a as f64 - b)),
         (Value::Float(a), Value::Int(b)) => Ok(Value::Float(a - b as f64)),
@@ -48,7 +52,10 @@ pub fn sub_values(a: Value, b: Value) -> Result<Value, RuntimeError> {
 
 pub fn mul_values(a: Value, b: Value) -> Result<Value, RuntimeError> {
     match (a, b) {
-        (Value::Int(a), Value::Int(b)) => Ok(Value::Int(a * b)),
+        (Value::Int(a), Value::Int(b)) => a
+            .checked_mul(b)
+            .map(Value::Int)
+            .ok_or_else(|| RuntimeError::new("integer overflow in multiplication")),
         (Value::Float(a), Value::Float(b)) => Ok(Value::Float(a * b)),
         (Value::Int(a), Value::Float(b)) => Ok(Value::Float(a as f64 * b)),
         (Value::Float(a), Value::Int(b)) => Ok(Value::Float(a * b as f64)),

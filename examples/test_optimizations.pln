@@ -1,0 +1,54 @@
+// Test file for optimization hints and GC features
+import GC from "std:gc";
+
+// Test @inline annotation
+@inline
+fn fastAdd(a: Int, b: Int): Int {
+    return a + b;
+}
+
+// Test @hot annotation  
+@hot
+fn frequentlyCalledFunction(): Int {
+    return 42;
+}
+
+// Test @no_optimize annotation
+@no_optimize
+fn debugFunction(): String {
+    return "This function should not be optimized";
+}
+
+// Test regular @pure annotation
+@pure
+fn pureCalculation(x: Int): Int {
+    return x * 2;
+}
+
+// Test the functions
+print("Testing optimization hints:");
+print("@inline fastAdd(5, 3) =", fastAdd(5, 3));
+print("@hot frequentlyCalledFunction() =", frequentlyCalledFunction());
+print("@no_optimize debugFunction() =", debugFunction());
+print("@pure pureCalculation(10) =", pureCalculation(10));
+
+// Test GC functions
+print("\nTesting GC module:");
+print("GC.isEnabled() =", GC.isEnabled());
+print("GC.heapSize() =", GC.heapSize());
+
+// Create some objects to collect
+fn createGarbage() {
+    let objects = [];
+    for i in 0..100 {
+        objects.push({ x: i, y: i * 2 });
+    }
+    // Objects go out of scope and become collectible
+}
+
+createGarbage();
+print("Before GC.collect() - heapSize:", GC.heapSize());
+GC.collect();
+print("After GC.collect() - heapSize:", GC.heapSize());
+
+print("\nAll optimization and GC tests completed!");

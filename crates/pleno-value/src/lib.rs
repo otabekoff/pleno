@@ -12,7 +12,7 @@ pub trait VMProvider {
     fn call(&mut self, callee: Value, args: Vec<Value>) -> Result<Value, RuntimeError>;
     fn spawn(&mut self, callee: Value, args: Vec<Value>) -> Result<Value, RuntimeError>;
     fn get_gc(&mut self) -> &mut gc::GCManager;
-    fn create_promise(&mut self) -> (u64, Value);
+    fn create_promise(&mut self) -> Result<(u64, Value), RuntimeError>;
     fn resolve_promise(&mut self, id: u64, value: Value);
     fn register_multi_waiter(&mut self, waiter: MultiWaiter);
     fn check_purity(&mut self) -> Result<(), RuntimeError>;
@@ -22,6 +22,29 @@ pub trait VMProvider {
     fn set_builtin_resolver(&mut self, resolver: fn(&str, &str) -> Option<NativeFunction>);
     fn check_is_instance(&self, value: &Value, type_val: &Value) -> bool;
     fn get_named_args(&self) -> &HashMap<String, Value>;
+    fn is_io_allowed(&self) -> bool {
+        true
+    }
+    fn is_network_allowed(&self) -> bool {
+        true
+    }
+    fn get_max_memory(&self) -> usize {
+        0 // 0 means unlimited
+    }
+    // Added for sandboxing
+    fn create_sandbox(
+        &self,
+        _config: SandboxConfig,
+    ) -> std::result::Result<Box<dyn VMProvider>, RuntimeError> {
+        Err(RuntimeError::new("Sandbox creation not supported"))
+    }
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct SandboxConfig {
+    pub allow_io: bool,
+    pub allow_network: bool,
+    pub max_memory: usize,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

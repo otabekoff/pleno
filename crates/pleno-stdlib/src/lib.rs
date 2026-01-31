@@ -1,5 +1,6 @@
 pub mod builtins;
 pub mod concurrency;
+pub mod gc;
 pub mod http;
 pub mod io;
 pub mod json;
@@ -9,6 +10,7 @@ pub mod process;
 pub mod promise;
 pub mod reflect;
 pub mod regex;
+pub mod security;
 pub mod test;
 pub mod time;
 
@@ -61,7 +63,7 @@ pub fn register(vm: &mut dyn VMProvider) {
     );
     modules.insert(
         "std:path".to_string(),
-        Value::Map(gc.allocate(MapState::new(path_module))),
+        Value::Map(gc.allocate(MapState::new(path_module)).unwrap()),
     );
 
     // std:process
@@ -88,7 +90,7 @@ pub fn register(vm: &mut dyn VMProvider) {
     );
     modules.insert(
         "std:process".to_string(),
-        Value::Map(gc.allocate(MapState::new(process_module))),
+        Value::Map(gc.allocate(MapState::new(process_module)).unwrap()),
     );
 
     // std:io
@@ -154,18 +156,18 @@ pub fn register(vm: &mut dyn VMProvider) {
     let mut io_module = HashMap::new();
     io_module.insert(
         "File".to_string(),
-        Value::Map(gc.allocate(MapState::new(file_obj))),
+        Value::Map(gc.allocate(MapState::new(file_obj)).unwrap()),
     );
     io_module.insert("open".to_string(), Value::NativeFunction(io::io_open));
     io_module.insert("stdout".to_string(), Value::NativeFunction(io::io_stdout));
     io_module.insert("stderr".to_string(), Value::NativeFunction(io::io_stderr));
     io_module.insert(
         "Directory".to_string(),
-        Value::Map(gc.allocate(MapState::new(dir_obj))),
+        Value::Map(gc.allocate(MapState::new(dir_obj)).unwrap()),
     );
     modules.insert(
         "std:io".to_string(),
-        Value::Map(gc.allocate(MapState::new(io_module))),
+        Value::Map(gc.allocate(MapState::new(io_module)).unwrap()),
     );
 
     // std:json
@@ -179,11 +181,11 @@ pub fn register(vm: &mut dyn VMProvider) {
     let mut json_module = HashMap::new();
     json_module.insert(
         "JSON".to_string(),
-        Value::Map(gc.allocate(MapState::new(json_obj))),
+        Value::Map(gc.allocate(MapState::new(json_obj)).unwrap()),
     );
     modules.insert(
         "std:json".to_string(),
-        Value::Map(gc.allocate(MapState::new(json_module))),
+        Value::Map(gc.allocate(MapState::new(json_module)).unwrap()),
     );
 
     // std:time
@@ -204,11 +206,11 @@ pub fn register(vm: &mut dyn VMProvider) {
 
     time_module.insert(
         "DateTime".to_string(),
-        Value::Map(gc.allocate(MapState::new(datetime_obj))),
+        Value::Map(gc.allocate(MapState::new(datetime_obj)).unwrap()),
     );
     modules.insert(
         "std:time".to_string(),
-        Value::Map(gc.allocate(MapState::new(time_module))),
+        Value::Map(gc.allocate(MapState::new(time_module)).unwrap()),
     );
 
     // std:math
@@ -224,7 +226,7 @@ pub fn register(vm: &mut dyn VMProvider) {
 
     modules.insert(
         "std:math".to_string(),
-        Value::Map(gc.allocate(MapState::new(math_module))),
+        Value::Map(gc.allocate(MapState::new(math_module)).unwrap()),
     );
 
     // std:http
@@ -246,7 +248,7 @@ pub fn register(vm: &mut dyn VMProvider) {
     );
     modules.insert(
         "std:http".to_string(),
-        Value::Map(gc.allocate(MapState::new(http_module))),
+        Value::Map(gc.allocate(MapState::new(http_module)).unwrap()),
     );
 
     // std:regex
@@ -257,7 +259,7 @@ pub fn register(vm: &mut dyn VMProvider) {
     );
     modules.insert(
         "std:regex".to_string(),
-        Value::Map(gc.allocate(MapState::new(regex_module))),
+        Value::Map(gc.allocate(MapState::new(regex_module)).unwrap()),
     );
 
     // std:reflect
@@ -294,7 +296,7 @@ pub fn register(vm: &mut dyn VMProvider) {
         "getAnnotations".to_string(),
         Value::NativeFunction(reflect::reflect_get_annotations),
     );
-    let reflect_val = Value::Map(gc.allocate(MapState::new(reflect_module)));
+    let reflect_val = Value::Map(gc.allocate(MapState::new(reflect_module)).unwrap());
     modules.insert("std:reflect".to_string(), reflect_val.clone());
 
     // std:test
@@ -352,21 +354,49 @@ pub fn register(vm: &mut dyn VMProvider) {
     );
     test_module.insert(
         "assert".to_string(),
-        Value::Map(gc.allocate(MapState::new(assert_obj))),
+        Value::Map(gc.allocate(MapState::new(assert_obj)).unwrap()),
     );
     modules.insert(
         "std:test".to_string(),
-        Value::Map(gc.allocate(MapState::new(test_module))),
+        Value::Map(gc.allocate(MapState::new(test_module)).unwrap()),
     );
+
+    // std:gc - Garbage Collection control
+    let mut gc_module = HashMap::new();
+    gc_module.insert("collect".to_string(), Value::NativeFunction(gc::gc_collect));
+    gc_module.insert(
+        "heapSize".to_string(),
+        Value::NativeFunction(gc::gc_heap_size),
+    );
+    gc_module.insert(
+        "isEnabled".to_string(),
+        Value::NativeFunction(gc::gc_is_enabled),
+    );
+    let gc_val = Value::Map(gc.allocate(MapState::new(gc_module)).unwrap());
+    modules.insert("std:gc".to_string(), gc_val.clone());
+
+    // std:security - Sandboxing
+    let mut security_module = HashMap::new();
+    security_module.insert(
+        "Sandbox".to_string(),
+        Value::NativeFunction(security::sandbox_new),
+    );
+    let security_val = Value::Map(gc.allocate(MapState::new(security_module)).unwrap());
+    modules.insert("std:security".to_string(), security_val.clone());
 
     // Register each module in the VM
     for (name, value) in modules {
-        if name == "std:reflect" {
-            vm.register_global("Reflect".to_string(), value.clone());
-        }
-        if name == "std:io" {
-            vm.register_global("IO".to_string(), value.clone());
-        }
+        // if name == "std:reflect" {
+        //     vm.register_global("Reflect".to_string(), value.clone());
+        // }
+        // if name == "std:io" {
+        //     vm.register_global("IO".to_string(), value.clone());
+        // }
+        // if name == "std:gc" {
+        //     vm.register_global("GC".to_string(), value.clone());
+        // }
+        // Strict imports: No modules are registered as globals by default.
+        // Users must use `import IO from "std:io"` etc.
         vm.register_module(name, value);
     }
 }

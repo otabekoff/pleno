@@ -21,7 +21,10 @@ pub use value_ops::*;
 
 // Core VM implementation
 
+// Removed local SandboxConfig, utilizing pleno_value::SandboxConfig
+
 pub struct VM {
+    pub sandbox_config: Option<pleno_value::SandboxConfig>,
     pub gc: pleno_value::gc::GCManager,
     pub registers: Vec<Value>,
     pub frames: Vec<CallFrame>,
@@ -101,16 +104,13 @@ impl VMProvider for VM {
                 )?;
             }
             Value::NativeFunction(f) => {
-                let result = f(self, &args)?;
-                self.registers[return_reg] = result;
-                return Ok(self.registers[return_reg].clone());
+                return f(self, &args);
             }
             Value::BoundNativeMethod { receiver, function } => {
                 let mut final_args = vec![*receiver.clone()];
                 final_args.extend(args);
                 let result = function(self, &final_args)?;
-                self.registers[return_reg] = result;
-                return Ok(self.registers[return_reg].clone());
+                return Ok(result);
             }
             _ => return Err(RuntimeError::new("value is not callable")),
         }
@@ -123,7 +123,7 @@ impl VMProvider for VM {
         &mut self.gc
     }
 
-    fn create_promise(&mut self) -> (u64, Value) {
+    fn create_promise(&mut self) -> Result<(u64, Value), RuntimeError> {
         let id = self.next_promise_id;
         self.next_promise_id += 1;
 
@@ -134,9 +134,9 @@ impl VMProvider for VM {
             Value::String(Rc::new("Pending".to_string())),
         );
         map.insert("value".to_string(), Value::Null);
-        let promise = Value::Map(self.gc.allocate(MapState::new(map)));
+        let promise = Value::Map(self.gc.allocate(MapState::new(map))?);
         self.promises.insert(id, promise.clone());
-        (id, promise)
+        Ok((id, promise))
     }
 
     fn resolve_promise(&mut self, id: u64, value: Value) {
@@ -151,7 +151,7 @@ impl VMProvider for VM {
     }
 
     fn spawn(&mut self, callee: Value, args: Vec<Value>) -> Result<Value, RuntimeError> {
-        let (id, promise) = self.create_promise();
+        let (id, promise) = self.create_promise()?;
         self.pending_tasks.push(AsyncTask {
             promise_id: id,
             value: Value::Null,
@@ -225,6 +225,46 @@ impl VMProvider for VM {
     fn get_named_args(&self) -> &HashMap<String, Value> {
         &self.current_named_args
     }
+
+    fn is_io_allowed(&self) -> bool {
+        self.sandbox_config
+            .as_ref()
+            .map(|c| c.allow_io)
+            .unwrap_or(true)
+    }
+
+    fn is_network_allowed(&self) -> bool {
+        self.sandbox_config
+            .as_ref()
+            .map(|c| c.allow_network)
+            .unwrap_or(true)
+    }
+
+    fn get_max_memory(&self) -> usize {
+        self.sandbox_config
+            .as_ref()
+            .map(|c| c.max_memory)
+            .unwrap_or(0)
+    }
+
+    fn create_sandbox(
+        &self,
+        config: pleno_value::SandboxConfig,
+    ) -> std::result::Result<Box<dyn VMProvider>, RuntimeError> {
+        let mut new_vm = VM::new();
+        new_vm.sandbox_config = Some(config);
+
+        // Copy functionality to allow sandbox to actually run code
+        new_vm.functions = self.functions.clone();
+        new_vm.modules = self.modules.clone();
+
+        // Globals: We might want access to "Object", "String", etc.
+        // Assuming they are in globals or we re-register them?
+        // Cloning globals is simplest for v1 to ensure stdlib access.
+        new_vm.globals = self.globals.clone();
+
+        Ok(Box::new(new_vm))
+    }
 }
 
 impl Default for VM {
@@ -240,6 +280,7 @@ impl VM {
         let modules = HashMap::new();
 
         Self {
+            sandbox_config: None,
             gc,
             registers: vec![Value::Null; 256],
             frames: Vec::new(),
@@ -453,7 +494,7 @@ impl VM {
                             if waiter.resolved_count == waiter.dependencies.len() {
                                 let gc = self.get_gc();
                                 let results_val = Value::Array(
-                                    gc.allocate(ArrayState::new(waiter.results.clone())),
+                                    gc.allocate(ArrayState::new(waiter.results.clone()))?,
                                 );
                                 resolutions.push((waiter.promise_id, results_val));
                                 resolved = true;
@@ -667,7 +708,7 @@ impl VM {
                         annotations: proto.annotations.clone(),
                     });
                     let captures = vec![Value::Null; c];
-                    let state = self.gc.allocate(ClosureState::new(func_index, captures));
+                    let state = self.gc.allocate(ClosureState::new(func_index, captures))?;
                     self.registers[base + a] = Value::Closure(state);
                 }
                 Opcode::AsyncFunction => {
@@ -760,7 +801,7 @@ impl VM {
                 }
                 Opcode::MakeCell => {
                     let value = self.registers[base + b].clone();
-                    let cell = self.gc.allocate(pleno_value::CellState::new(value));
+                    let cell = self.gc.allocate(pleno_value::CellState::new(value))?;
                     self.registers[base + a] = Value::Cell(cell);
                 }
                 Opcode::LoadCell => {
@@ -781,7 +822,7 @@ impl VM {
                 }
                 Opcode::MakeThunk => {
                     let callable = self.registers[base + b].clone();
-                    let thunk = self.gc.allocate(ThunkState::new(callable));
+                    let thunk = self.gc.allocate(ThunkState::new(callable))?;
                     self.registers[base + a] = Value::Thunk(thunk);
                 }
                 Opcode::ForceThunk => {
@@ -809,15 +850,15 @@ impl VM {
                 }
                 Opcode::NewMap => {
                     self.registers[base + a] =
-                        Value::Map(self.gc.allocate(MapState::new(HashMap::new())));
+                        Value::Map(self.gc.allocate(MapState::new(HashMap::new()))?);
                 }
                 Opcode::NewArray => {
                     self.registers[base + a] =
-                        Value::Array(self.gc.allocate(ArrayState::new(Vec::new())));
+                        Value::Array(self.gc.allocate(ArrayState::new(Vec::new()))?);
                 }
                 Opcode::NewSet => {
                     self.registers[base + a] =
-                        Value::Set(self.gc.allocate(SetState::new(HashSet::new())));
+                        Value::Set(self.gc.allocate(SetState::new(HashSet::new()))?);
                 }
                 Opcode::SetAdd => {
                     if self.functions[frame.function_index].is_pure {
@@ -859,7 +900,7 @@ impl VM {
                     Value::Set(set) => {
                         let values: Vec<Value> = set.borrow().iter().map(key_to_value).collect();
                         self.registers[base + a] =
-                            Value::Array(self.gc.allocate(ArrayState::new(values)));
+                            Value::Array(self.gc.allocate(ArrayState::new(values))?);
                     }
                     _ => return Err(RuntimeError::new("set values on non-set value")),
                 },
@@ -884,7 +925,7 @@ impl VM {
                 }
                 Opcode::NewTuple => {
                     let tuple = TupleState::new(Vec::new(), None);
-                    self.registers[base + a] = Value::Tuple(self.gc.allocate(tuple));
+                    self.registers[base + a] = Value::Tuple(self.gc.allocate(tuple)?);
                 }
                 Opcode::TupleAppend => {
                     let val = self.registers[base + b].clone();
@@ -1006,7 +1047,7 @@ impl VM {
                 }
                 Opcode::NewObject => {
                     self.registers[base + a] =
-                        Value::Object(self.gc.allocate(Object::new(None, None)));
+                        Value::Object(self.gc.allocate(Object::new(None, None))?);
                 }
                 Opcode::SetField => {
                     if self.functions[frame.function_index].is_pure {
@@ -1079,11 +1120,11 @@ impl VM {
                         _ => return Err(RuntimeError::new("map keys on non-map value")),
                     };
                     self.registers[base + a] =
-                        Value::Array(self.gc.allocate(ArrayState::new(keys)));
+                        Value::Array(self.gc.allocate(ArrayState::new(keys))?);
                 }
                 Opcode::IterValues => {
                     let value = match &self.registers[base + b] {
-                        Value::Array(array) => Value::Array(array.clone()),
+                        Value::Array(array) => Ok(Value::Array(array.clone())),
                         Value::Map(map) => {
                             let values = map
                                 .borrow()
@@ -1091,7 +1132,7 @@ impl VM {
                                 .cloned()
                                 .map(|key| Value::String(Rc::new(key)))
                                 .collect::<Vec<_>>();
-                            Value::Array(self.gc.allocate(ArrayState::new(values)))
+                            Ok(Value::Array(self.gc.allocate(ArrayState::new(values))?))
                         }
                         Value::Set(set) => {
                             let values = set
@@ -1108,10 +1149,10 @@ impl VM {
                                     pleno_value::ValueKey::String(value) => Value::String(value),
                                 })
                                 .collect::<Vec<_>>();
-                            Value::Array(self.gc.allocate(ArrayState::new(values)))
+                            Ok(Value::Array(self.gc.allocate(ArrayState::new(values))?))
                         }
                         _ => return Err(RuntimeError::new("iter over non-collection value")),
-                    };
+                    }?;
                     self.registers[base + a] = value;
                 }
                 Opcode::IterEntries => {
@@ -1122,52 +1163,50 @@ impl VM {
                                 .iter()
                                 .enumerate()
                                 .map(|(idx, val)| {
-                                    Value::Array(self.gc.allocate(ArrayState::new(vec![
+                                    Ok(Value::Array(self.gc.allocate(ArrayState::new(vec![
                                         Value::Int(idx as i64),
                                         val.clone(),
-                                    ])))
+                                    ]))?))
                                 })
-                                .collect::<Vec<_>>();
-                            Value::Array(self.gc.allocate(ArrayState::new(entries)))
+                                .collect::<Result<Vec<_>, _>>()?;
+                            Ok(Value::Array(self.gc.allocate(ArrayState::new(entries))?))
                         }
                         Value::Map(map) => {
-                            let entries = map
-                                .borrow()
-                                .iter()
-                                .map(|(key, val)| {
-                                    Value::Array(self.gc.allocate(ArrayState::new(vec![
-                                        Value::String(Rc::new(key.clone())),
-                                        val.clone(),
-                                    ])))
-                                })
-                                .collect::<Vec<_>>();
-                            Value::Array(self.gc.allocate(ArrayState::new(entries)))
+                            let entries =
+                                map.borrow()
+                                    .iter()
+                                    .map(|(key, val)| {
+                                        Ok(Value::Array(self.gc.allocate(ArrayState::new(
+                                            vec![Value::String(Rc::new(key.clone())), val.clone()],
+                                        ))?))
+                                    })
+                                    .collect::<Result<Vec<_>, _>>()?;
+                            Ok(Value::Array(self.gc.allocate(ArrayState::new(entries))?))
                         }
                         Value::Set(set) => {
-                            let entries = set
-                                .borrow()
-                                .iter()
-                                .enumerate()
-                                .map(|(idx, val)| {
-                                    let val = match val {
-                                        ValueKey::Null => Value::Null,
-                                        ValueKey::Bool(v) => Value::Bool(*v),
-                                        ValueKey::Int(v) => Value::Int(*v),
-                                        ValueKey::Float(bits) => {
-                                            Value::Float(f64::from_bits(*bits))
-                                        }
-                                        ValueKey::String(v) => Value::String(Rc::clone(v)),
-                                    };
-                                    Value::Array(self.gc.allocate(ArrayState::new(vec![
-                                        Value::Int(idx as i64),
-                                        val,
-                                    ])))
-                                })
-                                .collect::<Vec<_>>();
-                            Value::Array(self.gc.allocate(ArrayState::new(entries)))
+                            let entries =
+                                set.borrow()
+                                    .iter()
+                                    .enumerate()
+                                    .map(|(idx, val)| {
+                                        let val = match val {
+                                            ValueKey::Null => Value::Null,
+                                            ValueKey::Bool(v) => Value::Bool(*v),
+                                            ValueKey::Int(v) => Value::Int(*v),
+                                            ValueKey::Float(bits) => {
+                                                Value::Float(f64::from_bits(*bits))
+                                            }
+                                            ValueKey::String(v) => Value::String(Rc::clone(v)),
+                                        };
+                                        Ok(Value::Array(self.gc.allocate(ArrayState::new(
+                                            vec![Value::Int(idx as i64), val],
+                                        ))?))
+                                    })
+                                    .collect::<Result<Vec<_>, _>>()?;
+                            Ok(Value::Array(self.gc.allocate(ArrayState::new(entries))?))
                         }
                         _ => return Err(RuntimeError::new("iter over non-collection value")),
-                    };
+                    }?;
                     self.registers[base + a] = value;
                 }
                 Opcode::ArrayLen => {
@@ -2112,14 +2151,14 @@ impl VM {
                 Opcode::GetIndex => {
                     let collection = self.registers[base + b].clone();
                     let index = self.registers[base + c].clone();
-                    match (collection, index) {
+                    let result = match (collection, index) {
                         (Value::Array(array), Value::Int(idx)) => {
                             let idx = idx as usize;
                             let array_borrow = array.borrow();
                             if idx >= array_borrow.elements.len() {
                                 return Err(self.throw_runtime_error("array index out of bounds"));
                             }
-                            self.registers[base + a] = array_borrow.elements[idx].clone();
+                            Ok(array_borrow.elements[idx].clone())
                         }
                         (Value::Array(array), Value::Range(range)) => {
                             let array_borrow = array.borrow();
@@ -2133,8 +2172,9 @@ impl VM {
                             let start = start.min(len);
                             let end = end.min(len).max(start);
                             let sub_elements = array_borrow.elements[start..end].to_vec();
-                            self.registers[base + a] =
-                                Value::Array(self.gc.allocate(ArrayState::new(sub_elements)));
+                            Ok(Value::Array(
+                                self.gc.allocate(ArrayState::new(sub_elements))?,
+                            ))
                         }
                         (Value::String(s), Value::Int(idx)) => {
                             let idx = idx as usize;
@@ -2142,7 +2182,7 @@ impl VM {
                                 return Err(self.throw_runtime_error("string index out of bounds"));
                             }
                             let char = s.chars().nth(idx).unwrap_or('\0');
-                            self.registers[base + a] = Value::String(Rc::new(char.to_string()));
+                            Ok(Value::String(Rc::new(char.to_string())))
                         }
                         (Value::String(s), Value::Range(range)) => {
                             let len = s.len();
@@ -2156,7 +2196,7 @@ impl VM {
                             let end = end.min(len).max(start);
                             // Rough byte slicing for now, should ideally be char-based but strings in pleno might be bytes/utf8
                             let sub_s = &s[start..end];
-                            self.registers[base + a] = Value::String(Rc::new(sub_s.to_string()));
+                            Ok(Value::String(Rc::new(sub_s.to_string())))
                         }
                         (Value::Tuple(tuple), Value::Int(idx)) => {
                             let idx = idx as usize;
@@ -2164,23 +2204,22 @@ impl VM {
                             if idx >= t.elements.len() {
                                 return Err(self.throw_runtime_error("tuple index out of bounds"));
                             }
-                            self.registers[base + a] = t.elements[idx].clone();
+                            Ok(t.elements[idx].clone())
                         }
-                        (Value::Map(map), Value::String(key)) => {
-                            self.registers[base + a] = map
-                                .borrow()
-                                .entries
-                                .get(key.as_str())
-                                .cloned()
-                                .unwrap_or(Value::Null);
-                        }
+                        (Value::Map(map), Value::String(key)) => Ok(map
+                            .borrow()
+                            .entries
+                            .get(key.as_str())
+                            .cloned()
+                            .unwrap_or(Value::Null)),
                         (Value::Set(set), value) => {
                             let key = ValueKey::try_from_value(&value)
                                 .ok_or_else(|| RuntimeError::new("unsupported set element type"))?;
-                            self.registers[base + a] = Value::Bool(set.borrow().contains(&key));
+                            Ok(Value::Bool(set.borrow().contains(&key)))
                         }
                         _ => return Err(RuntimeError::new("invalid index operation")),
-                    }
+                    }?;
+                    self.registers[base + a] = result;
                 }
                 Opcode::SetIndex => {
                     if self.functions[frame.function_index].is_pure {
@@ -2243,7 +2282,7 @@ impl VM {
                         )?;
                         continue;
                     }
-                    self.registers[base + a] = add_values(left, right)?;
+                    self.registers[base + a] = add_values(self, left, right)?;
                 }
                 Opcode::Sub => {
                     let left = self.registers[base + b].clone();
@@ -2572,7 +2611,7 @@ impl VM {
                         type_params: Vec::new(),
                         type_constraints: HashMap::new(),
                         annotations: Vec::new(),
-                    });
+                    })?;
 
                     // Now parse methods with class reference
                     let mut methods = HashMap::new();
@@ -2658,7 +2697,7 @@ impl VM {
                             setters,
                             type_params: Vec::new(),
                             type_constraints: HashMap::new(),
-                        }));
+                        })?);
                 }
                 Opcode::SetImplements => {
                     let interfaces_val = self.registers[base + b].clone();
@@ -3250,7 +3289,7 @@ impl VM {
                         static_methods: HashMap::new(),
                         module,
                         annotations: Vec::new(),
-                    });
+                    })?;
                     self.registers[base + a] = Value::Enum(enum_type);
                 }
                 Opcode::AddVariant => {
@@ -3400,7 +3439,7 @@ impl VM {
                                         type_params: Vec::new(),
                                         type_constraints: HashMap::new(),
                                         annotations: Vec::new(),
-                                    });
+                                    })?;
                                     self.globals.insert(shadow_name, Value::Class(cls.clone()));
                                     cls
                                 };
@@ -3685,7 +3724,7 @@ impl VM {
                             let end = resolve_index(end, len, len);
                             let slice = array.elements[start..end].to_vec();
                             self.registers[base + a] =
-                                Value::Array(self.gc.allocate(ArrayState::new(slice)));
+                                Value::Array(self.gc.allocate(ArrayState::new(slice))?);
                         }
                         Value::Tuple(tuple) => {
                             let t = tuple.borrow();
@@ -3694,7 +3733,7 @@ impl VM {
                             let end = resolve_index(end, len, len);
                             let slice = t.elements[start..end].to_vec();
                             let new_tuple = TupleState::new(slice, None);
-                            self.registers[base + a] = Value::Tuple(self.gc.allocate(new_tuple));
+                            self.registers[base + a] = Value::Tuple(self.gc.allocate(new_tuple)?);
                         }
                         Value::String(s) => {
                             let len = s.len() as i64;
@@ -4118,7 +4157,7 @@ impl VM {
                     Value::String(Rc::new("Pending".to_string())),
                 );
                 promise_map.insert("value".to_string(), Value::Null);
-                let promise = Value::Map(self.gc.allocate(MapState::new(promise_map)));
+                let promise = Value::Map(self.gc.allocate(MapState::new(promise_map))?);
                 self.promises.insert(promise_id, promise.clone());
                 self.registers[return_reg] = promise;
             }
@@ -4126,7 +4165,7 @@ impl VM {
             for param in function.params.iter() {
                 if param.is_variadic {
                     let rest = final_args[arg_idx..].to_vec();
-                    processed.push(Value::Array(self.gc.allocate(ArrayState::new(rest))));
+                    processed.push(Value::Array(self.gc.allocate(ArrayState::new(rest))?));
                     arg_idx = final_args.len();
                     break;
                 }
@@ -4216,7 +4255,7 @@ impl VM {
                 Ok(())
             }
             Value::Class(class) => {
-                let object = self.gc.allocate(Object::new(Some(class.clone()), None));
+                let object = self.gc.allocate(Object::new(Some(class.clone()), None))?;
                 if let Some(handle) = class.borrow().constructor.clone() {
                     let handle_idx = match handle {
                         Value::Function(idx) => idx,
@@ -4251,7 +4290,7 @@ impl VM {
             Value::BoundClass { class, type_args } => {
                 let object = self
                     .gc
-                    .allocate(Object::new(Some(class.clone()), Some(type_args.clone())));
+                    .allocate(Object::new(Some(class.clone()), Some(type_args.clone())))?;
                 if let Some(handle) = class.borrow().constructor.clone() {
                     let handle_idx = match handle {
                         Value::Function(idx) => idx,
@@ -4399,7 +4438,7 @@ impl VM {
                     return Err(self.throw_runtime_error("variadic parameter cannot be named"));
                 }
                 let rest = positional[pos_index..].to_vec();
-                args.push(Value::Array(self.gc.allocate(ArrayState::new(rest))));
+                args.push(Value::Array(self.gc.allocate(ArrayState::new(rest))?));
                 pos_index = positional.len();
                 continue;
             }
@@ -4518,7 +4557,10 @@ impl VM {
             "message".to_string(),
             Value::String(Rc::new(message.to_string())),
         );
-        let error_val = Value::Map(self.gc.allocate(MapState::new(map)));
+        let error_val = match self.gc.allocate(MapState::new(map)) {
+            Ok(v) => Value::Map(v),
+            Err(e) => return e,
+        };
         match self.unwind_to_handler(error_val) {
             Ok(_) => unreachable!("unwind_to_handler should always return Err"),
             Err(err) => err,
@@ -4650,7 +4692,7 @@ impl VM {
                         class.borrow().name
                     )));
                 }
-                let object = self.gc.allocate(Object::new(Some(class.clone()), None));
+                let object = self.gc.allocate(Object::new(Some(class.clone()), None))?;
                 let val = Value::Object(object.clone());
                 if let Some(handle) = class.borrow().constructor.clone() {
                     self.call_function(
@@ -4676,7 +4718,7 @@ impl VM {
                 }
                 let object = self
                     .gc
-                    .allocate(Object::new(Some(class.clone()), Some(type_args.clone())));
+                    .allocate(Object::new(Some(class.clone()), Some(type_args.clone())))?;
                 let val = Value::Object(object.clone());
                 if let Some(handle) = class.borrow().constructor.clone() {
                     self.call_function(

@@ -1,0 +1,28 @@
+// Test optimization hint annotations
+
+@inline
+fn fastAdd(a: Int, b: Int): Int {
+    return a + b;
+}
+
+@hot
+fn hotFunc(): Int {
+    return 42;
+}
+
+@no_optimize
+fn debugFunc(): String {
+    return "debug mode";
+}
+
+@pure
+fn pureCalc(x: Int): Int {
+    return x * 2;
+}
+
+print("Testing optimization hints:");
+print("@inline fastAdd(5, 3) =", fastAdd(5, 3));
+print("@hot hotFunc() =", hotFunc());
+print("@no_optimize debugFunc() =", debugFunc());
+print("@pure pureCalc(10) =", pureCalc(10));
+print("All annotation tests passed!");

@@ -1,0 +1,33 @@
+@inline
+fn add(a, b) {
+    return a + b;
+}
+
+@inline
+fn check(x) {
+    if (x > 10) {
+        return "high";
+    }
+    return "low";
+}
+
+fn main() {
+    let x = add(5, 10);
+    print("add(5, 10) =", x);
+    
+    let y = check(5);
+    let z = check(15);
+    print("check(5) =", y);
+    print("check(15) =", z);
+    
+    // Test multiple iterations
+    let mut sum = 0;
+    let mut i = 0;
+    while (i < 1000) {
+        sum = add(sum, 1);
+        i = i + 1;
+    }
+    print("sum after 1000 iterations:", sum);
+}
+
+main();

@@ -1,0 +1,19 @@
+// Test Char type support
+import GC from "std:gc"; // Ensure imports work
+
+let c = 'a';
+print("Char c:", c);
+
+// Test explicit Char in map/array if possible
+let chars = ['a', 'b', 'c'];
+print("Chars:", chars);
+
+// Test if it's distinct from String
+let s = "a";
+if (c == s) {
+    print("Char == String (Weak typing?)");
+} else {
+    print("Char != String (Strong typing!)");
+}
+
+print("Char test complete");

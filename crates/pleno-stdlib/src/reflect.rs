@@ -52,7 +52,7 @@ pub fn reflect_get_fields(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Val
             .cmp(b.as_str().unwrap_or_default())
     });
 
-    Ok(Value::Array(vm.get_gc().allocate(ArrayState::new(list))))
+    Ok(Value::Array(vm.get_gc().allocate(ArrayState::new(list))?))
 }
 
 pub fn reflect_get_methods(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
@@ -85,7 +85,7 @@ pub fn reflect_get_methods(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Va
             .cmp(b.as_str().unwrap_or_default())
     });
 
-    Ok(Value::Array(vm.get_gc().allocate(ArrayState::new(list))))
+    Ok(Value::Array(vm.get_gc().allocate(ArrayState::new(list))?))
 }
 
 pub fn reflect_get_field(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
@@ -246,11 +246,11 @@ pub fn reflect_get_annotations(
         map.insert("name".to_string(), Value::String(Rc::new(anno.name)));
 
         // Convert args to Value::Array
-        let args_val = Value::Array(gc.allocate(ArrayState::new(anno.args)));
+        let args_val = Value::Array(gc.allocate(ArrayState::new(anno.args))?);
         map.insert("args".to_string(), args_val);
 
-        list.push(Value::Map(gc.allocate(pleno_value::MapState::new(map))));
+        list.push(Value::Map(gc.allocate(pleno_value::MapState::new(map))?));
     }
 
-    Ok(Value::Array(gc.allocate(ArrayState::new(list))))
+    Ok(Value::Array(gc.allocate(ArrayState::new(list))?))
 }

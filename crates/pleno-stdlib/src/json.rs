@@ -48,7 +48,8 @@ fn convert_serde_to_value(
                 elements.push(convert_serde_to_value(vm, item)?);
             }
             Ok(Value::Array(
-                vm.get_gc().allocate(pleno_value::ArrayState::new(elements)),
+                vm.get_gc()
+                    .allocate(pleno_value::ArrayState::new(elements))?,
             ))
         }
         serde_json::Value::Object(obj) => {
@@ -57,7 +58,7 @@ fn convert_serde_to_value(
                 entries.insert(k.clone(), convert_serde_to_value(vm, v)?);
             }
             Ok(Value::Map(
-                vm.get_gc().allocate(pleno_value::MapState::new(entries)),
+                vm.get_gc().allocate(pleno_value::MapState::new(entries))?,
             ))
         }
     }

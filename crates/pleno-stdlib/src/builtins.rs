@@ -69,7 +69,7 @@ pub fn register_builtins(vm: &mut dyn VMProvider) {
         "variant".to_string(),
         Value::String(Rc::new("None".to_string())),
     );
-    let none_val = Value::Map(vm.get_gc().allocate(MapState::new(none_map)));
+    let none_val = Value::Map(vm.get_gc().allocate(MapState::new(none_map)).unwrap());
     vm.register_global("None".to_string(), none_val);
 
     vm.register_global(
@@ -121,7 +121,7 @@ pub fn register_builtins(vm: &mut dyn VMProvider) {
     );
     math_map.insert("PI".to_string(), Value::Float(std::f64::consts::PI));
     math_map.insert("E".to_string(), Value::Float(std::f64::consts::E));
-    let math_val = Value::Map(vm.get_gc().allocate(MapState::new(math_map)));
+    let math_val = Value::Map(vm.get_gc().allocate(MapState::new(math_map)).unwrap());
     vm.register_global("Math".to_string(), math_val);
 
     let mut json_map = HashMap::new();
@@ -133,7 +133,7 @@ pub fn register_builtins(vm: &mut dyn VMProvider) {
         "stringify".to_string(),
         Value::NativeFunction(crate::json::json_stringify),
     );
-    let json_val = Value::Map(vm.get_gc().allocate(MapState::new(json_map)));
+    let json_val = Value::Map(vm.get_gc().allocate(MapState::new(json_map)).unwrap());
     vm.register_global("JSON".to_string(), json_val);
 
     let mut os_map = HashMap::new();
@@ -153,7 +153,7 @@ pub fn register_builtins(vm: &mut dyn VMProvider) {
         "cwd".to_string(),
         Value::NativeFunction(crate::process::process_cwd),
     );
-    let os_val = Value::Map(vm.get_gc().allocate(MapState::new(os_map)));
+    let os_val = Value::Map(vm.get_gc().allocate(MapState::new(os_map)).unwrap());
     vm.register_global("OS".to_string(), os_val);
 
     // Promise methods
@@ -170,14 +170,18 @@ pub fn register_builtins(vm: &mut dyn VMProvider) {
         "race".to_string(),
         Value::NativeFunction(crate::promise::promise_race),
     );
-    let promise_val = Value::Map(vm.get_gc().allocate(MapState::new(promise_obj_map)));
+    let promise_val = Value::Map(
+        vm.get_gc()
+            .allocate(MapState::new(promise_obj_map))
+            .unwrap(),
+    );
     vm.register_global("Promise".to_string(), promise_val);
 
     // Types
     let int_map = {
         let mut m = HashMap::new();
         m.insert("parse".to_string(), Value::NativeFunction(native_int_parse));
-        vm.get_gc().allocate(MapState::new(m))
+        vm.get_gc().allocate(MapState::new(m)).unwrap()
     };
     vm.register_global("Int".to_string(), Value::Map(int_map));
 
@@ -187,7 +191,7 @@ pub fn register_builtins(vm: &mut dyn VMProvider) {
             "parse".to_string(),
             Value::NativeFunction(native_float_parse),
         );
-        vm.get_gc().allocate(MapState::new(m))
+        vm.get_gc().allocate(MapState::new(m)).unwrap()
     };
     vm.register_global("Float".to_string(), Value::Map(float_map));
 
@@ -251,7 +255,7 @@ fn native_iterator_next(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value
                             let key_val = Value::Int(*index as i64);
                             Value::Tuple(
                                 vm.get_gc()
-                                    .allocate(TupleState::new(vec![key_val, val], None)),
+                                    .allocate(TupleState::new(vec![key_val, val], None))?,
                             )
                         } else {
                             val
@@ -299,7 +303,7 @@ fn native_iterator_next(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value
                                 map.borrow().get(key_str).cloned().unwrap_or(Value::Null);
                             Value::Tuple(
                                 vm.get_gc()
-                                    .allocate(TupleState::new(vec![key_val, value_val], None)),
+                                    .allocate(TupleState::new(vec![key_val, value_val], None))?,
                             )
                         } else {
                             Value::String(Rc::new(key_str.clone()))
@@ -343,7 +347,7 @@ fn native_array_iterator(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Valu
                 index: 0,
                 is_entries: false,
             };
-            Ok(Value::Iterator(vm.get_gc().allocate(state)))
+            Ok(Value::Iterator(vm.get_gc().allocate(state)?))
         }
         _ => Err(RuntimeError::new("iterator() called on non-array")),
     }
@@ -359,7 +363,7 @@ fn native_tuple_iterator(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Valu
                 tuple: tuple.clone(),
                 index: 0,
             };
-            Ok(Value::Iterator(vm.get_gc().allocate(state)))
+            Ok(Value::Iterator(vm.get_gc().allocate(state)?))
         }
         _ => Err(RuntimeError::new("iterator() called on non-tuple")),
     }
@@ -375,7 +379,7 @@ fn native_range_iterator(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Valu
                 range: range.clone(),
                 current: range.start.unwrap_or(0),
             };
-            Ok(Value::Iterator(vm.get_gc().allocate(state)))
+            Ok(Value::Iterator(vm.get_gc().allocate(state)?))
         }
         _ => Err(RuntimeError::new("iterator() called on non-range")),
     }
@@ -392,7 +396,7 @@ fn native_array_entries(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value
                 index: 0,
                 is_entries: true,
             };
-            Ok(Value::Iterator(vm.get_gc().allocate(state)))
+            Ok(Value::Iterator(vm.get_gc().allocate(state)?))
         }
         _ => Err(RuntimeError::new("entries() called on non-array")),
     }
@@ -411,7 +415,7 @@ fn native_map_iterator(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value,
                 index: 0,
                 is_entries: false,
             };
-            Ok(Value::Iterator(vm.get_gc().allocate(state)))
+            Ok(Value::Iterator(vm.get_gc().allocate(state)?))
         }
         _ => Err(RuntimeError::new("iterator() called on non-map")),
     }
@@ -430,7 +434,7 @@ fn native_map_entries(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, 
                 index: 0,
                 is_entries: true,
             };
-            Ok(Value::Iterator(vm.get_gc().allocate(state)))
+            Ok(Value::Iterator(vm.get_gc().allocate(state)?))
         }
         _ => Err(RuntimeError::new("entries() called on non-map")),
     }
@@ -448,7 +452,7 @@ fn native_set_iterator(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value,
                 values,
                 index: 0,
             };
-            Ok(Value::Iterator(vm.get_gc().allocate(state)))
+            Ok(Value::Iterator(vm.get_gc().allocate(state)?))
         }
         _ => Err(RuntimeError::new("iterator() called on non-set")),
     }
@@ -608,7 +612,11 @@ fn is_truthy(value: &Value) -> bool {
 
 // Global functions
 fn native_print(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    // eprintln!("DEBUG: native_print called. Allowed: {}", vm.is_io_allowed());
     vm.check_purity()?;
+    if !vm.is_io_allowed() {
+        return Err(RuntimeError::new("SecurityError: IO access denied"));
+    }
     let named_args = vm.get_named_args();
     let sep = named_args
         .get("sep")
@@ -722,7 +730,7 @@ fn native_gc_stats(vm: &mut dyn VMProvider, _args: &[Value]) -> Result<Value, Ru
         "current_allocation".to_string(),
         Value::Int(gc_manager.current_allocation as i64),
     );
-    Ok(Value::Map(vm.get_gc().allocate(MapState::new(stats_map))))
+    Ok(Value::Map(vm.get_gc().allocate(MapState::new(stats_map))?))
 }
 
 fn native_global_map(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
@@ -775,7 +783,7 @@ fn native_result_ok(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, Ru
         "value".to_string(),
         args.first().cloned().unwrap_or(Value::Null),
     );
-    Ok(Value::Map(gc.allocate(MapState::new(res))))
+    Ok(Value::Map(gc.allocate(MapState::new(res))?))
 }
 
 fn native_result_err(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
@@ -789,7 +797,7 @@ fn native_result_err(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, R
         "error".to_string(),
         args.first().cloned().unwrap_or(Value::Null),
     );
-    Ok(Value::Map(gc.allocate(MapState::new(res))))
+    Ok(Value::Map(gc.allocate(MapState::new(res))?))
 }
 
 fn native_option_some(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
@@ -803,7 +811,7 @@ fn native_option_some(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, 
         "value".to_string(),
         args.first().cloned().unwrap_or(Value::Null),
     );
-    Ok(Value::Map(gc.allocate(MapState::new(res))))
+    Ok(Value::Map(gc.allocate(MapState::new(res))?))
 }
 
 fn native_error_constructor(
@@ -821,7 +829,7 @@ fn native_error_constructor(
         "variant".to_string(),
         Value::String(Rc::new("Error".to_string())),
     );
-    Ok(Value::Map(gc.allocate(MapState::new(res))))
+    Ok(Value::Map(gc.allocate(MapState::new(res))?))
 }
 
 // ... more primitive methods ...
@@ -859,7 +867,7 @@ fn native_string_split(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value,
         .split(sep)
         .map(|p| Value::String(Rc::new(p.to_string())))
         .collect();
-    Ok(Value::Array(vm.get_gc().allocate(ArrayState::new(parts))))
+    Ok(Value::Array(vm.get_gc().allocate(ArrayState::new(parts))?))
 }
 fn native_string_substring(
     _vm: &mut dyn VMProvider,
@@ -1023,7 +1031,7 @@ fn native_array_slice(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, 
     let end = end.min(b.elements.len()).max(start);
     Ok(Value::Array(vm.get_gc().allocate(ArrayState::new(
         b.elements[start..end].to_vec(),
-    ))))
+    ))?))
 }
 fn native_array_join(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
     let arr = match &args[0] {
@@ -1069,7 +1077,9 @@ fn native_array_map(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, Ru
     for item in items {
         results.push(vm.call(cb.clone(), vec![item])?);
     }
-    Ok(Value::Array(vm.get_gc().allocate(ArrayState::new(results))))
+    Ok(Value::Array(
+        vm.get_gc().allocate(ArrayState::new(results))?,
+    ))
 }
 fn native_array_filter(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
     let arr = match &args[0] {
@@ -1087,7 +1097,9 @@ fn native_array_filter(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value,
             results.push(item);
         }
     }
-    Ok(Value::Array(vm.get_gc().allocate(ArrayState::new(results))))
+    Ok(Value::Array(
+        vm.get_gc().allocate(ArrayState::new(results))?,
+    ))
 }
 fn native_array_reduce(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
     let arr = match &args[0] {
@@ -1146,7 +1158,7 @@ fn native_array_sort(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, R
     };
     let mut items = arr.borrow().elements.clone();
     items.sort_by_key(|v| v.to_string());
-    Ok(Value::Array(vm.get_gc().allocate(ArrayState::new(items))))
+    Ok(Value::Array(vm.get_gc().allocate(ArrayState::new(items))?))
 }
 fn native_array_contains(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
     let arr = match &args[0] {
@@ -1204,7 +1216,7 @@ fn native_array_with(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, R
     Ok(Value::Array(vm.get_gc().allocate(ArrayState {
         elements,
         is_immutable: true,
-    })))
+    })?))
 }
 
 fn native_map_put(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
@@ -1238,7 +1250,7 @@ fn native_map_with(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, Run
     Ok(Value::Map(vm.get_gc().allocate(MapState {
         entries,
         is_immutable: true,
-    })))
+    })?))
 }
 
 fn native_map_get(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
@@ -1280,7 +1292,7 @@ fn native_map_keys(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, Run
         .keys()
         .map(|k| Value::String(Rc::new(k.clone())))
         .collect();
-    Ok(Value::Array(vm.get_gc().allocate(ArrayState::new(keys))))
+    Ok(Value::Array(vm.get_gc().allocate(ArrayState::new(keys))?))
 }
 fn native_map_values(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
     let map = match &args[0] {
@@ -1288,7 +1300,7 @@ fn native_map_values(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, R
         _ => return Err(RuntimeError::new("expected map")),
     };
     let values: Vec<Value> = map.borrow().entries.values().cloned().collect();
-    Ok(Value::Array(vm.get_gc().allocate(ArrayState::new(values))))
+    Ok(Value::Array(vm.get_gc().allocate(ArrayState::new(values))?))
 }
 fn native_map_size(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
     let map = match &args[0] {
@@ -1349,7 +1361,7 @@ fn native_set_with(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, Run
     Ok(Value::Set(vm.get_gc().allocate(SetState {
         elements,
         is_immutable: true,
-    })))
+    })?))
 }
 
 // Result/Option methods
@@ -1499,7 +1511,7 @@ fn native_map_map(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, Runt
         let res = vm.call(cb.clone(), vec![Value::String(Rc::new(key.clone())), value])?;
         results.insert(key, res);
     }
-    Ok(Value::Map(vm.get_gc().allocate(MapState::new(results))))
+    Ok(Value::Map(vm.get_gc().allocate(MapState::new(results))?))
 }
 
 fn native_map_filter(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
@@ -1526,7 +1538,7 @@ fn native_map_filter(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, R
             results.insert(key, value);
         }
     }
-    Ok(Value::Map(vm.get_gc().allocate(MapState::new(results))))
+    Ok(Value::Map(vm.get_gc().allocate(MapState::new(results))?))
 }
 
 fn native_map_for_each(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
@@ -1667,7 +1679,9 @@ fn native_set_map(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, Runt
     for item in items {
         results.push(vm.call(cb.clone(), vec![item])?);
     }
-    Ok(Value::Array(vm.get_gc().allocate(ArrayState::new(results))))
+    Ok(Value::Array(
+        vm.get_gc().allocate(ArrayState::new(results))?,
+    ))
 }
 
 fn native_set_filter(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
@@ -1692,7 +1706,7 @@ fn native_set_filter(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, R
             result.insert(key.clone());
         }
     }
-    Ok(Value::Set(vm.get_gc().allocate(SetState::new(result))))
+    Ok(Value::Set(vm.get_gc().allocate(SetState::new(result))?))
 }
 
 fn native_set_for_each(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
@@ -1733,7 +1747,7 @@ fn native_set_to_array(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value,
             ValueKey::String(s) => Value::String(Rc::clone(s)),
         })
         .collect();
-    Ok(Value::Array(vm.get_gc().allocate(ArrayState::new(values))))
+    Ok(Value::Array(vm.get_gc().allocate(ArrayState::new(values))?))
 }
 
 fn native_set_union(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
@@ -1749,7 +1763,7 @@ fn native_set_union(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, Ru
     for item in set2.iter() {
         result.insert(item.clone());
     }
-    Ok(Value::Set(vm.get_gc().allocate(SetState::new(result))))
+    Ok(Value::Set(vm.get_gc().allocate(SetState::new(result))?))
 }
 
 fn native_set_intersection(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
@@ -1767,7 +1781,7 @@ fn native_set_intersection(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Va
             result.insert(item.clone());
         }
     }
-    Ok(Value::Set(vm.get_gc().allocate(SetState::new(result))))
+    Ok(Value::Set(vm.get_gc().allocate(SetState::new(result))?))
 }
 
 fn native_set_difference(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
@@ -1785,7 +1799,7 @@ fn native_set_difference(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Valu
             result.insert(item.clone());
         }
     }
-    Ok(Value::Set(vm.get_gc().allocate(SetState::new(result))))
+    Ok(Value::Set(vm.get_gc().allocate(SetState::new(result))?))
 }
 
 fn native_set_constructor(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
@@ -1806,5 +1820,5 @@ fn native_set_constructor(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Val
             _ => return Err(RuntimeError::new("Set constructor expects array or set")),
         }
     }
-    Ok(Value::Set(vm.get_gc().allocate(SetState::new(result))))
+    Ok(Value::Set(vm.get_gc().allocate(SetState::new(result))?))
 }
