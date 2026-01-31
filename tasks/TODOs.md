@@ -56,10 +56,16 @@ Char type working? What about all of the needed types list and are they working?
 
 Set iteration is not supported yet? What are not really implemented yet? Find all technical debts. We can't release production ready v1 without such technical debts. Let's list each crate then go and enter and review each crate, each file, each line, each block, each comment, everything, let's check one by one and start collecting list of technical debts. Missing stuffs, unimplemented, partially done or not completed fully stuffs. And collect in one file to resolve later. Don't be lazy and do everything.
 
+
+---
+
+Now, as we have finished v1 of the Pleno programming language, we fully support specs.md and many other things not listed in it too. Now what I want is, you need to add those already implemented, but missed things in specs.md to be noted.
+
 Should we left unprefixed stuffs? or prefixed stuffs of variables and function names as is or should we use it or are they planned for later? Let's reconsider this and review each of them.
 
 Work on each crate and make the working and complete and doing their job fully.
 
+---
 
 On commit check each of the crate, test, clippy, fmt, and more. build, build workspace, also do these in workspace level too.
 
@@ -67,19 +73,17 @@ add cargo clippy to husky
 
 adding to x86, x64, both, arm, amd, and the other stuffs, appimage, .deb and more on release?
 
+---
+
 publishing with certificates not to consided the programming language as virus and installing safely on mac, windows and linux.
 
-after doing output files creation, remove them, clean the project. or don't create at the project root. instead log texts should be in .logs folder.
+---
 
 Debug mode, production mode logs for development.
 Remove debug logs.
 
-Implementation Plan, Walkthrough, Task and more.
+---
 
-
-Now, as we have finished v1 of the Pleno programming language, we fully support specs.md and many other things not listed in it too. Now what I want is, you need to add those already implemented, but missed things in specs.md to be noted.
-
-Always do cargo clippy --workspace --all-targets --all-features -- -D warnings and github add    commit and push. gh?
 
 Code Runner extension should support for Pleno programming language.
 
@@ -221,260 +225,10 @@ VS Code provides language support through extensions. The language support you c
 
 By following these separate processes for both highlight.js and VS Code, you can ensure your new language receives broad support.
 
+Work on #[test]
+#[ignore] s and make them work and fix. what's needed? make them work.
 
 ----
-
-## OLD PART
-# Technical Debt
-
-This document tracks all known technical debts, incomplete features, and areas requiring improvement in the Pleno project.
-
-## Table of Contents
-- [Standard Library](#standard-library)
-- [CLI Tooling](#cli-tooling)
-- [Formatter](#formatter)
-- [Parser & AST](#parser--ast)
-- [Compiler](#compiler)
-- [Linter](#linter)
-- [Error Handling](#error-handling)
-- [Memory Management](#memory-management)
-- [Test Coverage](#test-coverage)
-- [Performance](#performance)
-- [Documentation](#documentation)
-
----
-
-## Standard Library
-
-**Location:** `sources/std/`
-
-
-
-### HTTP Module (`sources/std/http.pln`):
-- **Line 5**: `HttpGet()` - TODO: Implement HTTP GET
-- **Line 10**: `HttpPost()` - TODO: Implement HTTP POST
-- **Line 15**: `HttpPut()` - TODO: Implement HTTP PUT
-- **Line 20**: `HttpDelete()` - TODO: Implement HTTP DELETE
-
-### Math Module (`sources/std/math.pln`):
-- **Line 60**: Placeholder implementation for complex cases
-- **Line 94**: Placeholder implementation
-- **Line 98**: Returns placeholder value (0.5)
-
-**Priority:** High  
-**Effort:** Very High
-
----
-
-## CLI Tooling
-
-**Location:** `crates/pleno-cli/src/main.rs`
-
-### Format Command:
-1. **Line 138**: TODO: Implement actual formatting (indentation, spacing, etc.)
-   - Currently only verifies parsing, doesn't actually format files
-   - Message: "File {} is valid (formatting not yet fully implemented)"
-
-2. **Line 149**: TODO: Recursively format all .pln files
-   - Directory formatting not implemented
-   - Message: "Directory formatting not yet fully implemented"
-
-### Lint Command:
-1. **Line 195**: TODO: Add more linting rules
-   - Currently only basic checks, needs comprehensive rules
-
-2. **Line 216**: TODO: Recursively lint all .pln files
-   - Directory linting not implemented
-   - Message: "Directory linting not yet fully implemented"
-
-**Priority:** Medium  
-**Effort:** Medium
-
----
-
-## Formatter
-
-**Location:** `crates/pleno-formatter/`
-
-### AST Limitations (from ignored tests):
-1. **Parentheses not preserved** - `test_complex_expressions` ignored
-   - Formatter cannot re-add parentheses because AST doesn't store original parentheses
-   - Would require AST changes
-
-2. **Comments not preserved** - `test_comments_preservation` ignored
-   - Comments are not part of the AST
-   - Would require AST changes to include comments
-
-3. **Blank lines not preserved** - `test_line_break_preservation` ignored
-   - Blank lines between statements are not preserved in AST
-   - Would require AST changes
-
-### Parser Limitations:
-5. **Nested classes not supported** - `test_nested_classes` ignored
-   - Parser doesn't support nested class declarations
-
-6. **Underscore parameters not supported** - `test_underscore_parameter_formatting` ignored
-   - Underscore parameters in function declarations are not supported by parser
-
-7. **Module blocks not supported** - `test_module_declaration_formatting` ignored
-   - Parser expects `module Name;` not `module Name { ... }`
-
-**Priority:** Medium  
-**Effort:** High (requires AST/parser changes)
-
----
-
-## Parser & AST
-
-**Location:** `crates/pleno-parser/src/lib.rs`, `crates/pleno-ast/src/lib.rs`
-
-### Missing Features:
-3. **Nested classes** - Parser doesn't support class declarations inside classes
-4. **Underscore parameters** - Parser expects `Ident` for parameters, not `Underscore`
-5. **Module blocks** - Parser only supports `module Name;`, not `module Name { ... }`
-6. **Comments in AST** - Comments are not preserved in AST nodes
-7. **Parentheses in expressions** - Original parentheses grouping is lost
-
-**Priority:** Medium  
-**Effort:** High
-
----
-
-## Compiler
-
-**Location:** `crates/pleno-compiler/src/lib.rs`
-
-### Error Handling:
-1. **Line 238, 1294, 1328, 1410**: Uses `expect()` for loop stack operations
-   - `let loop_ctx = self.pop_loop().expect("loop stack underflow");`
-   - Should use proper error handling instead of panicking
-
-2. **Line 1894**: Uses `expect()` for scope access
-   - `let scope = self.locals.last_mut().expect("scope exists");`
-   - Should use proper error handling
-
-3. **Line 867, 890**: Uses `unreachable!()` for placeholder handling
-   - Should be properly handled or removed
-
-**Priority:** Medium  
-**Effort:** Low
-
----
-
-## Linter
-
-**Location:** `crates/pleno-linter/src/lib.rs`, `crates/pleno-linter/tests/linter_tests.rs`
-
-### Issues:
-1. **Placeholder line/column numbers** - Line 183-184
-   - Uses placeholder line/column numbers (0, 0)
-   - Should calculate actual source positions
-
-2. **Limited rule coverage** - Multiple TODO comments in tests
-   - Missing semicolon detection
-   - Missing spacing rules
-   - Missing comprehensive style rules
-   - Missing best practices checks
-   - Missing unused variable detection
-
-**Priority:** Medium  
-**Effort:** Medium
-
----
-
-## Error Handling
-
-**Location:** Multiple files
-
-### Issues:
-1. **Excessive use of `unwrap()` and `expect()`** in tests
-   - Found 50+ instances in test files
-   - Should use proper error handling
-
-2. **Panic usage in tests** - `crates/pleno-vm/tests/stdlib_tests.rs`
-   - Multiple `panic!()` calls for unexpected types
-   - Should use assertions or proper error handling
-
-3. **Unreachable code** - Multiple `unreachable!()` calls
-   - Should be properly handled or removed
-
-**Priority:** Low  
-**Effort:** Low
-
----
-
-## Memory Management
-
-**Location:** `crates/pleno-gc/`, `crates/pleno-vm/`
-
-### Issues:
-1. **GC integrated** ✅
-2. **Breaking Rc cycles** ✅
-
-**Priority:** High  
-**Effort:** Very High
-
----
-
-## Test Coverage
-
-**Location:** All test files
-
-### Issues:
-1. **Limited test coverage** - From ROADMAP.md Stage 14
-   - Currently 53+ tests passing
-   - Need more comprehensive coverage
-   - Missing edge cases
-   - Missing error path testing
-
-2. **Ignored tests** - 8 formatter tests ignored due to missing features
-   - Should be implemented or removed
-
-3. **Placeholder test notes** - Multiple tests have "Note: ... may not work as expected"
-   - Should be fixed or removed
-
-**Priority:** Medium  
-**Effort:** High
-
----
-
-## Performance
-
-**Location:** `crates/pleno-vm/`, `crates/pleno-compiler/`
-
-### Issues:
-1. **No performance optimizations** - From ROADMAP.md Stage 12
-   - No benchmarking infrastructure
-   - No performance profiling
-   - No optimization passes in compiler
-
-2. **No performance benchmarks** - From ROADMAP.md Stage 14
-   - Need to establish baseline performance
-   - Need to identify bottlenecks
-
-**Priority:** Low  
-**Effort:** High
-
----
-
-## Documentation
-
-**Location:** `docs/`, `README.md`
-
-### Issues:
-1. **Incomplete documentation** - From ROADMAP.md Stage 14
-   - API documentation incomplete
-   - Missing examples
-   - Missing architecture documentation
-
-2. **No docs tooling** - From ROADMAP.md Stage 11
-   - No documentation generation
-   - No API docs extraction
-
-**Priority:** Low  
-**Effort:** Medium
-
----
 
 ## Roadmap Items (From ROADMAP.md)
 

@@ -1,0 +1,64 @@
+// Test for parser comparison operator fix
+// This tests that `x < y && y > z` is parsed as comparisons, not generics
+
+print("Testing comparison operators with && and ||...");
+
+let x = 10;
+let y = 20;
+let z = 15;
+
+// These should all work now without parser errors
+if (x < y && y > z) {
+    print("✅ Test 1 passed: x < y && y > z");
+} else {
+    print("❌ Test 1 failed");
+}
+
+if (x > 0 || y > 100) {
+    print("✅ Test 2 passed: x > 0 || y > 100");
+} else {
+    print("❌ Test 2 failed");
+}
+
+// More complex expressions
+if (x < y && y > z && z > 0) {
+    print("✅ Test 3 passed: chained && with comparisons");
+} else {
+    print("❌ Test 3 failed");
+}
+
+if (x > 100 || y > z || z < 50) {
+    print("✅ Test 4 passed: chained || with comparisons");
+} else {
+    print("❌ Test 4 failed");
+}
+
+// Mixed && and ||
+if ((x < y && y > z) || z > 100) {
+    print("✅ Test 5 passed: mixed && and || with parens");
+} else {
+    print("❌ Test 5 failed");
+}
+
+// In function context
+fn lessThan(a, b) {
+    return a < b;
+}
+
+if (lessThan(5, 10) && x < y) {
+    print("✅ Test 6 passed: function call && comparison");
+} else {
+    print("❌ Test 6 failed");
+}
+
+// All comparisons in if with logical ops
+let a = 1;
+let b = 2;
+let c = 3;
+if (a < b && b < c) {
+    print("✅ Test 7 passed: a < b && b < c");
+} else {
+    print("❌ Test 7 failed");
+}
+
+print("All parser comparison tests completed!");

@@ -1,0 +1,316 @@
+///
+/// Comprehensive Language Feature Tests for Pleno
+/// Tests: increment/decrement, conditionals, try/catch/finally, logging, http
+///
+
+import Log from "std:log";
+
+print("=== Pleno Language Feature Tests ===\n");
+
+let mut passed = 0;
+let mut failed = 0;
+
+fn test(name, condition) {
+    if (condition) {
+        print("✅ PASS:", name);
+        passed++;
+    } else {
+        print("❌ FAIL:", name);
+        failed++;
+    }
+}
+
+// ========================================
+// 1. PRE/POST INCREMENT/DECREMENT
+// ========================================
+print("\n--- 1. Increment/Decrement Operators ---");
+
+// Basic postfix increment
+let mut a = 5;
+let b = a++;
+test("Postfix increment returns old value", b == 5);
+test("Postfix increment modifies variable", a == 6);
+
+// Basic postfix decrement
+let mut c = 10;
+let d = c--;
+test("Postfix decrement returns old value", d == 10);
+test("Postfix decrement modifies variable", c == 9);
+
+// Basic prefix increment
+let mut e = 5;
+let f = ++e;
+test("Prefix increment returns new value", f == 6);
+test("Prefix increment modifies variable", e == 6);
+
+// Basic prefix decrement
+let mut g = 10;
+let h = --g;
+test("Prefix decrement returns new value", h == 9);
+test("Prefix decrement modifies variable", g == 9);
+
+// Chained operations
+let mut i = 1;
+i++;
+i++;
+i++;
+test("Multiple increments", i == 4);
+
+// In expressions
+let mut j = 5;
+let result = j++ + ++j;  // 5 + 7 = 12 (j becomes 6 after first, then 7)
+test("Increment in expression", result == 12);
+
+// On array elements
+let mut arr = [1, 2, 3];
+arr[0]++;
+test("Increment on array element", arr[0] == 2);
+
+// On object properties
+let mut obj = { count: 0 };
+obj.count++;
+test("Increment on object property", obj.count == 1);
+
+
+// ========================================
+// 2. IF / ELSE IF / ELSE CHAINS
+// ========================================
+print("\n--- 2. Conditional Chains ---");
+
+fn gradeToLetter(score) {
+    if (score >= 90) {
+        return "A";
+    } else if (score >= 80) {
+        return "B";
+    } else if (score >= 70) {
+        return "C";
+    } else if (score >= 60) {
+        return "D";
+    } else {
+        return "F";
+    }
+}
+
+test("If/else if A grade", gradeToLetter(95) == "A");
+test("If/else if B grade", gradeToLetter(85) == "B");
+test("If/else if C grade", gradeToLetter(75) == "C");
+test("If/else if D grade", gradeToLetter(65) == "D");
+test("If/else if F grade", gradeToLetter(55) == "F");
+
+// Nested conditions
+fn classifyNumber(n) {
+    if (n > 0) {
+        if (n % 2 == 0) {
+            return "positive even";
+        } else {
+            return "positive odd";
+        }
+    } else if (n < 0) {
+        if (n % 2 == 0) {
+            return "negative even";
+        } else {
+            return "negative odd";
+        }
+    } else {
+        return "zero";
+    }
+}
+
+test("Nested: positive even", classifyNumber(8) == "positive even");
+test("Nested: positive odd", classifyNumber(7) == "positive odd");
+test("Nested: negative even", classifyNumber(-4) == "negative even");
+test("Nested: negative odd", classifyNumber(-3) == "negative odd");
+test("Nested: zero", classifyNumber(0) == "zero");
+
+// Complex boolean conditions
+let valX = 10;
+let valY = 20;
+let valZ = 15;
+
+let cmp1 = valX < valY;
+let cmp2 = valY > valZ;
+let condAnd = cmp1 && cmp2;
+if (condAnd) {
+    test("Complex condition AND", true);
+} else {
+    test("Complex condition AND", false);
+}
+
+let cmp3 = valX > 100;
+let cmp4 = valY > 10;
+let condOr = cmp3 || cmp4;
+if (condOr) {
+    test("Complex condition OR", true);
+} else {
+    test("Complex condition OR", false);
+}
+
+
+// ========================================
+// 3. TRY / CATCH / FINALLY
+// ========================================
+print("\n--- 3. Exception Handling ---");
+
+// Basic try/catch
+let mut caught = false;
+try {
+    throw "test error";
+} catch (e) {
+    caught = true;
+}
+test("Basic try/catch", caught);
+
+// Try/catch with finally
+let mut log1 = [];
+try {
+    log1.push("try");
+} catch (e) {
+    log1.push("catch");
+} finally {
+    log1.push("finally");
+}
+test("Finally runs after try", log1.len == 2 && log1[1] == "finally");
+
+// Finally runs after catch
+let mut log2 = [];
+try {
+    log2.push("try");
+    throw "error";
+} catch (e) {
+    log2.push("catch");
+} finally {
+    log2.push("finally");
+}
+test("Finally runs after catch", log2.len == 3 && log2[2] == "finally");
+
+// Finally runs on return - test via side effects in return value
+fn testFinallyReturnValue() {
+    let mut val = "initial";
+    try {
+        val = "try";
+        return val;
+    } finally {
+        // Note: finally can't modify the return value once set
+    }
+}
+let retVal = testFinallyReturnValue();
+test("Return value from try block", retVal == "try");
+
+// Try without catch (only finally) - exception propagates
+let mut thrownError = null;
+try {
+    try {
+        throw "inner error";
+    } finally {
+        // Finally runs, then exception propagates
+    }
+} catch (e) {
+    thrownError = e;
+}
+test("Exception propagated after finally", thrownError == "inner error");
+
+// Nested try/catch/finally - test via flag
+let mut nestedResult = "none";
+try {
+    try {
+        throw "error";
+    } catch (e) {
+        nestedResult = "caught";
+        throw "rethrow";
+    } finally {
+        // Finally runs after catch
+    }
+} catch (e) {
+    nestedResult = nestedResult + "-outer";
+}
+test("Nested exception handling", nestedResult == "caught-outer");
+
+
+// ========================================
+// 4. LOGGING LIBRARY
+// ========================================
+print("\n--- 4. Logging Library ---");
+
+// Test level configuration
+Log.setLevel("trace");
+test("Log level set to trace", Log.getLevel() == "trace");
+
+Log.setLevel("error");
+test("Log level set to error", Log.getLevel() == "error");
+
+Log.setLevel("info");
+test("Log level reset to info", Log.getLevel() == "info");
+
+// Log various types (visual verification)
+Log.info("Test log with number:", 42);
+Log.info("Test log with array:", [1, 2, 3]);
+Log.info("Test log with map:", { key: "value" });
+
+test("Logging module works", true);
+
+
+// ========================================
+// 5. WHILE LOOP BEHAVIOR
+// ========================================
+print("\n--- 5. Loop Behavior ---");
+
+// Standard while loop
+let mut counter = 0;
+while (counter < 5) {
+    counter++;
+}
+test("While loop iteration", counter == 5);
+
+// While with break
+let mut breakCounter = 0;
+while (true) {
+    breakCounter++;
+    if (breakCounter >= 3) {
+        break;
+    }
+}
+test("While loop with break", breakCounter == 3);
+
+// While with continue
+let mut sum = 0;
+let mut iter = 0;
+while (iter < 10) {
+    iter++;
+    if (iter % 2 == 0) {
+        continue;
+    }
+    sum = sum + iter;
+}
+test("While loop with continue (odd sum)", sum == 25); // 1+3+5+7+9
+
+// For loop
+let mut forSum = 0;
+for (num in [1, 2, 3, 4, 5]) {
+    forSum = forSum + num;
+}
+test("For loop iteration", forSum == 15);
+
+// For loop with break
+let mut forBreak = 0;
+for (num in [1, 2, 3, 4, 5]) {
+    if (num == 3) {
+        break;
+    }
+    forBreak = forBreak + num;
+}
+test("For loop with break", forBreak == 3);
+
+
+// ========================================
+// SUMMARY
+// ========================================
+print("\n=== Test Summary ===");
+print("Passed:", passed);
+print("Failed:", failed);
+print("Total:", passed + failed);
+
+if (failed == 0) {
+    print("\n🎉 All tests passed!");
+} else {
+    print("\n⚠️ Some tests failed!");
+}

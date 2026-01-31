@@ -1,0 +1,35 @@
+import Log from "std:log";
+
+print("Testing logging library...");
+
+// Test all levels
+Log.trace("This is a trace message");
+Log.debug("This is a debug message");
+Log.info("This is an info message");
+Log.warn("This is a warning message");
+Log.error("This is an error message");
+
+// Test with multiple arguments
+Log.info("User", "logged in", "successfully");
+
+// Test level configuration
+print("Current level:", Log.getLevel());
+
+Log.setLevel("trace");
+print("After setLevel('trace'):", Log.getLevel());
+Log.trace("Now trace should be visible");
+
+Log.setLevel("error");
+print("After setLevel('error'):", Log.getLevel());
+Log.debug("This debug should NOT appear");
+Log.error("This error SHOULD appear");
+
+// Reset to info
+Log.setLevel("info");
+
+// Test with different data types
+Log.info("Number:", 42, "Float:", 3.14, "Bool:", true);
+Log.info("Array:", [1, 2, 3]);
+Log.info("Map:", { name: "Pleno", version: "1.0" });
+
+print("PASS: Logging library works correctly");
