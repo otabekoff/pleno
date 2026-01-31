@@ -134,3 +134,15 @@ Audited specs.md section 19 (Performance Features) against actual implementation
    - `@pure` annotation
    - Basic Mark-and-Sweep GC
    - Reference counting via `Rc`
+
+
+
+
+----
+
+
+And make a framework like express in nodejs.
+
+LLVM or cranelift support.
+
+----

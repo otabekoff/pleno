@@ -85,6 +85,7 @@ pub struct Compiler {
     type_aliases: HashMap<String, String>,
     macros: HashMap<String, MacroDef>,
     boxed_vars: Vec<HashSet<String>>,
+    finally_stack: Vec<Option<Stmt>>,
 }
 
 #[derive(Debug, Clone)]
@@ -126,6 +127,7 @@ impl Compiler {
             type_aliases: HashMap::new(),
             macros: HashMap::new(),
             boxed_vars: vec![HashSet::new()],
+            finally_stack: Vec::new(),
         }
     }
 
@@ -637,10 +639,19 @@ impl Compiler {
                     }
                 };
                 if !self.inline_return_stack.is_empty() {
+                    // Inline return handling... (unchanged logic for inline, need to be careful? Inline functions don't cross try boundaries of parent? They do if defined inside try?)
+                    // For now, assume inline functions are self-contained.
                     self.last_expr_register = Some(reg);
                     let jump = self.emit_jump(Opcode::Jump, 0);
                     self.inline_return_stack.last_mut().unwrap().push(jump);
                 } else {
+                    // Execute valid finally blocks in reverse order
+                    let pending_finally: Vec<_> = self.finally_stack.iter().cloned().collect();
+                    for stmt in pending_finally.iter().rev() {
+                        if let Some(finally_stmt) = stmt {
+                            self.compile_stmt(finally_stmt)?;
+                        }
+                    }
                     self.emit(Opcode::Return, reg, 0, 0);
                 }
                 Ok(())
@@ -1808,7 +1819,10 @@ impl Compiler {
         let push_handler_idx = self.chunk.code.len();
         self.emit(Opcode::PushHandler, error_reg, 0, 0);
 
+        self.finally_stack.push(finally_branch.cloned());
         self.compile_stmt(try_branch)?;
+        self.finally_stack.pop();
+
         self.emit(Opcode::PopHandler, 0, 0, 0);
 
         let jump_to_finally = self.emit_jump(Opcode::Jump, 0);
@@ -1848,8 +1862,10 @@ impl Compiler {
             }
 
             self.push_scope();
+            self.finally_stack.push(finally_branch.cloned());
             self.insert_local(catch.name.clone(), error_reg, false, catch.ty.clone())?;
             self.compile_stmt(&catch.body)?;
+            self.finally_stack.pop();
             self.pop_scope();
 
             let jump = self.emit_jump(Opcode::Jump, 0);
@@ -1861,12 +1877,21 @@ impl Compiler {
         }
 
         // If no catch blocks matched, or if we fell through all of them
+        // If no catch blocks matched, or if we fell through all of them
         if !catch_branches.is_empty() {
             // Re-throw if none of the catch blocks matched
+            if let Some(finally) = finally_branch {
+                self.compile_stmt(finally)?;
+            }
             self.emit(Opcode::Throw, error_reg, 0, 0);
         } else if finally_branch.is_none() {
             // This case should be caught by parser (at least one catch or finally)
             // but just in case, re-throw.
+            self.emit(Opcode::Throw, error_reg, 0, 0);
+        } else {
+            if let Some(finally) = finally_branch {
+                self.compile_stmt(finally)?;
+            }
             self.emit(Opcode::Throw, error_reg, 0, 0);
         }
 

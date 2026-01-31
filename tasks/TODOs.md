@@ -1,18 +1,7 @@
 ## Priority: Standard Library & GC Integration
 
-Make the http support all operations. And make a framework like express in nodejs.
 
-
-
-everytime after doing the tasks, if working according to or by tracking files, then don't forget to update them.
-
-Always update the docs.
-
-
-LLVM or cranelift support.
-
-
-Make bench folder benchmark project reporting about benchmarking of Pleno. Reports. Not only speed tests. Also, we need to compare with other languages like Python, Rust, Go, Kotlin, C, C++, Java, JavaScript, TypeScript, etc.
+Let's do bench. Make bench folder benchmark project reporting about benchmarking of Pleno. Reports. Not only speed tests. Also, we need to compare with other languages like Python, Rust, Go, Kotlin, C, C++, Java, JavaScript, TypeScript, etc.
 
 Optimizations and error management in Pleno in a structured way, aslo fix the showing line numbers like Rust or other thing?
 
@@ -61,11 +50,6 @@ This is what Python tried with typing but without runtime enforcement.
 This is what our language can do correctly.
 
 
-
-Things shouldn't work minimally, they should work fully, completely. They should be ready. They should be thought in advance and done. Tasks should be done thinking for different and diverse and advanced usages too. They shouldn't be just satisfied. But should be battle ready, battle tested. 
-
-Always don't forget to make the project clean, mainly project root. Don't make it trashbox.
-
 Type checking is not working fully I think, we've to review and rethink and reconsider and rework on it.
 
 Char type working? What about all of the needed types list and are they working? And do every type we need exist?
@@ -76,7 +60,6 @@ Should we left unprefixed stuffs? or prefixed stuffs of variables and function n
 
 Work on each crate and make the working and complete and doing their job fully.
 
-Let's do bench.
 
 On commit check each of the crate, test, clippy, fmt, and more. build, build workspace, also do these in workspace level too.
 
