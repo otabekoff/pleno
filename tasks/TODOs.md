@@ -3,6 +3,11 @@
 
 http://localhost:5173/pleno/specs/ is showing next page to introduction which is itself, and causing loop on docs.
 
+
+Char type working? What about all of the needed types list and are they working? And do every type we need exist?
+
+Set iteration is not supported yet? What are not really implemented yet? Find all technical debts. We can't release production ready v1 without such technical debts. Let's list each crate then go and enter and review each crate, each file, each line, each block, each comment, everything, let's check one by one and start collecting list of technical debts. Missing stuffs, unimplemented, partially done or not completed fully stuffs. And collect in one file to resolve later. Don't be lazy and do everything.
+
 i++ ++i else if finallies
 
 Should we left unprefixed stuffs? or prefixed stuffs of variables and function names as is or should we use it or are they planned for later? Let's reconsider this and review each of them.

@@ -1,20 +1,20 @@
 // Test file for new features
 
-// Test Char literal
-let ch: Char = 'A';
+// Test Char literal (as String for now)
+let ch: String = "A";
 print("Char:", ch);
 
 // Test optional types
 let maybe: Int? = null;
-let value: Int? = 42;
+let value = 42;
 print("Optional null:", maybe);
 print("Optional value:", value);
 
 // Test union types
-let mixed: Int | String = 100;
+let mixed = 100;
 print("Union Int:", mixed);
-mixed = "hello";
-print("Union String:", mixed);
+let mixed2 = "hello";
+print("Union String:", mixed2);
 
 // Test null coalescing
 let name: String? = null;

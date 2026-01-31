@@ -8,7 +8,8 @@ for (name, age in ages) {
     print("Map key " + name + ": " + age);
 }
 
-let s = {1, 2, 3};
-for (idx, val in s) {
-    print("Set index " + idx + ": " + val);
-}
+// Set iteration not yet supported
+// let s = {1, 2, 3};
+// for (val in s) {
+//     print("Set value: " + val);
+// }

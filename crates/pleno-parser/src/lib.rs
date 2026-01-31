@@ -2747,9 +2747,7 @@ impl Parser {
                 {
                     // Slice: [:end], [..end] or [..=end]
                     let _inclusive = self.previous().kind == TokenKind::DotDotEqual;
-                    let end = if self.matches(&TokenKind::RBracket) {
-                        None
-                    } else if self.is_range_terminator() {
+                    let end = if self.matches(&TokenKind::RBracket) || self.is_range_terminator() {
                         None
                     } else {
                         let expr = Box::new(self.parse_expr()?);
