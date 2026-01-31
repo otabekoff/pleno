@@ -33,4 +33,10 @@ pleno doc --output docs/
 
 # Start Language Server (LSP)
 pleno lsp
+
+# Package Manager Commands
+plm init            # Initialize project
+plm install         # Install dependencies
+plm update          # Update dependencies
+plm run <script>    # Run a script from package.pln
 ```

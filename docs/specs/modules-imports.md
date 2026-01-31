@@ -63,17 +63,17 @@ import { Database } from "../db/connection.pln";
 
 ### 8.3 Package Management
 
-```pleno
-// File: package.pln (package configuration)
-{
-    "name": "my-app",
-    "version": "1.0.0",
-    "dependencies": {
-        "http-client": "^2.0.0",
-        "json-parser": "^1.5.0"
-    },
-    "entry": "main.pln"
-}
+```toml
+# package.pln
+[package]
+name = "my-app"
+version = "1.0.0"
+entry = "main.pln"
+
+[dependencies]
+http-client = "^2.0.0"
+json-parser = "^1.5.0"
+```
 
 // Using external packages
 import { HttpClient } from "http-client";
