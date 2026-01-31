@@ -7,6 +7,28 @@ use std::collections::HashMap;
 use std::io::Write;
 use std::rc::Rc;
 
+fn native_int_parse(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    let s = match args.get(1).or_else(|| args.first()) {
+        Some(Value::String(s)) => s.as_str(),
+        _ => return Err(RuntimeError::new("Int.parse expects string")),
+    };
+    match s.parse::<i64>() {
+        Ok(i) => Ok(Value::Int(i)),
+        Err(_) => Err(RuntimeError::new(format!("Invalid integer: {}", s))),
+    }
+}
+
+fn native_float_parse(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    let s = match args.get(1).or_else(|| args.first()) {
+        Some(Value::String(s)) => s.as_str(),
+        _ => return Err(RuntimeError::new("Float.parse expects string")),
+    };
+    match s.parse::<f64>() {
+        Ok(f) => Ok(Value::Float(f)),
+        Err(_) => Err(RuntimeError::new(format!("Invalid float: {}", s))),
+    }
+}
+
 pub fn register_builtins(vm: &mut dyn VMProvider) {
     // Globals
     vm.register_global("print".to_string(), Value::NativeFunction(native_print));
@@ -152,9 +174,24 @@ pub fn register_builtins(vm: &mut dyn VMProvider) {
     vm.register_global("Promise".to_string(), promise_val);
 
     // Types
-    for ty in &[
-        "Int", "Float", "Bool", "String", "Array", "Map", "Object", "Null", "Any",
-    ] {
+    let int_map = {
+        let mut m = HashMap::new();
+        m.insert("parse".to_string(), Value::NativeFunction(native_int_parse));
+        vm.get_gc().allocate(MapState::new(m))
+    };
+    vm.register_global("Int".to_string(), Value::Map(int_map));
+
+    let float_map = {
+        let mut m = HashMap::new();
+        m.insert(
+            "parse".to_string(),
+            Value::NativeFunction(native_float_parse),
+        );
+        vm.get_gc().allocate(MapState::new(m))
+    };
+    vm.register_global("Float".to_string(), Value::Map(float_map));
+
+    for ty in &["Bool", "String", "Array", "Map", "Object", "Null", "Any"] {
         vm.register_global(ty.to_string(), Value::String(Rc::new(ty.to_string())));
     }
     vm.register_global(

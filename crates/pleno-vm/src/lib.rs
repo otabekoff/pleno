@@ -59,12 +59,21 @@ impl VMProvider for VM {
         let depth = self.frames.len();
         match callee {
             Value::Function(handle) => {
-                self.call_function(handle, None, &args, return_reg, None, None, None, false)?;
+                self.call_function(
+                    Value::Function(handle),
+                    None,
+                    &args,
+                    return_reg,
+                    None,
+                    None,
+                    None,
+                    false,
+                )?;
             }
             Value::Closure(state) => {
                 let borrowed = state.borrow();
                 self.call_function(
-                    borrowed.function,
+                    Value::Function(borrowed.function),
                     None,
                     &args,
                     return_reg,
@@ -81,7 +90,7 @@ impl VMProvider for VM {
                 ..
             } => {
                 self.call_function(
-                    function,
+                    *function.clone(),
                     Some(*receiver.clone()),
                     &args,
                     return_reg,
@@ -544,7 +553,7 @@ impl VM {
                             && let Some(method_info) = class.borrow().methods.get(&name)
                         {
                             self.call_function(
-                                method_info.function,
+                                method_info.function.clone(),
                                 Some(Value::Object(obj.clone())),
                                 &[],
                                 func_reg,
@@ -589,7 +598,7 @@ impl VM {
                             && let Some(method_info) = class.borrow().methods.get(&name)
                         {
                             self.call_function(
-                                method_info.function,
+                                method_info.function.clone(),
                                 Some(Value::Object(obj.clone())),
                                 &[],
                                 func_reg,
@@ -1322,7 +1331,7 @@ impl VM {
                                         );
                                     }
                                     self.call_function(
-                                        info.function,
+                                        info.function.clone(),
                                         Some(Value::Object(object.clone())),
                                         &[value],
                                         base + a,
@@ -1360,7 +1369,7 @@ impl VM {
                                     );
                                 }
                                 self.call_function(
-                                    info.function,
+                                    info.function.clone(),
                                     None,
                                     &[value],
                                     base + a,
@@ -1502,7 +1511,7 @@ impl VM {
                                     }
                                     Value::BoundMethod {
                                         receiver: Box::new(Value::Map(map.clone())),
-                                        function: info.function,
+                                        function: Box::new(info.function.clone()),
                                         owner: info.owner.clone(),
                                         visibility: info.visibility,
                                     }
@@ -1541,7 +1550,7 @@ impl VM {
                                     );
                                 }
                                 self.registers[base + a] = Value::StaticMethod {
-                                    function: info.function,
+                                    function: Box::new(info.function.clone()),
                                     owner: info.owner.clone(),
                                     visibility: info.visibility,
                                 };
@@ -1568,7 +1577,7 @@ impl VM {
                                         );
                                     }
                                     self.call_function(
-                                        info.function,
+                                        info.function.clone(),
                                         Some(Value::Object(object.clone())),
                                         &[],
                                         base + a,
@@ -1605,7 +1614,7 @@ impl VM {
                                     }
                                     Value::BoundMethod {
                                         receiver: Box::new(Value::Object(object.clone())),
-                                        function: info.function,
+                                        function: Box::new(info.function.clone()),
                                         owner: info.owner.clone(),
                                         visibility: info.visibility,
                                     }
@@ -1628,7 +1637,7 @@ impl VM {
                                     );
                                 }
                                 self.call_function(
-                                    info.function,
+                                    info.function.clone(),
                                     None,
                                     &[],
                                     base + a,
@@ -1678,7 +1687,7 @@ impl VM {
                                     );
                                 }
                                 Value::StaticMethod {
-                                    function: info.function,
+                                    function: Box::new(info.function.clone()),
                                     owner: info.owner.clone(),
                                     visibility: info.visibility,
                                 }
@@ -1711,7 +1720,7 @@ impl VM {
                                     }
                                     Value::BoundMethod {
                                         receiver: Box::new(Value::Set(set.clone())),
-                                        function: info.function,
+                                        function: Box::new(info.function.clone()),
                                         owner: info.owner.clone(),
                                         visibility: info.visibility,
                                     }
@@ -1747,7 +1756,7 @@ impl VM {
                                     }
                                     Value::BoundMethod {
                                         receiver: Box::new(Value::Array(array.clone())),
-                                        function: info.function,
+                                        function: Box::new(info.function.clone()),
                                         owner: info.owner.clone(),
                                         visibility: info.visibility,
                                     }
@@ -1781,7 +1790,7 @@ impl VM {
                                     }
                                     Value::BoundMethod {
                                         receiver: Box::new(Value::String(s.clone())),
-                                        function: info.function,
+                                        function: Box::new(info.function.clone()),
                                         owner: info.owner.clone(),
                                         visibility: info.visibility,
                                     }
@@ -1891,7 +1900,7 @@ impl VM {
                                         variant_name: variant_name.clone(),
                                         data: data.clone(),
                                     }),
-                                    function: info.function,
+                                    function: Box::new(info.function.clone()),
                                     owner: info.owner.clone(),
                                     visibility: info.visibility,
                                 };
@@ -1933,7 +1942,7 @@ impl VM {
                                     }
                                     Value::BoundMethod {
                                         receiver: Box::new(Value::Int(i)),
-                                        function: info.function,
+                                        function: Box::new(info.function.clone()),
                                         owner: info.owner.clone(),
                                         visibility: info.visibility,
                                     }
@@ -1967,7 +1976,7 @@ impl VM {
                                     }
                                     Value::BoundMethod {
                                         receiver: Box::new(Value::Float(f)),
-                                        function: info.function,
+                                        function: Box::new(info.function.clone()),
                                         owner: info.owner.clone(),
                                         visibility: info.visibility,
                                     }
@@ -2000,7 +2009,7 @@ impl VM {
                                     }
                                     Value::BoundMethod {
                                         receiver: Box::new(Value::Bool(b)),
-                                        function: info.function,
+                                        function: Box::new(info.function.clone()),
                                         owner: info.owner.clone(),
                                         visibility: info.visibility,
                                     }
@@ -2053,7 +2062,7 @@ impl VM {
                         .ok_or_else(|| RuntimeError::new("unknown super method"))?;
                     self.registers[base + a] = Value::BoundMethod {
                         receiver: Box::new(Value::Object(receiver)),
-                        function: info.function,
+                        function: Box::new(info.function.clone()),
                         owner: info.owner.clone(),
                         visibility: info.visibility,
                     };
@@ -2081,12 +2090,16 @@ impl VM {
                     let constructor = resolve_method(&superclass, "constructor");
 
                     if let Some(info) = constructor {
+                        let handle_idx = match info.function.clone() {
+                            Value::Function(idx) => idx,
+                            _ => unreachable!("expected function"),
+                        };
                         self.call_function(
-                            info.function,
+                            Value::Function(handle_idx),
                             Some(Value::Object(this_obj.clone())),
                             &args,
                             base + a,
-                            None, // No return value needed
+                            Some(Value::Object(this_obj.clone())),
                             None,
                             Some(info.owner.clone()),
                             false,
@@ -2103,10 +2116,47 @@ impl VM {
                         (Value::Array(array), Value::Int(idx)) => {
                             let idx = idx as usize;
                             let array_borrow = array.borrow();
-                            if idx >= array_borrow.len() {
+                            if idx >= array_borrow.elements.len() {
                                 return Err(self.throw_runtime_error("array index out of bounds"));
                             }
-                            self.registers[base + a] = array_borrow[idx].clone();
+                            self.registers[base + a] = array_borrow.elements[idx].clone();
+                        }
+                        (Value::Array(array), Value::Range(range)) => {
+                            let array_borrow = array.borrow();
+                            let len = array_borrow.elements.len();
+                            let start = range.start.unwrap_or(0).max(0) as usize;
+                            let end = range
+                                .end
+                                .map(|e| if range.inclusive { e + 1 } else { e })
+                                .unwrap_or(len as i64)
+                                .max(0) as usize;
+                            let start = start.min(len);
+                            let end = end.min(len).max(start);
+                            let sub_elements = array_borrow.elements[start..end].to_vec();
+                            self.registers[base + a] =
+                                Value::Array(self.gc.allocate(ArrayState::new(sub_elements)));
+                        }
+                        (Value::String(s), Value::Int(idx)) => {
+                            let idx = idx as usize;
+                            if idx >= s.len() {
+                                return Err(self.throw_runtime_error("string index out of bounds"));
+                            }
+                            let char = s.chars().nth(idx).unwrap_or('\0');
+                            self.registers[base + a] = Value::String(Rc::new(char.to_string()));
+                        }
+                        (Value::String(s), Value::Range(range)) => {
+                            let len = s.len();
+                            let start = range.start.unwrap_or(0).max(0) as usize;
+                            let end = range
+                                .end
+                                .map(|e| if range.inclusive { e + 1 } else { e })
+                                .unwrap_or(len as i64)
+                                .max(0) as usize;
+                            let start = start.min(len);
+                            let end = end.min(len).max(start);
+                            // Rough byte slicing for now, should ideally be char-based but strings in pleno might be bytes/utf8
+                            let sub_s = &s[start..end];
+                            self.registers[base + a] = Value::String(Rc::new(sub_s.to_string()));
                         }
                         (Value::Tuple(tuple), Value::Int(idx)) => {
                             let idx = idx as usize;
@@ -2119,6 +2169,7 @@ impl VM {
                         (Value::Map(map), Value::String(key)) => {
                             self.registers[base + a] = map
                                 .borrow()
+                                .entries
                                 .get(key.as_str())
                                 .cloned()
                                 .unwrap_or(Value::Null);
@@ -2178,7 +2229,7 @@ impl VM {
                         _ => None,
                     } {
                         self.call_function(
-                            op_info.function,
+                            op_info.function.clone(),
                             Some(pleno_value::Value::Object(match &left {
                                 Value::Object(o) => o.clone(),
                                 _ => unreachable!(),
@@ -2207,7 +2258,7 @@ impl VM {
                         _ => None,
                     } {
                         self.call_function(
-                            op_info.function,
+                            op_info.function.clone(),
                             Some(Value::Object(match &left {
                                 Value::Object(o) => o.clone(),
                                 _ => unreachable!(),
@@ -2236,7 +2287,7 @@ impl VM {
                         _ => None,
                     } {
                         self.call_function(
-                            op_info.function,
+                            op_info.function.clone(),
                             Some(Value::Object(match &left {
                                 Value::Object(o) => o.clone(),
                                 _ => unreachable!(),
@@ -2265,7 +2316,7 @@ impl VM {
                         _ => None,
                     } {
                         self.call_function(
-                            op_info.function,
+                            op_info.function.clone(),
                             Some(Value::Object(match &left {
                                 Value::Object(o) => o.clone(),
                                 _ => unreachable!(),
@@ -2294,7 +2345,7 @@ impl VM {
                         _ => None,
                     } {
                         self.call_function(
-                            op_info.function,
+                            op_info.function.clone(),
                             Some(Value::Object(match &left {
                                 Value::Object(o) => o.clone(),
                                 _ => unreachable!(),
@@ -2341,7 +2392,7 @@ impl VM {
                         _ => None,
                     } {
                         self.call_function(
-                            op_info.function,
+                            op_info.function.clone(),
                             Some(Value::Object(match &left {
                                 Value::Object(o) => o.clone(),
                                 _ => unreachable!(),
@@ -2370,7 +2421,7 @@ impl VM {
                         _ => None,
                     } {
                         self.call_function(
-                            op_info.function,
+                            op_info.function.clone(),
                             Some(Value::Object(match &left {
                                 Value::Object(o) => o.clone(),
                                 _ => unreachable!(),
@@ -2533,7 +2584,7 @@ impl VM {
                             module.as_ref(),
                         )?;
                         if method_name == "constructor" {
-                            constructor = Some(info.function);
+                            constructor = Some(info.function.clone());
                             methods.insert(method_name, info);
                         } else {
                             methods.insert(method_name, info);
@@ -2649,9 +2700,12 @@ impl VM {
                                         };
 
                                         if let Some(method_info) = method_info {
-                                            if let Some(func) =
-                                                self.functions.get(method_info.function)
-                                            {
+                                            let handle_idx = match method_info.function {
+                                                Value::Function(idx) => idx,
+                                                Value::Closure(ref c) => c.borrow().function,
+                                                _ => unreachable!("expected function"),
+                                            };
+                                            if let Some(func) = self.functions.get(handle_idx) {
                                                 let mut expected_arity = sig.arity;
                                                 if !sig.is_static {
                                                     expected_arity += 1;
@@ -2951,7 +3005,8 @@ impl VM {
                             };
                         }
                         Value::Function(handle) => {
-                            let func_proto = self.functions.get(handle).cloned().unwrap();
+                            let handle_idx = handle;
+                            let func_proto = self.functions.get(handle_idx).cloned().unwrap();
                             if args.len() != func_proto.type_params.len() {
                                 return Err(self.throw_runtime_error(&format!(
                                     "Generic function type mismatch: expected {} args, found {}",
@@ -2961,7 +3016,7 @@ impl VM {
                             }
 
                             self.registers[base + a] = Value::BoundFunction {
-                                function: handle,
+                                function: Box::new(Value::Function(handle)),
                                 type_args: args,
                             };
                         }
@@ -4003,18 +4058,27 @@ impl VM {
     #[allow(clippy::too_many_arguments)]
     fn call_function(
         &mut self,
-        handle: usize,
+        callee: Value,
         receiver: Option<Value>,
         args: &[Value],
         return_reg: usize,
         return_override: Option<Value>,
-        closure_state: Option<GcRc<pleno_value::ClosureState>>,
+        mut closure_state: Option<GcRc<pleno_value::ClosureState>>,
         current_owner: Option<MethodOwner>,
         args_already_processed: bool,
     ) -> Result<(), RuntimeError> {
+        let function_index = match callee {
+            Value::Function(idx) => idx,
+            Value::Closure(c) => {
+                let idx = c.borrow().function;
+                closure_state = Some(c.clone());
+                idx
+            }
+            _ => return Err(RuntimeError::new("expected function or closure")),
+        };
         let function = self
             .functions
-            .get(handle)
+            .get(function_index)
             .ok_or_else(|| RuntimeError::new("unknown function handle"))?
             .clone();
         let current_module = function.module.clone();
@@ -4111,7 +4175,7 @@ impl VM {
         }
 
         self.frames.push(CallFrame {
-            function_index: handle,
+            function_index, // Use function_index directly
             ip: 0,
             base,
             return_reg,
@@ -4153,12 +4217,17 @@ impl VM {
             }
             Value::Class(class) => {
                 let object = self.gc.allocate(Object::new(Some(class.clone()), None));
-                if let Some(handle) = class.borrow().constructor {
+                if let Some(handle) = class.borrow().constructor.clone() {
+                    let handle_idx = match handle {
+                        Value::Function(idx) => idx,
+                        Value::Closure(ref c) => c.borrow().function,
+                        _ => unreachable!("constructor must be function or closure"),
+                    };
                     let _function = self
                         .functions
-                        .get(handle)
+                        .get(handle_idx)
                         .ok_or_else(|| RuntimeError::new("unknown function handle"))?;
-                    let args = self.build_named_args(handle, true, &positional, &named)?;
+                    let args = self.build_named_args(handle_idx, true, &positional, &named)?;
                     let mut final_args = vec![Value::Object(object.clone())];
                     final_args.extend(args);
                     let override_value = Some(Value::Object(object.clone()));
@@ -4183,12 +4252,17 @@ impl VM {
                 let object = self
                     .gc
                     .allocate(Object::new(Some(class.clone()), Some(type_args.clone())));
-                if let Some(handle) = class.borrow().constructor {
+                if let Some(handle) = class.borrow().constructor.clone() {
+                    let handle_idx = match handle {
+                        Value::Function(idx) => idx,
+                        Value::Closure(ref c) => c.borrow().function,
+                        _ => unreachable!("constructor must be function or closure"),
+                    };
                     let _function = self
                         .functions
-                        .get(handle)
+                        .get(handle_idx)
                         .ok_or_else(|| RuntimeError::new("unknown function handle"))?;
-                    let args = self.build_named_args(handle, true, &positional, &named)?;
+                    let args = self.build_named_args(handle_idx, true, &positional, &named)?;
                     let mut final_args = vec![Value::Object(object.clone())];
                     final_args.extend(args);
                     let override_value = Some(Value::Object(object.clone()));
@@ -4210,12 +4284,22 @@ impl VM {
                 }
             }
             Value::Function(handle) => {
+                let handle_idx = handle;
                 let _function = self
                     .functions
-                    .get(handle)
+                    .get(handle_idx)
                     .ok_or_else(|| RuntimeError::new("unknown function handle"))?;
-                let args = self.build_named_args(handle, false, &positional, &named)?;
-                self.call_function(handle, None, &args, return_reg, None, None, None, true)
+                let args = self.build_named_args(handle_idx, false, &positional, &named)?;
+                self.call_function(
+                    Value::Function(handle_idx),
+                    None,
+                    &args,
+                    return_reg,
+                    None,
+                    None,
+                    None,
+                    true,
+                )
             }
             Value::BoundMethod {
                 receiver,
@@ -4223,15 +4307,21 @@ impl VM {
                 owner,
                 ..
             } => {
+                let func_val = *function.clone();
+                let handle_idx = match func_val.clone() {
+                    Value::Function(idx) => idx,
+                    Value::Closure(c) => c.borrow().function,
+                    _ => unreachable!("expected function"),
+                };
                 let _function_info = self
                     .functions
-                    .get(function)
+                    .get(handle_idx)
                     .ok_or_else(|| RuntimeError::new("unknown function handle"))?;
-                let args = self.build_named_args(function, true, &positional, &named)?;
+                let args = self.build_named_args(handle_idx, true, &positional, &named)?;
                 let mut final_args = vec![*receiver.clone()];
                 final_args.extend(args);
                 self.call_function(
-                    function,
+                    func_val,
                     Some(*receiver.clone()),
                     &final_args,
                     return_reg,
@@ -4244,10 +4334,15 @@ impl VM {
             Value::StaticMethod {
                 function, owner, ..
             } => {
-                let function_index = function;
-                let args = self.build_named_args(function_index, false, &positional, &named)?;
+                let func_val = *function.clone();
+                let handle_idx = match func_val.clone() {
+                    Value::Function(idx) => idx,
+                    Value::Closure(c) => c.borrow().function,
+                    _ => unreachable!("expected function"),
+                };
+                let args = self.build_named_args(handle_idx, false, &positional, &named)?;
                 self.call_function(
-                    function,
+                    func_val,
                     None,
                     &args,
                     return_reg,
@@ -4261,7 +4356,7 @@ impl VM {
                 let borrowed = state.borrow();
                 let args = self.build_named_args(borrowed.function, false, &positional, &named)?;
                 self.call_function(
-                    borrowed.function,
+                    Value::Function(borrowed.function),
                     None,
                     &args,
                     return_reg,
@@ -4459,13 +4554,22 @@ impl VM {
                 return self.call_any_value(forced, args, return_reg_idx);
             }
             Value::Function(handle) => {
-                self.call_function(handle, None, &args, return_reg_idx, None, None, None, false)?;
+                self.call_function(
+                    Value::Function(handle),
+                    None,
+                    &args,
+                    return_reg_idx,
+                    None,
+                    None,
+                    None,
+                    false,
+                )?;
             }
             Value::BoundFunction { function, .. } => {
                 // Type args are currently ignored during call as Pleno uses erasure or they are just for checking
                 // If reification is needed, we'd pass them to call_function
                 self.call_function(
-                    function,
+                    *function.clone(),
                     None,
                     &args,
                     return_reg_idx,
@@ -4478,7 +4582,7 @@ impl VM {
             Value::Closure(state) => {
                 let borrowed = state.borrow();
                 self.call_function(
-                    borrowed.function,
+                    Value::Closure(state.clone()),
                     None,
                     &args,
                     return_reg_idx,
@@ -4515,7 +4619,7 @@ impl VM {
                 ..
             } => {
                 self.call_function(
-                    function,
+                    *function.clone(),
                     Some(*receiver.clone()),
                     &args,
                     return_reg_idx,
@@ -4529,14 +4633,14 @@ impl VM {
                 function, owner, ..
             } => {
                 self.call_function(
-                    function,
+                    *function.clone(),
                     None,
                     &args,
                     return_reg_idx,
                     None,
                     None,
                     Some(owner),
-                    false,
+                    true,
                 )?;
             }
             Value::Class(class) => {
@@ -4548,7 +4652,7 @@ impl VM {
                 }
                 let object = self.gc.allocate(Object::new(Some(class.clone()), None));
                 let val = Value::Object(object.clone());
-                if let Some(handle) = class.borrow().constructor {
+                if let Some(handle) = class.borrow().constructor.clone() {
                     self.call_function(
                         handle,
                         Some(val.clone()),
@@ -4574,7 +4678,7 @@ impl VM {
                     .gc
                     .allocate(Object::new(Some(class.clone()), Some(type_args.clone())));
                 let val = Value::Object(object.clone());
-                if let Some(handle) = class.borrow().constructor {
+                if let Some(handle) = class.borrow().constructor.clone() {
                     self.call_function(
                         handle,
                         Some(val.clone()),

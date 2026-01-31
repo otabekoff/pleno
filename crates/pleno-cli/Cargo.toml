@@ -4,6 +4,10 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
+[[bin]]
+name = "pleno"
+path = "src/main.rs"
+
 [dependencies]
 pleno-lexer = { workspace = true }
 pleno-parser = { workspace = true }

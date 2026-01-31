@@ -5,6 +5,18 @@ http://localhost:5173/pleno/specs/ is showing next page to introduction which is
 
 i++ ++i else if finallies
 
+Should we left unprefixed stuffs? or prefixed stuffs of variables and function names as is or should we use it or are they planned for later? Let's reconsider this and review each of them.
+
+Work on each crate and make the working and complete and doing their job fully.
+
+On commit check each of the crate, test, clippy, fmt, and more. build, build workspace, also do these in workspace level too.
+
+add cargo clippy to husky
+
+adding to x86, x64, both, arm, amd, and the other stuffs, appimage, .deb and more on release?
+
+publishing with certificates not to consided the programming language as virus and installing safely on mac, windows and linux.
+
 after doing output files creation, remove them, clean the project. or don't create at the project root. instead log texts should be in .logs folder.
 
 Debug mode, production mode logs for development.

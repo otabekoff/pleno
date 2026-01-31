@@ -1916,48 +1916,11 @@ test-framework = "^3.0.0"
 
 ---
 
-## 17. Tooling & CLI
-
-```bash
-# Run Pleno file
-pleno run script.pln
-
-# Run with arguments
-pleno run script.pln arg1 arg2
-
-# Compile to bytecode
-pleno compile main.pln --output main.plc
-
-# Type check without running
-pleno check main.pln
-
-# Format code
-pleno format src/
-
-# Lint code
-pleno lint src/
-
-# Start REPL
-pleno
-
-# Watch mode (auto-reload)
-pleno watch main.pln
-
-# Build optimized binary
-pleno build --release --output app
-
-# Generate documentation
-pleno doc --output docs/
-
-# Start Language Server (LSP)
-pleno lsp
-```
-
 ---
 
-## 18. Example Programs
+## 17. Example Programs
 
-### 18.1 Hello World
+### 17.1 Hello World
 
 ```pleno
 fn main() {
@@ -1967,7 +1930,7 @@ fn main() {
 main();
 ```
 
-### 18.2 Web Server
+### 17.2 Web Server
 
 ```pleno
 import { Server, Router } from "std:http";
@@ -1995,7 +1958,7 @@ server.listen(8080, fn() {
 });
 ```
 
-### 18.3 Todo CLI Application
+### 17.3 Todo CLI Application
 
 ```pleno
 import { File } from "std:io";
@@ -2097,21 +2060,21 @@ fn main(args: String[]) {
 
 ---
 
-## 19. Performance Features (Deferred for v2.0) ❌
+## 18. Performance Features (Deferred for v2.0) ❌
 *Note: Advanced performance features like JIT and advanced GC hints are planned for future releases.*
 
-### 19.1 JIT Compilation
+### 18.1 JIT Compilation
 - Hot path optimization
 - Automatic inlining of small functions
 - Dead code elimination
 
-### 19.2 Memory Management
+### 18.2 Memory Management
 - Generational garbage collection
 - Reference counting for immediate cleanup
 - Optional manual memory hints
 - Object pooling support
 
-### 19.3 Optimization Hints
+### 18.3 Optimization Hints
 
 ```pleno
 // Inline hint
@@ -2135,16 +2098,16 @@ fn criticalPath() {
 
 ---
 
-## 20. Security Features (Deferred) ❌
+## 19. Security Features (Deferred) ❌
 *Note: Sandboxing and advanced security features are planned for future releases.*
 
-### 20.1 Safe Defaults
+### 19.1 Safe Defaults
 - No implicit type coercion
 - Strict null checking
 - Bounds checking on arrays
 - Integer overflow detection
 
-### 20.2 Sandboxing
+### 19.2 Sandboxing
 
 ```pleno
 import { Sandbox } from "std:security";

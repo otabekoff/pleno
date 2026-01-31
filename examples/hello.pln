@@ -1,7 +1,5 @@
-let mut x: Int = 2 + 3 * 4;
-let y = -(x - 1);
-let ok = true;
-let message = "Hello, Pleno";
-print(message);
-print(x);
-print(y);
+fn main() {
+    print("Hello, World!");
+}
+
+main();

@@ -193,7 +193,7 @@ pub fn reflect_call_method(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Va
                 if let Some(method) = class_ref.methods.get(name) {
                     let bound = Value::BoundMethod {
                         receiver: Box::new(Value::Object(obj.clone())),
-                        function: method.function,
+                        function: Box::new(method.function.clone()),
                         owner: MethodOwner::Class(class.clone()),
                         visibility: method.visibility.clone(),
                     };
