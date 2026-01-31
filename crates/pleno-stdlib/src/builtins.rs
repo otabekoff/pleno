@@ -7,6 +7,14 @@ use std::collections::HashMap;
 use std::io::Write;
 use std::rc::Rc;
 
+fn native_to_string(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    let val = match args.get(0) {
+        Some(v) => v,
+        None => return Ok(Value::String(Rc::new("".to_string()))),
+    };
+    Ok(Value::String(Rc::new(val.to_string())))
+}
+
 fn native_int_parse(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
     let s = match args.get(1).or_else(|| args.first()) {
         Some(Value::String(s)) => s.as_str(),
@@ -596,6 +604,7 @@ pub fn resolve_builtin_method(ty: &str, name: &str) -> Option<pleno_value::Nativ
         ("Tuple", "iterator") => Some(native_tuple_iterator),
         ("Range", "iterator") => Some(native_range_iterator),
         ("Iterator", "next") => Some(native_iterator_next),
+        (_, "toString") => Some(native_to_string),
         _ => None,
     }
 }
@@ -927,12 +936,13 @@ fn native_string_repeat(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Valu
     Ok(Value::String(Rc::new(s.repeat(n))))
 }
 
-fn native_array_push(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+fn native_array_push(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
     let arr = match &args[0] {
         Value::Array(a) => a,
         _ => return Err(RuntimeError::new("expected array")),
     };
     arr.borrow().ensure_mutable()?;
+    vm.get_gc().track_allocation(std::mem::size_of::<Value>())?;
     arr.borrow_mut()
         .elements
         .push(args.get(1).cloned().unwrap_or(Value::Null));

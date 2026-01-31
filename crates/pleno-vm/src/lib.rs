@@ -39,6 +39,7 @@ pub struct VM {
     pub builtin_resolver: Option<fn(&str, &str) -> Option<NativeFunction>>,
     pub run_depths: Vec<usize>,
     pub current_named_args: HashMap<String, Value>,
+    pub instruction_count: u64,
 }
 
 #[derive(Debug, Clone)]
@@ -247,6 +248,13 @@ impl VMProvider for VM {
             .unwrap_or(0)
     }
 
+    fn get_max_instructions(&self) -> u64 {
+        self.sandbox_config
+            .as_ref()
+            .map(|c| c.max_instructions)
+            .unwrap_or(0)
+    }
+
     fn create_sandbox(
         &self,
         config: pleno_value::SandboxConfig,
@@ -295,7 +303,13 @@ impl VM {
             builtin_resolver: None,
             run_depths: Vec::new(),
             current_named_args: HashMap::new(),
+            instruction_count: 0,
         }
+    }
+
+    pub fn apply_config(&mut self, config: pleno_value::SandboxConfig) {
+        self.gc.max_bytes = config.max_memory;
+        self.sandbox_config = Some(config);
     }
 
     pub fn execute(&mut self, chunk: Chunk) -> Result<Value, RuntimeError> {
@@ -531,21 +545,63 @@ impl VM {
 
     fn run_until_internal(&mut self, depth: usize) -> Result<Value, RuntimeError> {
         loop {
-            let roots = VmRoots {
-                registers: &self.registers,
-                frames: &self.frames,
-                globals: &self.globals,
-                modules: &self.modules,
-                pending_tasks: &self.pending_tasks,
-                suspended_frames: &self.suspended_frames,
-                promises: &self.promises,
-                multi_waiters: &self.multi_waiters,
-            };
-            self.gc.maybe_collect(&[&roots]);
-
-            if self.frames.len() == depth {
-                return Ok(Value::Null);
+            match self.run_step(depth) {
+                Ok(Some(v)) => return Ok(v),
+                Ok(None) => continue,
+                Err(err) => {
+                    if err.handled {
+                        continue;
+                    }
+                    if err.message.contains("uncaught exception") {
+                        return Err(err);
+                    }
+                    let message = err.message.clone();
+                    let unwound = self.throw_runtime_error(&message);
+                    if unwound.handled {
+                        continue;
+                    }
+                    return Err(unwound);
+                }
             }
+        }
+    }
+
+    fn run_step(&mut self, depth: usize) -> Result<Option<Value>, RuntimeError> {
+        let roots = VmRoots {
+            registers: &self.registers,
+            frames: &self.frames,
+            globals: &self.globals,
+            modules: &self.modules,
+            pending_tasks: &self.pending_tasks,
+            suspended_frames: &self.suspended_frames,
+            promises: &self.promises,
+            multi_waiters: &self.multi_waiters,
+        };
+        self.gc.maybe_collect(&[&roots]);
+
+        if self.frames.len() == depth {
+            return Ok(Some(Value::Null));
+        }
+
+        loop {
+            self.instruction_count += 1;
+            if self.instruction_count % 100 == 0 {
+                if let Some(config) = &self.sandbox_config {
+                    if config.max_instructions > 0
+                        && self.instruction_count > config.max_instructions
+                    {
+                        return Err(
+                            self.throw_runtime_error("SandboxError: instruction limit exceeded")
+                        );
+                    }
+                    if config.max_memory > 0
+                        && self.gc.allocated_bytes > config.max_memory + self.gc.grace_bytes
+                    {
+                        return Err(self.throw_runtime_error("SandboxError: memory limit exceeded"));
+                    }
+                }
+            }
+
             let frame = self
                 .frames
                 .last_mut()
@@ -918,6 +974,7 @@ impl VM {
                                     self.throw_runtime_error("cannot modify immutable array")
                                 );
                             }
+                            self.gc.track_allocation(std::mem::size_of::<Value>())?;
                             array.borrow_mut().elements.push(value);
                         }
                         _ => return Err(RuntimeError::new("array append expects array")),
@@ -989,6 +1046,10 @@ impl VM {
                             if target.borrow().is_immutable {
                                 return Err(self.throw_runtime_error("cannot modify immutable map"));
                             }
+                            let source_len = source.borrow().entries.len();
+                            self.gc.track_allocation(
+                                source_len * (std::mem::size_of::<Value>() + 16),
+                            )?; // 16 for approx key size
                             for (k, v) in source.borrow().entries.iter() {
                                 target.borrow_mut().entries.insert(k.clone(), v.clone());
                             }
@@ -1037,6 +1098,9 @@ impl VM {
                     let value = self.registers[base + b].clone();
                     match (&self.registers[base + a], value) {
                         (Value::Array(target), Value::Array(source)) => {
+                            let source_len = source.borrow().elements.len();
+                            self.gc
+                                .track_allocation(source_len * std::mem::size_of::<Value>())?;
                             target
                                 .borrow_mut()
                                 .elements
@@ -1067,6 +1131,8 @@ impl VM {
                                     self.throw_runtime_error("cannot modify immutable object")
                                 );
                             }
+                            self.gc
+                                .track_allocation(std::mem::size_of::<Value>() + name.len())?;
                             object.borrow_mut().fields.insert(name, value);
                         }
                         _ => return Err(RuntimeError::new("field set on non-object value")),
@@ -1244,7 +1310,7 @@ impl VM {
                                             await_reg: a,
                                         },
                                     );
-                                    return Ok(Value::Null); // Suspend
+                                    return Ok(Some(Value::Null)); // Suspend
                                 }
                                 Some(Value::String(s)) if s.as_str() == "Resolved" => {
                                     let val =
@@ -1349,6 +1415,8 @@ impl VM {
                             if map.borrow().is_immutable {
                                 return Err(self.throw_runtime_error("cannot modify immutable map"));
                             }
+                            self.gc
+                                .track_allocation(std::mem::size_of::<Value>() + name.len())?;
                             map.borrow_mut().insert(name, value);
                         }
                         Value::Object(object) => {
@@ -2248,6 +2316,8 @@ impl VM {
                             if map.borrow().is_immutable {
                                 return Err(self.throw_runtime_error("cannot modify immutable map"));
                             }
+                            self.gc
+                                .track_allocation(std::mem::size_of::<Value>() + key.len())?;
                             map.borrow_mut()
                                 .entries
                                 .insert(key.as_str().to_string(), value);
@@ -2541,7 +2611,7 @@ impl VM {
                     }
 
                     if self.frames.len() == depth {
-                        return Ok(result);
+                        return Ok(Some(result));
                     }
 
                     if !function_is_async {
@@ -3746,11 +3816,10 @@ impl VM {
                     }
                 }
             }
+            return Ok(None);
         }
     }
-}
 
-impl VM {
     pub fn is_instance(&self, value: &Value, type_val: &Value) -> bool {
         match type_val {
             Value::String(s) => {
@@ -4552,14 +4621,31 @@ impl VM {
     }
 
     fn throw_runtime_error(&mut self, message: &str) -> RuntimeError {
+        // Provide a small grace buffer for error handling if we hit memory limits
+        if self.gc.max_bytes > 0 && self.gc.grace_bytes == 0 {
+            self.gc.grace_bytes = 64 * 1024; // 64KB grace for emergency handling
+        }
+
         let mut map = HashMap::new();
         map.insert(
             "message".to_string(),
             Value::String(Rc::new(message.to_string())),
         );
-        let error_val = match self.gc.allocate(MapState::new(map)) {
+        map.insert(
+            "peakMemory".to_string(),
+            Value::Int(self.gc.peak_bytes as i64),
+        );
+        map.insert(
+            "instructions".to_string(),
+            Value::Int(self.instruction_count as i64),
+        );
+        let error_val = match self.gc.allocate(MapState::new(map.clone())) {
             Ok(v) => Value::Map(v),
-            Err(e) => return e,
+            Err(_) => {
+                // If allocation still fails, try allocating WITHOUT tracking
+                // to ensure the exception can be thrown and caught.
+                Value::Map(self.gc.gc.allocate(MapState::new(map)))
+            }
         };
         match self.unwind_to_handler(error_val) {
             Ok(_) => unreachable!("unwind_to_handler should always return Err"),

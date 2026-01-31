@@ -1044,6 +1044,7 @@ dependencies = [
  "pleno-parser",
  "pleno-repl",
  "pleno-stdlib",
+ "pleno-value",
  "pleno-vm",
 ]
 

@@ -31,6 +31,9 @@ pub trait VMProvider {
     fn get_max_memory(&self) -> usize {
         0 // 0 means unlimited
     }
+    fn get_max_instructions(&self) -> u64 {
+        0 // 0 means unlimited
+    }
     // Added for sandboxing
     fn create_sandbox(
         &self,
@@ -45,6 +48,7 @@ pub struct SandboxConfig {
     pub allow_io: bool,
     pub allow_network: bool,
     pub max_memory: usize,
+    pub max_instructions: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -418,6 +422,10 @@ impl GcObject for ArrayState {
     fn clear_refs(&mut self) {
         self.elements.clear();
     }
+
+    fn byte_size(&self) -> usize {
+        std::mem::size_of::<Self>() + self.elements.len() * std::mem::size_of::<Value>()
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -436,6 +444,12 @@ impl GcObject for MapState {
     fn clear_refs(&mut self) {
         self.entries.clear();
     }
+
+    fn byte_size(&self) -> usize {
+        // Rough estimate for HashMap: entries * (size_of String + size_of Value)
+        std::mem::size_of::<Self>()
+            + self.entries.len() * (std::mem::size_of::<String>() + std::mem::size_of::<Value>())
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -448,6 +462,10 @@ impl GcObject for SetState {
     fn mark(&self, _gc: &mut MarkAndSweepGC) {}
     fn clear_refs(&mut self) {
         self.elements.clear();
+    }
+
+    fn byte_size(&self) -> usize {
+        std::mem::size_of::<Self>() + self.elements.len() * std::mem::size_of::<ValueKey>()
     }
 }
 
@@ -1290,6 +1308,11 @@ impl GcObject for Object {
         self.class = None;
         self.fields.clear();
     }
+
+    fn byte_size(&self) -> usize {
+        std::mem::size_of::<Self>()
+            + self.fields.len() * (std::mem::size_of::<String>() + std::mem::size_of::<Value>())
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1313,6 +1336,10 @@ impl GcObject for TupleState {
 
     fn clear_refs(&mut self) {
         self.elements.clear();
+    }
+
+    fn byte_size(&self) -> usize {
+        std::mem::size_of::<Self>() + self.elements.len() * std::mem::size_of::<Value>()
     }
 }
 
