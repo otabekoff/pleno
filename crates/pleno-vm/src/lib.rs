@@ -2190,10 +2190,6 @@ impl VM {
                     }
                 }
                 Opcode::GetGlobal => {
-                    println!("DEBUG: GetGlobal constant index: {}", b);
-                    use std::io::Write;
-                    std::io::stdout().flush().unwrap();
-
                     if b >= function.chunk.constants.len() {
                         return Err(RuntimeError::new(format!(
                             "global constant index {} out of bounds (len: {})",
@@ -2206,11 +2202,7 @@ impl VM {
                         Value::String(value) => value.as_str().to_string(),
                         _ => return Err(RuntimeError::new("global name must be string")),
                     };
-                    println!("DEBUG: GetGlobal lookup: '{}'", name);
-                    std::io::stdout().flush().unwrap();
                     let value = self.globals.get(&name).cloned().unwrap_or(Value::Null);
-                    println!("DEBUG: GetGlobal value for '{}': {:?}", name, value);
-                    std::io::stdout().flush().unwrap();
                     self.registers[base + a] = value;
                 }
                 Opcode::SetGlobal => {
