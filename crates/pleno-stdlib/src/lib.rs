@@ -307,14 +307,33 @@ pub fn register(vm: &mut dyn VMProvider) {
         "notEqual".to_string(),
         Value::NativeFunction(test::assert_not_equal),
     );
-    assert_obj.insert("true".to_string(), Value::NativeFunction(test::assert_true));
     assert_obj.insert(
-        "false".to_string(),
+        "isTrue".to_string(),
+        Value::NativeFunction(test::assert_true),
+    );
+    assert_obj.insert(
+        "isFalse".to_string(),
         Value::NativeFunction(test::assert_false),
     );
     assert_obj.insert(
         "throws".to_string(),
         Value::NativeFunction(test::assert_throws),
+    );
+    assert_obj.insert(
+        "isNull".to_string(),
+        Value::NativeFunction(test::assert_null),
+    );
+    assert_obj.insert(
+        "notNull".to_string(),
+        Value::NativeFunction(test::assert_not_null),
+    );
+    assert_obj.insert(
+        "contains".to_string(),
+        Value::NativeFunction(test::assert_contains),
+    );
+    assert_obj.insert(
+        "lengthOf".to_string(),
+        Value::NativeFunction(test::assert_length_of),
     );
 
     let mut test_module = HashMap::new();

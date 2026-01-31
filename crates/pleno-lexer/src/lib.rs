@@ -501,10 +501,8 @@ fn lex_string(
             return Ok((value, idx + 1));
         }
 
-        if ch == '"' {
-            if brace_depth > 0 {
-                in_quote = !in_quote;
-            }
+        if ch == '"' && brace_depth > 0 {
+            in_quote = !in_quote;
         }
 
         if !in_quote {
