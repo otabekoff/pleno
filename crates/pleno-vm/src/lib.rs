@@ -54,8 +54,8 @@ pub struct Function {
 impl VMProvider for VM {
     fn call(&mut self, callee: Value, args: Vec<Value>) -> Result<Value, RuntimeError> {
         let return_reg = self.registers.len();
-        self.registers.push(Value::Null); // Placeholder for return value
-
+        // Execute until the callee frame returns
+        let depth = self.frames.len();
         match callee {
             Value::Function(handle) => {
                 self.call_function(handle, None, &args, return_reg, None, None, None, false)?;
@@ -91,32 +91,21 @@ impl VMProvider for VM {
                 )?;
             }
             Value::NativeFunction(f) => {
-                return f(self, &args);
+                let result = f(self, &args)?;
+                self.registers[return_reg] = result;
+                return Ok(self.registers[return_reg].clone());
             }
             Value::BoundNativeMethod { receiver, function } => {
                 let mut final_args = vec![*receiver.clone()];
                 final_args.extend(args);
-                return function(self, &final_args);
-            }
-            Value::Map(map) => {
-                let callable = map.borrow().get("__call__").cloned();
-                if let Some(callable) = callable {
-                    return self.call(callable, args);
-                } else {
-                    return Err(RuntimeError::new("value is not callable"));
-                }
+                let result = function(self, &final_args)?;
+                self.registers[return_reg] = result;
+                return Ok(self.registers[return_reg].clone());
             }
             _ => return Err(RuntimeError::new("value is not callable")),
         }
 
-        // Execute until the callee frame returns
-        let depth = self.frames.len() - 1;
         let result = self.run_until(depth)?;
-
-        // The result of run_until(depth) is the last value returned?
-        // Actually run_until returns the final result if depth is 0,
-        // but if it's a nested call, we might need to be careful.
-        // Let's check run_until implementation.
         Ok(result)
     }
 
@@ -260,6 +249,7 @@ impl VM {
 
     pub fn execute(&mut self, chunk: Chunk) -> Result<Value, RuntimeError> {
         let register_count = chunk.max_registers;
+
         let function = Function {
             name: Rc::new("<script>".to_string()),
             chunk,
@@ -271,10 +261,12 @@ impl VM {
             type_params: Vec::new(),
             params: Vec::new(),
         };
+
         let func_index = self.functions.len();
         self.functions.push(function);
 
         self.registers.clear();
+
         self.registers
             .extend(std::iter::repeat_n(Value::Null, register_count));
 
@@ -336,7 +328,10 @@ impl VM {
                 if let Some(cached) = state.borrow().value.clone() {
                     return Ok(cached);
                 }
-                let callable = state.borrow().callable.clone();
+                let (callable,) = {
+                    let s = state.borrow();
+                    (s.callable.clone(),)
+                };
                 let result = self.call(callable, Vec::new())?;
                 state.borrow_mut().value = Some(result.clone());
                 Ok(result)
@@ -511,9 +506,9 @@ impl VM {
                 return Err(RuntimeError::new("instruction pointer out of bounds"));
             }
             let instruction = function.chunk.code[frame.ip];
+            let opcode = instruction.opcode();
             frame.ip += 1;
 
-            let opcode = instruction.opcode();
             let a = instruction.a() as usize;
             let b = instruction.b() as usize;
             let c = instruction.c() as usize;
@@ -721,7 +716,7 @@ impl VM {
                 }
                 Opcode::LoadCapture => {
                     let idx = b;
-                    if let Some(state) = &frame.closure_state {
+                    if let Some(state) = frame.closure_state.as_ref().cloned() {
                         let state = state.borrow();
                         if idx >= state.captures.len() {
                             return Err(RuntimeError::new("capture index out of bounds"));
@@ -739,7 +734,7 @@ impl VM {
                     }
                     let idx = b;
                     let value = self.registers[base + a].clone();
-                    if let Some(state) = &frame.closure_state {
+                    if let Some(state) = frame.closure_state.as_ref().cloned() {
                         let mut state = state.borrow_mut();
                         if idx >= state.captures.len() {
                             return Err(RuntimeError::new("capture index out of bounds"));
@@ -748,6 +743,37 @@ impl VM {
                     } else {
                         return Err(RuntimeError::new("not in a closure"));
                     }
+                }
+                Opcode::MakeCell => {
+                    let value = self.registers[base + b].clone();
+                    let cell = self.gc.allocate(pleno_value::CellState::new(value));
+                    self.registers[base + a] = Value::Cell(cell);
+                }
+                Opcode::LoadCell => {
+                    let val = if let Value::Cell(cell) = &self.registers[base + b] {
+                        cell.borrow().value.clone()
+                    } else {
+                        return Err(RuntimeError::new("LoadCell from non-cell value"));
+                    };
+                    self.registers[base + a] = val;
+                }
+                Opcode::SetCell => {
+                    let value = self.registers[base + b].clone();
+                    if let Value::Cell(cell) = &self.registers[base + a] {
+                        cell.borrow_mut().value = value;
+                    } else {
+                        return Err(RuntimeError::new("SetCell on non-cell value"));
+                    }
+                }
+                Opcode::MakeThunk => {
+                    let callable = self.registers[base + b].clone();
+                    let thunk = self.gc.allocate(ThunkState::new(callable));
+                    self.registers[base + a] = Value::Thunk(thunk);
+                }
+                Opcode::ForceThunk => {
+                    let value = self.registers[base + b].clone();
+                    let forced = self.force_thunk(value)?;
+                    self.registers[base + a] = forced;
                 }
                 Opcode::BuildRange => {
                     let start = expect_int_or_null(&self.registers[base + b])?;
@@ -2164,11 +2190,27 @@ impl VM {
                     }
                 }
                 Opcode::GetGlobal => {
+                    println!("DEBUG: GetGlobal constant index: {}", b);
+                    use std::io::Write;
+                    std::io::stdout().flush().unwrap();
+
+                    if b >= function.chunk.constants.len() {
+                        return Err(RuntimeError::new(format!(
+                            "global constant index {} out of bounds (len: {})",
+                            b,
+                            function.chunk.constants.len()
+                        )));
+                    }
+
                     let name = match &function.chunk.constants[b] {
                         Value::String(value) => value.as_str().to_string(),
                         _ => return Err(RuntimeError::new("global name must be string")),
                     };
+                    println!("DEBUG: GetGlobal lookup: '{}'", name);
+                    std::io::stdout().flush().unwrap();
                     let value = self.globals.get(&name).cloned().unwrap_or(Value::Null);
+                    println!("DEBUG: GetGlobal value for '{}': {:?}", name, value);
+                    std::io::stdout().flush().unwrap();
                     self.registers[base + a] = value;
                 }
                 Opcode::SetGlobal => {
@@ -2213,6 +2255,7 @@ impl VM {
                         static_setters: HashMap::new(),
                         module: module.clone(),
                         is_abstract: false,
+                        is_pooled: false,
                         implements: Vec::new(),
                         type_params: Vec::new(),
                         type_constraints: HashMap::new(),
@@ -2872,6 +2915,11 @@ impl VM {
                     self.registers[base + a] = Value::Enum(enum_type);
                 }
                 Opcode::AddVariant => {
+                    if self.functions[frame.function_index].is_pure {
+                        return Err(self.throw_runtime_error(
+                            "pure function cannot have side effects (class mutation)",
+                        ));
+                    }
                     let enum_val = self.registers[base + a].clone();
                     let variant_name = match &function.chunk.constants[b] {
                         Value::String(s) => s.clone(),
@@ -2991,6 +3039,7 @@ impl VM {
                                         static_setters: HashMap::new(),
                                         module: None,
                                         is_abstract: false,
+                                        is_pooled: false,
                                         implements: Vec::new(),
                                         type_params: Vec::new(),
                                         type_constraints: HashMap::new(),
@@ -3063,16 +3112,6 @@ impl VM {
                     self.call_any_value(callee, args, base + a)?;
                 }
 
-                Opcode::MakeThunk => {
-                    let callable = self.registers[base + b].clone();
-                    let thunk = Value::Thunk(self.gc.allocate(ThunkState::new(callable)));
-                    self.registers[base + a] = thunk;
-                }
-                Opcode::ForceThunk => {
-                    let value = self.registers[base + b].clone();
-                    let forced = self.force_thunk(value)?;
-                    self.registers[base + a] = forced;
-                }
                 Opcode::CallNamed => {
                     let callee = self.registers[base + b].clone();
                     let wrapper = match &self.registers[base + c] {
@@ -3149,6 +3188,15 @@ impl VM {
                     let error_value = self.registers[base + a].clone();
                     self.unwind_to_handler(error_value)?;
                     continue;
+                }
+                Opcode::SetPooled => {
+                    let is_pooled = b != 0;
+                    match &self.registers[base + a] {
+                        Value::Class(class) => {
+                            class.borrow_mut().is_pooled = is_pooled;
+                        }
+                        _ => return Err(RuntimeError::new("SetPooled expects class")),
+                    }
                 }
                 Opcode::Slice => {
                     let collection = self.registers[base + b].clone();

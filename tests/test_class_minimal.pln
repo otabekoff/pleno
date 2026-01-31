@@ -1,0 +1,4 @@
+class A {
+    private static list = [];
+}
+print("Class with static field defined");

@@ -1,0 +1,11 @@
+// Boxed Capture Test
+print("--- Boxed Capture Test ---");
+let mut x = 10;
+let inc = () => {
+    x = x + 1;
+};
+print("Initial x: ", x);
+inc();
+print("After first inc: ", x);
+inc();
+print("After second inc: ", x);

@@ -359,9 +359,11 @@ fn run_file(path: &str) {
 
     let mut vm = pleno_vm::VM::new();
     pleno_stdlib::register(&mut vm);
-    match vm.execute(chunk) {
-        Ok(_) => {}
-        Err(err) => {
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| vm.execute(chunk)));
+
+    match result {
+        Ok(Ok(_)) => {}
+        Ok(Err(err)) => {
             if let Some(span) = err.span {
                 let diagnostic = pleno_diagnostics::Diagnostic::new(&err.message, span);
                 eprintln!(
@@ -370,7 +372,6 @@ fn run_file(path: &str) {
                 );
             } else {
                 eprintln!("Runtime error: {}", err.message);
-                eprintln!("DEBUG: Full error: {:?}", err);
             }
 
             if !err.stack_trace.is_empty() {
@@ -384,6 +385,10 @@ fn run_file(path: &str) {
                     }
                 }
             }
+            process::exit(1);
+        }
+        Err(e) => {
+            eprintln!("VM Panicked: {:?}", e);
             process::exit(1);
         }
     }
@@ -897,7 +902,6 @@ fn handle_plm_run(args: &mut std::iter::Peekable<std::iter::Skip<std::env::Args>
     match Manifest::load_from_file("pleno.toml") {
         Ok(manifest) => {
             if let Some(script) = manifest.scripts.get(&target) {
-                println!("> {}", script);
                 run_shell_script(script);
             } else {
                 eprintln!("Script '{}' not found in pleno.toml", target);
@@ -947,7 +951,6 @@ fn handle_run(target: &str) {
         match Manifest::load_from_file("pleno.toml") {
             Ok(manifest) => {
                 if let Some(script) = manifest.scripts.get(target) {
-                    println!("> {}", script);
                     run_shell_script(script);
                 } else {
                     eprintln!(

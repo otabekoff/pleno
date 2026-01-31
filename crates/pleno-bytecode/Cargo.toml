@@ -7,4 +7,5 @@ license.workspace = true
 [dependencies]
 pleno-value = { workspace = true }
 pleno-common = { workspace = true }
+pleno-ast = { workspace = true }
 serde = { workspace = true, features = ["derive"] }

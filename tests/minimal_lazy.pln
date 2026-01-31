@@ -1,0 +1,4 @@
+// Minimal Lazy Evaluation Test
+print("--- Minimal Lazy Test ---");
+let lazy x = 42;
+print("Lazy x forced: ", x);
