@@ -47,9 +47,10 @@ platform package managers and ecosystem tooling.
 
 ```
 pleno-<version>-<platform>/
-├── bin/        (pleno, plm, pleno-fmt, pleno-lsp)
-├── lib/        (stdlib)
-├── share/      (docs, man)
+├── pleno       (Main CLI)
+├── plm         (Package Manager)
+├── pleno-lsp   (Language Server)
+├── pleno-repl  (Interactive REPL)
 ├── LICENSE
 └── README.md
 ```

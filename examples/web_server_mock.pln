@@ -1,0 +1,26 @@
+import { Server, Router } from "std:http";
+
+let router = Router();
+
+router.get("/", fn(req, res) {
+    print("GET /");
+    res.send("Hello, Pleno!");
+});
+
+router.get("/users/:id", fn(req, res) {
+    let userId = req.params.id;
+    print("GET /users/" + userId);
+    res.json({ id: userId, name: "User " + userId });
+});
+
+router.post("/users", fn(req, res) {
+    let user = JSON.parse(req.body);
+    print("POST /users");
+    // Save user to database
+    res.status(201).json(user);
+});
+
+let server = Server(router);
+server.listen(8080, fn() {
+    print("Server running on port 8080");
+});

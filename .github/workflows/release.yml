@@ -3,89 +3,58 @@ name: Release
 on:
   push:
     tags:
-      - "v*"
-
-permissions:
-  contents: write
+      - 'v*'
 
 jobs:
-  build-and-release:
-    name: Release - ${{ matrix.platform.name }}
-    runs-on: ${{ matrix.platform.os }}
+  build:
+    name: Build for ${{ matrix.job.target }}
+    runs-on: ${{ matrix.job.os }}
     strategy:
       fail-fast: false
       matrix:
-        platform:
-          - name: Linux x86_64
-            os: ubuntu-latest
-            target: x86_64-unknown-linux-gnu
-            bin: pleno
-            name_suffix: linux-x86_64.tar.gz
-            command: build
-
-          - name: Windows x86_64
-            os: windows-latest
-            target: x86_64-pc-windows-msvc
-            bin: pleno.exe
-            name_suffix: windows-x86_64.zip
-            command: build
-
-          - name: macOS x86_64
-            os: macos-15
-            target: x86_64-apple-darwin
-            bin: pleno
-            name_suffix: macos-x86_64.tar.gz
-            command: build
-
-          - name: macOS ARM64
-            os: macos-latest
-            target: aarch64-apple-darwin
-            bin: pleno
-            name_suffix: macos-aarch64.tar.gz
-            command: build
+        job:
+          - { target: x86_64-unknown-linux-gnu, os: ubuntu-latest }
+          - { target: x86_64-apple-darwin, os: macos-latest }
+          - { target: aarch64-apple-darwin, os: macos-latest }
+          - { target: x86_64-pc-windows-msvc, os: windows-latest }
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Rust
+      - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.platform.target }}
+          targets: ${{ matrix.job.target }}
 
-      - name: Cache
+      - name: Rust Cache
         uses: Swatinem/rust-cache@v2
 
-      - name: Build Binary
-        run: cargo build --release --target ${{ matrix.platform.target }} -p pleno-cli
+      - name: Build
+        run: cargo build --release --workspace --target ${{ matrix.job.target }}
 
-      - name: Prepare Release Artifacts (Unix)
-        if: matrix.platform.os != 'windows-latest'
-        shell: bash
+      - name: Package (Unix)
+        if: runner.os != 'Windows'
         run: |
           mkdir -p dist
-          # Rename binary from pleno-cli to pleno
-          cp target/${{ matrix.platform.target }}/release/pleno-cli dist/${{ matrix.platform.bin }}
-          # Include README and LICENSE
-          cp README.md dist/
-          cp LICENSE dist/
+          cp target/${{ matrix.job.target }}/release/pleno dist/
+          cp target/${{ matrix.job.target }}/release/plm dist/
           cd dist
-          ls -R # Debugging: List contents
-          tar czf ../pleno-${{ github.ref_name }}-${{ matrix.platform.name_suffix }} *
+          tar -czf ../pleno-${{ github.ref_name }}-${{ matrix.job.target }}.tar.gz .
 
-      - name: Prepare Release Artifacts (Windows)
-        if: matrix.platform.os == 'windows-latest'
-        shell: pwsh
+      - name: Package (Windows)
+        if: runner.os == 'Windows'
         run: |
-          New-Item -ItemType Directory -Force -Path dist
-          # Rename binary from pleno-cli.exe to pleno.exe
-          Copy-Item "target/${{ matrix.platform.target }}/release/pleno-cli.exe" "dist/${{ matrix.platform.bin }}"
-          Copy-Item "README.md" "dist/"
-          Copy-Item "LICENSE" "dist/"
-          Get-ChildItem -Recurse dist # Debugging
-          Compress-Archive -Path "dist/*" -DestinationPath "pleno-${{ github.ref_name }}-${{ matrix.platform.name_suffix }}"
+          mkdir dist
+          copy target/${{ matrix.job.target }}/release/pleno.exe dist/
+          copy target/${{ matrix.job.target }}/release/plm.exe dist/
+          cd dist
+          Compress-Archive -Path * -DestinationPath ../pleno-${{ github.ref_name }}-${{ matrix.job.target }}.zip
 
-      - name: Upload Release Assets
-        uses: softprops/action-gh-release@v2
-        if: startsWith(github.ref, 'refs/tags/')
+      - name: Upload Release Artifacts
+        uses: softprops/action-gh-release@v1
         with:
-          files: pleno-${{ github.ref_name }}-${{ matrix.platform.name_suffix }}
+          files: |
+            pleno-${{ github.ref_name }}-${{ matrix.job.target }}.tar.gz
+            pleno-${{ github.ref_name }}-${{ matrix.job.target }}.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

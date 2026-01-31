@@ -12,14 +12,27 @@ Rust workspace for the Pleno programming language implementation.
 
 ## Quick Start
 
+### Installation
+
+For Linux and macOS:
 ```bash
-cargo run -p pleno-cli -- path/to/file.pln
+curl -fsSL https://raw.githubusercontent.com/otabekoff/pleno/main/scripts/install.sh | sh
+```
+
+### Usage
+
+```bash
+# Run a file
+pleno run path/to/file.pln
+
+# For contributors (running from source):
+cargo run --release -- path/to/file.pln
 ```
 
 ## Example
 
 ```bash
-cargo run -p pleno-cli -- examples/hello.pln
+pleno run examples/hello.pln
 ```
 
 ## Roadmap

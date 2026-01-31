@@ -42,11 +42,7 @@ pub fn run_pleno() {
             run_plm_core(&mut args);
         }
         "run" => {
-            let target = args.next().unwrap_or_else(|| {
-                eprintln!("Error: 'run' requires a file path or script name");
-                process::exit(1);
-            });
-            handle_run(&target);
+            handle_run(&mut args);
         }
         "format" => {
             let path = args.next().unwrap_or_else(|| {
@@ -903,45 +899,78 @@ fn handle_plm_publish(_args: &mut std::iter::Peekable<std::iter::Skip<std::env::
 }
 
 fn handle_build(args: &mut std::iter::Peekable<std::iter::Skip<std::env::Args>>) {
-    let target = args.next().unwrap_or_else(|| {
-        eprintln!("Error: 'build' requires a target (file or package)");
-        process::exit(1);
-    });
+    let target = args.next();
 
-    if target.ends_with(".pln") {
-        compile_file(&target);
-    } else {
-        if let Ok(manifest) = Manifest::load_from_file("package.pln") {
-            let entry = &manifest.package.main;
-            compile_file(entry);
-        } else {
-            eprintln!(
-                "Error: No package.pln found and '{}' is not a .pln file",
-                target
-            );
-            process::exit(1);
+    match target {
+        Some(t) if t.ends_with(".pln") => {
+            compile_file(&t);
+        }
+        Some(t) => {
+            if let Ok(manifest) = Manifest::load_from_file("package.pln") {
+                let entry = &manifest.package.main;
+                compile_file(entry);
+            } else {
+                eprintln!("Error: No package.pln found and '{}' is not a .pln file", t);
+                process::exit(1);
+            }
+        }
+        None => {
+            if let Ok(manifest) = Manifest::load_from_file("package.pln") {
+                let entry = &manifest.package.main;
+                compile_file(entry);
+            } else {
+                eprintln!(
+                    "Error: 'build' requires a target (file or package) and no package.pln found"
+                );
+                process::exit(1);
+            }
         }
     }
 }
 
-fn handle_run(target: &str) {
-    if target.ends_with(".pln") {
-        run_file(target);
-    } else {
-        match Manifest::load_from_file("package.pln") {
-            Ok(manifest) => {
-                let manager = pleno_package::PackageManager::new("packages");
-                if let Err(_e) = manager.run_script(&manifest, target) {
-                    eprintln!(
-                        "Script '{}' not found in package.pln, and file '{}' does not exist.",
-                        target, target
-                    );
-                    process::exit(1);
+fn handle_run(args: &mut std::iter::Peekable<std::iter::Skip<std::env::Args>>) {
+    let target = args.next();
+
+    match target {
+        Some(t) => {
+            if t.ends_with(".pln") {
+                run_file(&t);
+            } else {
+                match Manifest::load_from_file("package.pln") {
+                    Ok(manifest) => {
+                        let manager = pleno_package::PackageManager::new("packages");
+                        if let Err(_e) = manager.run_script(&manifest, &t) {
+                            eprintln!(
+                                "Script '{}' not found in package.pln, and file '{}' does not exist.",
+                                t, t
+                            );
+                            process::exit(1);
+                        }
+                    }
+                    Err(_) => {
+                        eprintln!("File '{}' not found.", t);
+                        process::exit(1);
+                    }
                 }
             }
-            Err(_) => {
-                eprintln!("File '{}' not found.", target);
-                process::exit(1);
+        }
+        None => {
+            match Manifest::load_from_file("package.pln") {
+                Ok(manifest) => {
+                    let manager = pleno_package::PackageManager::new("packages");
+                    // Default script to run if none provided? 'start' is a common default.
+                    let script = "start";
+                    if let Err(_e) = manager.run_script(&manifest, script) {
+                        eprintln!(
+                            "Error: No target provided and 'start' script not found in package.pln"
+                        );
+                        process::exit(1);
+                    }
+                }
+                Err(_) => {
+                    eprintln!("Error: 'run' requires a file path or script name");
+                    process::exit(1);
+                }
             }
         }
     }

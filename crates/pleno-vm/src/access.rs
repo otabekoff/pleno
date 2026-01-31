@@ -193,7 +193,7 @@ pub fn parse_method_info(
 ) -> Result<MethodInfo, RuntimeError> {
     match value {
         Value::Function(handle) => Ok(MethodInfo {
-            function: handle,
+            function: Value::Function(handle),
             visibility: MethodVisibility::Public,
             owner: owner.clone(),
             module: module.cloned(),
@@ -205,8 +205,13 @@ pub fn parse_method_info(
                 return Err(RuntimeError::new("method metadata must have 2 items"));
             }
             let handle = match &items[0] {
-                Value::Function(handle) => *handle,
-                _ => return Err(RuntimeError::new("method entry must be function")),
+                Value::Function(handle) => Value::Function(*handle),
+                Value::Closure(c) => Value::Closure(c.clone()),
+                _ => {
+                    return Err(RuntimeError::new(
+                        "method entry must be function or closure",
+                    ));
+                }
             };
             let visibility = match &items[1] {
                 Value::String(name) if name.as_str() == "public" => MethodVisibility::Public,

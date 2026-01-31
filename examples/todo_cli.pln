@@ -1,0 +1,101 @@
+import { File } from "std:io";
+import OS from "std:process";
+import { JSON } from "std:json";
+
+class Todo {
+    public title: String;
+    public completed: Bool = false;
+
+    constructor(title: String) {
+        this.title = title;
+    }
+}
+
+class TodoApp {
+    private todos: Array<Todo> = [];
+    private dbPath: String = "todos.json";
+
+    constructor() {
+        this.load();
+    }
+
+    public add(title: String) {
+        let todo = Todo(title);
+        this.todos.push(todo);
+        this.save();
+        print("Added todo: " + title);
+    }
+
+    public list() {
+        if (this.todos.isEmpty()) {
+            print("No todos yet!");
+            return;
+        }
+
+        print("\nYour Todo List:");
+        for i in 0..this.todos.length {
+            let todo = this.todos[i];
+            let status = if todo.completed { "[x]" } else { "[ ]" };
+            print(i + ". " + status + " " + todo.title);
+        }
+    }
+
+    public complete(index: Int) {
+        if (index >= 0 && index < this.todos.length) {
+            this.todos[index].completed = true;
+            this.save();
+            print("Completed todo: " + this.todos[index].title);
+        } else {
+            print("Invalid index: " + index);
+        }
+    }
+
+    private save() {
+        let data = JSON.stringify(this.todos);
+        File.write(this.dbPath, data);
+    }
+
+    private load() {
+        if (File.exists(this.dbPath)) {
+            let data = File.read(this.dbPath);
+            this.todos = JSON.parse(data);
+        }
+    }
+}
+
+fn main() {
+    let app = TodoApp();
+    let args = OS.args();
+    print("Args: " + args);
+
+    if (args.length < 3) {
+        print("Usage: pleno todo_cli.pln <command> [args]");
+        print("Commands: add, list, complete");
+        return;
+    }
+
+    let command = if args.length > 2 { args[2] } else { "" };
+
+    match command {
+        "add" => {
+            if (args.length < 4) {
+                print("Usage: add <title>");
+            } else {
+                let title = args[3..].join(" ");
+                app.add(title);
+            }
+        }
+        "list" => app.list(),
+        "complete" => {
+            if (args.length < 4) {
+                print("Usage: complete <index>");
+            } else {
+                let index = Int.parse(args[3]);
+                app.complete(index);
+            }
+        }
+        _ => print("Unknown command: " + command)
+    }
+}
+
+main();

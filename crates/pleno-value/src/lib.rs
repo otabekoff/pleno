@@ -97,12 +97,12 @@ pub enum Value {
     Function(usize),
     BoundMethod {
         receiver: Box<Value>,
-        function: usize,
+        function: Box<Value>,
         owner: MethodOwner,
         visibility: MethodVisibility,
     },
     StaticMethod {
-        function: usize,
+        function: Box<Value>,
         owner: MethodOwner,
         visibility: MethodVisibility,
     },
@@ -151,7 +151,7 @@ pub enum Value {
         type_args: Vec<Value>,
     },
     BoundFunction {
-        function: usize,
+        function: Box<Value>,
         type_args: Vec<Value>,
     },
     File(GcRc<FileState>),
@@ -307,7 +307,14 @@ impl GcObject for Value {
         match self {
             Value::Class(c) => gc.mark_object(&c.to_gc_object()),
             Value::Interface(i) => gc.mark_object(&i.to_gc_object()),
-            Value::BoundMethod { receiver, .. } => receiver.mark(gc),
+            Value::Function(_) => {}
+            Value::BoundMethod {
+                receiver, function, ..
+            } => {
+                receiver.mark(gc);
+                function.mark(gc);
+            }
+            Value::StaticMethod { function, .. } => function.mark(gc),
             Value::Closure(c) => gc.mark_object(&c.to_gc_object()),
             Value::Thunk(t) => gc.mark_object(&t.to_gc_object()),
             Value::BoundNativeMethod { receiver, .. } => receiver.mark(gc),
@@ -319,6 +326,15 @@ impl GcObject for Value {
                 callee.mark(gc);
                 for v in args {
                     v.mark(gc);
+                }
+            }
+            Value::BoundFunction {
+                function,
+                type_args,
+            } => {
+                function.mark(gc);
+                for arg in type_args {
+                    arg.mark(gc);
                 }
             }
             Value::ArrayOp { array, .. } => gc.mark_object(&array.to_gc_object()),
@@ -346,14 +362,6 @@ impl GcObject for Value {
                 type_args,
             } => {
                 gc.mark_object(&interface.to_gc_object());
-                for arg in type_args {
-                    arg.mark(gc);
-                }
-            }
-            Value::BoundFunction {
-                function: _, // usize, no marking needed
-                type_args,
-            } => {
                 for arg in type_args {
                     arg.mark(gc);
                 }
@@ -552,7 +560,7 @@ pub struct Class {
     pub methods: HashMap<String, MethodInfo>,
     pub static_methods: HashMap<String, MethodInfo>,
     pub operators: HashMap<String, MethodInfo>,
-    pub constructor: Option<usize>,
+    pub constructor: Option<Value>,
     #[serde(skip, default)]
     pub native_constructor: Option<NativeFunction>,
     pub superclass: Option<GcRc<Class>>,
@@ -682,7 +690,7 @@ impl MethodOwner {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MethodInfo {
-    pub function: usize,
+    pub function: Value,
     pub visibility: MethodVisibility,
     pub owner: MethodOwner,
     pub module: Option<Rc<String>>,

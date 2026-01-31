@@ -2483,11 +2483,6 @@ impl Compiler {
         instance_fields: Option<&[FieldDecl]>,
     ) -> Result<u8, CompileError> {
         let captures = self.analyze_captures(decl, is_method);
-        if store_as_function && !captures.is_empty() {
-            return Err(CompileError::new(
-                "class methods cannot capture outer variables yet",
-            ));
-        }
         let mut compiler = Compiler::new(String::new());
         compiler.is_top_level = false;
         compiler.locals = vec![HashMap::new()];
@@ -2628,7 +2623,7 @@ impl Compiler {
             annotations: runtime_annotations,
         });
         let dest = self.registers.allocate()?;
-        if store_as_function {
+        if store_as_function && captures.is_empty() {
             self.emit(Opcode::FunctionRef, dest, func_index as u8, 0);
         } else {
             let capture_count = captures.len() as u8;

@@ -9,7 +9,7 @@ There are multiple ways to install Pleno. The recommended way is to use the auto
 Run the following command in your terminal:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/otabekoff/pleno/main/tasks/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/otabekoff/pleno/main/scripts/install.sh | sh
 ```
 
 This script will:
@@ -38,10 +38,10 @@ If you prefer to install manually:
 
 1.  Go to the [Releases Page](https://github.com/otabekoff/pleno/releases).
 2.  Download the archive for your platform:
-    *   **Windows**: `pleno-vX.Y.Z-windows-x86_64.zip`
-    *   **Linux**: `pleno-vX.Y.Z-linux-x86_64.tar.gz`
-    *   **macOS (Intel)**: `pleno-vX.Y.Z-macos-x86_64.tar.gz`
-    *   **macOS (Apple Silicon)**: `pleno-vX.Y.Z-macos-aarch64.tar.gz`
+    *   **Windows**: `pleno-vX.Y.Z-x86_64-pc-windows-msvc.zip`
+    *   **Linux**: `pleno-vX.Y.Z-x86_64-unknown-linux-gnu.tar.gz`
+    *   **macOS (Intel)**: `pleno-vX.Y.Z-x86_64-apple-darwin.tar.gz`
+    *   **macOS (Apple Silicon)**: `pleno-vX.Y.Z-aarch64-apple-darwin.tar.gz`
 3.  Extract the archive.
 4.  Move the `pleno` binary to a folder in your system `PATH` (e.g., `/usr/local/bin` on Unix).
 
