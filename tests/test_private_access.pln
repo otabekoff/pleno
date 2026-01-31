@@ -1,0 +1,18 @@
+class Secret {
+    private key = "SUPER_SECRET";
+    
+    fn getKey() {
+        return this.key;
+    }
+}
+
+fn main() {
+    let s = Secret();
+    println("Getter: " + s.getKey());
+    try {
+        println("Direct: " + s.key);
+    } catch (e) {
+        println("Caught: " + e.message);
+    }
+}
+main();

@@ -1,0 +1,9 @@
+import HTTP from "std:http";
+
+println("Starting Network test...");
+try {
+    let response = HTTP.get("https://google.com");
+    println("Success? Network should have been denied.");
+} catch (e) {
+    println("Caught: " + e.message);
+}

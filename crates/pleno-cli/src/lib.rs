@@ -109,7 +109,7 @@ pub fn run_pleno() {
             handle_doc(path.as_deref(), output.as_deref());
         }
         _ => {
-            run_file(&command);
+            run_file(&command, None);
         }
     }
 }
@@ -167,8 +167,12 @@ pub fn print_help() {
           remove <name>      Remove a dependency\n\
           run <script>       Run a script defined in package.pln\n\n\
         Options:\n\
-          -h, --help         Show this help message\n\
-          -v, --version      Show version information\n\n\
+          -h, --help                Show this help message\n\
+          -v, --version             Show version information\n\
+          --max-memory <bytes>      Set memory limit in bytes\n\
+          --max-instructions <num> Set instruction count limit\n\
+          --allow-io <bool>         Enable/disable IO access\n\
+          --allow-network <bool>    Enable/disable network access\n\n\
         Examples:\n\
           pleno run main.pln\n\
           pleno plm install\n\
@@ -347,7 +351,7 @@ fn debug_ast(path: &str) {
     }
 }
 
-fn run_file(path: &str) {
+fn run_file(path: &str, config: Option<pleno_value::SandboxConfig>) {
     if !path.ends_with(".pln") {
         eprintln!("Error: Only .pln format file extensions are supported");
         process::exit(1);
@@ -395,6 +399,9 @@ fn run_file(path: &str) {
     };
 
     let mut vm = pleno_vm::VM::new();
+    if let Some(cfg) = config {
+        vm.apply_config(cfg);
+    }
     pleno_stdlib::register(&mut vm);
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| vm.execute(chunk)));
 
@@ -620,7 +627,7 @@ fn watch_file(path: &str) {
         eprintln!("Error: Only .pln format file extensions are supported");
         process::exit(1);
     }
-    run_file(&path.to_string_lossy());
+    run_file(&path.to_string_lossy(), None);
 
     let (tx, rx) = channel();
     let mut watcher: RecommendedWatcher = Watcher::new(tx, Config::default()).unwrap();
@@ -642,7 +649,7 @@ fn watch_file(path: &str) {
                 while rx.try_recv().is_ok() {}
                 print!("\x1B[2J\x1B[1;1H"); // Clear screen
                 println!("File changed. Re-running...");
-                run_file(&path.to_string_lossy());
+                run_file(&path.to_string_lossy(), None);
             }
             Ok(Err(e)) => println!("watch error: {:?}", e),
             Err(e) => println!("watch error: {:?}", e),
@@ -929,12 +936,54 @@ fn handle_build(args: &mut std::iter::Peekable<std::iter::Skip<std::env::Args>>)
 }
 
 fn handle_run(args: &mut std::iter::Peekable<std::iter::Skip<std::env::Args>>) {
-    let target = args.next();
+    let mut target = None;
+    let mut max_memory = 0;
+    let mut max_instructions = 0;
+    let mut allow_io = true;
+    let mut allow_network = true;
+    let mut sandbox_active = false;
+
+    while let Some(arg) = args.next() {
+        if arg == "--max-memory" {
+            if let Some(m) = args.next() {
+                max_memory = m.parse::<usize>().unwrap_or(0);
+                sandbox_active = true;
+            }
+        } else if arg == "--max-instructions" {
+            if let Some(m) = args.next() {
+                max_instructions = m.parse::<u64>().unwrap_or(0);
+                sandbox_active = true;
+            }
+        } else if arg == "--allow-io" {
+            if let Some(m) = args.next() {
+                allow_io = m.parse::<bool>().unwrap_or(true);
+                sandbox_active = true;
+            }
+        } else if arg == "--allow-network" {
+            if let Some(m) = args.next() {
+                allow_network = m.parse::<bool>().unwrap_or(true);
+                sandbox_active = true;
+            }
+        } else if target.is_none() {
+            target = Some(arg);
+        }
+    }
 
     match target {
         Some(t) => {
+            let config = if sandbox_active {
+                Some(pleno_value::SandboxConfig {
+                    max_memory,
+                    max_instructions,
+                    allow_io,
+                    allow_network,
+                })
+            } else {
+                None
+            };
+
             if t.ends_with(".pln") {
-                run_file(&t);
+                run_file(&t, config);
             } else {
                 match Manifest::load_from_file("package.pln") {
                     Ok(manifest) => {

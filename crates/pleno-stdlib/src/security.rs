@@ -18,6 +18,9 @@ pub fn sandbox_new(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, Run
         if let Some(Value::Int(limit)) = borrowed.entries.get("maxMemory") {
             config.max_memory = *limit as usize;
         }
+        if let Some(Value::Int(limit)) = borrowed.entries.get("maxInstructions") {
+            config.max_instructions = *limit as u64;
+        }
     }
 
     // Create the sandbox object
@@ -30,6 +33,10 @@ pub fn sandbox_new(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, Run
     sandbox_data.insert(
         "_maxMemory".to_string(),
         Value::Int(config.max_memory as i64),
+    );
+    sandbox_data.insert(
+        "_maxInstructions".to_string(),
+        Value::Int(config.max_instructions as i64),
     );
 
     let gc = vm.get_gc();
@@ -58,15 +65,23 @@ pub fn sandbox_run(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, Run
         .ok_or_else(|| RuntimeError::new("Sandbox.run expects a function"))?;
 
     let mut allow_io = false;
+    let mut allow_network = false;
     let mut max_memory = 0;
+    let mut max_instructions = 0;
 
     if let Value::Map(map) = receiver {
         let borrowed = map.borrow();
         if let Some(Value::Bool(v)) = borrowed.entries.get("_allowIO") {
             allow_io = *v;
         }
+        if let Some(Value::Bool(v)) = borrowed.entries.get("_allowNetwork") {
+            allow_network = *v;
+        }
         if let Some(Value::Int(v)) = borrowed.entries.get("_maxMemory") {
             max_memory = *v as usize;
+        }
+        if let Some(Value::Int(v)) = borrowed.entries.get("_maxInstructions") {
+            max_instructions = *v as u64;
         }
     } else {
         return Err(RuntimeError::new(
@@ -76,8 +91,9 @@ pub fn sandbox_run(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, Run
 
     let config = SandboxConfig {
         allow_io,
-        allow_network: false,
+        allow_network,
         max_memory,
+        max_instructions,
     };
 
     // Create Sandbox using VMProvider trait

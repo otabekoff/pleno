@@ -1,0 +1,16 @@
+// test_memory_limit.pln
+fn main() {
+    println("Starting memory test...");
+    let arr = [];
+    try {
+        for (i in 0..1000000) {
+            arr.push(i);
+        }
+        println("Success? This should have failed.");
+    } catch (e) {
+        println("Caught: " + e.message);
+        println("Peak Memory: " + e.peakMemory.toString());
+        println("Instructions: " + e.instructions.toString());
+    }
+}
+main();

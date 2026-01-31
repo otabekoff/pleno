@@ -21,5 +21,6 @@ pleno-lsp = { workspace = true }
 pleno-repl = { workspace = true }
 pleno-linter = { workspace = true }
 pleno-doc = { workspace = true }
+pleno-value = { workspace = true }
 notify = "6"
 bincode = "1"
