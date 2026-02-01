@@ -16,6 +16,17 @@ pub struct ParseError {
     pub hint: Option<String>,
 }
 
+impl pleno_diagnostics::ToDiagnostic for ParseError {
+    fn to_diagnostic(&self) -> pleno_diagnostics::Diagnostic {
+        let mut diagnostic =
+            pleno_diagnostics::Diagnostic::error(&self.message).with_label(self.span, "");
+        if let Some(hint) = &self.hint {
+            diagnostic = diagnostic.with_note(hint);
+        }
+        diagnostic
+    }
+}
+
 pub struct Parser {
     tokens: Vec<Token>,
     comments: Vec<Comment>,
@@ -1066,12 +1077,14 @@ impl Parser {
                 break;
             }
 
-            let variant_name = match self.advance().kind.clone() {
+            let variant_token = self.advance().clone();
+            let variant_start = variant_token.span.start;
+            let variant_name = match variant_token.kind {
                 TokenKind::Ident(value) => value,
                 other => {
                     return Err(self.error(
                         format!("Expected variant name, found {other:?}"),
-                        self.previous_span(),
+                        variant_token.span,
                     ));
                 }
             };
@@ -1080,12 +1093,14 @@ impl Parser {
             let params = if self.matches(&TokenKind::LParen) {
                 let mut params = Vec::new();
                 while !self.check(&TokenKind::RParen) && !self.is_at_end() {
-                    let param_name = match self.advance().kind.clone() {
+                    let param_name_token = self.advance().clone();
+                    let param_name_start = param_name_token.span.start;
+                    let param_name = match param_name_token.kind {
                         TokenKind::Ident(value) => value,
                         other => {
                             return Err(self.error(
                                 format!("Expected parameter name, found {other:?}"),
-                                self.previous_span(),
+                                param_name_token.span,
                             ));
                         }
                     };
@@ -1094,7 +1109,10 @@ impl Parser {
                     } else {
                         None
                     };
+                    let param_end = self.previous_span().end;
+                    let param_span = Span::new(param_name_start, param_end);
                     params.push(pleno_ast::Param {
+                        span: param_span,
                         name: param_name,
                         ty,
                         default: None,
@@ -1112,10 +1130,13 @@ impl Parser {
                 None
             };
 
+            let variant_end = self.previous_span().end;
+            let variant_span = Span::new(variant_start, variant_end);
             variants.push(pleno_ast::EnumVariant {
+                span: variant_span,
                 name: variant_name,
                 params,
-                doc: None, // Variants don't have separate doc capture yet
+                doc: None,
             });
 
             // Allow trailing comma
@@ -1580,7 +1601,9 @@ impl Parser {
                     None
                 };
                 let body = Box::new(self.parse_block_stmt()?);
+                let method_span = Span::new(self.peek().span.start, self.previous_span().end);
                 methods.push(pleno_ast::FunctionDecl {
+                    span: method_span,
                     name: format!("operator{}", op_symbol),
                     generics: Vec::new(),
                     params,
@@ -1708,7 +1731,9 @@ impl Parser {
                 let params = self.parse_param_list()?;
                 self.expect(TokenKind::RParen, "Expected ')' after parameters")?;
                 let body = Box::new(self.parse_block_stmt()?);
+                let constructor_span = Span::new(self.peek().span.start, self.previous_span().end);
                 methods.push(pleno_ast::FunctionDecl {
+                    span: constructor_span,
                     name,
                     generics: Vec::new(),
                     params,
@@ -1747,7 +1772,9 @@ impl Parser {
             };
 
             self.expect(TokenKind::Semicolon, "Expected ';' after field declaration")?;
+            let field_span = Span::new(self.peek().span.start, self.previous_span().end);
             fields.push(pleno_ast::FieldDecl {
+                span: field_span,
                 name,
                 ty,
                 default,
@@ -1827,7 +1854,9 @@ impl Parser {
                 } else {
                     Box::new(self.parse_block_stmt()?)
                 };
+                let getter_span = Span::new(self.peek().span.start, self.previous_span().end);
                 getter = Some(pleno_ast::FunctionDecl {
+                    span: getter_span,
                     name: format!("get_{}", name),
                     generics: Vec::new(),
                     params: Vec::new(),
@@ -1865,10 +1894,13 @@ impl Parser {
                 } else {
                     Box::new(self.parse_block_stmt()?)
                 };
+                let setter_span = Span::new(self.peek().span.start, self.previous_span().end);
                 setter = Some(pleno_ast::FunctionDecl {
+                    span: setter_span,
                     name: format!("set_{}", name),
                     generics: Vec::new(),
                     params: vec![pleno_ast::Param {
+                        span: Span::new(self.peek().span.start, self.previous_span().end), // Approx span for param
                         name: param_name,
                         ty: ty.clone(),
                         default: None,
@@ -1899,7 +1931,9 @@ impl Parser {
 
         self.expect(TokenKind::RBrace, "Expected '}' after property body")?;
 
+        let prop_span = Span::new(self.peek().span.start, self.previous_span().end);
         Ok(pleno_ast::PropertyDecl {
+            span: prop_span,
             name,
             ty,
             getter,
@@ -1970,7 +2004,9 @@ impl Parser {
         if consume_fn {
             self.advance();
         }
-        let name = match self.advance().kind.clone() {
+        let name_token = self.advance().clone();
+        let name_start = name_token.span.start;
+        let name = match name_token.kind {
             TokenKind::Ident(name) => name,
             TokenKind::KeywordMatch => "match".to_string(),
             TokenKind::KeywordGet => "get".to_string(),
@@ -1978,7 +2014,7 @@ impl Parser {
             other => {
                 return Err(self.error(
                     format!("Expected function name, found {other:?}"),
-                    self.previous_span(),
+                    name_token.span,
                 ));
             }
         };
@@ -1994,14 +2030,16 @@ impl Parser {
 
         let body = if config.is_abstract {
             self.expect(TokenKind::Semicolon, "Expected ';' after abstract function")?;
-            Box::new(self.wrap_stmt(StmtKind::Block(Vec::new()), self.previous_span()))
+            let span = self.previous_span();
+            Box::new(self.wrap_stmt(StmtKind::Block(Vec::new()), span))
         } else if self.matches(&TokenKind::FatArrow) {
             let expr = self.parse_expr()?;
             self.expect(
                 TokenKind::Semicolon,
                 "Expected ';' after shorthand function body",
             )?;
-            Box::new(self.wrap_stmt(StmtKind::Return(Some(expr)), self.previous_span()))
+            let span = self.previous_span();
+            Box::new(self.wrap_stmt(StmtKind::Return(Some(expr)), span))
         } else {
             Box::new(self.parse_block_stmt()?)
         };
@@ -2017,7 +2055,10 @@ impl Parser {
             }
             (None, false)
         };
+        let decl_end = self.previous_span().end;
+        let decl_span = Span::new(name_start, decl_end);
         Ok(pleno_ast::FunctionDecl {
+            span: decl_span,
             name,
             generics,
             params,
@@ -2042,13 +2083,15 @@ impl Parser {
         annotations: Vec<pleno_ast::Annotation>,
         doc: Option<String>,
     ) -> Result<pleno_ast::FunctionDecl, ParseError> {
-        self.advance();
-        let name = match self.advance().kind.clone() {
+        let accessor_token = self.advance().clone(); // get/set
+        let accessor_start = accessor_token.span.start;
+        let name_token = self.advance().clone();
+        let name = match name_token.kind {
             TokenKind::Ident(value) => value,
             other => {
                 return Err(self.error(
                     format!("Expected accessor name, found {other:?}"),
-                    self.previous_span(),
+                    name_token.span,
                 ));
             }
         };
@@ -2072,11 +2115,15 @@ impl Parser {
         }
         let body = if is_abstract && !self.check(&TokenKind::LBrace) {
             self.expect(TokenKind::Semicolon, "Expected ';' after abstract accessor")?;
-            Box::new(self.wrap_stmt(StmtKind::Block(Vec::new()), self.previous_span()))
+            let span = self.previous_span();
+            Box::new(self.wrap_stmt(StmtKind::Block(Vec::new()), span))
         } else {
             Box::new(self.parse_block_stmt()?)
         };
+        let decl_end = self.previous_span().end;
+        let decl_span = Span::new(accessor_start, decl_end);
         Ok(pleno_ast::FunctionDecl {
+            span: decl_span,
             name,
             generics: Vec::new(),
             params,
@@ -2172,13 +2219,15 @@ impl Parser {
                 pleno_ast::Ownership::None
             };
 
-            let name = match self.advance().kind.clone() {
+            let name_token = self.advance().clone();
+            let name_start = name_token.span.start;
+            let name = match name_token.kind {
                 TokenKind::Ident(name) => name,
                 TokenKind::Underscore => "_".to_string(),
                 other => {
                     return Err(self.error(
                         format!("Expected parameter name, found {other:?}"),
-                        self.previous_span(),
+                        name_token.span,
                     ));
                 }
             };
@@ -2198,7 +2247,10 @@ impl Parser {
                     self.previous_span(),
                 ));
             }
+            let param_end = self.previous_span().end;
+            let param_span = Span::new(name_start, param_end);
             params.push(pleno_ast::Param {
+                span: param_span,
                 name,
                 ty,
                 default,
@@ -2225,17 +2277,22 @@ impl Parser {
             return Ok(params);
         }
         loop {
-            let name = match self.advance().kind.clone() {
+            let name_token = self.advance().clone();
+            let name_start = name_token.span.start;
+            let name = match name_token.kind {
                 TokenKind::Ident(name) => name,
                 TokenKind::Underscore => "_".to_string(),
                 other => {
                     return Err(self.error(
                         format!("Expected parameter name in lambda, found {other:?}"),
-                        self.previous_span(),
+                        name_token.span,
                     ));
                 }
             };
+            let param_end = self.previous_span().end;
+            let param_span = Span::new(name_start, param_end);
             params.push(pleno_ast::Param {
+                span: param_span,
                 name,
                 ty: None,
                 default: None,
@@ -2596,17 +2653,22 @@ impl Parser {
             return Ok(params);
         }
         loop {
-            let name = match self.advance().kind.clone() {
+            let name_token = self.advance().clone();
+            let name_start = name_token.span.start;
+            let name = match name_token.kind {
                 TokenKind::Ident(name) => name,
                 TokenKind::Underscore => "_".to_string(),
                 other => {
                     return Err(self.error(
                         format!("Expected parameter name in lambda, found {other:?}"),
-                        self.previous_span(),
+                        name_token.span,
                     ));
                 }
             };
+            let param_end = self.previous_span().end;
+            let param_span = Span::new(name_start, param_end);
             params.push(pleno_ast::Param {
+                span: param_span,
                 name,
                 ty: None,
                 default: None,

@@ -541,6 +541,31 @@ impl RuntimeError {
     }
 }
 
+impl pleno_diagnostics::ToDiagnostic for RuntimeError {
+    fn to_diagnostic(&self) -> pleno_diagnostics::Diagnostic {
+        let mut diagnostic = pleno_diagnostics::Diagnostic::error(&self.message);
+        if let Some(span) = self.span {
+            diagnostic = diagnostic.with_label(span, "runtime error");
+        }
+        // Add stack trace as notes
+        for frame in &self.stack_trace {
+            if let Some(_span) = frame.span {
+                // We can't easily add multiple spans to one diagnostic yet (Diagnostic support?),
+                // or maybe we just add them as notes for now.
+                // Actually DiagnosticBuilder has `with_label`.
+                // But stack frames are in different files or locations.
+                // SourceMap handles one file?
+                // Current SourceMap handles one file.
+                // So we can only properly report the top-most error if it matches the current file.
+                // For now, let's just use the main span.
+                // We can format stack trace into the message or notes.
+            }
+            diagnostic = diagnostic.with_note(format!("at {}", frame.function_name));
+        }
+        diagnostic
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Range {
     pub start: Option<i64>,

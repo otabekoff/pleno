@@ -51,14 +51,12 @@ pub struct ParamOwnership {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct CompileError {
-    pub message: String,
+    pub diagnostic: pleno_diagnostics::Diagnostic,
 }
 
-impl CompileError {
-    pub fn new(message: impl Into<String>) -> Self {
-        Self {
-            message: message.into(),
-        }
+impl pleno_diagnostics::ToDiagnostic for CompileError {
+    fn to_diagnostic(&self) -> pleno_diagnostics::Diagnostic {
+        self.diagnostic.clone()
     }
 }
 
@@ -89,6 +87,7 @@ pub struct Compiler {
     boxed_vars: Vec<HashSet<String>>,
     finally_stack: Vec<Option<Stmt>>,
     pub is_async: bool,
+    _source_map: pleno_diagnostics::SourceMap,
 }
 
 #[derive(Debug, Clone)]
@@ -124,6 +123,7 @@ impl Compiler {
             module_mode: false,
             module_exports: Vec::new(),
             module_name: None,
+            _source_map: pleno_diagnostics::SourceMap::new("file".to_string(), source.clone()),
             source,
             current_span: pleno_ast::Span::new(0, 0),
             next_labels: Vec::new(),
@@ -136,10 +136,9 @@ impl Compiler {
     }
 
     fn error(&self, message: &str, span: Span) -> CompileError {
-        use pleno_diagnostics::{Diagnostic, DiagnosticReporter};
+        use pleno_diagnostics::Diagnostic;
         let diagnostic = Diagnostic::error(message).with_label(span, "");
-        let formatted = DiagnosticReporter::report(&diagnostic, &self.source);
-        CompileError::new(formatted)
+        CompileError { diagnostic }
     }
 
     pub fn compile(&mut self, program: &Program) -> Result<Chunk, CompileError> {
@@ -605,6 +604,7 @@ impl Compiler {
                 }
 
                 let decl = FunctionDecl {
+                    span: Span::new(0, 0),
                     name: name.clone(),
                     generics: generics.clone(),
                     params: params.clone(),
@@ -1752,7 +1752,8 @@ impl Compiler {
 
     fn emit_loop(&mut self, loop_start: usize) -> Result<(), CompileError> {
         let offset = (loop_start as isize) - (self.chunk.code.len() as isize + 1);
-        let offset = i16::try_from(offset).map_err(|_| CompileError::new("loop too large"))?;
+        let offset =
+            i16::try_from(offset).map_err(|_| self.error("loop too large", self.current_span))?;
         let (b, c) = encode_offset(offset);
         self.emit(Opcode::Jump, 0, b, c);
         Ok(())
@@ -1760,7 +1761,8 @@ impl Compiler {
 
     fn emit_loop_if(&mut self, loop_start: usize, reg: u8) -> Result<(), CompileError> {
         let offset = (loop_start as isize) - (self.chunk.code.len() as isize + 1);
-        let offset = i16::try_from(offset).map_err(|_| CompileError::new("loop too large"))?;
+        let offset =
+            i16::try_from(offset).map_err(|_| self.error("loop too large", self.current_span))?;
         let (b, c) = encode_offset(offset);
         self.emit(Opcode::JumpIf, reg, b, c);
         Ok(())
@@ -1770,7 +1772,8 @@ impl Compiler {
         let jump_from = jump_index as isize + 1;
         let jump_to = self.chunk.code.len() as isize;
         let offset = jump_to - jump_from;
-        let offset = i16::try_from(offset).map_err(|_| CompileError::new("jump too large"))?;
+        let offset =
+            i16::try_from(offset).map_err(|_| self.error("jump too large", self.current_span))?;
         let (b, c) = encode_offset(offset);
         let instruction = self.chunk.code[jump_index];
         self.chunk.code[jump_index] = Instruction::new(instruction.opcode(), instruction.a(), b, c);
@@ -1781,7 +1784,8 @@ impl Compiler {
         let jump_from = jump_index as isize + 1;
         let jump_to = jump_to as isize;
         let offset = jump_to - jump_from;
-        let offset = i16::try_from(offset).map_err(|_| CompileError::new("jump too large"))?;
+        let offset =
+            i16::try_from(offset).map_err(|_| self.error("jump too large", self.current_span))?;
         let (b, c) = encode_offset(offset);
         let instruction = self.chunk.code[jump_index];
         self.chunk.code[jump_index] = Instruction::new(instruction.opcode(), instruction.a(), b, c);
@@ -2371,7 +2375,7 @@ impl Compiler {
         let loop_end = self.chunk.code.len();
         let loop_ctx = self
             .pop_loop()
-            .ok_or_else(|| CompileError::new("loop stack underflow"))?;
+            .ok_or_else(|| self.error("loop stack underflow", self.current_span))?;
         self.patch_loop_jumps(loop_ctx, loop_end)?;
         self.pop_scope();
         Ok(())
@@ -2407,7 +2411,7 @@ impl Compiler {
         let loop_end = self.chunk.code.len();
         let loop_ctx = self
             .pop_loop()
-            .ok_or_else(|| CompileError::new("loop stack underflow"))?;
+            .ok_or_else(|| self.error("loop stack underflow", self.current_span))?;
         self.patch_loop_jumps(loop_ctx, loop_end)?;
         self.pop_scope();
         Ok(())
@@ -2479,7 +2483,7 @@ impl Compiler {
         let loop_end = self.chunk.code.len();
         let loop_ctx = self
             .pop_loop()
-            .ok_or_else(|| CompileError::new("loop stack underflow"))?;
+            .ok_or_else(|| self.error("loop stack underflow", self.current_span))?;
         self.patch_loop_jumps(loop_ctx, loop_end)?;
 
         self.free_temp(missing_reg);
@@ -2824,7 +2828,7 @@ impl Compiler {
             if let Some(default) = &param.default {
                 let param_reg = compiler
                     .resolve_local(&param.name)
-                    .ok_or_else(|| CompileError::new("unknown parameter"))?
+                    .ok_or_else(|| compiler.error("unknown parameter", decl.span))?
                     .reg;
                 let missing_reg = compiler.registers.allocate()?;
                 compiler.emit(Opcode::LoadMissing, missing_reg, 0, 0);
@@ -2846,7 +2850,7 @@ impl Compiler {
             {
                 let param_reg = compiler
                     .resolve_local(&param.name)
-                    .ok_or_else(|| CompileError::new("unknown parameter"))?
+                    .ok_or_else(|| compiler.error("unknown parameter", decl.span))?
                     .reg;
                 let type_reg = compiler.registers.allocate()?;
                 let ty_idx = compiler.add_constant(Value::String(Rc::new(ty_name.clone())));
@@ -2884,7 +2888,7 @@ impl Compiler {
         if let Some(fields) = instance_fields {
             let this_reg = compiler
                 .resolve_local("this")
-                .ok_or_else(|| CompileError::new("'this' not found in constructor"))?
+                .ok_or_else(|| compiler.error("'this' not found in constructor", decl.span))?
                 .reg;
             for field in fields {
                 if !field.is_static
@@ -3087,6 +3091,7 @@ impl Compiler {
             },
         };
         let decl = FunctionDecl {
+            span: Span::new(0, 0),
             name: "anonymous".to_string(),
             generics: Vec::new(),
             params: params.to_vec(),
@@ -3121,7 +3126,7 @@ impl Compiler {
             if let Some(default) = &param.default {
                 let param_reg = compiler
                     .resolve_local(&param.name)
-                    .ok_or_else(|| CompileError::new("unknown parameter"))?
+                    .ok_or_else(|| compiler.error("unknown parameter", param.span))?
                     .reg;
                 let missing_reg = compiler.registers.allocate()?;
                 compiler.emit(Opcode::LoadMissing, missing_reg, 0, 0);
@@ -3356,6 +3361,7 @@ impl Compiler {
         let mut methods_to_compile = methods.clone();
         if !methods_to_compile.iter().any(|m| m.name == "constructor") {
             methods_to_compile.push(FunctionDecl {
+                span: Span::new(0, 0),
                 name: "constructor".to_string(),
                 params: Vec::new(),
                 body: Box::new(Stmt::new(StmtKind::Block(Vec::new()), Span::new(0, 0))),
@@ -4460,8 +4466,9 @@ impl Compiler {
                 match &args[i] {
                     pleno_ast::CallArg::Positional(expr) => self.compile_expr(expr)?,
                     _ => {
-                        return Err(CompileError::new(
+                        return Err(self.error(
                             "Inlining only supported for positional arguments",
+                            self.current_span,
                         ));
                     }
                 }
@@ -5003,10 +5010,10 @@ impl Compiler {
             .unwrap_or(false);
         if let Some(scope) = self.locals.last_mut() {
             if scope.contains_key(&name) {
-                return Err(CompileError::new(format!(
-                    "Local '{}' already defined",
-                    name
-                )));
+                return Err(self.error(
+                    &format!("Local '{}' already defined", name),
+                    self.current_span,
+                ));
             }
             scope.insert(
                 name,
@@ -5137,6 +5144,7 @@ impl Compiler {
                 ..
             } => {
                 let decl = FunctionDecl {
+                    span: Span::new(0, 0),
                     name: name.clone(),
                     generics: generics.clone(),
                     params: params.clone(),
@@ -5179,6 +5187,7 @@ impl Compiler {
                     },
                 };
                 let decl = FunctionDecl {
+                    span: Span::new(0, 0),
                     name: "anonymous".to_string(),
                     generics: Vec::new(),
                     params: params.clone(),
@@ -5310,7 +5319,9 @@ impl RegisterAllocator {
             return Ok(reg);
         }
         if self.next == u8::MAX {
-            return Err(CompileError::new("too many registers in function"));
+            return Err(CompileError {
+                diagnostic: pleno_diagnostics::Diagnostic::error("too many registers in function"),
+            });
         }
         let reg = self.next;
         self.next = self.next.saturating_add(1);

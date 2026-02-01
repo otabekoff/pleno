@@ -8,7 +8,7 @@ fn compile(source: &str) -> Result<(), String> {
     compiler
         .compile(&program)
         .map(|_| ())
-        .map_err(|e| e.message)
+        .map_err(|e| e.diagnostic.message)
 }
 
 #[test]

@@ -281,7 +281,7 @@ fn run_single_test(path: &PathBuf, stats: &mut TestStats) {
                 return;
             }
             println!("FAILED (Compile Error)");
-            eprintln!("  Compile error: {}", err.message);
+            eprintln!("  Compile error: {}", err.diagnostic.message);
             stats.failed += 1;
             return;
         }
@@ -352,6 +352,7 @@ fn debug_ast(path: &str) {
 }
 
 fn run_file(path: &str, config: Option<pleno_value::SandboxConfig>) {
+    use pleno_diagnostics::{DiagnosticReporter, ToDiagnostic};
     if !path.ends_with(".pln") {
         eprintln!("Error: Only .pln format file extensions are supported");
         process::exit(1);
@@ -363,15 +364,14 @@ fn run_file(path: &str, config: Option<pleno_value::SandboxConfig>) {
             process::exit(1);
         }
     };
+    let source_map = pleno_diagnostics::SourceMap::new(path.to_string(), source.clone());
 
     let tokens = match pleno_lexer::lex(&source) {
         Ok(tokens) => tokens,
         Err(err) => {
-            let diagnostic =
-                pleno_diagnostics::Diagnostic::error(&err.message).with_label(err.span, "");
             eprintln!(
                 "{}",
-                pleno_diagnostics::DiagnosticReporter::report(&diagnostic, &source)
+                DiagnosticReporter::report(&err.to_diagnostic(), &source_map)
             );
             process::exit(1);
         }
@@ -381,14 +381,9 @@ fn run_file(path: &str, config: Option<pleno_value::SandboxConfig>) {
     let program = match parser.parse_program() {
         Ok(program) => program,
         Err(err) => {
-            let mut diagnostic =
-                pleno_diagnostics::Diagnostic::error(&err.message).with_label(err.span, "");
-            if let Some(hint) = err.hint {
-                diagnostic = diagnostic.with_note(hint);
-            }
             eprintln!(
                 "{}",
-                pleno_diagnostics::DiagnosticReporter::report(&diagnostic, &source)
+                DiagnosticReporter::report(&err.to_diagnostic(), &source_map)
             );
             process::exit(1);
         }
@@ -398,7 +393,10 @@ fn run_file(path: &str, config: Option<pleno_value::SandboxConfig>) {
     let chunk = match compiler.compile(&program) {
         Ok(chunk) => chunk,
         Err(err) => {
-            eprintln!("Compile error: {}", err.message);
+            eprintln!(
+                "Compile error: {}",
+                DiagnosticReporter::report(&err.to_diagnostic(), &source_map)
+            );
             process::exit(1);
         }
     };
@@ -413,23 +411,24 @@ fn run_file(path: &str, config: Option<pleno_value::SandboxConfig>) {
     match result {
         Ok(Ok(_)) => {}
         Ok(Err(err)) => {
-            if let Some(span) = err.span {
-                let diagnostic =
-                    pleno_diagnostics::Diagnostic::error(&err.message).with_label(span, "");
-                eprintln!(
-                    "{}",
-                    pleno_diagnostics::DiagnosticReporter::report(&diagnostic, &source)
-                );
-            } else {
-                eprintln!("Runtime error: {}", err.message);
-            }
+            eprintln!(
+                "{}",
+                DiagnosticReporter::report(&err.to_diagnostic(), &source_map)
+            );
 
+            // Manual stack trace printing for now as Diagnostic doesn't support it fully yet
             if !err.stack_trace.is_empty() {
                 eprintln!("\nStack backtrace:");
                 for frame in err.stack_trace {
                     if let Some(span) = frame.span {
-                        let (line, col) = get_line_col(&source, span.start);
-                        eprintln!("  at {} ({}:{})", frame.function_name, line, col);
+                        // Fallback line calculation if outside main file?
+                        // For now assume main file or just print span
+                        if span.end <= source.len() {
+                            let (line, col) = get_line_col(&source, span.start);
+                            eprintln!("  at {} ({}:{})", frame.function_name, line, col);
+                        } else {
+                            eprintln!("  at {} (unknown location)", frame.function_name);
+                        }
                     } else {
                         eprintln!("  at {}", frame.function_name);
                     }
@@ -612,7 +611,7 @@ fn check_file(path: &str) {
             println!("Type check passed for {}", path);
         }
         Err(err) => {
-            eprintln!("Compile error: {}", err.message);
+            eprintln!("Compile error: {}", err.diagnostic.message);
             process::exit(1);
         }
     }
@@ -703,7 +702,7 @@ fn compile_file(path: &str) {
     let chunk = match compiler.compile(&program) {
         Ok(chunk) => chunk,
         Err(err) => {
-            eprintln!("Compile error: {}", err.message);
+            eprintln!("Compile error: {}", err.diagnostic.message);
             process::exit(1);
         }
     };

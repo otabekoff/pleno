@@ -363,6 +363,7 @@ pub struct GenericParam {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct FunctionDecl {
+    pub span: Span,
     pub name: String,
     pub generics: Vec<GenericParam>,
     pub params: Vec<Param>,
@@ -379,6 +380,7 @@ pub struct FunctionDecl {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct PropertyDecl {
+    pub span: Span,
     pub name: String,
     pub ty: Option<String>,
     pub getter: Option<FunctionDecl>,
@@ -400,6 +402,7 @@ pub struct EnumDecl {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct EnumVariant {
+    pub span: Span,
     pub name: String,
     pub params: Option<Vec<Param>>,
     pub doc: Option<String>,
@@ -415,6 +418,7 @@ pub enum Ownership {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Param {
+    pub span: Span,
     pub name: String,
     pub ty: Option<String>,
     pub default: Option<Expr>,
@@ -425,6 +429,7 @@ pub struct Param {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct FieldDecl {
+    pub span: Span,
     pub name: String,
     pub ty: Option<String>,
     pub default: Option<Expr>,

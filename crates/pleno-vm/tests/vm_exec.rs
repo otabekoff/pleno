@@ -17,7 +17,9 @@ fn eval_result(source: &str) -> Result<pleno_value::Value, String> {
     let mut parser = pleno_parser::Parser::new(tokens, source);
     let program = parser.parse_program().map_err(|e| e.message)?;
     let mut compiler = Compiler::new(source.to_string());
-    let chunk = compiler.compile(&program).map_err(|e| e.message)?;
+    let chunk = compiler
+        .compile(&program)
+        .map_err(|e| e.diagnostic.message)?;
     let mut vm = VM::new();
     pleno_stdlib::register(&mut vm);
     vm.execute(chunk).map_err(|e| e.message)
