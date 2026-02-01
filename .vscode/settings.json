@@ -51,7 +51,7 @@
         "editor.defaultFormatter": "vscode.json-language-features"
     },
     "[css]": {
-        "editor.defaultFormatter": "vscode.css-language-features"
+        "editor.defaultFormatter": "esbenp.prettier-vscode"
     },
     // "material-icon-theme.files.associations": {
     //     "*.pln": "database",
@@ -76,6 +76,9 @@
         "editor.defaultFormatter": "vscode.typescript-language-features"
     },
     "[markdown]": {
+        "editor.defaultFormatter": "esbenp.prettier-vscode"
+    },
+    "[javascript]": {
         "editor.defaultFormatter": "esbenp.prettier-vscode"
     }
 }

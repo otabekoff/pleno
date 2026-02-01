@@ -12,6 +12,7 @@ import { injectPlenoIcons } from './iconInjector';
 import { getPlenoPath, getPlenoLspPath } from './utils';
 import { PlenoProjectProvider } from './projectExplorer';
 import { PlenoDashboardPanel } from './dashboard';
+import { PlenoFormattingProvider } from './formatter';
 
 
 class PlmTaskProvider implements vscode.TaskProvider {
@@ -116,16 +117,24 @@ let client: LanguageClient;
 let myStatusBarItem: vscode.StatusBarItem;
 
 export function activate(context: vscode.ExtensionContext) {
+    console.log('[Pleno] activate() called');
     try {
         return _activate(context);
     } catch (e) {
+        console.error('[Pleno] Activation failed:', e);
         vscode.window.showErrorMessage(`Failed to activate Pleno extension: ${e}`);
     }
 }
 
 function _activate(context: vscode.ExtensionContext) {
+    console.log('[Pleno] Entering _activate');
     const outputChannel = vscode.window.createOutputChannel('Pleno');
     outputChannel.appendLine('Pleno extension activating...');
+
+    // 0. Register formatter
+    context.subscriptions.push(
+        vscode.languages.registerDocumentFormattingEditProvider('pleno', new PlenoFormattingProvider(context))
+    );
 
     // 1. Register commands first (so they exist even if later steps fail)
     context.subscriptions.push(
