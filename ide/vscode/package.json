@@ -106,6 +106,16 @@
         "command": "pleno.restartServer",
         "title": "Pleno: Restart Language Server",
         "category": "Pleno"
+      },
+      {
+        "command": "pleno.openDocs",
+        "title": "Pleno: Open Documentation",
+        "category": "Pleno"
+      },
+      {
+        "command": "pleno.openRepl",
+        "title": "Pleno: Open Interactive REPL",
+        "category": "Pleno"
       }
     ],
     "grammars": [
