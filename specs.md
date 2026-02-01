@@ -1561,15 +1561,40 @@ if (match) {
 ```
 
 ### 13.9 Low-level Networking
+
+The `std:net` module provides low-level TCP networking primitives.
+
 ```pleno
 import { Net } from "std:net";
 
-// TCP Listener
+// TCP Listener - creates a server socket
 let listener = Net.listen("127.0.0.1:8080");
 
-// TCP Connection
-let connection = Net.connect("google.com:80");
+// TCP Connection - connects to a remote host
+let connection = Net.connect("example.com:80");
 ```
+
+#### Net API Reference
+
+| Method | Signature | Description |
+|--------|-----------|-------------|
+| `listen` | `Net.listen(addr: String) -> Listener` | Bind to address and listen for connections |
+| `connect` | `Net.connect(addr: String) -> Connection` | Connect to a remote TCP endpoint |
+
+#### Listener Object
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `address` | `String` | The bound address (e.g., "127.0.0.1:8080") |
+
+#### Connection Object
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `remoteAddress` | `String` | The remote endpoint address |
+
+> [!NOTE]
+> For higher-level HTTP functionality, use `std:http` instead.
 
 ### 13.10 Testing Framework (std:test) ✅
 

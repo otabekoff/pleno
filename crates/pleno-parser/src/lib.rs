@@ -310,7 +310,11 @@ impl Parser {
 
     fn parse_let_stmt(&mut self, doc: Option<String>) -> Result<Stmt, ParseError> {
         let stmt = self.parse_let_declaration(false, doc)?;
-        self.expect(TokenKind::Semicolon, "Expected ';' after let statement")?;
+        self.expect_with_hint(
+            TokenKind::Semicolon,
+            "Expected ';' after let statement",
+            "Statements must end with a semicolon. Add ';' at the end.",
+        )?;
         Ok(stmt)
     }
 
@@ -617,7 +621,11 @@ impl Parser {
         } else {
             None
         };
-        self.expect(TokenKind::Semicolon, "Expected ';' after break")?;
+        self.expect_with_hint(
+            TokenKind::Semicolon,
+            "Expected ';' after break",
+            "Add ';' after 'break' or 'break label' to complete the statement.",
+        )?;
         Ok(self.wrap_stmt(StmtKind::Break(label), start_span))
     }
 
@@ -631,7 +639,11 @@ impl Parser {
         } else {
             None
         };
-        self.expect(TokenKind::Semicolon, "Expected ';' after continue")?;
+        self.expect_with_hint(
+            TokenKind::Semicolon,
+            "Expected ';' after continue",
+            "Add ';' after 'continue' or 'continue label' to complete the statement.",
+        )?;
         Ok(self.wrap_stmt(StmtKind::Continue(label), start_span))
     }
 
@@ -1066,7 +1078,11 @@ impl Parser {
         self.expect(TokenKind::LParen, "Expected '(' after while")?;
         let condition = self.parse_expr()?;
         self.expect(TokenKind::RParen, "Expected ')' after condition")?;
-        self.expect(TokenKind::Semicolon, "Expected ';' after do-while")?;
+        self.expect_with_hint(
+            TokenKind::Semicolon,
+            "Expected ';' after do-while",
+            "do-while loops must end with a semicolon: do { ... } while (cond);",
+        )?;
         Ok(self.wrap_stmt(StmtKind::DoWhile { body, condition }, start_span))
     }
 
@@ -1128,7 +1144,11 @@ impl Parser {
         let start_span = self.peek_span();
         self.advance();
         let expr = self.parse_expr()?;
-        self.expect(TokenKind::Semicolon, "Expected ';' after throw")?;
+        self.expect_with_hint(
+            TokenKind::Semicolon,
+            "Expected ';' after throw",
+            "Throw statements must end with a semicolon: throw error;",
+        )?;
         Ok(self.wrap_stmt(StmtKind::Throw(expr), start_span))
     }
 
@@ -1324,7 +1344,11 @@ impl Parser {
             }
         }
 
-        self.expect(TokenKind::LBrace, "Expected '{' before class body")?;
+        self.expect_with_hint(
+            TokenKind::LBrace,
+            "Expected '{' before class body",
+            "Class definitions require a body enclosed in braces: class Name { ... }",
+        )?;
         let mut fields = Vec::new();
         let mut methods = Vec::new();
         let mut properties = Vec::new();
@@ -1615,7 +1639,11 @@ impl Parser {
                 doc: member_doc,
             });
         }
-        self.expect(TokenKind::RBrace, "Expected '}' after class body")?;
+        self.expect_with_hint(
+            TokenKind::RBrace,
+            "Expected '}' after class body",
+            "Make sure all class members are complete and close with '}'",
+        )?;
         Ok(self.wrap_stmt(
             StmtKind::Class {
                 name,
