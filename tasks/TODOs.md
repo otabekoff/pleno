@@ -2,6 +2,8 @@
 
 http://localhost:5173/pleno/specs/ is showing next page to introduction which is itself, and causing loop on docs.
 
+csv, sqlite3 or latest
+
 Let's do bench. Make bench folder benchmark project reporting about benchmarking of Pleno. Reports. Not only speed tests. Also, we need to compare with other languages like Python, Rust, Go, Kotlin, C, C++, Java, JavaScript, TypeScript, etc.
 
 Optimizations and error management in Pleno in a structured way, aslo fix the showing line numbers like Rust or other thing?
@@ -191,28 +193,7 @@ Work on #[test]
 ## Roadmap Items (From ROADMAP.md)
 
 
-Now, these tasks of the stage are partially done. Nork on it and make it complete. add/edit/update/upgrade/fix/bugfix/implement/make changes/review/test:
-
-### Stage 11 - Tooling (Partial)
-
-- **Full formatter**: **Done** (With recent updates to blank lines/comments, it's very capable. Tests pass).
-- **Full linter**: **Partial** (Basic rules exist, infrastructure is simple, not "full").
-- **Docs tooling**: **Partial**  `pleno-doc`    
-     crate exists with extraction logic, but likely incomplete).
-
-### Stage 12 - Runtime + VM (Done)
-
-- **GC integration**: **Done** (Verified in previous step).
-- **Performance optimizations**: **Missing**.
-- **Memory management improvements**: **Done** (GC Cycle breaking verified).
-
-### Stage 13 - Core VM Crates (Done)
-
-- **Partial crates**: **Done** (All listed crates `pleno-common`    
-    , `pleno-diagnostics`    
-    , `pleno-value`    
-     are integrated. `pleno-gc`    
-     is redundant).
+Now, these tasks of the stage are partially done. Nork on it and make it complete. add/edit/update/upgrade/fix/bugfix/implement/make changes/review/test/document:
 
 ### Stage 14 - v1 Hardening (Started)
 

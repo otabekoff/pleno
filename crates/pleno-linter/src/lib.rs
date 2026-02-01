@@ -1,7 +1,7 @@
 use pleno_ast::*;
 use pleno_lexer::lex;
 use pleno_parser::Parser;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 #[derive(Debug, Clone)]
 pub struct LintRule {
@@ -10,11 +10,21 @@ pub struct LintRule {
     pub severity: Severity,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Severity {
     Error,
     Warning,
     Info,
+}
+
+impl std::fmt::Display for Severity {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Severity::Error => write!(f, "ERROR"),
+            Severity::Warning => write!(f, "WARNING"),
+            Severity::Info => write!(f, "INFO"),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -33,6 +43,7 @@ pub struct LintRulesConfig {
     pub warn_trailing_spaces: bool,
     pub warn_semi_spacing: bool,
     pub prefer_const: bool,
+    pub no_undef: bool,
 }
 
 impl Default for LintRulesConfig {
@@ -43,6 +54,7 @@ impl Default for LintRulesConfig {
             warn_trailing_spaces: true,
             warn_semi_spacing: true,
             prefer_const: false,
+            no_undef: true,
         }
     }
 }
@@ -52,8 +64,97 @@ pub struct LintConfig {
     pub rules: LintRulesConfig,
 }
 
+struct Scope {
+    declarations: HashMap<String, (usize, usize)>,
+    usages: HashSet<String>,
+}
+
+impl Scope {
+    fn new() -> Self {
+        Self {
+            declarations: HashMap::new(),
+            usages: HashSet::new(),
+        }
+    }
+}
+
+struct ScopeTracker {
+    scopes: Vec<Scope>,
+    globals: HashSet<String>,
+}
+
+impl ScopeTracker {
+    fn new() -> Self {
+        let mut globals = HashSet::new();
+        let builtins = [
+            "print",
+            "println",
+            "id",
+            "typeof",
+            "map",
+            "Int",
+            "Float",
+            "String",
+            "Array",
+            "Map",
+            "JSON",
+            "Math",
+            "OS",
+            "Promise",
+            "Channel",
+            "Mutex",
+            "spawn",
+            "await",
+            "__native_sleep",
+        ];
+        for b in builtins {
+            globals.insert(b.to_string());
+        }
+
+        Self {
+            scopes: vec![Scope::new()],
+            globals,
+        }
+    }
+
+    fn enter_scope(&mut self) {
+        self.scopes.push(Scope::new());
+    }
+
+    fn exit_scope(&mut self) -> Scope {
+        self.scopes.pop().expect("Exited root scope")
+    }
+
+    fn declare(&mut self, name: String, line: usize, column: usize) {
+        if let Some(scope) = self.scopes.last_mut() {
+            scope.declarations.insert(name, (line, column));
+        }
+    }
+
+    fn use_var(&mut self, name: &str) {
+        // Find the scope where this variable is declared and mark it as used
+        for scope in self.scopes.iter_mut().rev() {
+            if scope.declarations.contains_key(name) {
+                scope.usages.insert(name.to_string());
+                return;
+            }
+        }
+    }
+
+    fn is_declared(&self, name: &str) -> bool {
+        if self.globals.contains(name) {
+            return true;
+        }
+        for scope in self.scopes.iter().rev() {
+            if scope.declarations.contains_key(name) {
+                return true;
+            }
+        }
+        false
+    }
+}
+
 pub struct Linter {
-    rules: Vec<LintRule>,
     config: LintConfig,
 }
 
@@ -69,51 +170,12 @@ impl Linter {
     }
 
     pub fn with_config(config: LintConfig) -> Self {
-        let rules = vec![
-            LintRule {
-                name: "no-unused-vars".to_string(),
-                description: "Detects unused variables".to_string(),
-                severity: Severity::Warning,
-            },
-            LintRule {
-                name: "no-console-log".to_string(),
-                description: "Disallows console.log statements".to_string(),
-                severity: Severity::Warning,
-            },
-            LintRule {
-                name: "prefer-const".to_string(),
-                description: "Recommends using const instead of let when possible".to_string(),
-                severity: Severity::Info,
-            },
-            LintRule {
-                name: "max-line-length".to_string(),
-                description: "Ensures lines don't exceed max length".to_string(),
-                severity: Severity::Warning,
-            },
-            LintRule {
-                name: "no-trailing-spaces".to_string(),
-                description: "Removes trailing spaces".to_string(),
-                severity: Severity::Info,
-            },
-            LintRule {
-                name: "semi-spacing".to_string(),
-                description: "Enforces consistent semicolon spacing".to_string(),
-                severity: Severity::Info,
-            },
-            LintRule {
-                name: "brace-style".to_string(),
-                description: "Enforces consistent brace style".to_string(),
-                severity: Severity::Info,
-            },
-        ];
-
-        Self { rules, config }
+        Self { config }
     }
 
     pub fn lint(&self, source: &str) -> Vec<LintDiagnostic> {
         let mut diagnostics = Vec::new();
 
-        // First, tokenize the source
         let tokens = match lex(source) {
             Ok(tokens) => tokens,
             Err(e) => {
@@ -129,8 +191,7 @@ impl Linter {
             }
         };
 
-        // Then, parse it to get the AST
-        let ast = match Parser::new(tokens, source).parse_program() {
+        let program = match Parser::new(tokens, source).parse_program() {
             Ok(program) => program,
             Err(e) => {
                 let (line, column) = position_from_offset(source, e.span.start);
@@ -145,10 +206,16 @@ impl Linter {
             }
         };
 
-        // Apply lint rules to the AST based on config
-        if self.config.rules.warn_unused_vars {
-            diagnostics.extend(self.check_unused_variables(source, &ast));
-        }
+        let mut visitor = LintVisitor {
+            source,
+            scope_tracker: ScopeTracker::new(),
+            diagnostics: Vec::new(),
+            config: &self.config.rules,
+        };
+
+        visitor.visit_program(&program);
+        diagnostics.extend(visitor.diagnostics);
+
         if self.config.rules.max_line_length.is_some() {
             diagnostics.extend(self.check_max_line_length(source));
         }
@@ -159,39 +226,7 @@ impl Linter {
             diagnostics.extend(self.check_semi_spacing(source));
         }
 
-        // Check for operator spacing
         diagnostics.extend(self.check_operator_spacing(source));
-
-        diagnostics
-    }
-
-    fn check_unused_variables(&self, source: &str, program: &Program) -> Vec<LintDiagnostic> {
-        let mut diagnostics = Vec::new();
-        let mut declarations: Vec<(String, usize, usize)> = Vec::new();
-        let mut usages: HashSet<String> = HashSet::new();
-
-        // Collect all variable declarations
-        for stmt in &program.statements {
-            collect_declarations(stmt, source, &mut declarations);
-        }
-
-        // Collect all variable usages
-        for stmt in &program.statements {
-            collect_usages_from_stmt(stmt, &mut usages);
-        }
-
-        // Report unused variables (skip _ prefixed)
-        for (name, line, column) in declarations {
-            if !usages.contains(&name) && !name.starts_with('_') {
-                diagnostics.push(LintDiagnostic {
-                    rule_name: "no-unused-vars".to_string(),
-                    message: format!("Variable '{}' is declared but never used", name),
-                    severity: Severity::Warning,
-                    line,
-                    column,
-                });
-            }
-        }
 
         diagnostics
     }
@@ -205,8 +240,7 @@ impl Linter {
                 diagnostics.push(LintDiagnostic {
                     rule_name: "max-line-length".to_string(),
                     message: format!(
-                        "Line {} exceeds maximum line length of {} characters",
-                        line_num + 1,
+                        "Line exceeds maximum line length of {} characters",
                         max_length
                     ),
                     severity: Severity::Warning,
@@ -215,82 +249,27 @@ impl Linter {
                 });
             }
         }
-
-        diagnostics
-    }
-
-    fn check_operator_spacing(&self, source: &str) -> Vec<LintDiagnostic> {
-        let mut diagnostics = Vec::new();
-        let ops = ["+", "-", "*", "/", "=", "==", ">", "<", ">=", "<="];
-
-        for (line_num, line) in source.lines().enumerate() {
-            for op in &ops {
-                let mut last_pos = 0;
-                while let Some(pos) = line[last_pos..].find(op) {
-                    let absolute_pos = last_pos + pos;
-
-                    let is_part_of_composite = if *op == "=" {
-                        (absolute_pos > 0
-                            && (line.as_bytes()[absolute_pos - 1] == b'='
-                                || line.as_bytes()[absolute_pos - 1] == b'>'
-                                || line.as_bytes()[absolute_pos - 1] == b'<'))
-                            || (absolute_pos + 1 < line.len()
-                                && line.as_bytes()[absolute_pos + 1] == b'=')
-                    } else if *op == ">" || *op == "<" {
-                        absolute_pos + 1 < line.len() && line.as_bytes()[absolute_pos + 1] == b'='
-                    } else {
-                        false
-                    };
-
-                    if !is_part_of_composite {
-                        let space_before =
-                            absolute_pos == 0 || line.as_bytes()[absolute_pos - 1] == b' ';
-                        let space_after = absolute_pos + op.len() >= line.len()
-                            || line.as_bytes()[absolute_pos + op.len()] == b' ';
-
-                        if !space_before || !space_after {
-                            diagnostics.push(LintDiagnostic {
-                                rule_name: "operator-spacing".to_string(),
-                                message: format!(
-                                    "Missing spacing around operator '{}' on line {}",
-                                    op,
-                                    line_num + 1
-                                ),
-                                severity: Severity::Warning,
-                                line: line_num + 1,
-                                column: absolute_pos + 1,
-                            });
-                            break;
-                        }
-                    }
-                    last_pos = absolute_pos + op.len();
-                }
-            }
-        }
         diagnostics
     }
 
     fn check_trailing_spaces(&self, source: &str) -> Vec<LintDiagnostic> {
         let mut diagnostics = Vec::new();
-
         for (line_num, line) in source.lines().enumerate() {
             if line.ends_with(' ') || line.ends_with('\t') {
                 diagnostics.push(LintDiagnostic {
                     rule_name: "no-trailing-spaces".to_string(),
-                    message: format!("Line {} has trailing spaces", line_num + 1),
+                    message: "Line has trailing spaces".to_string(),
                     severity: Severity::Info,
                     line: line_num + 1,
                     column: line.len(),
                 });
             }
         }
-
         diagnostics
     }
 
     fn check_semi_spacing(&self, source: &str) -> Vec<LintDiagnostic> {
         let mut diagnostics = Vec::new();
-
         for (line_num, line) in source.lines().enumerate() {
             if let Some(semi_pos) = line.find(';') {
                 let after_semi = &line[semi_pos + 1..];
@@ -300,257 +279,324 @@ impl Linter {
                 {
                     diagnostics.push(LintDiagnostic {
                         rule_name: "semi-spacing".to_string(),
-                        message: format!("Expected space after semicolon on line {}", line_num + 1),
+                        message: "Expected space after semicolon".to_string(),
                         severity: Severity::Info,
                         line: line_num + 1,
-                        column: semi_pos + 1,
+                        column: semi_pos + 2,
                     });
                 }
             }
         }
-
         diagnostics
     }
 
-    pub fn add_rule(&mut self, rule: LintRule) {
-        self.rules.push(rule);
-    }
+    fn check_operator_spacing(&self, source: &str) -> Vec<LintDiagnostic> {
+        let mut diagnostics = Vec::new();
+        let ops = ["+", "-", "*", "/", "=", "==", ">", "<", ">=", "<="];
 
-    pub fn run_rules(&self, source: &str, rule_names: &[&str]) -> Vec<LintDiagnostic> {
-        let mut all_diagnostics = self.lint(source);
-        all_diagnostics.retain(|diag| rule_names.contains(&diag.rule_name.as_str()));
-        all_diagnostics
-    }
-}
+        for (line_num, line) in source.lines().enumerate() {
+            // Very simple check to avoid strings/comments for now
+            if line.trim().starts_with("//")
+                || line.trim().starts_with("/*")
+                || line.contains('"')
+                || line.contains('\'')
+            {
+                continue;
+            }
 
-// Helper functions for unused variable detection
+            for op in &ops {
+                let mut last_pos = 0;
+                while let Some(pos) = line[last_pos..].find(op) {
+                    let abs_pos = last_pos + pos;
 
-fn collect_declarations(stmt: &Stmt, source: &str, declarations: &mut Vec<(String, usize, usize)>) {
-    match &stmt.kind {
-        StmtKind::Let { name, .. } => {
-            let (line, column) = position_from_offset(source, stmt.span.start);
-            declarations.push((name.clone(), line, column));
-        }
-        StmtKind::Block(stmts) => {
-            for s in stmts {
-                collect_declarations(s, source, declarations);
-            }
-        }
-        StmtKind::If {
-            then_branch,
-            else_branch,
-            ..
-        } => {
-            collect_declarations(then_branch, source, declarations);
-            if let Some(eb) = else_branch {
-                collect_declarations(eb, source, declarations);
-            }
-        }
-        StmtKind::While { body, .. } => collect_declarations(body, source, declarations),
-        StmtKind::For { body, .. } => collect_declarations(body, source, declarations),
-        StmtKind::Fn { body, .. } => {
-            collect_declarations(body, source, declarations);
-        }
-        StmtKind::Try {
-            try_branch,
-            catch_branches,
-            finally_branch,
-        } => {
-            collect_declarations(try_branch, source, declarations);
-            for cb in catch_branches {
-                collect_declarations(&cb.body, source, declarations);
-            }
-            if let Some(fb) = finally_branch {
-                collect_declarations(fb, source, declarations);
-            }
-        }
-        _ => {}
-    }
-}
+                    // Avoid composite op confusion
+                    let is_part = if *op == "=" {
+                        (abs_pos > 0
+                            && matches!(
+                                line.as_bytes()[abs_pos - 1],
+                                b'=' | b'>' | b'<' | b'!' | b'+' | b'-' | b'*' | b'/'
+                            ))
+                            || (abs_pos + 1 < line.len() && line.as_bytes()[abs_pos + 1] == b'=')
+                    } else if *op == ">" || *op == "<" || *op == "+" || *op == "-" {
+                        (abs_pos + 1 < line.len()
+                            && (line.as_bytes()[abs_pos + 1] == b'='
+                                || line.as_bytes()[abs_pos + 1] == line.as_bytes()[abs_pos]))
+                            || (abs_pos > 0
+                                && line.as_bytes()[abs_pos - 1] == line.as_bytes()[abs_pos])
+                    } else {
+                        false
+                    };
 
-fn collect_usages_from_stmt(stmt: &Stmt, usages: &mut HashSet<String>) {
-    match &stmt.kind {
-        StmtKind::Expr(expr) => collect_usages_from_expr(expr, usages),
-        StmtKind::Let { value: Some(v), .. } => {
-            collect_usages_from_expr(v, usages);
-        }
-        StmtKind::Assign { value, .. } => {
-            collect_usages_from_expr(value, usages);
-        }
-        StmtKind::Return(Some(expr)) => collect_usages_from_expr(expr, usages),
-        StmtKind::If {
-            condition,
-            then_branch,
-            else_branch,
-        } => {
-            collect_usages_from_expr(condition, usages);
-            collect_usages_from_stmt(then_branch, usages);
-            if let Some(eb) = else_branch {
-                collect_usages_from_stmt(eb, usages);
-            }
-        }
-        StmtKind::While { condition, body } => {
-            collect_usages_from_expr(condition, usages);
-            collect_usages_from_stmt(body, usages);
-        }
-        StmtKind::For { iterable, body, .. } => {
-            collect_usages_from_expr(iterable, usages);
-            collect_usages_from_stmt(body, usages);
-        }
-        StmtKind::Block(stmts) => {
-            for s in stmts {
-                collect_usages_from_stmt(s, usages);
-            }
-        }
-        StmtKind::Fn { body, .. } => {
-            collect_usages_from_stmt(body, usages);
-        }
-        StmtKind::Throw(expr) => collect_usages_from_expr(expr, usages),
-        _ => {}
-    }
-}
+                    if !is_part {
+                        let space_before = abs_pos == 0
+                            || line.as_bytes()[abs_pos - 1] == b' '
+                            || line.as_bytes()[abs_pos - 1] == b'('
+                            || line.as_bytes()[abs_pos - 1] == b'[';
+                        let space_after = abs_pos + op.len() >= line.len()
+                            || line.as_bytes()[abs_pos + op.len()] == b' '
+                            || line.as_bytes()[abs_pos + op.len()] == b')'
+                            || line.as_bytes()[abs_pos + op.len()] == b']';
 
-fn collect_usages_from_expr(expr: &Expr, usages: &mut HashSet<String>) {
-    match &expr.kind {
-        ExprKind::Ident(name) => {
-            usages.insert(name.clone());
-        }
-        ExprKind::Binary { left, right, .. } => {
-            collect_usages_from_expr(left, usages);
-            collect_usages_from_expr(right, usages);
-        }
-        ExprKind::Unary { expr: inner, .. } => {
-            collect_usages_from_expr(inner, usages);
-        }
-        ExprKind::Call { callee, args } => {
-            collect_usages_from_expr(callee, usages);
-            for arg in args {
-                match arg {
-                    CallArg::Positional(e) | CallArg::Named(_, e) => {
-                        collect_usages_from_expr(e, usages);
+                        if !space_before || !space_after {
+                            diagnostics.push(LintDiagnostic {
+                                rule_name: "operator-spacing".to_string(),
+                                message: format!("Missing spacing around operator '{}'", op),
+                                severity: Severity::Warning,
+                                line: line_num + 1,
+                                column: abs_pos + 1,
+                            });
+                            break;
+                        }
                     }
-                    CallArg::Placeholder => {}
-                    CallArg::Spread(expr) => {
-                        collect_usages_from_expr(expr, usages);
-                    }
+                    last_pos = abs_pos + op.len();
                 }
             }
         }
-        ExprKind::Property { object, .. } | ExprKind::SafeProperty { object, .. } => {
-            collect_usages_from_expr(object, usages);
-        }
-        ExprKind::SafeCall { callee, args } => {
-            collect_usages_from_expr(callee, usages);
-            for arg in args {
-                match arg {
-                    CallArg::Positional(e) | CallArg::Named(_, e) => {
-                        collect_usages_from_expr(e, usages);
-                    }
-                    CallArg::Placeholder => {}
-                    CallArg::Spread(expr) => {
-                        collect_usages_from_expr(expr, usages);
-                    }
-                }
-            }
-        }
-        ExprKind::AssertNotNull(inner) => {
-            collect_usages_from_expr(inner, usages);
-        }
-        ExprKind::Index { collection, index } => {
-            collect_usages_from_expr(collection, usages);
-            collect_usages_from_expr(index, usages);
-        }
-        ExprKind::ArrayLiteral(items)
-        | ExprKind::TupleLiteral(items)
-        | ExprKind::SetLiteral(items) => {
-            for item in items {
-                collect_usages_from_expr(item, usages);
-            }
-        }
-        ExprKind::MapLiteral(entries) => {
-            for entry in entries {
-                match entry {
-                    MapItem::Entry(_, value) => collect_usages_from_expr(value, usages),
-                    MapItem::Spread(e) => collect_usages_from_expr(e, usages),
-                }
-            }
-        }
-        ExprKind::Lambda { body, .. } => {
-            collect_usages_from_expr(body, usages);
-        }
-        ExprKind::If {
-            condition,
-            then_branch,
-            else_branch,
-        } => {
-            collect_usages_from_expr(condition, usages);
-            collect_usages_from_expr(then_branch, usages);
-            collect_usages_from_expr(else_branch, usages);
-        }
-        ExprKind::Pipeline { left, right } => {
-            collect_usages_from_expr(left, usages);
-            collect_usages_from_expr(right, usages);
-        }
-        ExprKind::Await { expr: inner } => {
-            collect_usages_from_expr(inner, usages);
-        }
-        ExprKind::Match { expr: inner, arms } => {
-            collect_usages_from_expr(inner, usages);
-            for arm in arms {
-                if let Some(guard) = &arm.guard {
-                    collect_usages_from_expr(guard, usages);
-                }
-                collect_usages_from_expr(&arm.body, usages);
-            }
-        }
-        ExprKind::Range { start, end, .. } => {
-            if let Some(s) = start {
-                collect_usages_from_expr(s, usages);
-            }
-            if let Some(e) = end {
-                collect_usages_from_expr(e, usages);
-            }
-        }
-        ExprKind::Block(stmts) => {
-            for s in stmts {
-                collect_usages_from_stmt(s, usages);
-            }
-        }
-        ExprKind::Spread(inner) | ExprKind::Paren(inner) => {
-            collect_usages_from_expr(inner, usages);
-        }
-        _ => {}
+        diagnostics
     }
 }
 
-// Public API function for easy linting
+struct LintVisitor<'a> {
+    source: &'a str,
+    scope_tracker: ScopeTracker,
+    diagnostics: Vec<LintDiagnostic>,
+    config: &'a LintRulesConfig,
+}
+
+impl<'a> LintVisitor<'a> {
+    fn visit_program(&mut self, program: &Program) {
+        for stmt in &program.statements {
+            self.visit_stmt(stmt);
+        }
+        self.check_unused_in_current_scope();
+    }
+
+    fn visit_stmt(&mut self, stmt: &Stmt) {
+        match &stmt.kind {
+            StmtKind::Let { name, value, .. } => {
+                if let Some(v) = value {
+                    self.visit_expr(v);
+                }
+                let (line, col) = position_from_offset(self.source, stmt.span.start);
+                self.scope_tracker.declare(name.clone(), line, col);
+            }
+            StmtKind::Assign { name, value } => {
+                self.visit_expr(value);
+                if self.config.no_undef && !self.scope_tracker.is_declared(name) {
+                    let (line, col) = position_from_offset(self.source, stmt.span.start);
+                    self.diagnostics.push(LintDiagnostic {
+                        rule_name: "no-undef".to_string(),
+                        message: format!("Usage of undefined variable '{}'", name),
+                        severity: Severity::Error,
+                        line,
+                        column: col,
+                    });
+                } else {
+                    self.scope_tracker.use_var(name);
+                }
+            }
+            StmtKind::Block(stmts) => {
+                self.scope_tracker.enter_scope();
+                for s in stmts {
+                    self.visit_stmt(s);
+                }
+                self.check_unused_in_current_scope();
+                self.scope_tracker.exit_scope();
+            }
+            StmtKind::Fn {
+                name, params, body, ..
+            } => {
+                let (line, col) = position_from_offset(self.source, stmt.span.start);
+                self.scope_tracker.declare(name.clone(), line, col);
+
+                self.scope_tracker.enter_scope();
+                for param in params {
+                    let (pl, pc) = position_from_offset(self.source, stmt.span.start); // Simplification: use fn start
+                    self.scope_tracker.declare(param.name.clone(), pl, pc);
+                    if let Some(def) = &param.default {
+                        self.visit_expr(def);
+                    }
+                }
+                self.visit_stmt(body);
+                self.check_unused_in_current_scope();
+                self.scope_tracker.exit_scope();
+            }
+            StmtKind::If {
+                condition,
+                then_branch,
+                else_branch,
+            } => {
+                self.visit_expr(condition);
+                self.visit_stmt(then_branch);
+                if let Some(eb) = else_branch {
+                    self.visit_stmt(eb);
+                }
+            }
+            StmtKind::While { condition, body } => {
+                self.visit_expr(condition);
+                self.visit_stmt(body);
+            }
+            StmtKind::For {
+                names,
+                iterable,
+                body,
+                ..
+            } => {
+                self.visit_expr(iterable);
+                self.scope_tracker.enter_scope();
+                let (line, col) = position_from_offset(self.source, stmt.span.start);
+                for name in names {
+                    self.scope_tracker.declare(name.clone(), line, col);
+                }
+                self.visit_stmt(body);
+                self.check_unused_in_current_scope();
+                self.scope_tracker.exit_scope();
+            }
+            StmtKind::Return(value) => {
+                if let Some(v) = value {
+                    self.visit_expr(v);
+                }
+            }
+            StmtKind::Expr(expr) => self.visit_expr(expr),
+            StmtKind::Class {
+                name,
+                methods,
+                fields,
+                ..
+            } => {
+                let (line, col) = position_from_offset(self.source, stmt.span.start);
+                self.scope_tracker.declare(name.clone(), line, col);
+
+                self.scope_tracker.enter_scope();
+                // Inside class, 'this' is available
+                self.scope_tracker.globals.insert("this".to_string());
+                self.scope_tracker.globals.insert("super".to_string());
+
+                for field in fields {
+                    if let Some(def) = &field.default {
+                        self.visit_expr(def);
+                    }
+                }
+                for method in methods {
+                    // Method parameters and body
+                    self.scope_tracker.enter_scope();
+                    for param in &method.params {
+                        let (pl, pc) = position_from_offset(self.source, stmt.span.start);
+                        self.scope_tracker.declare(param.name.clone(), pl, pc);
+                        if let Some(def) = &param.default {
+                            self.visit_expr(def);
+                        }
+                    }
+                    self.visit_stmt(&method.body);
+                    self.check_unused_in_current_scope();
+                    self.scope_tracker.exit_scope();
+                }
+
+                self.scope_tracker.exit_scope();
+            }
+            _ => {}
+        }
+    }
+
+    fn visit_expr(&mut self, expr: &Expr) {
+        match &expr.kind {
+            ExprKind::Ident(name) => {
+                if self.config.no_undef && !self.scope_tracker.is_declared(name) {
+                    let (line, col) = position_from_offset(self.source, expr.span.start);
+                    self.diagnostics.push(LintDiagnostic {
+                        rule_name: "no-undef".to_string(),
+                        message: format!("Usage of undefined variable '{}'", name),
+                        severity: Severity::Error,
+                        line,
+                        column: col,
+                    });
+                } else {
+                    self.scope_tracker.use_var(name);
+                }
+            }
+            ExprKind::Binary { left, right, .. } => {
+                self.visit_expr(left);
+                self.visit_expr(right);
+            }
+            ExprKind::Unary { expr: inner, .. } => self.visit_expr(inner),
+            ExprKind::Call { callee, args } | ExprKind::SafeCall { callee, args } => {
+                self.visit_expr(callee);
+                for arg in args {
+                    match arg {
+                        CallArg::Positional(e) | CallArg::Named(_, e) | CallArg::Spread(e) => {
+                            self.visit_expr(e);
+                        }
+                        CallArg::Placeholder => {}
+                    }
+                }
+            }
+            ExprKind::Property { object, .. } | ExprKind::SafeProperty { object, .. } => {
+                self.visit_expr(object);
+            }
+            ExprKind::Block(stmts) => {
+                self.scope_tracker.enter_scope();
+                for s in stmts {
+                    self.visit_stmt(s);
+                }
+                self.check_unused_in_current_scope();
+                self.scope_tracker.exit_scope();
+            }
+            ExprKind::Lambda { params, body, .. } => {
+                self.scope_tracker.enter_scope();
+                for param in params {
+                    let (pl, pc) = position_from_offset(self.source, expr.span.start);
+                    self.scope_tracker.declare(param.name.clone(), pl, pc);
+                    if let Some(def) = &param.default {
+                        self.visit_expr(def);
+                    }
+                }
+                self.visit_expr(body);
+                self.check_unused_in_current_scope();
+                self.scope_tracker.exit_scope();
+            }
+            _ => {
+                // ... handle other complex expressions as needed ...
+            }
+        }
+    }
+
+    fn check_unused_in_current_scope(&mut self) {
+        if !self.config.warn_unused_vars {
+            return;
+        }
+        if let Some(scope) = self.scope_tracker.scopes.last() {
+            for (name, (line, col)) in &scope.declarations {
+                if !scope.usages.contains(name) && !name.starts_with('_') {
+                    self.diagnostics.push(LintDiagnostic {
+                        rule_name: "no-unused-vars".to_string(),
+                        message: format!("Variable '{}' is declared but never used", name),
+                        severity: Severity::Warning,
+                        line: *line,
+                        column: *col,
+                    });
+                }
+            }
+        }
+    }
+}
+
 pub fn lint(source: &str) -> Vec<LintDiagnostic> {
     lint_with_config(source, &LintConfig::default())
 }
 
-// Public API function for linting with config
 pub fn lint_with_config(source: &str, config: &LintConfig) -> Vec<LintDiagnostic> {
     let linter = Linter::with_config(config.clone());
     linter.lint(source)
 }
 
-// Function to format diagnostics for display
 pub fn format_diagnostics(diagnostics: &[LintDiagnostic]) -> String {
     let mut result = String::new();
-
     for diag in diagnostics {
-        let severity = match diag.severity {
-            Severity::Error => "ERROR",
-            Severity::Warning => "WARNING",
-            Severity::Info => "INFO",
-        };
-
         result.push_str(&format!(
             "[{}] {}: {} ({}:{})\n",
-            severity, diag.rule_name, diag.message, diag.line, diag.column
+            diag.severity, diag.rule_name, diag.message, diag.line, diag.column
         ));
     }
-
     result
 }
 

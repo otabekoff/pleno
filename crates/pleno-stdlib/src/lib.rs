@@ -8,6 +8,7 @@ pub mod json;
 pub mod log;
 pub mod math;
 pub mod net;
+pub mod os;
 pub mod path;
 pub mod process;
 pub mod promise;
@@ -243,12 +244,41 @@ pub fn register(vm: &mut dyn VMProvider) {
     math_module.insert("tan".to_string(), Value::NativeFunction(math::math_tan));
     math_module.insert("log".to_string(), Value::NativeFunction(math::math_log));
     math_module.insert("exp".to_string(), Value::NativeFunction(math::math_exp));
+    math_module.insert("atan2".to_string(), Value::NativeFunction(math::math_atan2));
+    math_module.insert("log10".to_string(), Value::NativeFunction(math::math_log10));
+    math_module.insert("trunc".to_string(), Value::NativeFunction(math::math_trunc));
+    math_module.insert("sign".to_string(), Value::NativeFunction(math::math_sign));
+
     math_module.insert("PI".to_string(), Value::Float(std::f64::consts::PI));
     math_module.insert("E".to_string(), Value::Float(std::f64::consts::E));
+    math_module.insert("LN2".to_string(), Value::Float(std::f64::consts::LN_2));
+    math_module.insert("LN10".to_string(), Value::Float(std::f64::consts::LN_10));
+    math_module.insert("LOG2E".to_string(), Value::Float(std::f64::consts::LOG2_E));
+    math_module.insert(
+        "LOG10E".to_string(),
+        Value::Float(std::f64::consts::LOG10_E),
+    );
+    math_module.insert(
+        "SQRT1_2".to_string(),
+        Value::Float(std::f64::consts::FRAC_1_SQRT_2),
+    );
+    math_module.insert("SQRT2".to_string(), Value::Float(std::f64::consts::SQRT_2));
 
     modules.insert(
         "std:math".to_string(),
         Value::Map(gc.allocate(MapState::new(math_module)).unwrap()),
+    );
+
+    // std:json
+    let mut json_module = HashMap::new();
+    json_module.insert("parse".to_string(), Value::NativeFunction(json::json_parse));
+    json_module.insert(
+        "stringify".to_string(),
+        Value::NativeFunction(json::json_stringify),
+    );
+    modules.insert(
+        "std:json".to_string(),
+        Value::Map(gc.allocate(MapState::new(json_module)).unwrap()),
     );
 
     // std:http
@@ -429,6 +459,26 @@ pub fn register(vm: &mut dyn VMProvider) {
     modules.insert(
         "std:net".to_string(),
         Value::Map(gc.allocate(MapState::new(net_module)).unwrap()),
+    );
+
+    // std:os
+    let mut os_module = HashMap::new();
+    os_module.insert(
+        "platform".to_string(),
+        Value::NativeFunction(os::os_platform),
+    );
+    os_module.insert("arch".to_string(), Value::NativeFunction(os::os_arch));
+    os_module.insert("homedir".to_string(), Value::NativeFunction(os::os_homedir));
+    os_module.insert("tmpdir".to_string(), Value::NativeFunction(os::os_tmpdir));
+    os_module.insert(
+        "hostname".to_string(),
+        Value::NativeFunction(os::os_hostname),
+    );
+    os_module.insert("uptime".to_string(), Value::NativeFunction(os::os_uptime));
+    // Include some from process/path for ergonomics if desired, but let's keep it clean first.
+    modules.insert(
+        "std:os".to_string(),
+        Value::Map(gc.allocate(MapState::new(os_module)).unwrap()),
     );
 
     // std:concurrency

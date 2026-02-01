@@ -84,8 +84,17 @@ fn value_to_json_string(val: &Value) -> Result<String, pleno_value::RuntimeError
         Value::Null => Ok("null".to_string()),
         Value::Bool(b) => Ok(b.to_string()),
         Value::Int(i) => Ok(i.to_string()),
-        Value::Float(f) => Ok(f.to_string()),
-        Value::String(s) => Ok(format!("{:?}", s)), // simple quoting
+        Value::Float(f) => {
+            if f.is_nan() || f.is_infinite() {
+                Ok("null".to_string())
+            } else {
+                Ok(f.to_string())
+            }
+        }
+        Value::String(s) => {
+            // Use serde_json for proper string escaping
+            Ok(serde_json::to_string(s.as_str()).unwrap_or_else(|_| format!("\"{}\"", s)))
+        }
         Value::Array(arr) => {
             let mut s = String::from("[");
             let arr = arr.borrow();
@@ -105,11 +114,14 @@ fn value_to_json_string(val: &Value) -> Result<String, pleno_value::RuntimeError
                 if i > 0 {
                     s.push(',');
                 }
-                s.push_str(&format!("{:?}:{}", k, value_to_json_string(v)?));
+                // Keys in JSON must be strings
+                s.push_str(&serde_json::to_string(k).unwrap_or_else(|_| format!("\"{}\"", k)));
+                s.push(':');
+                s.push_str(&value_to_json_string(v)?);
             }
             s.push('}');
             Ok(s)
         }
-        _ => Ok("\"<unsupported>\"".to_string()),
+        _ => Ok("null".to_string()), // Functions, Classes, etc. serialize to null in JSON
     }
 }

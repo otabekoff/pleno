@@ -1043,13 +1043,24 @@ fn handle_doc(path: Option<&str>, output_dir: Option<&str>) {
     let source_path = PathBuf::from(path.unwrap_or("."));
     let output_path = PathBuf::from(output_dir.unwrap_or("docs_out"));
 
-    if let Err(e) = generate_docs_recursive(&source_path, &output_path) {
+    let mut generated_files = Vec::new();
+    if let Err(e) = generate_docs_recursive(&source_path, &output_path, &mut generated_files) {
         eprintln!("Documentation generation failed: {}", e);
         process::exit(1);
     }
+
+    if let Err(e) = generate_index(&output_path, &generated_files) {
+        eprintln!("Warning: Failed to generate index: {}", e);
+    }
+
+    println!("Documentation generated in: {}", output_path.display());
 }
 
-fn generate_docs_recursive(source_path: &Path, output_path: &Path) -> Result<(), String> {
+fn generate_docs_recursive(
+    source_path: &Path,
+    output_path: &Path,
+    generated_files: &mut Vec<String>,
+) -> Result<(), String> {
     if source_path.is_dir() {
         for entry in fs::read_dir(source_path)
             .map_err(|e| e.to_string())?
@@ -1057,30 +1068,64 @@ fn generate_docs_recursive(source_path: &Path, output_path: &Path) -> Result<(),
         {
             let path = entry.path();
             if path.is_dir() {
-                generate_docs_recursive(&path, output_path)?;
+                // Skip common hidden dirs or build artifacts
+                if path
+                    .file_name()
+                    .and_then(|s| s.to_str())
+                    .is_some_and(|s| s == "target" || s == ".git")
+                {
+                    continue;
+                }
+                generate_docs_recursive(&path, output_path, generated_files)?;
             } else if path.extension().is_some_and(|ext| ext == "pln") {
-                generate_docs_for_file(&path, output_path)?;
+                if let Some(file_name) = generate_docs_for_file(&path, output_path)? {
+                    generated_files.push(file_name);
+                }
             }
         }
     } else if source_path.extension().is_some_and(|ext| ext == "pln") {
-        generate_docs_for_file(source_path, output_path)?;
+        if let Some(file_name) = generate_docs_for_file(source_path, output_path)? {
+            generated_files.push(file_name);
+        }
     }
     Ok(())
 }
 
-fn generate_docs_for_file(path: &Path, output_dir: &Path) -> Result<(), String> {
+fn generate_docs_for_file(path: &Path, output_dir: &Path) -> Result<Option<String>, String> {
     let source = fs::read_to_string(path).map_err(|e| e.to_string())?;
-    let file_name = path.file_name().unwrap().to_string_lossy();
-    let docs = pleno_doc::generate_docs(&source, &file_name)?;
+    let file_display_name = path.file_name().unwrap().to_string_lossy();
+
+    // Only generate if there's actual content or doc comments
+    if !source.contains("///") && !source.contains("class") && !source.contains("fn") {
+        return Ok(None);
+    }
+
+    let docs = pleno_doc::generate_docs(&source, &file_display_name)?;
 
     if !output_dir.exists() {
         fs::create_dir_all(output_dir).map_err(|e| e.to_string())?;
     }
 
     let mut output_file = output_dir.to_path_buf();
-    output_file.push(path.file_name().unwrap());
-    output_file.set_extension("md");
+    let file_stem = path.file_stem().unwrap().to_string_lossy();
+    output_file.push(format!("{}.md", file_stem));
 
-    fs::write(output_file, docs).map_err(|e| e.to_string())?;
+    fs::write(&output_file, docs).map_err(|e| e.to_string())?;
+    Ok(Some(format!("{}.md", file_stem)))
+}
+
+fn generate_index(output_dir: &Path, files: &[String]) -> Result<(), String> {
+    let mut index = String::new();
+    index.push_str("# Project Documentation\n\n");
+    index.push_str("## Modules\n\n");
+
+    for file in files {
+        let title = file.trim_end_matches(".md");
+        index.push_str(&format!("- [{}]({})\n", title, file));
+    }
+
+    let mut index_path = output_dir.to_path_buf();
+    index_path.push("README.md");
+    fs::write(index_path, index).map_err(|e| e.to_string())?;
     Ok(())
 }

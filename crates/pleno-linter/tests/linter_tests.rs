@@ -470,3 +470,25 @@ fn test_numbers_and_formats() {
     // Should handle different number formats
     assert!(!messages.is_empty() || messages.is_empty()); // Just ensure it runs without error
 }
+
+#[test]
+fn test_no_undef() {
+    let input = "let x = y + 1;";
+    let messages = lint(input);
+
+    assert!(messages.iter().any(|msg| {
+        msg.rule_name == "no-undef" && msg.message.contains("undefined variable 'y'")
+    }));
+
+    let input_valid = "let y = 10; let x = y + 1;";
+    let messages_valid = lint(input_valid);
+    assert!(!messages_valid.iter().any(|msg| msg.rule_name == "no-undef"));
+
+    let input_builtin = "println(\"hello\");";
+    let messages_builtin = lint(input_builtin);
+    assert!(
+        !messages_builtin
+            .iter()
+            .any(|msg| msg.rule_name == "no-undef")
+    );
+}

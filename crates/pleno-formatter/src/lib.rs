@@ -27,15 +27,16 @@ impl Formatter {
     }
 
     pub fn format(&self, source: &str) -> Result<String, String> {
-        // Since we're working with AST nodes directly, we'll create a new formatter instance
-        let mut formatter = self.clone();
-        Ok(formatter.format_source(source))
-    }
-
-    fn format_source(&mut self, source: &str) -> String {
-        // This is a simplified version that would require the actual AST to be parsed
-        // For now, we'll just return the source as-is since the AST parsing is done elsewhere
-        source.to_string()
+        let options = FormatOptions {
+            indent_style: if self.use_tabs {
+                IndentStyle::Tabs
+            } else {
+                IndentStyle::Spaces(self.indent_size)
+            },
+            max_line_length: Some(self._max_line_length),
+            ..Default::default()
+        };
+        format_code(source, &options)
     }
 
     fn indent(&self, level: usize) -> String {
@@ -1014,10 +1015,11 @@ impl Formatter {
                         "".to_string()
                     };
                     result.push_str(&format!(
-                        "    case {}{} => {},\n",
+                        "{}case {}{} => {},\n",
+                        self.indent(indent_level + 1),
                         self.format_pattern(&arm.pattern),
                         guard_str,
-                        self.format_expression(&arm.body, indent_level)
+                        self.format_expression(&arm.body, indent_level + 1)
                     ));
                 }
                 result.push('}');

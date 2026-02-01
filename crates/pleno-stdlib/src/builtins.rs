@@ -115,6 +115,22 @@ pub fn register_builtins(vm: &mut dyn VMProvider) {
         "__native_math_round".to_string(),
         Value::NativeFunction(crate::math::math_round),
     );
+    vm.register_global(
+        "__native_math_atan2".to_string(),
+        Value::NativeFunction(crate::math::math_atan2),
+    );
+    vm.register_global(
+        "__native_math_log10".to_string(),
+        Value::NativeFunction(crate::math::math_log10),
+    );
+    vm.register_global(
+        "__native_math_trunc".to_string(),
+        Value::NativeFunction(crate::math::math_trunc),
+    );
+    vm.register_global(
+        "__native_math_sign".to_string(),
+        Value::NativeFunction(crate::math::math_sign),
+    );
 
     vm.register_global(
         "__native_http_get".to_string(),
@@ -136,6 +152,38 @@ pub fn register_builtins(vm: &mut dyn VMProvider) {
     vm.register_global(
         "__native_dotenv_config".to_string(),
         Value::NativeFunction(crate::dotenv::dotenv_config),
+    );
+    vm.register_global(
+        "__native_json_parse".to_string(),
+        Value::NativeFunction(crate::json::json_parse),
+    );
+    vm.register_global(
+        "__native_json_stringify".to_string(),
+        Value::NativeFunction(crate::json::json_stringify),
+    );
+    vm.register_global(
+        "__native_os_platform".to_string(),
+        Value::NativeFunction(crate::os::os_platform),
+    );
+    vm.register_global(
+        "__native_os_arch".to_string(),
+        Value::NativeFunction(crate::os::os_arch),
+    );
+    vm.register_global(
+        "__native_os_homedir".to_string(),
+        Value::NativeFunction(crate::os::os_homedir),
+    );
+    vm.register_global(
+        "__native_os_tmpdir".to_string(),
+        Value::NativeFunction(crate::os::os_tmpdir),
+    );
+    vm.register_global(
+        "__native_os_hostname".to_string(),
+        Value::NativeFunction(crate::os::os_hostname),
+    );
+    vm.register_global(
+        "__native_os_uptime".to_string(),
+        Value::NativeFunction(crate::os::os_uptime),
     );
 
     // Result type constructors
