@@ -372,13 +372,7 @@ fn native_iterator_next(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value
                 IteratorState::Set { values, index, .. } => {
                     if *index < values.len() {
                         let key = &values[*index];
-                        let val = match key {
-                            ValueKey::Null => Value::Null,
-                            ValueKey::Bool(b) => Value::Bool(*b),
-                            ValueKey::Int(i) => Value::Int(*i),
-                            ValueKey::Float(f) => Value::Float(f64::from_bits(*f)),
-                            ValueKey::String(s) => Value::String(Rc::clone(s)),
-                        };
+                        let val = key.to_value();
                         *index += 1;
                         Ok(val)
                     } else {
@@ -1724,17 +1718,7 @@ fn native_set_map(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, Runt
         .get(1)
         .cloned()
         .ok_or_else(|| RuntimeError::new("map expects callback"))?;
-    let items: Vec<Value> = set
-        .borrow()
-        .iter()
-        .map(|k| match k {
-            ValueKey::Null => Value::Null,
-            ValueKey::Bool(v) => Value::Bool(*v),
-            ValueKey::Int(v) => Value::Int(*v),
-            ValueKey::Float(bits) => Value::Float(f64::from_bits(*bits)),
-            ValueKey::String(s) => Value::String(Rc::clone(s)),
-        })
-        .collect();
+    let items: Vec<Value> = set.borrow().iter().map(|k| k.to_value()).collect();
     let mut results = Vec::with_capacity(items.len());
     for item in items {
         results.push(vm.call(cb.clone(), vec![item])?);
@@ -1755,13 +1739,7 @@ fn native_set_filter(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, R
         .ok_or_else(|| RuntimeError::new("filter expects callback"))?;
     let mut result = std::collections::HashSet::new();
     for key in set.borrow().iter() {
-        let val = match key {
-            ValueKey::Null => Value::Null,
-            ValueKey::Bool(v) => Value::Bool(*v),
-            ValueKey::Int(v) => Value::Int(*v),
-            ValueKey::Float(bits) => Value::Float(f64::from_bits(*bits)),
-            ValueKey::String(s) => Value::String(Rc::clone(s)),
-        };
+        let val = key.to_value();
         if is_truthy(&vm.call(cb.clone(), vec![val])?) {
             result.insert(key.clone());
         }
@@ -1779,13 +1757,7 @@ fn native_set_for_each(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value,
         .cloned()
         .ok_or_else(|| RuntimeError::new("forEach expects callback"))?;
     for key in set.borrow().iter() {
-        let val = match key {
-            ValueKey::Null => Value::Null,
-            ValueKey::Bool(v) => Value::Bool(*v),
-            ValueKey::Int(v) => Value::Int(*v),
-            ValueKey::Float(bits) => Value::Float(f64::from_bits(*bits)),
-            ValueKey::String(s) => Value::String(Rc::clone(s)),
-        };
+        let val = key.to_value();
         vm.call(cb.clone(), vec![val])?;
     }
     Ok(Value::Null)
@@ -1796,17 +1768,7 @@ fn native_set_to_array(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value,
         Value::Set(s) => s,
         _ => return Err(RuntimeError::new("expected set")),
     };
-    let values: Vec<Value> = set
-        .borrow()
-        .iter()
-        .map(|k| match k {
-            ValueKey::Null => Value::Null,
-            ValueKey::Bool(v) => Value::Bool(*v),
-            ValueKey::Int(v) => Value::Int(*v),
-            ValueKey::Float(bits) => Value::Float(f64::from_bits(*bits)),
-            ValueKey::String(s) => Value::String(Rc::clone(s)),
-        })
-        .collect();
+    let values: Vec<Value> = set.borrow().iter().map(|k| k.to_value()).collect();
     Ok(Value::Array(vm.get_gc().allocate(ArrayState::new(values))?))
 }
 

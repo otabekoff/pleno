@@ -1333,15 +1333,7 @@ impl VM {
                                 .borrow()
                                 .iter()
                                 .cloned()
-                                .map(|key| match key {
-                                    pleno_value::ValueKey::Null => Value::Null,
-                                    pleno_value::ValueKey::Bool(value) => Value::Bool(value),
-                                    pleno_value::ValueKey::Int(value) => Value::Int(value),
-                                    pleno_value::ValueKey::Float(bits) => {
-                                        Value::Float(f64::from_bits(bits))
-                                    }
-                                    pleno_value::ValueKey::String(value) => Value::String(value),
-                                })
+                                .map(|key| key.to_value())
                                 .collect::<Vec<_>>();
                             Ok(Value::Array(self.gc.allocate(ArrayState::new(values))?))
                         }
@@ -1383,15 +1375,7 @@ impl VM {
                                     .iter()
                                     .enumerate()
                                     .map(|(idx, val)| {
-                                        let val = match val {
-                                            ValueKey::Null => Value::Null,
-                                            ValueKey::Bool(v) => Value::Bool(*v),
-                                            ValueKey::Int(v) => Value::Int(*v),
-                                            ValueKey::Float(bits) => {
-                                                Value::Float(f64::from_bits(*bits))
-                                            }
-                                            ValueKey::String(v) => Value::String(Rc::clone(v)),
-                                        };
+                                        let val = val.to_value();
                                         Ok(Value::Array(self.gc.allocate(ArrayState::new(
                                             vec![Value::Int(idx as i64), val],
                                         ))?))
@@ -5180,11 +5164,5 @@ fn value_to_key(value: &Value) -> Result<ValueKey, RuntimeError> {
 }
 
 fn key_to_value(key: &ValueKey) -> Value {
-    match key {
-        ValueKey::Null => Value::Null,
-        ValueKey::Bool(b) => Value::Bool(*b),
-        ValueKey::Int(i) => Value::Int(*i),
-        ValueKey::Float(f) => Value::Float(f64::from_bits(*f)),
-        ValueKey::String(s) => Value::String(Rc::clone(s)),
-    }
+    key.to_value()
 }

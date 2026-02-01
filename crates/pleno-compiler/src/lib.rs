@@ -861,9 +861,7 @@ impl Compiler {
                         self.emit(Opcode::LoadConst, reg, const_idx, 0)
                     }
                     Literal::Char(value) => {
-                        // Represent Char as a single-character String
-                        let char_str = value.to_string();
-                        let const_idx = self.add_constant(Value::String(char_str.into()));
+                        let const_idx = self.add_constant(Value::Char(*value));
                         self.emit(Opcode::LoadConst, reg, const_idx, 0)
                     }
                 }
@@ -2526,7 +2524,7 @@ impl Compiler {
                         Literal::String(s) => Value::String(s.clone().into()),
                         Literal::Bool(b) => Value::Bool(*b),
                         Literal::Null => Value::Null,
-                        Literal::Char(c) => Value::String(c.to_string().into()),
+                        Literal::Char(c) => Value::Char(*c),
                     };
                     args.push(val);
                 }

@@ -192,6 +192,7 @@ pub enum Value {
     },
     File(GcRc<FileState>),
     Cell(GcRc<CellState>),
+    Char(char),
 }
 
 impl Value {
@@ -256,6 +257,7 @@ impl Value {
             Value::BoundInterface { .. } => "Interface",
             Value::BoundFunction { .. } => "Function",
             Value::File(_) => "File",
+            Value::Char(_) => "Char",
         }
     }
 }
@@ -405,6 +407,7 @@ impl GcObject for Value {
             }
             Value::File(f) => gc.mark_object(&f.to_gc_object()),
             Value::Cell(c) => gc.mark_object(&c.to_gc_object()),
+            Value::Char(_) => {}
             _ => {}
         }
     }
@@ -884,6 +887,7 @@ impl PartialEq for Value {
             ) => fa == fb && ta == tb,
             (Value::Cell(a), Value::Cell(b)) => a.as_ptr() == b.as_ptr(),
             (Value::File(a), Value::File(b)) => a.as_ptr() == b.as_ptr(),
+            (Value::Char(a), Value::Char(b)) => a == b,
             _ => false,
         }
     }
@@ -898,6 +902,7 @@ impl std::fmt::Display for Value {
             Value::Int(v) => write!(f, "{}", v),
             Value::Float(v) => write!(f, "{}", v),
             Value::String(v) => write!(f, "{}", v),
+            Value::Char(v) => write!(f, "{}", v),
             Value::File(v) => write!(f, "<file {}>", v.borrow().name),
             Value::Range(r) => {
                 if let Some(start) = r.start {
@@ -986,6 +991,7 @@ impl std::fmt::Display for Value {
                         ValueKey::Int(v) => write!(f, "{}", v)?,
                         ValueKey::Float(bits) => write!(f, "{}", f64::from_bits(*bits))?,
                         ValueKey::String(v) => write!(f, "\"{}\"", v)?,
+                        ValueKey::Char(v) => write!(f, "\'{}\'", v)?,
                     }
                 }
                 write!(f, "}}")
@@ -1289,6 +1295,7 @@ pub enum ValueKey {
     Int(i64),
     Float(u64),
     String(Rc<String>),
+    Char(char),
 }
 
 impl ValueKey {
@@ -1299,7 +1306,19 @@ impl ValueKey {
             Value::Int(value) => Some(ValueKey::Int(*value)),
             Value::Float(value) => Some(ValueKey::Float(value.to_bits())),
             Value::String(value) => Some(ValueKey::String(Rc::clone(value))),
+            Value::Char(value) => Some(ValueKey::Char(*value)),
             _ => None,
+        }
+    }
+
+    pub fn to_value(&self) -> Value {
+        match self {
+            ValueKey::Null => Value::Null,
+            ValueKey::Bool(v) => Value::Bool(*v),
+            ValueKey::Int(v) => Value::Int(*v),
+            ValueKey::Float(bits) => Value::Float(f64::from_bits(*bits)),
+            ValueKey::String(s) => Value::String(Rc::clone(s)),
+            ValueKey::Char(c) => Value::Char(*c),
         }
     }
 }
