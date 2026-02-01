@@ -44,12 +44,23 @@ pub fn run_pleno() {
         "run" => {
             handle_run(&mut args);
         }
-        "format" => {
-            let path = args.next().unwrap_or_else(|| {
+        "format" | "fmt" => {
+            let mut path = None;
+            let mut stdout = false;
+
+            for arg in args.by_ref() {
+                if arg == "--stdout" {
+                    stdout = true;
+                } else if path.is_none() {
+                    path = Some(arg);
+                }
+            }
+
+            let path = path.unwrap_or_else(|| {
                 eprintln!("Error: 'format' requires a file or directory path");
                 process::exit(1);
             });
-            format_file(&path);
+            format_file(&path, stdout);
         }
         "lint" => {
             let path = args.next().unwrap_or_else(|| {
@@ -577,20 +588,20 @@ fn get_line_col(source: &str, offset: usize) -> (usize, usize) {
     (line, col)
 }
 
-fn format_file(path: &str) {
+fn format_file(path: &str, stdout_flag: bool) {
     let path_buf = PathBuf::from(path);
     if path_buf.is_dir() {
-        format_directory(&path_buf);
+        format_directory(&path_buf, stdout_flag);
     } else {
         if !path.ends_with(".pln") {
             eprintln!("Error: Only .pln format file extensions are supported");
             process::exit(1);
         }
-        format_single_file(&path_buf);
+        format_single_file(&path_buf, stdout_flag);
     }
 }
 
-fn format_single_file(path: &PathBuf) {
+fn format_single_file(path: &PathBuf, stdout_flag: bool) {
     let source = match fs::read_to_string(path) {
         Ok(contents) => contents,
         Err(err) => {
@@ -625,21 +636,25 @@ fn format_single_file(path: &PathBuf) {
     let mut formatter = pleno_formatter::Formatter::new();
     let formatted = formatter.format_program(&program, 0);
 
-    if let Err(err) = fs::write(path, formatted) {
-        eprintln!("Failed to write to {}: {err}", path.display());
-        process::exit(1);
+    if stdout_flag {
+        print!("{}", formatted);
+    } else {
+        if let Err(err) = fs::write(path, formatted) {
+            eprintln!("Failed to write to {}: {err}", path.display());
+            process::exit(1);
+        }
+        println!("Formatted {}", path.display());
     }
-    println!("Formatted {}", path.display());
 }
 
-fn format_directory(dir: &PathBuf) {
+fn format_directory(dir: &PathBuf, stdout_flag: bool) {
     if let Ok(entries) = fs::read_dir(dir) {
         for entry in entries.flatten() {
             let path = entry.path();
             if path.is_dir() {
-                format_directory(&path);
+                format_directory(&path, stdout_flag);
             } else if path.extension().is_some_and(|ext| ext == "pln") {
-                format_single_file(&path);
+                format_single_file(&path, stdout_flag);
             }
         }
     }
