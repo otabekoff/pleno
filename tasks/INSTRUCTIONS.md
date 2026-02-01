@@ -20,3 +20,4 @@ add/edit/update/upgrade/fix/bugfix/implement/make changes/review/test
 
 run cargo clippy --workspace and fix the warnings/errors/problems/issues/recommendations.
 
+If duplicated code, don't just remove one. Think which one to left or not. Always we need latest, working, more features included, complete one.

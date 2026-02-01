@@ -1396,6 +1396,12 @@ impl VM {
                         Value::Object(_) => "Object",
                         Value::Null => "Null",
                         Value::ArrayOp { .. } => "Array",
+                        Value::Tuple(_) => "Tuple",
+                        Value::Mutex(_) => "Mutex",
+                        Value::Channel(_) => "Channel",
+                        Value::File(_) => "File",
+                        Value::Enum(_) => "Enum",
+                        Value::Variant { .. } => "Variant",
                         _ => "Unknown",
                     };
                     self.registers[base + a] = Value::String(Rc::new(type_name.to_string()));
@@ -3909,9 +3915,13 @@ impl VM {
                             | ("Bool", Value::Bool(_))
                             | ("String", Value::String(_))
                             | ("Array", Value::Array(_))
+                            | ("Tuple", Value::Tuple(_))
                             | ("Map", Value::Map(_))
                             | ("Set", Value::Set(_))
                             | ("Object", Value::Map(_) | Value::Object(_))
+                            | ("Mutex", Value::Mutex(_))
+                            | ("Channel", Value::Channel(_))
+                            | ("File", Value::File(_))
                             | ("Null", Value::Null)
                             | ("Any", _)
                     )
