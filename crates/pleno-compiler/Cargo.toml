@@ -9,7 +9,9 @@ pleno-ast = { workspace = true }
 pleno-bytecode = { workspace = true }
 pleno-value = { workspace = true }
 pleno-diagnostics = { workspace = true }
+indexmap = { workspace = true }
 
 [dev-dependencies]
 pleno-lexer = { workspace = true }
 pleno-parser = { workspace = true }
+indexmap = { workspace = true }

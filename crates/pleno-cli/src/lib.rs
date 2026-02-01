@@ -1083,16 +1083,16 @@ fn generate_docs_recursive(
                     continue;
                 }
                 generate_docs_recursive(&path, output_path, generated_files)?;
-            } else if path.extension().is_some_and(|ext| ext == "pln") {
-                if let Some(file_name) = generate_docs_for_file(&path, output_path)? {
-                    generated_files.push(file_name);
-                }
+            } else if path.extension().is_some_and(|ext| ext == "pln")
+                && let Some(file_name) = generate_docs_for_file(&path, output_path)?
+            {
+                generated_files.push(file_name);
             }
         }
-    } else if source_path.extension().is_some_and(|ext| ext == "pln") {
-        if let Some(file_name) = generate_docs_for_file(source_path, output_path)? {
-            generated_files.push(file_name);
-        }
+    } else if source_path.extension().is_some_and(|ext| ext == "pln")
+        && let Some(file_name) = generate_docs_for_file(source_path, output_path)?
+    {
+        generated_files.push(file_name);
     }
     Ok(())
 }

@@ -1,7 +1,8 @@
+use indexmap::IndexMap;
 use pleno_value::{
     ArrayState, MapState, MultiWaiter, MultiWaiterMode, RuntimeError, VMProvider, Value,
 };
-use std::collections::HashMap;
+// use std::collections::HashMap;
 use std::rc::Rc;
 
 pub fn promise_constructor(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
@@ -169,7 +170,7 @@ pub fn promise_all(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, Run
 
     if promises.is_empty() {
         let gc = vm.get_gc();
-        let mut map = HashMap::new();
+        let mut map = IndexMap::new();
         map.insert(
             "variant".to_string(),
             Value::String(Rc::new("Resolved".to_string())),

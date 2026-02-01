@@ -1,8 +1,8 @@
 use chrono::{TimeZone, Utc};
+use indexmap::IndexMap;
 use pleno_value::MapState;
 use pleno_value::RuntimeError;
 use pleno_value::Value;
-use std::collections::HashMap;
 use std::rc::Rc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -120,7 +120,7 @@ pub fn time_parts(
 
     use chrono::{Datelike, Timelike};
 
-    let mut entries = HashMap::new();
+    let mut entries = IndexMap::new();
     entries.insert("year".to_string(), Value::Int(dt.year() as i64));
     entries.insert("month".to_string(), Value::Int(dt.month() as i64));
     entries.insert("day".to_string(), Value::Int(dt.day() as i64));
@@ -185,7 +185,7 @@ pub fn time_datetime_now(
 
     use chrono::{Datelike, Timelike};
 
-    let mut entries = HashMap::new();
+    let mut entries = IndexMap::new();
     entries.insert("_timestamp".to_string(), Value::Float(timestamp));
     entries.insert("year".to_string(), Value::Int(dt.year() as i64));
     entries.insert("month".to_string(), Value::Int(dt.month() as i64));

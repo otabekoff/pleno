@@ -1,8 +1,9 @@
+use indexmap::IndexMap;
 use pleno_value::{
     ClosureState, MethodOwner, MultiWaiter, Value,
     gc::{GcObject, GcRc, MarkAndSweepGC},
 };
-use std::collections::HashMap;
+// use std::collections::HashMap;
 use std::rc::Rc;
 
 #[derive(Debug, Clone)]
@@ -82,11 +83,11 @@ impl GcObject for CallFrame {
 pub struct VmRoots<'a> {
     pub registers: &'a [Value],
     pub frames: &'a [CallFrame],
-    pub globals: &'a HashMap<String, Value>,
-    pub modules: &'a HashMap<String, Value>,
+    pub globals: &'a IndexMap<String, Value>,
+    pub modules: &'a IndexMap<String, Value>,
     pub pending_tasks: &'a [AsyncTask],
-    pub suspended_frames: &'a HashMap<u64, SuspendedFrame>,
-    pub promises: &'a HashMap<u64, Value>,
+    pub suspended_frames: &'a IndexMap<u64, SuspendedFrame>,
+    pub promises: &'a IndexMap<u64, Value>,
     pub multi_waiters: &'a [MultiWaiter],
 }
 

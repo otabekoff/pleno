@@ -7,3 +7,4 @@ license.workspace = true
 [dependencies]
 pleno-common = { workspace = true }
 serde = { workspace = true, features = ["derive", "rc"] }
+indexmap = { workspace = true }

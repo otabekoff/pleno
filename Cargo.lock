@@ -713,6 +713,8 @@ checksum = "7714e70437a7dc3ac8eb7e6f8df75fd8eb422675fc7678aff7364301092b1017"
 dependencies = [
  "equivalent",
  "hashbrown",
+ "serde",
+ "serde_core",
 ]
 
 [[package]]
@@ -1059,6 +1061,7 @@ dependencies = [
 name = "pleno-compiler"
 version = "0.1.0"
 dependencies = [
+ "indexmap",
  "pleno-ast",
  "pleno-bytecode",
  "pleno-diagnostics",
@@ -1169,6 +1172,7 @@ name = "pleno-stdlib"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "indexmap",
  "pleno-bytecode",
  "pleno-value",
  "rand 0.8.5",
@@ -1181,6 +1185,7 @@ dependencies = [
 name = "pleno-value"
 version = "0.1.0"
 dependencies = [
+ "indexmap",
  "pleno-common",
  "serde",
 ]
@@ -1190,6 +1195,7 @@ name = "pleno-vm"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "indexmap",
  "pleno-bytecode",
  "pleno-compiler",
  "pleno-lexer",

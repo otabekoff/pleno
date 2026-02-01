@@ -1,9 +1,10 @@
 use crate::concurrency::*;
+use indexmap::{IndexMap, IndexSet};
 use pleno_value::{
     ArrayState, IteratorState, MapState, RuntimeError, SetState, TupleState, VMProvider, Value,
     ValueKey,
 };
-use std::collections::HashMap;
+// use std::collections::{HashMap, HashSet};
 use std::io::Write;
 use std::rc::Rc;
 
@@ -196,7 +197,7 @@ pub fn register_builtins(vm: &mut dyn VMProvider) {
         Value::NativeFunction(native_option_some),
     );
 
-    let mut none_map = HashMap::new();
+    let mut none_map = IndexMap::new();
     none_map.insert(
         "variant".to_string(),
         Value::String(Rc::new("None".to_string())),
@@ -212,7 +213,7 @@ pub fn register_builtins(vm: &mut dyn VMProvider) {
     // Global Math, JSON, OS removed. Import from std modules.
 
     // Promise methods
-    let mut promise_obj_map = HashMap::new();
+    let mut promise_obj_map = IndexMap::new();
     promise_obj_map.insert(
         "__call__".to_string(),
         Value::NativeFunction(crate::promise::promise_constructor),
@@ -234,14 +235,14 @@ pub fn register_builtins(vm: &mut dyn VMProvider) {
 
     // Types
     let int_map = {
-        let mut m = HashMap::new();
+        let mut m = IndexMap::new();
         m.insert("parse".to_string(), Value::NativeFunction(native_int_parse));
         vm.get_gc().allocate(MapState::new(m)).unwrap()
     };
     vm.register_global("Int".to_string(), Value::Map(int_map));
 
     let float_map = {
-        let mut m = HashMap::new();
+        let mut m = IndexMap::new();
         m.insert(
             "parse".to_string(),
             Value::NativeFunction(native_float_parse),
@@ -346,20 +347,18 @@ fn native_iterator_next(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value
                 )),
                 IteratorState::Map {
                     map,
-                    keys,
                     index,
                     is_entries,
                 } => {
-                    if *index < keys.len() {
-                        let key_str = &keys[*index];
+                    let map_borrow = map.borrow();
+                    if *index < map_borrow.entries.len() {
+                        let (key_str, value_val) = map_borrow.entries.get_index(*index).unwrap();
                         let val = if *is_entries {
                             let key_val = Value::String(Rc::new(key_str.clone()));
-                            let value_val =
-                                map.borrow().get(key_str).cloned().unwrap_or(Value::Null);
-                            Value::Tuple(
-                                vm.get_gc()
-                                    .allocate(TupleState::new(vec![key_val, value_val], None))?,
-                            )
+                            Value::Tuple(vm.get_gc().allocate(TupleState::new(
+                                vec![key_val, value_val.clone()],
+                                None,
+                            ))?)
                         } else {
                             Value::String(Rc::new(key_str.clone()))
                         };
@@ -369,9 +368,10 @@ fn native_iterator_next(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value
                         Ok(Value::Missing)
                     }
                 }
-                IteratorState::Set { values, index, .. } => {
-                    if *index < values.len() {
-                        let key = &values[*index];
+                IteratorState::Set { set, index } => {
+                    let set_borrow = set.borrow();
+                    if *index < set_borrow.elements.len() {
+                        let key = set_borrow.elements.get_index(*index).unwrap();
                         let val = key.to_value();
                         *index += 1;
                         Ok(val)
@@ -457,10 +457,8 @@ fn native_map_iterator(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value,
     }
     match &args[0] {
         Value::Map(map) => {
-            let keys = map.borrow().keys().cloned().collect::<Vec<_>>();
             let state = IteratorState::Map {
                 map: map.clone(),
-                keys,
                 index: 0,
                 is_entries: false,
             };
@@ -476,10 +474,8 @@ fn native_map_entries(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, 
     }
     match &args[0] {
         Value::Map(map) => {
-            let keys = map.borrow().keys().cloned().collect::<Vec<_>>();
             let state = IteratorState::Map {
                 map: map.clone(),
-                keys,
                 index: 0,
                 is_entries: true,
             };
@@ -495,10 +491,8 @@ fn native_set_iterator(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value,
     }
     match &args[0] {
         Value::Set(set) => {
-            let values = set.borrow().iter().cloned().collect::<Vec<_>>();
             let state = IteratorState::Set {
                 set: set.clone(),
-                values,
                 index: 0,
             };
             Ok(Value::Iterator(vm.get_gc().allocate(state)?))
@@ -770,7 +764,7 @@ fn native_gc_collect(vm: &mut dyn VMProvider, _args: &[Value]) -> Result<Value, 
 
 fn native_gc_stats(vm: &mut dyn VMProvider, _args: &[Value]) -> Result<Value, RuntimeError> {
     let gc_manager = vm.get_gc();
-    let mut stats_map = HashMap::new();
+    let mut stats_map = IndexMap::new();
     stats_map.insert(
         "heap_size".to_string(),
         Value::Int(gc_manager.gc.get_heap_size() as i64),
@@ -827,7 +821,7 @@ fn native_global_reduce(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value
 // Result/Option constructors
 fn native_result_ok(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
     let gc = vm.get_gc();
-    let mut res = HashMap::new();
+    let mut res = IndexMap::new();
     res.insert(
         "variant".to_string(),
         Value::String(Rc::new("Ok".to_string())),
@@ -841,7 +835,7 @@ fn native_result_ok(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, Ru
 
 fn native_result_err(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
     let gc = vm.get_gc();
-    let mut res = HashMap::new();
+    let mut res = IndexMap::new();
     res.insert(
         "variant".to_string(),
         Value::String(Rc::new("Err".to_string())),
@@ -855,7 +849,7 @@ fn native_result_err(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, R
 
 fn native_option_some(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
     let gc = vm.get_gc();
-    let mut res = HashMap::new();
+    let mut res = IndexMap::new();
     res.insert(
         "variant".to_string(),
         Value::String(Rc::new("Some".to_string())),
@@ -872,7 +866,7 @@ fn native_error_constructor(
     args: &[Value],
 ) -> Result<Value, RuntimeError> {
     let gc = vm.get_gc();
-    let mut res = HashMap::new();
+    let mut res = IndexMap::new();
     res.insert(
         "message".to_string(),
         args.first().cloned().unwrap_or(Value::Null),
@@ -1333,7 +1327,9 @@ fn native_map_remove(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, 
         Some(Value::String(s)) => s.as_str(),
         _ => return Ok(Value::Bool(false)),
     };
-    Ok(Value::Bool(map.borrow_mut().entries.remove(key).is_some()))
+    Ok(Value::Bool(
+        map.borrow_mut().entries.shift_remove(key).is_some(),
+    ))
 }
 fn native_map_keys(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
     let map = match &args[0] {
@@ -1383,7 +1379,7 @@ fn native_set_remove(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, 
     set.borrow().ensure_mutable()?;
     let key = ValueKey::try_from_value(args.get(1).unwrap_or(&Value::Null))
         .ok_or_else(|| RuntimeError::new("invalid value for set"))?;
-    Ok(Value::Bool(set.borrow_mut().remove(&key)))
+    Ok(Value::Bool(set.borrow_mut().shift_remove(&key)))
 }
 fn native_set_contains(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
     let set = match &args[0] {
@@ -1560,7 +1556,7 @@ fn native_map_map(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, Runt
         .iter()
         .map(|(k, v)| (k.clone(), v.clone()))
         .collect();
-    let mut results = std::collections::HashMap::new();
+    let mut results = IndexMap::new();
     for (key, value) in entries {
         let res = vm.call(cb.clone(), vec![Value::String(Rc::new(key.clone())), value])?;
         results.insert(key, res);
@@ -1583,7 +1579,7 @@ fn native_map_filter(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, R
         .iter()
         .map(|(k, v)| (k.clone(), v.clone()))
         .collect();
-    let mut results = std::collections::HashMap::new();
+    let mut results = IndexMap::new();
     for (key, value) in entries {
         if is_truthy(&vm.call(
             cb.clone(),
@@ -1737,7 +1733,7 @@ fn native_set_filter(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, R
         .get(1)
         .cloned()
         .ok_or_else(|| RuntimeError::new("filter expects callback"))?;
-    let mut result = std::collections::HashSet::new();
+    let mut result = IndexSet::new();
     for key in set.borrow().iter() {
         let val = key.to_value();
         if is_truthy(&vm.call(cb.clone(), vec![val])?) {
@@ -1797,7 +1793,7 @@ fn native_set_intersection(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Va
         Some(Value::Set(s)) => s.borrow(),
         _ => return Err(RuntimeError::new("intersection expects a set")),
     };
-    let mut result = std::collections::HashSet::new();
+    let mut result = IndexSet::new();
     for item in set1.iter() {
         if set2.contains(item) {
             result.insert(item.clone());
@@ -1815,7 +1811,7 @@ fn native_set_difference(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Valu
         Some(Value::Set(s)) => s.borrow(),
         _ => return Err(RuntimeError::new("difference expects a set")),
     };
-    let mut result = std::collections::HashSet::new();
+    let mut result = IndexSet::new();
     for item in set1.iter() {
         if !set2.contains(item) {
             result.insert(item.clone());
@@ -1825,7 +1821,7 @@ fn native_set_difference(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Valu
 }
 
 fn native_set_constructor(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
-    let mut result = std::collections::HashSet::new();
+    let mut result = IndexSet::new();
     if let Some(arg) = args.first() {
         match arg {
             Value::Array(arr) => {

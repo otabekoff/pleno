@@ -1,3 +1,4 @@
+use indexmap::IndexMap;
 use pleno_value::Value;
 use std::rc::Rc;
 
@@ -53,7 +54,7 @@ fn convert_serde_to_value(
             ))
         }
         serde_json::Value::Object(obj) => {
-            let mut entries = std::collections::HashMap::new();
+            let mut entries = IndexMap::new();
             for (k, v) in obj {
                 entries.insert(k.clone(), convert_serde_to_value(vm, v)?);
             }

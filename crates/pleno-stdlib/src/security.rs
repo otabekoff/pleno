@@ -1,5 +1,5 @@
+use indexmap::IndexMap;
 use pleno_value::{MapState, RuntimeError, SandboxConfig, VMProvider, Value};
-use std::collections::HashMap;
 use std::rc::Rc;
 
 pub fn sandbox_new(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
@@ -39,7 +39,7 @@ pub fn sandbox_new(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, Run
     }
 
     // Create the sandbox object
-    let mut sandbox_data = HashMap::new();
+    let mut sandbox_data = IndexMap::new();
     sandbox_data.insert("_allowIO".to_string(), Value::Bool(config.allow_io));
     sandbox_data.insert(
         "_allowNetwork".to_string(),

@@ -1,5 +1,5 @@
+use indexmap::IndexMap;
 use pleno_value::{MapState, RuntimeError, VMProvider, Value};
-use std::collections::HashMap;
 use std::net::{TcpListener, TcpStream};
 use std::rc::Rc;
 
@@ -22,7 +22,7 @@ pub fn net_tcp_listen(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, 
 
     // For now, we'll return a mock object since we don't have a dedicated Socket type yet.
     // In a fuller implementation, this would be a GcObject wrapping the TcpListener.
-    let mut obj = HashMap::new();
+    let mut obj = IndexMap::new();
     obj.insert(
         "address".to_string(),
         Value::String(Rc::new(addr.to_string())),
@@ -44,7 +44,7 @@ pub fn net_tcp_connect(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value,
     let _stream = TcpStream::connect(addr)
         .map_err(|e| RuntimeError::new(format!("failed to connect to {}: {}", addr, e)))?;
 
-    let mut obj = HashMap::new();
+    let mut obj = IndexMap::new();
     obj.insert(
         "remoteAddress".to_string(),
         Value::String(Rc::new(addr.to_string())),

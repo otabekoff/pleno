@@ -1,5 +1,5 @@
+use indexmap::{IndexMap, IndexSet};
 use pleno_value::{ArrayState, Class, MethodOwner, RuntimeError, VMProvider, Value};
-use std::collections::HashSet;
 use std::rc::Rc;
 
 pub fn reflect_get_type_name(
@@ -21,7 +21,7 @@ pub fn reflect_get_type_name(
 
 pub fn reflect_get_fields(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
     let value = args.first().cloned().unwrap_or(Value::Null);
-    let mut names: HashSet<String> = HashSet::new();
+    let mut names: IndexSet<String> = IndexSet::new();
 
     match value {
         Value::Object(obj) => {
@@ -57,7 +57,7 @@ pub fn reflect_get_fields(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Val
 
 pub fn reflect_get_methods(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
     let value = args.first().cloned().unwrap_or(Value::Null);
-    let mut names: HashSet<String> = HashSet::new();
+    let mut names: IndexSet<String> = IndexSet::new();
 
     // Methods live on Class
     let class_opt: Option<Class> = match value {
@@ -242,7 +242,7 @@ pub fn reflect_get_annotations(
     let gc = vm.get_gc();
     for anno in annotations {
         // Convert RuntimeAnnotation to Map {name: ..., args: ...}
-        let mut map = std::collections::HashMap::new();
+        let mut map = IndexMap::new();
         map.insert("name".to_string(), Value::String(Rc::new(anno.name)));
 
         // Convert args to Value::Array
