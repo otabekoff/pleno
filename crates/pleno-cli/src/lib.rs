@@ -139,6 +139,28 @@ fn run_plm_core(args: &mut std::iter::Peekable<std::iter::Skip<std::env::Args>>)
         "run" => handle_plm_run(args),
         "publish" => handle_plm_publish(args),
         "build" => handle_build(args),
+        "info" => handle_plm_info(args),
+        "-h" | "--help" => {
+            println!("Pleno Module Manager (plm)");
+            println!();
+            println!("Usage: plm <command> [args]");
+            println!();
+            println!("Commands:");
+            println!("  init [name]      Initialize a new Pleno package");
+            println!("  install [url]    Install dependencies or a specific package");
+            println!("  update           Update all dependencies");
+            println!("  remove <name>    Remove a dependency");
+            println!("  run <script>     Run a script defined in package.pln");
+            println!("  publish          Publish the current package");
+            println!("  build            Build the current package");
+            println!();
+            println!("Options:");
+            println!("  -h, --help       Show this help message");
+            println!("  -v, --version    Show version information");
+        }
+        "-v" | "--version" => {
+            println!("plm {}", env!("CARGO_PKG_VERSION"));
+        }
         _ => {
             eprintln!("Error: Unknown plm command '{}'", sub_command);
             process::exit(1);
@@ -1031,6 +1053,51 @@ fn handle_build(args: &mut std::iter::Peekable<std::iter::Skip<std::env::Args>>)
                 );
                 process::exit(1);
             }
+        }
+    }
+}
+
+fn handle_plm_info(args: &mut std::iter::Peekable<std::iter::Skip<std::env::Args>>) {
+    let json_output = args.peek().is_some_and(|arg| arg == "--json");
+    if json_output {
+        args.next();
+    }
+
+    match Manifest::load_from_file("package.pln") {
+        Ok(manifest) => {
+            if json_output {
+                println!("{}", serde_json::to_string_pretty(&manifest).unwrap());
+            } else {
+                println!("Package: {}", manifest.package.name);
+                println!("Version: {}", manifest.package.version);
+                println!("Main:    {}", manifest.package.main);
+
+                if !manifest.scripts.is_empty() {
+                    println!("\nScripts:");
+                    let mut keys: Vec<_> = manifest.scripts.keys().collect();
+                    keys.sort();
+                    for name in keys {
+                        println!("  {:10} {}", name, manifest.scripts[name]);
+                    }
+                }
+
+                if !manifest.dependencies.is_empty() {
+                    println!("\nDependencies:");
+                    let mut keys: Vec<_> = manifest.dependencies.keys().collect();
+                    keys.sort();
+                    for name in keys {
+                        println!("  {:10} {:?}", name, manifest.dependencies[name]);
+                    }
+                }
+            }
+        }
+        Err(e) => {
+            if json_output {
+                println!(r#"{{"error": "{}"}}"#, e);
+            } else {
+                eprintln!("Error loading package.pln: {}", e);
+            }
+            process::exit(1);
         }
     }
 }

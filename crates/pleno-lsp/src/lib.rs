@@ -149,6 +149,23 @@ impl ServerState {
 // --- Main Loop ---
 
 pub fn start() -> io::Result<()> {
+    let args: Vec<String> = std::env::args().collect();
+    if args.contains(&"--help".to_string()) || args.contains(&"-h".to_string()) {
+        println!("Pleno Language Server (pleno-lsp)");
+        println!();
+        println!("Usage: pleno-lsp [options]");
+        println!();
+        println!("Options:");
+        println!("  -h, --help     Show this help message");
+        println!("  -v, --version  Show version information");
+        return Ok(());
+    }
+
+    if args.contains(&"--version".to_string()) || args.contains(&"-v".to_string()) {
+        println!("pleno-lsp {}", env!("CARGO_PKG_VERSION"));
+        return Ok(());
+    }
+
     let stdin = io::stdin();
     let mut reader = io::BufReader::new(stdin.lock());
     let mut stdout = io::stdout();

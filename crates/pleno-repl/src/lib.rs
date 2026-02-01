@@ -70,6 +70,23 @@ fn is_complete(input: &str) -> bool {
 // ... imports ...
 
 pub fn start() -> Result<()> {
+    let args: Vec<String> = std::env::args().collect();
+    if args.contains(&"--help".to_string()) || args.contains(&"-h".to_string()) {
+        println!("Pleno Interactive REPL (pleno-repl)");
+        println!();
+        println!("Usage: pleno-repl [options]");
+        println!();
+        println!("Options:");
+        println!("  -h, --help     Show this help message");
+        println!("  -v, --version  Show version information");
+        return Ok(());
+    }
+
+    if args.contains(&"--version".to_string()) || args.contains(&"-v".to_string()) {
+        println!("pleno-repl {}", env!("CARGO_PKG_VERSION"));
+        return Ok(());
+    }
+
     let mut vm = VM::new();
     pleno_stdlib::register(&mut vm);
 
