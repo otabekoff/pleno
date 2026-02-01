@@ -9,6 +9,7 @@ import {
 import { injectPlenoIcons } from './iconInjector';
 
 let client: LanguageClient;
+let myStatusBarItem: vscode.StatusBarItem;
 
 export function activate(context: vscode.ExtensionContext) {
     // Try to inject icon theme patches
@@ -16,6 +17,9 @@ export function activate(context: vscode.ExtensionContext) {
 
     const config = vscode.workspace.getConfiguration('pleno');
     const customLspPath = config.get<string>('lsp.path');
+
+    const outputChannel = vscode.window.createOutputChannel('Pleno');
+    outputChannel.appendLine('Pleno extension activating...');
 
     // Tool check setup
     let lspPath = customLspPath || 'pleno-lsp';
@@ -55,14 +59,57 @@ export function activate(context: vscode.ExtensionContext) {
         }
     }
 
+    // Create status bar item
+    myStatusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
+    myStatusBarItem.command = 'pleno.showOutput';
+    context.subscriptions.push(myStatusBarItem);
+
+    const updateStatus = () => {
+        if (lspFound && cliFound) {
+            myStatusBarItem.text = `$(check) Pleno`;
+            myStatusBarItem.tooltip = 'Pleno toolchain (LSP & CLI) is ready.';
+            myStatusBarItem.backgroundColor = undefined;
+        } else if (lspFound) {
+            myStatusBarItem.text = `$(warning) Pleno CLI`;
+            myStatusBarItem.tooltip = 'Pleno CLI not found. Some features may not work.';
+            myStatusBarItem.backgroundColor = new vscode.ThemeColor('statusBarItem.warningBackground');
+        } else if (cliFound) {
+            myStatusBarItem.text = `$(error) Pleno LSP`;
+            myStatusBarItem.tooltip = 'Pleno LSP not found. Advanced features disabled.';
+            myStatusBarItem.backgroundColor = new vscode.ThemeColor('statusBarItem.errorBackground');
+        } else {
+            myStatusBarItem.text = `$(error) Pleno`;
+            myStatusBarItem.tooltip = 'Pleno toolchain (CLI & LSP) not found.';
+            myStatusBarItem.backgroundColor = new vscode.ThemeColor('statusBarItem.errorBackground');
+        }
+        myStatusBarItem.show();
+    };
+
+    updateStatus();
+
+    if (!lspFound || !cliFound) {
+        let missing = [];
+        if (!lspFound) missing.push('LSP');
+        if (!cliFound) missing.push('CLI');
+
+        const msg = `Pleno ${missing.join(' & ')} not found.`;
+        vscode.window.showWarningMessage(msg, 'Help', 'Retry').then(selection => {
+            if (selection === 'Help') {
+                vscode.commands.executeCommand('vscode.open', vscode.Uri.parse('https://github.com/otabekoff/pleno/blob/main/ide/vscode/README.md'));
+            } else if (selection === 'Retry') {
+                vscode.commands.executeCommand('pleno.restartServer'); // Re-trigger activation logic or just restart
+            }
+        });
+    }
+
     if (lspFound && cliFound) {
-        vscode.window.showInformationMessage(`Pleno extension activated. LSP and CLI found.`);
+        outputChannel.appendLine(`Pleno extension activated. LSP found at: ${lspPath}`);
     } else if (lspFound) {
-        vscode.window.showWarningMessage('Pleno CLI not found. Running and checking files may not work. Please install the Pleno toolchain.');
+        outputChannel.appendLine('Pleno CLI not found. Running and checking files may not work.');
     } else if (cliFound) {
-        vscode.window.showWarningMessage('Pleno LSP server not found. Advanced features like hover and go-to-definition will be disabled.');
+        outputChannel.appendLine('Pleno LSP server not found. Advanced features will be disabled.');
     } else {
-        vscode.window.showErrorMessage('Pleno toolchain (CLI & LSP) not found. Please check your installation and settings.');
+        outputChannel.appendLine('Pleno toolchain (CLI & LSP) not found.');
     }
 
     let serverPath = lspPath;
@@ -95,6 +142,91 @@ export function activate(context: vscode.ExtensionContext) {
     // Start the client. This will also launch the server
     client.start();
 
+    // Test Explorer Setup
+    const testController = vscode.tests.createTestController('plenoTests', 'Pleno Tests');
+    context.subscriptions.push(testController);
+
+    const testItemMap = new Map<string, vscode.TestItem>();
+
+    const getOrCreateFile = (uri: vscode.Uri) => {
+        const existing = testController.items.get(uri.toString());
+        if (existing) {
+            return existing;
+        }
+        const file = testController.createTestItem(uri.toString(), uri.path.split('/').pop()!, uri);
+        testController.items.add(file);
+        testItemMap.set(uri.toString(), file);
+        return file;
+    };
+
+    const discoverTests = async () => {
+        const files = await vscode.workspace.findFiles('**/*.pln', '**/node_modules/**');
+        for (const file of files) {
+            getOrCreateFile(file);
+        }
+    };
+
+    discoverTests();
+
+    const runHandler = async (request: vscode.TestRunRequest, token: vscode.CancellationToken) => {
+        const run = testController.createTestRun(request);
+        const queue: vscode.TestItem[] = [];
+
+        if (request.include) {
+            request.include.forEach(test => queue.push(test));
+        } else {
+            testController.items.forEach(test => queue.push(test));
+        }
+
+        for (const test of queue) {
+            if (token.isCancellationRequested) {
+                run.skipped(test);
+                continue;
+            }
+
+            run.started(test);
+            const start = Date.now();
+
+            try {
+                const filePath = vscode.Uri.parse(test.id).fsPath;
+                const { exec } = require('child_process');
+                const plenoPath = cliFound ? 'pleno' : context.asAbsolutePath(path.join('..', '..', 'target', 'release', 'pleno'));
+
+                exec(`${plenoPath} test "${filePath}" --json`, (error: any, stdout: string, stderr: string) => {
+                    const duration = Date.now() - start;
+                    try {
+                        const output = JSON.parse(stdout);
+                        if (output.failed === 0) {
+                            run.passed(test, duration);
+                        } else {
+                            const result = output.results[0];
+                            const message = result ? result.message : 'Test failed';
+                            run.failed(test, new vscode.TestMessage(message), duration);
+                        }
+                    } catch {
+                        run.errored(test, new vscode.TestMessage(`Parse error: ${stdout}\n${stderr}`), duration);
+                    }
+                    if (test === queue[queue.length - 1]) {
+                        run.end();
+                    }
+                });
+            } catch (e: any) {
+                run.errored(test, new vscode.TestMessage(e.message));
+                if (test === queue[queue.length - 1]) {
+                    run.end();
+                }
+            }
+        }
+    };
+
+    testController.createRunProfile('Run', vscode.TestRunProfileKind.Run, runHandler, true);
+
+    const watcher = vscode.workspace.createFileSystemWatcher('**/*.pln');
+    watcher.onDidCreate(uri => getOrCreateFile(uri));
+    watcher.onDidChange(uri => getOrCreateFile(uri));
+    watcher.onDidDelete(uri => testController.items.delete(uri.toString()));
+    context.subscriptions.push(watcher);
+
     // Register commands
     context.subscriptions.push(
         vscode.commands.registerCommand('pleno.runFile', () => {
@@ -115,10 +247,22 @@ export function activate(context: vscode.ExtensionContext) {
         }),
         vscode.commands.registerCommand('pleno.restartServer', async () => {
             if (client) {
-                await client.stop();
-                client.start();
+                await vscode.window.withProgress({
+                    location: vscode.ProgressLocation.Notification,
+                    title: "Restarting Pleno Language Server...",
+                    cancellable: false
+                }, async (progress) => {
+                    progress.report({ increment: 0 });
+                    await client.stop();
+                    progress.report({ increment: 50, message: "Starting server..." });
+                    client.start();
+                    progress.report({ increment: 100 });
+                });
                 vscode.window.showInformationMessage('Pleno Language Server restarted.');
             }
+        }),
+        vscode.commands.registerCommand('pleno.showOutput', () => {
+            outputChannel.show();
         })
     );
 

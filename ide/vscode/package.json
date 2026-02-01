@@ -39,7 +39,6 @@
     "typescript": "^5.9.3"
   },
   "activationEvents": [
-    "onLanguage:pleno",
     "onCommand:markdown.showPreview",
     "onCommand:markdown.showPreviewToSide",
     "workspaceContains:**/*.pln"
