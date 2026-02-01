@@ -10,14 +10,14 @@ cd $TEST_DIR
 # 1. Test init
 echo "Testing init..."
 ../target/debug/pleno-cli init mytestapp
-if [ ! -f package.pln ]; then
-    echo "FAILED: package.pln not created"
+if [ ! -f pleno.toml ]; then
+    echo "FAILED: pleno.toml not created"
     exit 1
 fi
 
 # 2. Test install
 echo "Testing install..."
-# Create a valid package.pln first if init didn't (cli init creates it though)
+# Create a valid pleno.toml first if init didn't (cli init creates it though)
 ../target/debug/pleno-cli install mylib
 if [ ! -f packages/mylib/lib.pln ]; then
     echo "FAILED: packages/mylib/lib.pln not created"

@@ -5466,8 +5466,8 @@ fn resolve_module_path(
         loop {
             let pkg_root = current.join("packages").join(path);
             if pkg_root.is_dir() {
-                // Check package.pln
-                let manifest_path = pkg_root.join("package.pln");
+                // Check pleno.toml
+                let manifest_path = pkg_root.join("pleno.toml");
                 if manifest_path.exists()
                     && let Ok(content) = fs::read_to_string(&manifest_path)
                     && let Ok(manifest) = serde_json::from_str::<serde_json::Value>(&content)

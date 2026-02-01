@@ -1070,7 +1070,7 @@ import { Database } from "../db/connection.pln";
 ### 8.3 Package Management
 
 ```pleno
-// File: package.pln (package configuration)
+// File: pleno.toml (package configuration)
 {
     "name": "my-app",
     "version": "1.0.0",
@@ -2139,7 +2139,7 @@ plm run test
 ```
 
 ```toml
-# package.pln
+# pleno.toml
 [package]
 name = "my-app"
 version = "1.0.0"
