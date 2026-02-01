@@ -36,13 +36,23 @@ Quick insertion of common Pleno constructs:
 - **Diagnostics**: Real-time syntax error reporting
 - **Go to Definition**: Navigate to function, class, and variable definitions
 - **Hover Information**: View symbol signatures on hover
-- **Activation Alert**: Notifies you if the LSP is found and where
+- **Smart Completion**: Property-aware completions (e.g. `.length`)
+- **Outline view**: Easily navigate classes and functions
+- **Formatting**: Auto-format code on save (using `pleno-formatter`)
+
+### Project Management
+
+- **Pleno Project Explorer**: A dedicated sidebar view to explore modules, dependencies, and scripts from your `pleno.toml`.
+- **Integrated Tasks**: Automatic detection of build, run, and test tasks for Pleno projects.
+- **Project Dashboard**: A beautiful overview of your project health and quick access to resources.
+- **Getting Started Walkthrough**: A native VSCode guide to help you set up and write your first Pleno code.
 
 ### Commands
 
 - **Run Current File**: Execute the active `.pln` file in the terminal.
-- **Check Current File**: Perform a static check of the active file.
-- **Restart Server**: Manually restart the Pleno Language Server.
+- **Open Interactive REPL**: Launch the Pleno REPL for interactive experimentation.
+- **Show Dashboard**: Open the Pleno Dashboard for project overview.
+- **Restart Server**: Manually restart the Pleno Language Server with a single click.
 
 ### Markdown Support
 
