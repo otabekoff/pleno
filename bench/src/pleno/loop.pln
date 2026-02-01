@@ -1,0 +1,11 @@
+import { now } from "std:time";
+
+let start = now();
+let mut sum = 0;
+for i in 0..10000000 {
+    sum = sum + i;
+}
+let duration = now() - start;
+
+print("Pleno (Loop Sum 10M): ", sum);
+print("Time: ", duration, "ms");

@@ -3,8 +3,8 @@ function fib(n) {
         return n;
     return fib(n - 1) + fib(n - 2);
 }
-var start = performance.now();
-var res = fib(30);
-var duration = performance.now() - start;
-console.log("TypeScript (Recursive Fib 30): ".concat(res));
-console.log("Time: ".concat(duration.toFixed(2), "ms"));
+const start = performance.now();
+const res = fib(30);
+const duration = performance.now() - start;
+console.log(`TypeScript (Recursive Fib 30): ${res}`);
+console.log(`Time: ${duration.toFixed(2)}ms`);

@@ -1,0 +1,23 @@
+import { now } from "std:time";
+
+let start = now();
+
+// Create 1M array
+let arr = [];
+for i in 0..1000000 {
+    arr.push(i);
+}
+
+// Map * 2
+let mapped = arr.map((x) => x * 2);
+
+// Filter divisible by 3
+let filtered = mapped.filter((x) => x % 3 == 0);
+
+// Reduce sum
+let sum = filtered.reduce((acc, x) => acc + x, 0);
+
+let duration = now() - start;
+
+print("Pleno (Array Ops 1M): ", sum);
+print("Time: ", duration, "ms");

@@ -7,13 +7,6 @@ Optimizations and error management in Pleno in a structured way, aslo fix the sh
 
 We're not just creating a programming language. We're creating a production level, dynamic and type safe programming language that works. Unlike python it will have real encapsulation, constants and unlike other programming languages and python Pleno will have modern features and it fixes many things other programming languages doesn't have and inspires many best features from other pogramming languages. And it should be stable, based on specs and rules and ready for production.
 
-Type checking is not working fully I think, we've to review and rethink and reconsider and rework on it.
-
-Char type working? What about all of the needed types list and are they working? And do every type we need exist?
-
-Set iteration is not supported yet? What are not really implemented yet? Find all technical debts. We can't release production ready v1 without such technical debts. Let's list each crate then go and enter and review each crate, each file, each line, each block, each comment, everything, let's check one by one and start collecting list of technical debts. Missing stuffs, unimplemented, partially done or not completed fully stuffs. And collect in one file to resolve later. Don't be lazy and do everything.
-
-
 ---
 
 Now, as we have finished v1 of the Pleno programming language, we fully support specs.md and many other things not listed in it too. Now what I want is, you need to add those already implemented, but missed things in specs.md to be noted.
