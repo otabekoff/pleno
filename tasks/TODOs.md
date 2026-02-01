@@ -10,46 +10,6 @@ We're not just creating a programming language. We're creating a production leve
 http://localhost:5173/pleno/specs/ is showing next page to introduction which is itself, and causing loop on docs.
 
 
-a real type-safe dynamic language
-
-| Feature                 | Why                          |
-| ----------------------- | ---------------------------- |
-| Dynamic                 | No type annotations required |
-| Type-safe               | No weird JS/Python bugs      |
-| JIT possible            | Types known at runtime       |
-| AOT possible            | Type profiles                |
-| IDE inference           | Runtime → static info        |
-| Zero undefined behavior | Unlike C, Python, JS         |
-
-You can even do:
-
-x = 5
-x = "hello"
-
-
-But:
-
-x + 3   // ❌ runtime type error
-
-
-Instead of corrupting memory or returning garbage.
-
-🧠 The correct modern model (2026)
-
-The winning design is:
-
-Gradually-Typed, Runtime-Verified, Type-Safe Dynamic Language
-
-Which means:
-
-• Types exist
-• Types are checked
-• But they are not mandatory to write
-
-This is what Python tried with typing but without runtime enforcement.
-This is what our language can do correctly.
-
-
 Type checking is not working fully I think, we've to review and rethink and reconsider and rework on it.
 
 Char type working? What about all of the needed types list and are they working? And do every type we need exist?
@@ -232,77 +192,112 @@ Work on #[test]
 
 ## Roadmap Items (From ROADMAP.md)
 
-### Stage 8 - Functional Features (partial)
-- Missing: tuple patterns in match expressions
-- Missing: full pattern matching runtime verification
-- Missing: advanced pattern matching features
 
-### Stage 9 - Async + Concurrency (not started)
-- Missing: actual async execution
-- Missing: promise resolution
-- Missing: event loop
-- Missing: concurrency primitives
+Now, these tasks of the stage are partially done. Nork on it and make it complete. add/edit/update/upgrade/fix/bugfix/implement/make changes/review/test:
 
-### Stage 10 - Standard Library (partial)
-- Missing: full implementations of all stdlib functions
-- Missing: native function bindings for system operations
+### Stage 9 - Async + Concurrency (Started)
 
-### Stage 11 - Tooling (partial)
-- Missing: full formatter implementation (indentation, spacing rules, code style)
-- Missing: full linter implementation (comprehensive style rules, best practices, unused variable detection)
-- Missing: docs tooling (generation, API docs)
+- **Actual async execution**: **Missing** (Tests explicitly note "function... not truly async yet"; foundation exists but execution is synchronous).
+- **Promise resolution**: **Done** (Implemented and tested).
+- **Event loop**: **Missing** (No specialized event loop logic found in VM).
+- **Concurrency primitives**: **Partial**  `Mutex`    
+     `Channel`    
+     types exist in `pleno-value`    
+    , VM handles them via builtins, but deep integration logic is minimal).
 
-### Stage 12 - Runtime + VM (partial)
-- Missing: GC integration
-- Missing: performance optimizations
-- Missing: memory management improvements
+### Stage 10 - Standard Library (Partial)
 
-### Stage 13 - Core VM Crates (partial)
-- Partial: pleno-common (spans only)
-- Partial: pleno-diagnostics (basic error reporting)
-- Partial: pleno-value (primitives/collections/functions/classes)
-- Partial: pleno-gc (exists but not integrated)
+- **Full implementations**: **Partial**  `Math`    
+    , `JSON`    
+    , `OS`    
+     refactored/implemented; others likely missing).
+- **Native function bindings**: **Partial**  `__native_*`    
+     bindings mechanism exists and logic is in place).
 
-### Stage 14 - v1 Hardening (not started)
-- Missing: test suite expansion
-- Missing: error messages and diagnostics polish
-- Missing: CLI parity with specs
-- Missing: performance benchmarking and optimization
-- Missing: documentation completion
+### Stage 11 - Tooling (Partial)
 
----
+- **Full formatter**: **Done** (With recent updates to blank lines/comments, it's very capable. Tests pass).
+- **Full linter**: **Partial** (Basic rules exist, infrastructure is simple, not "full").
+- **Docs tooling**: **Partial**  `pleno-doc`    
+     crate exists with extraction logic, but likely incomplete).
 
-## Summary
+### Stage 12 - Runtime + VM (Done)
 
-**Total Issues Identified:** 50+
+- **GC integration**: **Done** (Verified in previous step).
+- **Performance optimizations**: **Missing**.
+- **Memory management improvements**: **Done** (GC Cycle breaking verified).
 
-**Priority Breakdown:**
-- **High Priority:** 15 issues (REPL, VM methods, Stdlib, GC)
-- **Medium Priority:** 20 issues (CLI, Formatter, Parser, Linter, Tests)
-- **Low Priority:** 15+ issues (Error handling, Performance, Documentation)
+### Stage 13 - Core VM Crates (Done)
 
-**Estimated Effort:**
-- **Very High Effort:** Stdlib implementation, GC integration
-- **High Effort:** VM methods, Formatter AST changes, Parser features
-- **Medium Effort:** REPL improvements, CLI features, Linter rules
-- **Low Effort:** Error handling improvements, Test cleanup
+- **Partial crates**: **Done** (All listed crates `pleno-common`    
+    , `pleno-diagnostics`    
+    , `pleno-value`    
+     are integrated. `pleno-gc`    
+     is redundant).
+
+### Stage 14 - v1 Hardening (Started)
+
+- **Test suite expansion**: **Started** (Formatter tests enabled).
+- **Error messages**: **Partial**.
+- **Performance benchmarking**: **Missing**.
+- **Documentation completion**: **Missing**.
+
+**Decision**: I recommend we proceed by adding **Benchmarks** (Stage 14 performance) or expanding **Test Coverage** (Stage 14 hardening) next, as strictly requested in the previous turn.
 
 ---
 
 ## Next Steps
 
 1. **Start with High Priority, Low/Medium Effort items:**
-   - REPL improvements (exit handling, keyboard navigation)
    - Compiler error handling improvements
    - Linter placeholder fixes
 
 2. **Then tackle High Priority, High Effort items:**
    - VM array methods (map, reduce, filter)
-   - GC integration
-   - Standard library implementations
 
 3. **Finally address Medium/Low Priority items:**
-   - Formatter AST improvements
    - Parser feature additions
    - Performance optimizations
    - Documentation completion
+
+
+---
+
+# A real type-safe dynamic language
+
+| Feature                 | Why                          |
+| ----------------------- | ---------------------------- |
+| Dynamic                 | No type annotations required |
+| Type-safe               | No weird JS/Python bugs      |
+| JIT possible            | Types known at runtime       |
+| AOT possible            | Type profiles                |
+| IDE inference           | Runtime → static info        |
+| Zero undefined behavior | Unlike C, Python, JS         |
+
+You can even do:
+
+x = 5
+x = "hello"
+
+
+But:
+
+x + 3   // ❌ runtime type error
+
+
+Instead of corrupting memory or returning garbage.
+
+🧠 The correct modern model (2026)
+
+The winning design is:
+
+Gradually-Typed, Runtime-Verified, Type-Safe Dynamic Language
+
+Which means:
+
+• Types exist
+• Types are checked
+• But they are not mandatory to write
+
+This is what Python tried with typing but without runtime enforcement.
+This is what our language can do correctly.

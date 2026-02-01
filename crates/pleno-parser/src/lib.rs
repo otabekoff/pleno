@@ -3120,6 +3120,20 @@ impl Parser {
     }
 
     fn parse_pattern(&mut self) -> Result<pleno_ast::Pattern, ParseError> {
+        let mut patterns = vec![self.parse_primary_pattern()?];
+
+        while self.matches(&TokenKind::Pipe) {
+            patterns.push(self.parse_primary_pattern()?);
+        }
+
+        if patterns.len() == 1 {
+            Ok(patterns.pop().unwrap())
+        } else {
+            Ok(pleno_ast::Pattern::Or(patterns))
+        }
+    }
+
+    fn parse_primary_pattern(&mut self) -> Result<pleno_ast::Pattern, ParseError> {
         let token = self.advance();
         match token.kind.clone() {
             TokenKind::Underscore => Ok(pleno_ast::Pattern::Underscore),
@@ -3260,6 +3274,7 @@ impl Parser {
                 self.expect(TokenKind::RParen, "Expected ')' after tuple pattern")?;
                 Ok(pleno_ast::Pattern::Tuple(items))
             }
+
             TokenKind::Int(val) => Ok(pleno_ast::Pattern::Literal(pleno_ast::Literal::Int(val))),
             TokenKind::Float(val) => {
                 Ok(pleno_ast::Pattern::Literal(pleno_ast::Literal::Float(val)))
