@@ -688,6 +688,7 @@ impl Compiler {
                 name,
                 methods,
                 generics,
+                properties,
                 ..
             } => {
                 let methods_reg = self.registers.allocate()?;
@@ -750,7 +751,99 @@ impl Compiler {
                     self.free_temp(meta_reg);
                 }
 
-                // TODO: Compile interface properties if needed
+                for prop in properties {
+                    if let Some(_getter) = &prop.getter {
+                        let meta_reg = self.registers.allocate()?;
+                        self.emit(Opcode::NewArray, meta_reg, 0, 0);
+
+                        let name_val = Value::String(std::rc::Rc::new(prop.name.clone()));
+                        let name_reg = self.registers.allocate()?;
+                        let name_idx = self.add_constant(name_val);
+                        self.emit(Opcode::LoadConst, name_reg, name_idx, 0);
+                        self.emit(Opcode::ArrayAppend, meta_reg, name_reg, 0);
+                        self.free_temp(name_reg);
+
+                        let type_reg = self.registers.allocate()?;
+                        let type_idx = self
+                            .add_constant(Value::String(std::rc::Rc::new("getter".to_string())));
+                        self.emit(Opcode::LoadConst, type_reg, type_idx, 0);
+                        self.emit(Opcode::ArrayAppend, meta_reg, type_reg, 0);
+                        self.free_temp(type_reg);
+
+                        let arity_reg = self.registers.allocate()?;
+                        self.emit(Opcode::LoadInt, arity_reg, 0, 0);
+                        self.emit(Opcode::ArrayAppend, meta_reg, arity_reg, 0);
+                        self.free_temp(arity_reg);
+
+                        let static_reg = self.registers.allocate()?;
+                        if prop.is_static {
+                            self.emit(Opcode::LoadTrue, static_reg, 0, 0);
+                        } else {
+                            self.emit(Opcode::LoadFalse, static_reg, 0, 0);
+                        }
+                        self.emit(Opcode::ArrayAppend, meta_reg, static_reg, 0);
+                        self.free_temp(static_reg);
+
+                        let async_reg = self.registers.allocate()?;
+                        self.emit(Opcode::LoadFalse, async_reg, 0, 0);
+                        self.emit(Opcode::ArrayAppend, meta_reg, async_reg, 0);
+                        self.free_temp(async_reg);
+
+                        let key_idx =
+                            self.add_constant(Value::String(std::rc::Rc::new(prop.name.clone())));
+                        let key_reg = self.registers.allocate()?;
+                        self.emit(Opcode::LoadConst, key_reg, key_idx, 0);
+                        self.emit(Opcode::SetIndex, meta_reg, methods_reg, key_reg);
+                        self.free_temp(key_reg);
+                        self.free_temp(meta_reg);
+                    }
+
+                    if let Some(_setter) = &prop.setter {
+                        let meta_reg = self.registers.allocate()?;
+                        self.emit(Opcode::NewArray, meta_reg, 0, 0);
+
+                        let name_val = Value::String(std::rc::Rc::new(prop.name.clone()));
+                        let name_reg = self.registers.allocate()?;
+                        let name_idx = self.add_constant(name_val);
+                        self.emit(Opcode::LoadConst, name_reg, name_idx, 0);
+                        self.emit(Opcode::ArrayAppend, meta_reg, name_reg, 0);
+                        self.free_temp(name_reg);
+
+                        let type_reg = self.registers.allocate()?;
+                        let type_idx = self
+                            .add_constant(Value::String(std::rc::Rc::new("setter".to_string())));
+                        self.emit(Opcode::LoadConst, type_reg, type_idx, 0);
+                        self.emit(Opcode::ArrayAppend, meta_reg, type_reg, 0);
+                        self.free_temp(type_reg);
+
+                        let arity_reg = self.registers.allocate()?;
+                        self.emit(Opcode::LoadInt, arity_reg, 1, 0);
+                        self.emit(Opcode::ArrayAppend, meta_reg, arity_reg, 0);
+                        self.free_temp(arity_reg);
+
+                        let static_reg = self.registers.allocate()?;
+                        if prop.is_static {
+                            self.emit(Opcode::LoadTrue, static_reg, 0, 0);
+                        } else {
+                            self.emit(Opcode::LoadFalse, static_reg, 0, 0);
+                        }
+                        self.emit(Opcode::ArrayAppend, meta_reg, static_reg, 0);
+                        self.free_temp(static_reg);
+
+                        let async_reg = self.registers.allocate()?;
+                        self.emit(Opcode::LoadFalse, async_reg, 0, 0);
+                        self.emit(Opcode::ArrayAppend, meta_reg, async_reg, 0);
+                        self.free_temp(async_reg);
+
+                        let key_idx =
+                            self.add_constant(Value::String(std::rc::Rc::new(prop.name.clone())));
+                        let key_reg = self.registers.allocate()?;
+                        self.emit(Opcode::LoadConst, key_reg, key_idx, 0);
+                        self.emit(Opcode::SetIndex, meta_reg, methods_reg, key_reg);
+                        self.free_temp(key_reg);
+                        self.free_temp(meta_reg);
+                    }
+                }
 
                 let interface_reg = self.registers.allocate()?;
                 let name_idx = self.add_constant(Value::String(std::rc::Rc::new(name.clone())));
@@ -3360,73 +3453,6 @@ impl Compiler {
             self.emit(Opcode::SetPooled, class_reg, 1, 0);
         }
 
-        // Compile Implements
-        if !implements.is_empty() {
-            let interfaces_reg = self.registers.allocate()?;
-            self.emit(Opcode::NewArray, interfaces_reg, 0, 0);
-            for interface_name in implements {
-                let interface_reg = self.registers.allocate()?;
-
-                // Check if this is a generic type (contains '<')
-                if let Some(lt_pos) = interface_name.find('<') {
-                    // Parse generic: "Container<Int>" -> base="Container", args=["Int"]
-                    let base_name = &interface_name[..lt_pos];
-                    let args_str = &interface_name[lt_pos + 1..interface_name.len() - 1]; // Strip < and >
-
-                    // Load base interface
-                    let base_reg = self.registers.allocate()?;
-                    if let Some(local) = self.resolve_local(base_name) {
-                        self.emit(Opcode::Move, base_reg, local.reg, 0);
-                    } else {
-                        let name_idx = self
-                            .add_constant(Value::String(std::rc::Rc::new(base_name.to_string())));
-                        self.emit(Opcode::GetGlobal, base_reg, name_idx, 0);
-                    }
-
-                    // Parse and load type arguments
-                    let args_array_reg = self.registers.allocate()?;
-                    self.emit(Opcode::NewArray, args_array_reg, 0, 0);
-
-                    // Split args by comma (simple split, doesn't handle nested generics)
-                    for arg in args_str.split(',') {
-                        let arg = arg.trim();
-                        if arg.is_empty() {
-                            continue;
-                        }
-                        let arg_reg = self.registers.allocate()?;
-                        // Try to resolve as local, global, or treat as primitive type name
-                        if let Some(local) = self.resolve_local(arg) {
-                            self.emit(Opcode::Move, arg_reg, local.reg, 0);
-                        } else {
-                            let arg_idx =
-                                self.add_constant(Value::String(std::rc::Rc::new(arg.to_string())));
-                            self.emit(Opcode::GetGlobal, arg_reg, arg_idx, 0);
-                        }
-                        self.emit(Opcode::ArrayAppend, args_array_reg, arg_reg, 0);
-                        self.free_temp(arg_reg);
-                    }
-
-                    // Emit Specialize to create BoundInterface
-                    self.emit(Opcode::Specialize, interface_reg, base_reg, args_array_reg);
-                    self.free_temp(base_reg);
-                    self.free_temp(args_array_reg);
-                } else {
-                    // Non-generic interface
-                    if let Some(local) = self.resolve_local(&interface_name) {
-                        self.emit(Opcode::Move, interface_reg, local.reg, 0);
-                    } else {
-                        let name_idx = self
-                            .add_constant(Value::String(std::rc::Rc::new(interface_name.clone())));
-                        self.emit(Opcode::GetGlobal, interface_reg, name_idx, 0);
-                    }
-                }
-
-                self.emit(Opcode::ArrayAppend, interfaces_reg, interface_reg, 0);
-                self.free_temp(interface_reg);
-            }
-            self.emit(Opcode::SetImplements, class_reg, interfaces_reg, 0);
-            self.free_temp(interfaces_reg);
-        }
         // Compile Properties
         for prop in properties {
             if let Some(getter) = &prop.getter {
@@ -3555,6 +3581,74 @@ impl Compiler {
                 self.free_temp(nested_reg);
             }
         }
+        // Compile Implements
+        if !implements.is_empty() {
+            let interfaces_reg = self.registers.allocate()?;
+            self.emit(Opcode::NewArray, interfaces_reg, 0, 0);
+            for interface_name in implements {
+                let interface_reg = self.registers.allocate()?;
+
+                // Check if this is a generic type (contains '<')
+                if let Some(lt_pos) = interface_name.find('<') {
+                    // Parse generic: "Container<Int>" -> base="Container", args=["Int"]
+                    let base_name = &interface_name[..lt_pos];
+                    let args_str = &interface_name[lt_pos + 1..interface_name.len() - 1]; // Strip < and >
+
+                    // Load base interface
+                    let base_reg = self.registers.allocate()?;
+                    if let Some(local) = self.resolve_local(base_name) {
+                        self.emit(Opcode::Move, base_reg, local.reg, 0);
+                    } else {
+                        let name_idx = self
+                            .add_constant(Value::String(std::rc::Rc::new(base_name.to_string())));
+                        self.emit(Opcode::GetGlobal, base_reg, name_idx, 0);
+                    }
+
+                    // Parse and load type arguments
+                    let args_array_reg = self.registers.allocate()?;
+                    self.emit(Opcode::NewArray, args_array_reg, 0, 0);
+
+                    // Split args by comma (simple split, doesn't handle nested generics)
+                    for arg in args_str.split(',') {
+                        let arg = arg.trim();
+                        if arg.is_empty() {
+                            continue;
+                        }
+                        let arg_reg = self.registers.allocate()?;
+                        // Try to resolve as local, global, or treat as primitive type name
+                        if let Some(local) = self.resolve_local(arg) {
+                            self.emit(Opcode::Move, arg_reg, local.reg, 0);
+                        } else {
+                            let arg_idx =
+                                self.add_constant(Value::String(std::rc::Rc::new(arg.to_string())));
+                            self.emit(Opcode::GetGlobal, arg_reg, arg_idx, 0);
+                        }
+                        self.emit(Opcode::ArrayAppend, args_array_reg, arg_reg, 0);
+                        self.free_temp(arg_reg);
+                    }
+
+                    // Emit Specialize to create BoundInterface
+                    self.emit(Opcode::Specialize, interface_reg, base_reg, args_array_reg);
+                    self.free_temp(base_reg);
+                    self.free_temp(args_array_reg);
+                } else {
+                    // Non-generic interface
+                    if let Some(local) = self.resolve_local(&interface_name) {
+                        self.emit(Opcode::Move, interface_reg, local.reg, 0);
+                    } else {
+                        let name_idx = self
+                            .add_constant(Value::String(std::rc::Rc::new(interface_name.clone())));
+                        self.emit(Opcode::GetGlobal, interface_reg, name_idx, 0);
+                    }
+                }
+
+                self.emit(Opcode::ArrayAppend, interfaces_reg, interface_reg, 0);
+                self.free_temp(interface_reg);
+            }
+            self.emit(Opcode::SetImplements, class_reg, interfaces_reg, 0);
+            self.free_temp(interfaces_reg);
+        }
+
         self.free_temp(methods_reg);
         self.free_temp(static_reg);
         Ok(class_reg)

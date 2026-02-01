@@ -1,0 +1,33 @@
+interface ILogger {
+    abstract fn log(message: String);
+    property level: Int {
+        get;
+        set(v);
+    }
+}
+class ConsoleLogger implements ILogger {
+    _level: Int = 0;
+    fn log(message: String) {
+
+
+
+
+
+        print("[Level " + this.level.toString() + "] " + message);
+    }
+    property level : Int {
+        get {
+
+
+
+            return this._level;
+        }
+        set(v) {
+            this._level = v;
+        }
+    }
+}
+
+let logger = ConsoleLogger();
+logger.level = 1;
+logger.log("Hello, Interface Properties!");

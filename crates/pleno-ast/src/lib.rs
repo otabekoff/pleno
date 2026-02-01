@@ -290,6 +290,7 @@ pub enum StmtKind {
         name: String,
         generics: Vec<GenericParam>,
         methods: Vec<FunctionDecl>,
+        properties: Vec<PropertyDecl>,
         extends: Vec<String>,
         annotations: Vec<Annotation>,
         doc: Option<String>,
