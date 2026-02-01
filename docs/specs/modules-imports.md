@@ -64,7 +64,7 @@ import { Database } from "../db/connection.pln";
 ### 8.3 Package Management
 
 ```toml
-# package.pln
+# pleno.toml
 [package]
 name = "my-app"
 version = "1.0.0"
