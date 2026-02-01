@@ -41,9 +41,41 @@
   "activationEvents": [
     "onCommand:markdown.showPreview",
     "onCommand:markdown.showPreviewToSide",
-    "workspaceContains:**/*.pln"
+    "workspaceContains:**/*.pln",
+    "onTaskType:pleno",
+    "onTaskType:plm"
   ],
   "contributes": {
+    "taskDefinitions": [
+      {
+        "type": "pleno",
+        "required": [
+          "command"
+        ],
+        "properties": {
+          "command": {
+            "type": "string",
+            "description": "The Pleno command to run (e.g., run, check)"
+          },
+          "file": {
+            "type": "string",
+            "description": "The file to run or check"
+          }
+        }
+      },
+      {
+        "type": "plm",
+        "required": [
+          "command"
+        ],
+        "properties": {
+          "command": {
+            "type": "string",
+            "description": "The plm command to run (e.g., build, test, install)"
+          }
+        }
+      }
+    ],
     "languages": [
       {
         "id": "pleno",
