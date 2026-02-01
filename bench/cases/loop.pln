@@ -1,8 +1,8 @@
 let mut sum = 0;
-let start = __native_time_now_ns();
+let start = __native_time_now();
 for (i in 0..1000000) {
     sum = sum + i;
 }
-let end = __native_time_now_ns();
-print("Loop Sum = " + sum);
-print("Time: " + ((end - start) / 1000000) + "ms");
+let end = __native_time_now();
+print("Loop Sum = " + sum.toString());
+print("Time: " + ((end - start) * 1000).toString() + "ms");

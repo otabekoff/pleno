@@ -1,0 +1,16 @@
+let start = __native_time_now();
+
+// String operations benchmark
+let mut result = "";
+for (i in 0..10000) {
+    result = result + "x";
+}
+
+let upper = result.toUpperCase();
+let replaced = upper.replace("X", "Y");
+let parts = replaced.split("Y");
+
+let end = __native_time_now();
+print("String length: " + result.length.toString());
+print("Parts count: " + parts.length.toString());
+print("Time: " + ((end - start) * 1000).toString() + "ms");

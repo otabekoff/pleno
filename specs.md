@@ -1571,6 +1571,151 @@ let listener = Net.listen("127.0.0.1:8080");
 let connection = Net.connect("google.com:80");
 ```
 
+### 13.10 Testing Framework (std:test) ✅
+
+The `std:test` module provides a Jest/Mocha-style testing framework with assertions.
+
+```pleno
+import { describe, test, beforeEach, afterEach, assert } from "std:test";
+
+describe("Math operations", fn() {
+    let value = 0;
+    
+    beforeEach(fn() {
+        value = 10;  // Setup before each test
+    });
+    
+    afterEach(fn() {
+        value = 0;   // Cleanup after each test
+    });
+    
+    test("addition works", fn() {
+        assert.equal(value + 5, 15);
+    });
+    
+    test("subtraction works", fn() {
+        assert.equal(value - 3, 7);
+    });
+    
+    describe("edge cases", fn() {
+        test("zero handling", fn() {
+            assert.equal(value * 0, 0);
+        });
+    });
+});
+```
+
+#### Assertions
+
+| Method | Description |
+|--------|-------------|
+| `assert.equal(a, b)` | Deep equality check |
+| `assert.notEqual(a, b)` | Deep inequality check |
+| `assert.true(value)` | Expects value to be `true` |
+| `assert.false(value)` | Expects value to be `false` |
+| `assert.null(value)` | Expects value to be `null` |
+| `assert.notNull(value)` | Expects value to not be `null` |
+| `assert.throws(fn)` | Expects function to throw an error |
+| `assert.contains(collection, item)` | Checks if collection contains item |
+| `assert.lengthOf(collection, n)` | Checks collection length equals n |
+
+### 13.11 Collection API Reference ✅
+
+#### Array Methods
+
+```pleno
+let arr = [1, 2, 3, 4, 5];
+
+// Mutating Methods
+arr.push(6);              // Add to end
+arr.pop();                // Remove from end, returns removed item
+arr.shift();              // Remove from start, returns removed item
+arr.unshift(0);           // Add to start
+arr.insert(2, 99);        // Insert at index
+arr.remove(1);            // Remove at index, returns removed item
+arr.clear();              // Remove all elements
+arr.reverse();            // Reverse in place
+
+// Non-mutating Methods
+arr.length;               // Property: number of elements
+arr.isEmpty();            // Check if empty
+arr.contains(3);          // Check if contains element
+arr.indexOf(3);           // Find index of element (-1 if not found)
+arr.slice(1, 3);          // Get subarray [start, end)
+arr.join(", ");           // Join elements with separator
+
+// Functional Methods (return new array/value)
+arr.map(|x| => x * 2);              // Transform each element
+arr.filter(|x| => x > 2);           // Keep elements matching predicate
+arr.reduce(|acc, x| => acc + x, 0); // Accumulate to single value
+arr.find(|x| => x > 3);             // Find first matching element
+arr.forEach(|x| => print(x));       // Execute for each element
+arr.sort();                         // Return sorted copy
+arr.with(0, 99);                    // Return copy with element at index replaced
+
+// Iteration
+arr.iterator();           // Get iterator
+arr.entries();            // Get (index, value) iterator
+```
+
+#### Map Methods
+
+```pleno
+let map = { "a": 1, "b": 2 };
+
+// Mutating Methods
+map.put("c", 3);          // Add/update key-value pair
+map.remove("a");          // Remove key, returns success boolean
+map.clear();              // Remove all entries
+
+// Non-mutating Methods
+map.get("a");             // Get value for key (null if missing)
+map.containsKey("a");     // Check if key exists
+map.keys();               // Get array of keys
+map.values();             // Get array of values
+map.size();               // Get number of entries
+
+// Functional Methods
+map.map(|k, v| => v * 2);           // Transform values
+map.filter(|k, v| => v > 1);        // Keep matching entries
+map.forEach(|k, v| => print(k));    // Execute for each entry
+map.with("d", 4);                   // Return copy with new entry
+
+// Iteration
+map.iterator();           // Get key iterator
+map.entries();            // Get (key, value) iterator
+```
+
+#### Set Methods
+
+```pleno
+let set = Set([1, 2, 3]);
+
+// Mutating Methods
+set.add(4);               // Add element
+set.remove(2);            // Remove element, returns success boolean
+set.clear();              // Remove all elements
+
+// Non-mutating Methods
+set.contains(3);          // Check if contains element
+set.size();               // Get number of elements
+set.toArray();            // Convert to array
+
+// Set Operations
+set.union(otherSet);      // Elements in either set
+set.intersection(other);  // Elements in both sets
+set.difference(other);    // Elements in this but not other
+
+// Functional Methods
+set.map(|x| => x * 2);    // Transform elements
+set.filter(|x| => x > 1); // Keep matching elements
+set.forEach(|x| => print(x));
+set.with(5);              // Return copy with element added
+
+// Iteration
+set.iterator();           // Get iterator
+```
+
 ---
 
 ## 14. Advanced Features ✅

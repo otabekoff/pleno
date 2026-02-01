@@ -88,3 +88,69 @@ fn test_os_module() {
     let tmpdir = run_source("import OS from \"std:os\"; OS.tmpdir()");
     assert!(matches!(tmpdir, Value::String(_)));
 }
+
+#[test]
+fn test_array_functional_methods() {
+    // Map
+    let map_res = run_source(
+        "
+        let arr = [1, 2, 3];
+        arr.map(|x| => x * 2)
+    ",
+    );
+    if let Value::Array(a) = map_res {
+        let b = a.borrow();
+        assert_eq!(b.elements.len(), 3);
+        assert_eq!(b.elements[0], Value::Int(2));
+        assert_eq!(b.elements[1], Value::Int(4));
+        assert_eq!(b.elements[2], Value::Int(6));
+    } else {
+        panic!("Expected array from map, got {:?}", map_res);
+    }
+
+    // Filter
+    let filter_res = run_source(
+        "
+        let arr = [1, 2, 3, 4, 5];
+        arr.filter(|x| => x % 2 == 0)
+    ",
+    );
+    if let Value::Array(a) = filter_res {
+        let b = a.borrow();
+        assert_eq!(b.elements.len(), 2);
+        assert_eq!(b.elements[0], Value::Int(2));
+        assert_eq!(b.elements[1], Value::Int(4));
+    } else {
+        panic!("Expected array from filter, got {:?}", filter_res);
+    }
+
+    // Reduce with initial
+    let reduce_init = run_source(
+        "
+        let arr = [1, 2, 3, 4];
+        arr.reduce(|acc, x| => acc + x, 10)
+    ",
+    );
+    assert_eq!(reduce_init, Value::Int(20));
+
+    // Reduce without initial
+    let reduce_no_init = run_source(
+        "
+        let arr = [1, 2, 3, 4];
+        arr.reduce(|acc, x| => acc + x)
+    ",
+    );
+    assert_eq!(reduce_no_init, Value::Int(10));
+
+    // Chain
+    let chain_res = run_source(
+        "
+        [1, 2, 3, 4, 5]
+            .filter(|x| => x % 2 != 0)
+            .map(|x| => x * x)
+            .reduce(|acc, x| => acc + x, 0)
+    ",
+    );
+    // 1, 3, 5 -> 1, 9, 25 -> sum = 35
+    assert_eq!(chain_res, Value::Int(35));
+}

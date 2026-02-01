@@ -31,3 +31,5 @@ Make sure no duplicates in source code files like below, or are they optional or
 When you run some commands and there are warnings or errors, you're continuing on what you're doing, instead of fixing those errors and warnings first. Do fix them then continue from where you're if such situations happen.
 
 If you add some part of code, make sure you're not replacing some other part of the code which is needed. For example, let's say we have A, B, D codes, you wanted to add E, then don't remove D if not needed to do that or you want to add C and don't remove B or D if it is not needed to be done so.
+
+Sometimes you do add `#[ignore]` at some tests after `#[test]` in rust files. And because they will not be ready yet. But, we've to work on them and make them work and fixed. What's needed? Do them. And make them work.

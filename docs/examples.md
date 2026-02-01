@@ -159,3 +159,114 @@ fn main(args: String[]) {
 
 - [Standard Library Specification](../stdlib/)
 - [Contributing Guidelines](../guide/contributing.md)
+
+## Async & Concurrency
+
+### Basic Async/Await
+
+```pleno
+async fn fetchData(url: String) -> String {
+    let response = await fetch(url);
+    return await response.text();
+}
+
+async fn main() {
+    let data = await fetchData("https://api.example.com/data");
+    print("Received: " + data);
+}
+
+main();
+```
+
+### Promise.all Pattern
+
+```pleno
+async fn fetchMultiple() {
+    let urls = [
+        "https://api.example.com/user",
+        "https://api.example.com/posts",
+        "https://api.example.com/comments"
+    ];
+    
+    // Execute all requests concurrently
+    let promises = urls.map(|url| => fetch(url));
+    let responses = await Promise.all(promises);
+    
+    for (response in responses) {
+        print(await response.text());
+    }
+}
+```
+
+### Channel-based Communication
+
+```pleno
+import { Channel } from "std:concurrency";
+
+fn producer(ch: Channel) {
+    for (i in 0..10) {
+        ch.send(i * 2);
+    }
+    ch.close();
+}
+
+fn consumer(ch: Channel) {
+    for (value in ch) {
+        print("Received: " + value.toString());
+    }
+}
+
+let ch = Channel(5);  // Buffered channel with capacity 5
+spawn producer(ch);
+consumer(ch);
+```
+
+### Mutex for Shared State
+
+```pleno
+import { Mutex, spawn } from "std:concurrency";
+
+let counter = Mutex(0);
+
+async fn increment(n: Int) {
+    for (i in 0..n) {
+        let value = await counter.lock();
+        counter.set(value + 1);
+    }
+}
+
+async fn main() {
+    let tasks = [
+        spawn increment(100),
+        spawn increment(100),
+        spawn increment(100)
+    ];
+    
+    await Promise.all(tasks);
+    let final = await counter.lock();
+    print("Final count: " + final.toString());  // Should be 300
+}
+```
+
+### Promise.race for Timeouts
+
+```pleno
+async fn fetchWithTimeout(url: String, timeoutMs: Int) {
+    let timeout = new Promise(fn(resolve, reject) {
+        setTimeout(fn() { reject("Request timed out"); }, timeoutMs);
+    });
+    
+    let request = fetch(url);
+    
+    return await Promise.race([request, timeout]);
+}
+
+async fn main() {
+    try {
+        let response = await fetchWithTimeout("https://api.slow.com", 5000);
+        print("Success: " + await response.text());
+    } catch (e) {
+        print("Error: " + e);
+    }
+}
+```
