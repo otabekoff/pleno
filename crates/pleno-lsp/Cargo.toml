@@ -8,4 +8,6 @@ license.workspace = true
 pleno-lexer = { workspace = true }
 pleno-parser = { workspace = true }
 pleno-ast = { workspace = true }
+pleno-formatter = { workspace = true }
+pleno-linter = { workspace = true }
 serde_json = { workspace = true }

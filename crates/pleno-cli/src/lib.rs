@@ -66,9 +66,16 @@ pub fn run_pleno() {
             check_file(&path);
         }
         "test" => {
-            let path = args.next();
-            let path = path.as_deref().unwrap_or("sources/tests");
-            run_tests(path);
+            let mut test_path = "sources/tests".to_string();
+            let mut json_output = false;
+            for arg in args.by_ref() {
+                if arg == "--json" {
+                    json_output = true;
+                } else {
+                    test_path = arg;
+                }
+            }
+            run_tests(&test_path, json_output);
         }
         "debug-ast" => {
             let path = args.next().unwrap_or_else(|| {
@@ -182,20 +189,30 @@ pub fn print_help() {
     );
 }
 
-fn run_tests(path: &str) {
+fn run_tests(path: &str, json_output: bool) {
     let path_buf = PathBuf::from(path);
     let mut stats = TestStats::default();
 
     if path_buf.is_dir() {
-        run_tests_in_dir(&path_buf, &mut stats);
+        run_tests_in_dir(&path_buf, &mut stats, json_output);
     } else {
-        run_single_test(&path_buf, &mut stats);
+        run_single_test(&path_buf, &mut stats, json_output);
     }
 
-    println!("\nTest Summary:");
-    println!("  Passed: {}", stats.passed);
-    println!("  Failed: {}", stats.failed);
-    println!("  Total:  {}", stats.passed + stats.failed);
+    if json_output {
+        let out = serde_json::json!({
+            "passed": stats.passed,
+            "failed": stats.failed,
+            "total": stats.passed + stats.failed,
+            "results": stats.results
+        });
+        println!("{}", serde_json::to_string_pretty(&out).unwrap());
+    } else {
+        println!("\nTest Summary:");
+        println!("  Passed: {}", stats.passed);
+        println!("  Failed: {}", stats.failed);
+        println!("  Total:  {}", stats.passed + stats.failed);
+    }
 
     if stats.failed > 0 {
         process::exit(1);
@@ -206,43 +223,62 @@ fn run_tests(path: &str) {
 struct TestStats {
     passed: usize,
     failed: usize,
+    results: Vec<serde_json::Value>,
 }
 
-fn run_tests_in_dir(dir: &PathBuf, stats: &mut TestStats) {
+fn run_tests_in_dir(dir: &PathBuf, stats: &mut TestStats, json_output: bool) {
     if let Ok(entries) = fs::read_dir(dir) {
         for entry in entries.flatten() {
             let path = entry.path();
             if path.is_dir() {
-                run_tests_in_dir(&path, stats);
+                run_tests_in_dir(&path, stats, json_output);
             } else if path.extension().is_some_and(|ext| ext == "pln") {
-                run_single_test(&path, stats);
+                run_single_test(&path, stats, json_output);
             }
         }
     }
 }
 
-fn run_single_test(path: &PathBuf, stats: &mut TestStats) {
+fn run_single_test(path: &PathBuf, stats: &mut TestStats, json_output: bool) {
     let source = match fs::read_to_string(path) {
         Ok(contents) => contents,
         Err(err) => {
-            eprintln!("Failed to read {}: {err}", path.display());
+            if !json_output {
+                eprintln!("Failed to read {}: {err}", path.display());
+            }
             stats.failed += 1;
+            stats.results.push(serde_json::json!({
+                "file": path.display().to_string(),
+                "status": "error",
+                "message": format!("Failed to read file: {err}")
+            }));
             return;
         }
     };
 
-    print!("Running {} ... ", path.display());
-    let _ = std::io::stdout().flush();
+    if !json_output {
+        print!("Running {} ... ", path.display());
+        let _ = std::io::stdout().flush();
+    }
 
     let tokens = match pleno_lexer::lex(&source) {
         Ok(tokens) => tokens,
         Err(err) => {
-            println!("FAILED (Lex Error)");
-            eprintln!(
-                "  Lex error at {}..{}: {}",
-                err.span.start, err.span.end, err.message
-            );
+            if !json_output {
+                println!("FAILED (Lex Error)");
+                eprintln!(
+                    "  Lex error at {}..{}: {}",
+                    err.span.start, err.span.end, err.message
+                );
+            }
             stats.failed += 1;
+            stats.results.push(serde_json::json!({
+                "file": path.display().to_string(),
+                "status": "failed",
+                "error_type": "lex",
+                "message": err.message,
+                "span": { "start": err.span.start, "end": err.span.end }
+            }));
             return;
         }
     };
@@ -251,12 +287,21 @@ fn run_single_test(path: &PathBuf, stats: &mut TestStats) {
     let program = match parser.parse_program() {
         Ok(program) => program,
         Err(err) => {
-            println!("FAILED (Parse Error)");
-            eprintln!(
-                "  Parse error at {}..{}: {}",
-                err.span.start, err.span.end, err.message
-            );
+            if !json_output {
+                println!("FAILED (Parse Error)");
+                eprintln!(
+                    "  Parse error at {}..{}: {}",
+                    err.span.start, err.span.end, err.message
+                );
+            }
             stats.failed += 1;
+            stats.results.push(serde_json::json!({
+                "file": path.display().to_string(),
+                "status": "failed",
+                "error_type": "parse",
+                "message": err.message,
+                "span": { "start": err.span.start, "end": err.span.end }
+            }));
             return;
         }
     };
@@ -268,21 +313,43 @@ fn run_single_test(path: &PathBuf, stats: &mut TestStats) {
     let chunk = match compiler.compile(&program) {
         Ok(chunk) => {
             if is_expected_compile_error {
-                println!("FAILED (Expected Compile Error but succeeded)");
+                if !json_output {
+                    println!("FAILED (Expected Compile Error but succeeded)");
+                }
                 stats.failed += 1;
+                stats.results.push(serde_json::json!({
+                    "file": path.display().to_string(),
+                    "status": "failed",
+                    "message": "Expected compile error but succeeded"
+                }));
                 return;
             }
             chunk
         }
         Err(err) => {
             if is_expected_compile_error {
-                println!("PASSED (Expected Compile Error)");
+                if !json_output {
+                    println!("PASSED (Expected Compile Error)");
+                }
                 stats.passed += 1;
+                stats.results.push(serde_json::json!({
+                    "file": path.display().to_string(),
+                    "status": "passed",
+                    "message": "Expected compile error occurred"
+                }));
                 return;
             }
-            println!("FAILED (Compile Error)");
-            eprintln!("  Compile error: {}", err.diagnostic.message);
+            if !json_output {
+                println!("FAILED (Compile Error)");
+                eprintln!("  Compile error: {}", err.diagnostic.message);
+            }
             stats.failed += 1;
+            stats.results.push(serde_json::json!({
+                "file": path.display().to_string(),
+                "status": "failed",
+                "error_type": "compile",
+                "message": err.diagnostic.message
+            }));
             return;
         }
     };
@@ -292,21 +359,49 @@ fn run_single_test(path: &PathBuf, stats: &mut TestStats) {
     match vm.execute(chunk) {
         Ok(_) => {
             if is_expected_runtime_error {
-                println!("FAILED (Expected Runtime Error but succeeded)");
+                if !json_output {
+                    println!("FAILED (Expected Runtime Error but succeeded)");
+                }
                 stats.failed += 1;
+                stats.results.push(serde_json::json!({
+                    "file": path.display().to_string(),
+                    "status": "failed",
+                    "message": "Expected runtime error but succeeded"
+                }));
             } else {
-                println!("PASSED");
+                if !json_output {
+                    println!("PASSED");
+                }
                 stats.passed += 1;
+                stats.results.push(serde_json::json!({
+                    "file": path.display().to_string(),
+                    "status": "passed"
+                }));
             }
         }
         Err(err) => {
             if is_expected_runtime_error {
-                println!("PASSED (Expected Runtime Error)");
+                if !json_output {
+                    println!("PASSED (Expected Runtime Error)");
+                }
                 stats.passed += 1;
+                stats.results.push(serde_json::json!({
+                    "file": path.display().to_string(),
+                    "status": "passed",
+                    "message": "Expected runtime error occurred"
+                }));
             } else {
-                println!("FAILED (Runtime Error)");
-                eprintln!("  Runtime error: {}", err.message);
+                if !json_output {
+                    println!("FAILED (Runtime Error)");
+                    eprintln!("  Runtime error: {}", err.message);
+                }
                 stats.failed += 1;
+                stats.results.push(serde_json::json!({
+                    "file": path.display().to_string(),
+                    "status": "failed",
+                    "error_type": "runtime",
+                    "message": err.message
+                }));
             }
         }
     }
