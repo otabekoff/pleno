@@ -25,7 +25,7 @@ plm run test
 ```
 
 ```toml
-# package.pln
+# pleno.toml
 [package]
 name = "my-app"
 version = "1.0.0"

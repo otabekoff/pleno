@@ -116,22 +116,91 @@ let client: LanguageClient;
 let myStatusBarItem: vscode.StatusBarItem;
 
 export function activate(context: vscode.ExtensionContext) {
-    // Try to inject icon theme patches
-    injectPlenoIcons(context);
+    try {
+        return _activate(context);
+    } catch (e) {
+        vscode.window.showErrorMessage(`Failed to activate Pleno extension: ${e}`);
+    }
+}
 
-    // Register task providers
-    context.subscriptions.push(vscode.tasks.registerTaskProvider(PlmTaskProvider.PlmType, new PlmTaskProvider()));
-    context.subscriptions.push(vscode.tasks.registerTaskProvider(PlenoTaskProvider.PlenoType, new PlenoTaskProvider()));
+function _activate(context: vscode.ExtensionContext) {
+    const outputChannel = vscode.window.createOutputChannel('Pleno');
+    outputChannel.appendLine('Pleno extension activating...');
 
-    // Register project explorer
+    // 1. Register commands first (so they exist even if later steps fail)
+    context.subscriptions.push(
+        vscode.commands.registerCommand('pleno.showOutput', () => {
+            outputChannel.show();
+        }),
+        vscode.commands.registerCommand('pleno.runFile', () => {
+            const editor = vscode.window.activeTextEditor;
+            if (editor) {
+                const terminal = vscode.window.activeTerminal || vscode.window.createTerminal('Pleno');
+                terminal.show();
+                terminal.sendText(`${getPlenoPath(context)} run "${editor.document.fileName}"`);
+            }
+        }),
+        vscode.commands.registerCommand('pleno.checkFile', () => {
+            const editor = vscode.window.activeTextEditor;
+            if (editor) {
+                const terminal = vscode.window.activeTerminal || vscode.window.createTerminal('Pleno');
+                terminal.show();
+                terminal.sendText(`${getPlenoPath(context)} check "${editor.document.fileName}"`);
+            }
+        }),
+        vscode.commands.registerCommand('pleno.restartServer', async () => {
+            if (client) {
+                await vscode.window.withProgress({
+                    location: vscode.ProgressLocation.Notification,
+                    title: "Restarting Pleno Language Server...",
+                    cancellable: false
+                }, async (progress) => {
+                    progress.report({ increment: 0 });
+                    await client.stop();
+                    progress.report({ increment: 50, message: "Starting server..." });
+                    client.start();
+                    progress.report({ increment: 100 });
+                });
+                vscode.window.showInformationMessage('Pleno Language Server restarted.');
+            }
+        }),
+        vscode.commands.registerCommand('pleno.openDocs', () => {
+            vscode.env.openExternal(vscode.Uri.parse('https://pleno.run/docs'));
+        }),
+        vscode.commands.registerCommand('pleno.openRepl', () => {
+            const terminal = vscode.window.activeTerminal || vscode.window.createTerminal('Pleno REPL');
+            terminal.show();
+            const plenoPath = getPlenoPath(context);
+            // If the path is just 'pleno', we assume 'pleno-repl' exists.
+            // If it's an absolute path, we replace 'pleno' with 'pleno-repl' at the end.
+            const replPath = plenoPath.endsWith('pleno') ? plenoPath.replace(/pleno$/, 'pleno-repl') : `${plenoPath}-repl`;
+            terminal.sendText(replPath);
+        }),
+        vscode.commands.registerCommand('pleno.runScript', (scriptName: string) => {
+            const terminal = vscode.window.activeTerminal || vscode.window.createTerminal('Pleno');
+            terminal.show();
+            terminal.sendText(`${getPlenoPath(context)} plm run ${scriptName}`);
+        }),
+        vscode.commands.registerCommand('pleno.showDashboard', () => {
+            PlenoDashboardPanel.createOrShow(context.extensionUri);
+        }),
+        vscode.commands.registerCommand('pleno.openWalkthrough', () => {
+            vscode.commands.executeCommand('workbench.action.openWalkthrough', 'pleno.pleno-language#pleno-welcome', false);
+        })
+    );
+
+    // 2. Register tree data provider
     const rootPath = (vscode.workspace.workspaceFolders && (vscode.workspace.workspaceFolders.length > 0))
         ? vscode.workspace.workspaceFolders[0].uri.fsPath : undefined;
     const projectProvider = new PlenoProjectProvider(context, rootPath);
     vscode.window.registerTreeDataProvider('plenoProject', projectProvider);
 
+    // 3. Register task providers
+    context.subscriptions.push(vscode.tasks.registerTaskProvider(PlmTaskProvider.PlmType, new PlmTaskProvider()));
+    context.subscriptions.push(vscode.tasks.registerTaskProvider(PlenoTaskProvider.PlenoType, new PlenoTaskProvider()));
 
-    const outputChannel = vscode.window.createOutputChannel('Pleno');
-    outputChannel.appendLine('Pleno extension activating...');
+    // Try to inject icon theme patches in background
+    injectPlenoIcons(context).catch(e => outputChannel.appendLine(`Icon injection failed: ${e}`));
 
     // Tool check setup
     const lspPath = getPlenoLspPath(context);
@@ -140,7 +209,7 @@ export function activate(context: vscode.ExtensionContext) {
     outputChannel.appendLine(`LSP path: ${lspPath}`);
     outputChannel.appendLine(`CLI path: ${cliPath}`);
 
-    const lspFound = lspPath.includes('pleno-lsp'); // Simplified check for logs
+    const lspFound = lspPath.includes('pleno-lsp');
     const cliFound = cliPath.includes('pleno');
 
     // Create status bar item
@@ -313,64 +382,7 @@ export function activate(context: vscode.ExtensionContext) {
     watcher.onDidDelete(uri => testController.items.delete(uri.toString()));
     context.subscriptions.push(watcher);
 
-    // Register commands
-    context.subscriptions.push(
-        vscode.commands.registerCommand('pleno.runFile', () => {
-            const editor = vscode.window.activeTextEditor;
-            if (editor) {
-                const terminal = vscode.window.activeTerminal || vscode.window.createTerminal('Pleno');
-                terminal.show();
-                terminal.sendText(`pleno run "${editor.document.fileName}"`);
-            }
-        }),
-        vscode.commands.registerCommand('pleno.checkFile', () => {
-            const editor = vscode.window.activeTextEditor;
-            if (editor) {
-                const terminal = vscode.window.activeTerminal || vscode.window.createTerminal('Pleno');
-                terminal.show();
-                terminal.sendText(`pleno check "${editor.document.fileName}"`);
-            }
-        }),
-        vscode.commands.registerCommand('pleno.restartServer', async () => {
-            if (client) {
-                await vscode.window.withProgress({
-                    location: vscode.ProgressLocation.Notification,
-                    title: "Restarting Pleno Language Server...",
-                    cancellable: false
-                }, async (progress) => {
-                    progress.report({ increment: 0 });
-                    await client.stop();
-                    progress.report({ increment: 50, message: "Starting server..." });
-                    client.start();
-                    progress.report({ increment: 100 });
-                });
-                vscode.window.showInformationMessage('Pleno Language Server restarted.');
-            }
-        }),
-        vscode.commands.registerCommand('pleno.showOutput', () => {
-            outputChannel.show();
-        }),
-        vscode.commands.registerCommand('pleno.openDocs', () => {
-            vscode.env.openExternal(vscode.Uri.parse('https://pleno.run/docs'));
-        }),
-        vscode.commands.registerCommand('pleno.openRepl', () => {
-            const terminal = vscode.window.activeTerminal || vscode.window.createTerminal('Pleno REPL');
-            terminal.show();
-            // Assuming 'plm repl' or 'pleno-repl'
-            terminal.sendText(`${getPlenoPath(context)}-repl`);
-        }),
-        vscode.commands.registerCommand('pleno.runScript', (scriptName: string) => {
-            const terminal = vscode.window.activeTerminal || vscode.window.createTerminal('Pleno');
-            terminal.show();
-            terminal.sendText(`${getPlenoPath(context)} plm run ${scriptName}`);
-        }),
-        vscode.commands.registerCommand('pleno.showDashboard', () => {
-            PlenoDashboardPanel.createOrShow(context.extensionUri);
-        }),
-        vscode.commands.registerCommand('pleno.openWalkthrough', () => {
-            vscode.commands.executeCommand('workbench.action.openWalkthrough', 'pleno.pleno-language#pleno-welcome', false);
-        })
-    );
+    // Watcher and other setup remains...
 
     return {
         extendMarkdownIt(md: any) {

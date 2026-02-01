@@ -39,9 +39,9 @@
     "typescript": "^5.9.3"
   },
   "activationEvents": [
-    "onCommand:markdown.showPreview",
-    "onCommand:markdown.showPreviewToSide",
-    "workspaceContains:**/*.pln",
+    "onLanguage:pleno",
+    "onView:plenoProject",
+    "workspaceContains:**/pleno.toml",
     "onTaskType:pleno",
     "onTaskType:plm"
   ],
@@ -86,7 +86,11 @@
         "extensions": [
           ".pln"
         ],
-        "configuration": "./language-configuration.json"
+        "configuration": "./language-configuration.json",
+        "icon": {
+          "light": "./resources/icon.svg",
+          "dark": "./resources/icon.svg"
+        }
       }
     ],
     "iconThemes": [
@@ -126,37 +130,37 @@
     "commands": [
       {
         "command": "pleno.runFile",
-        "title": "Pleno: Run Current File",
+        "title": "Run Current File",
         "category": "Pleno"
       },
       {
         "command": "pleno.checkFile",
-        "title": "Pleno: Check Current File",
+        "title": "Check Current File",
         "category": "Pleno"
       },
       {
         "command": "pleno.restartServer",
-        "title": "Pleno: Restart Language Server",
+        "title": "Restart Language Server",
         "category": "Pleno"
       },
       {
         "command": "pleno.openDocs",
-        "title": "Pleno: Open Documentation",
+        "title": "Open Documentation",
         "category": "Pleno"
       },
       {
         "command": "pleno.openRepl",
-        "title": "Pleno: Open Interactive REPL",
+        "title": "Open Interactive REPL",
         "category": "Pleno"
       },
       {
         "command": "pleno.showDashboard",
-        "title": "Pleno: Show Dashboard",
+        "title": "Show Dashboard",
         "category": "Pleno"
       },
       {
         "command": "pleno.openWalkthrough",
-        "title": "Pleno: Open Getting Started Walkthrough",
+        "title": "Open Getting Started Walkthrough",
         "category": "Pleno"
       }
     ],

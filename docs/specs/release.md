@@ -379,7 +379,7 @@ plm search http-client
 plm install http-client@2.0.0
 ```
 
-### **package.pln Format**
+### **pleno.toml Format**
 
 ```json
 {
