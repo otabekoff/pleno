@@ -148,6 +148,16 @@
         "command": "pleno.openRepl",
         "title": "Pleno: Open Interactive REPL",
         "category": "Pleno"
+      },
+      {
+        "command": "pleno.showDashboard",
+        "title": "Pleno: Show Dashboard",
+        "category": "Pleno"
+      },
+      {
+        "command": "pleno.openWalkthrough",
+        "title": "Pleno: Open Getting Started Walkthrough",
+        "category": "Pleno"
       }
     ],
     "grammars": [
@@ -181,7 +191,48 @@
           "icon": "resources/icon.svg"
         }
       ]
-    }
+    },
+    "walkthroughs": [
+      {
+        "id": "pleno-welcome",
+        "title": "Experience Pleno",
+        "description": "Get started with the Pleno programming language",
+        "steps": [
+          {
+            "id": "intro",
+            "title": "Welcome to Pleno",
+            "description": "Learn about the core features of the Pleno language and extension.",
+            "media": {
+              "markdown": "resources/walkthrough/intro.md"
+            }
+          },
+          {
+            "id": "toolchain",
+            "title": "Setup Toolchain",
+            "description": "Install and verify the Pleno toolchain on your system.",
+            "media": {
+              "markdown": "resources/walkthrough/toolchain.md"
+            }
+          },
+          {
+            "id": "project",
+            "title": "Create a Project",
+            "description": "Initialize your first Pleno project with `plm init`.",
+            "media": {
+              "markdown": "resources/walkthrough/project.md"
+            }
+          },
+          {
+            "id": "run",
+            "title": "Run & Test",
+            "description": "Run your code, use the REPL, and explore the Test Explorer.",
+            "media": {
+              "markdown": "resources/walkthrough/run.md"
+            }
+          }
+        ]
+      }
+    ]
   },
   "dependencies": {
     "smol-toml": "^1.6.0",
