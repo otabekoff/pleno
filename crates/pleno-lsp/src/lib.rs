@@ -503,76 +503,122 @@ pub fn start() -> io::Result<()> {
             }
             "textDocument/completion" => {
                 let id = value.get("id").cloned().unwrap_or(Value::Null);
-                let keywords = [
-                    "let",
-                    "fn",
-                    "if",
-                    "else",
-                    "while",
-                    "for",
-                    "in",
-                    "return",
-                    "class",
-                    "enum",
-                    "interface",
-                    "try",
-                    "catch",
-                    "finally",
-                    "throw",
-                    "match",
-                    "case",
-                    "default",
-                    "true",
-                    "false",
-                    "null",
-                    "import",
-                    "export",
-                    "async",
-                    "await",
-                    "spawn",
-                    "print",
-                    "println",
-                    "id",
-                    "typeof",
-                    "Int",
-                    "Float",
-                    "String",
-                    "Array",
-                    "Map",
-                    "JSON",
-                    "Math",
-                    "OS",
-                ];
-
                 let mut items = Vec::new();
-                for kw in keywords {
-                    items.push(json!({
-                        "label": kw,
-                        "kind": 14, // Keyword
-                        "detail": "Keyword"
-                    }));
-                }
 
-                // Add symbols from index
                 if let Some(params) = value.get("params") {
                     let uri_str = params
                         .get("textDocument")
                         .and_then(|t| t.get("uri").and_then(|v| v.as_str()))
                         .unwrap_or_default();
+                    let position = params.get("position");
+                    let line = position
+                        .and_then(|p| p.get("line"))
+                        .and_then(|v| v.as_u64())
+                        .unwrap_or(0) as u32;
+                    let character = position
+                        .and_then(|p| p.get("character"))
+                        .and_then(|v| v.as_u64())
+                        .unwrap_or(0) as u32;
 
                     let state = state_clone.lock().unwrap();
-                    if let Some(symbols) = state.index.get(uri_str) {
-                        for sym in symbols {
-                            items.push(json!({
-                                "label": sym.name,
-                                "kind": match sym.kind {
-                                    SymbolKind::Function | SymbolKind::Method => 3, // Function
-                                    SymbolKind::Class => 7, // Class
-                                    SymbolKind::Variable | SymbolKind::Field => 6, // Variable
-                                    _ => 1, // Text
-                                },
-                                "detail": sym.detail.as_deref().unwrap_or("")
-                            }));
+                    if let Some(text) = state.documents.get(uri_str) {
+                        let lines: Vec<&str> = text.lines().collect();
+                        if let Some(current_line) = lines.get(line as usize) {
+                            let prefix = if (character as usize) <= current_line.len() {
+                                &current_line[..character as usize]
+                            } else {
+                                ""
+                            };
+
+                            if prefix.trim_end().ends_with('.') {
+                                // Property completion
+                                let properties = [
+                                    ("length", 10, "Returns the number of elements"),
+                                    ("push", 2, "Adds an element to the end"),
+                                    ("pop", 2, "Removes the last element"),
+                                    ("keys", 2, "Returns an iterator over keys"),
+                                    ("values", 2, "Returns an iterator over values"),
+                                    ("entries", 2, "Returns an iterator over entries"),
+                                    ("toLowerCase", 2, "Converts string to lower case"),
+                                    ("toUpperCase", 2, "Converts string to upper case"),
+                                    ("trim", 2, "Removes whitespace from both ends"),
+                                    ("split", 2, "Splits string by a separator"),
+                                    ("join", 2, "Joins array elements into a string"),
+                                ];
+
+                                for (name, kind, detail) in properties {
+                                    items.push(json!({
+                                        "label": name,
+                                        "kind": kind,
+                                        "detail": detail
+                                    }));
+                                }
+                            } else {
+                                // Normal completion (keywords + symbols)
+                                let keywords = [
+                                    "let",
+                                    "fn",
+                                    "if",
+                                    "else",
+                                    "while",
+                                    "for",
+                                    "in",
+                                    "return",
+                                    "class",
+                                    "enum",
+                                    "interface",
+                                    "try",
+                                    "catch",
+                                    "finally",
+                                    "throw",
+                                    "match",
+                                    "case",
+                                    "default",
+                                    "true",
+                                    "false",
+                                    "null",
+                                    "import",
+                                    "export",
+                                    "async",
+                                    "await",
+                                    "spawn",
+                                    "print",
+                                    "println",
+                                    "id",
+                                    "typeof",
+                                    "Int",
+                                    "Float",
+                                    "String",
+                                    "Array",
+                                    "Map",
+                                    "JSON",
+                                    "Math",
+                                    "OS",
+                                ];
+
+                                for kw in keywords {
+                                    items.push(json!({
+                                        "label": kw,
+                                        "kind": 14,
+                                        "detail": "Keyword"
+                                    }));
+                                }
+
+                                if let Some(symbols) = state.index.get(uri_str) {
+                                    for sym in symbols {
+                                        items.push(json!({
+                                            "label": sym.name,
+                                            "kind": match sym.kind {
+                                                SymbolKind::Function | SymbolKind::Method => 3,
+                                                SymbolKind::Class => 7,
+                                                SymbolKind::Variable | SymbolKind::Field => 6,
+                                                _ => 1,
+                                            },
+                                            "detail": sym.detail.as_deref().unwrap_or("")
+                                        }));
+                                    }
+                                }
+                            }
                         }
                     }
                 }

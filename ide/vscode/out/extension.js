@@ -82,7 +82,10 @@ function activate(context) {
     }
     // Create status bar item
     myStatusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
+    myStatusBarItem.text = `$(zap) Pleno`;
+    myStatusBarItem.tooltip = 'Pleno Extension Status (Click to show output)';
     myStatusBarItem.command = 'pleno.showOutput';
+    myStatusBarItem.show();
     context.subscriptions.push(myStatusBarItem);
     const updateStatus = () => {
         if (lspFound && cliFound) {
@@ -264,6 +267,13 @@ function activate(context) {
         }
     }), vscode.commands.registerCommand('pleno.showOutput', () => {
         outputChannel.show();
+    }), vscode.commands.registerCommand('pleno.openDocs', () => {
+        vscode.env.openExternal(vscode.Uri.parse('https://pleno.run/docs'));
+    }), vscode.commands.registerCommand('pleno.openRepl', () => {
+        const terminal = vscode.window.activeTerminal || vscode.window.createTerminal('Pleno REPL');
+        terminal.show();
+        // Assuming 'plm repl' or 'pleno repl' or just 'pleno-repl'
+        terminal.sendText('pleno-repl');
     }));
     return {
         extendMarkdownIt(md) {
