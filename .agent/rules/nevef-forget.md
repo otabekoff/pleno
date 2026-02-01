@@ -1,5 +1,8 @@
-We're not just creating a programming language. We're creating a production level, dynamic and type safe programming language that works. Unlike python it will have real encapsulation, constants and unlike other programming languages and python Pleno will have modern features and it fixes many things other programming languages doesn't have and inspires many best features from other pogramming languages. And it should be stable, based on specs and rules and ready for production.
+---
+trigger: always_on
+---
 
+We're not just creating a programming language. We're creating a production level, dynamic and type safe programming language that works. Unlike python it will have real encapsulation, constants and unlike other programming languages and python Pleno will have modern features and it fixes many things other programming languages doesn't have and inspires many best features from other pogramming languages. And it should be stable, based on specs and rules and ready for production.
 
 Now, these tasks of the stage are partially done. Nork on it and make it complete. add/edit/update/upgrade/fix/bugfix/implement/make changes/review/test/document.
 
@@ -7,13 +10,11 @@ Everytime after doing the tasks, if working according to or by tracking files, t
 
 Always update the docs.
 
-Things shouldn't work minimally, they should work fully, completely. They should be ready. They should be thought in advance and done. Tasks should be done thinking for different and diverse and advanced usages too. They shouldn't be just satisfied. But should be battle ready, battle tested. 
+Things shouldn't work minimally, they should work fully, completely. They should be ready. They should be thought in advance and done. Tasks should be done thinking for different and diverse and advanced usages too. They shouldn't be just satisfied. But should be battle ready, battle tested.
 
 Always don't forget to make the project clean, mainly project root. Don't make it trashbox.
 
-
 after doing output files creation, remove them, clean the project. or don't create at the project root. instead log texts should be in .logs folder.
-
 
 Always work with Implementation Plan, Walkthrough, Task and such files.
 
@@ -28,6 +29,7 @@ run cargo clippy --workspace and fix the warnings/errors/problems/issues/recomme
 If duplicated code, don't just remove one. Think which one to left or not. Always we need latest, working, more features included, complete one.
 
 Make sure no duplicates in source code files like below, or are they optional or for a reason?
+
 ```rust
         let mut last_result = Value::Null;
         let mut last_result = Value::Null;
@@ -40,7 +42,6 @@ If you add some part of code, make sure you're not replacing some other part of 
 Sometimes you do add `#[ignore]` at some tests after `#[test]` in rust files. And because they will not be ready yet. But, we've to work on them and make them work and fixed. What's needed? Do them. And make them work.
 
 After doing each job, do cargo fmt for workspace.
-
 
 Always check for problems tab. Mainly at the end of finishing response. Fix them.
 

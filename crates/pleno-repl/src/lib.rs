@@ -198,7 +198,7 @@ fn execute_line(vm: &mut VM, line: &str) {
     let chunk = match compiler.compile(&program) {
         Ok(c) => c,
         Err(err) => {
-            eprintln!("compile error: {}", err.message);
+            eprintln!("compile error: {}", err.diagnostic.message);
             return;
         }
     };

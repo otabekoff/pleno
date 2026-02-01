@@ -5368,7 +5368,7 @@ impl VM {
         let mut compiler = pleno_compiler::Compiler::new(source);
         let chunk = compiler
             .compile_module(&program)
-            .map_err(|err| RuntimeError::new(err.message))?;
+            .map_err(|err| RuntimeError::new(err.diagnostic.message))?;
         let module_name = chunk
             .module_name
             .clone()

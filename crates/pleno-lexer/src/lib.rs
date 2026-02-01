@@ -128,6 +128,12 @@ impl LexError {
     }
 }
 
+impl pleno_diagnostics::ToDiagnostic for LexError {
+    fn to_diagnostic(&self) -> pleno_diagnostics::Diagnostic {
+        pleno_diagnostics::Diagnostic::error(&self.message).with_label(self.span, "")
+    }
+}
+
 pub fn lex(source: &str) -> Result<Vec<Token>, LexError> {
     let mut tokens = Vec::new();
     let mut chars = source.char_indices().peekable();

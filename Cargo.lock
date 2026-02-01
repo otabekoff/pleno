@@ -1101,6 +1101,7 @@ name = "pleno-lexer"
 version = "0.1.0"
 dependencies = [
  "pleno-ast",
+ "pleno-diagnostics",
 ]
 
 [[package]]
@@ -1148,6 +1149,7 @@ name = "pleno-parser"
 version = "0.1.0"
 dependencies = [
  "pleno-ast",
+ "pleno-diagnostics",
  "pleno-lexer",
 ]
 
@@ -1188,6 +1190,7 @@ version = "0.1.0"
 dependencies = [
  "indexmap",
  "pleno-common",
+ "pleno-diagnostics",
  "serde",
 ]
 
@@ -1199,6 +1202,7 @@ dependencies = [
  "indexmap",
  "pleno-bytecode",
  "pleno-compiler",
+ "pleno-diagnostics",
  "pleno-lexer",
  "pleno-parser",
  "pleno-stdlib",

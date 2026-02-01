@@ -16,6 +16,7 @@ indexmap = { workspace = true }
 rand = { workspace = true }
 regex = { workspace = true }
 chrono = { workspace = true }
+pleno-diagnostics = { workspace = true }
 
 [dev-dependencies]
 pleno-stdlib = { workspace = true }

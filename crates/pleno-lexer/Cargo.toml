@@ -6,3 +6,4 @@ license.workspace = true
 
 [dependencies]
 pleno-ast = { workspace = true }
+pleno-diagnostics = { workspace = true }
