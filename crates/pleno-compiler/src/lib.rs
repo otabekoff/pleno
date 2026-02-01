@@ -1,3 +1,4 @@
+use indexmap::IndexMap;
 use pleno_ast::{
     BinaryOp, Expr, ExprKind, FieldDecl, FunctionDecl, FunctionKind, Literal, MapItem, Pattern,
     Program, Span, Stmt, StmtKind, Visibility,
@@ -858,7 +859,7 @@ impl Compiler {
                 })))
             }
             ExprKind::MapLiteral(entries) => {
-                let mut map = HashMap::new();
+                let mut map = IndexMap::new();
                 for item in entries {
                     match item {
                         MapItem::Entry(key, value_expr) => {

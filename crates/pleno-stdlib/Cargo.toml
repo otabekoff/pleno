@@ -12,3 +12,4 @@ reqwest = { workspace = true }
 rand = { workspace = true }
 regex = { workspace = true }
 chrono = { workspace = true }
+indexmap = { workspace = true, features = ["serde"] }

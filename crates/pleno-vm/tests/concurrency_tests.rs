@@ -10,10 +10,10 @@ fn get_promise_result(val: Value) -> Value {
         let variant = borrowed.get("variant").expect("Promise missing variant");
         let result_val = borrowed.get("value").expect("Promise missing value");
 
-        if let Value::String(s) = variant {
-            if s.as_str() != "Resolved" {
-                panic!("Promise was not resolved: {:?}", s);
-            }
+        if let Value::String(s) = variant
+            && s.as_str() != "Resolved"
+        {
+            panic!("Promise was not resolved: {:?}", s);
         }
         result_val.clone()
     } else {

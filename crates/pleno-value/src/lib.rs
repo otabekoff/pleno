@@ -1,10 +1,11 @@
 pub mod gc;
 
 use gc::{GcObject, GcRc, MarkAndSweepGC};
+use indexmap::{IndexMap, IndexSet};
 use serde::ser::SerializeStruct;
 use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
-use std::collections::{HashMap, HashSet};
+// use std::collections::{HashMap, HashSet};
 use std::io::Write;
 use std::rc::Rc;
 
@@ -22,7 +23,7 @@ pub trait VMProvider {
     fn set_builtin_resolver(&mut self, resolver: fn(&str, &str) -> Option<NativeFunction>);
     fn add_timer(&mut self, delay_ms: u64, callback: Value, args: Vec<Value>) -> u64;
     fn check_is_instance(&self, value: &Value, type_val: &Value) -> bool;
-    fn get_named_args(&self) -> &HashMap<String, Value>;
+    fn get_named_args(&self) -> &IndexMap<String, Value>;
     fn is_io_allowed(&self) -> bool {
         true
     }
@@ -443,7 +444,7 @@ impl GcObject for ArrayState {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MapState {
-    pub entries: HashMap<String, Value>,
+    pub entries: IndexMap<String, Value>,
     pub is_immutable: bool,
 }
 
@@ -465,14 +466,21 @@ impl GcObject for MapState {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SetState {
-    pub elements: HashSet<ValueKey>,
+    pub elements: IndexSet<ValueKey>,
     pub is_immutable: bool,
 }
 
 impl GcObject for SetState {
-    fn mark(&self, _gc: &mut MarkAndSweepGC) {}
+    fn mark(&self, _gc: &mut MarkAndSweepGC) {
+        for _ in &self.elements {
+            // ValueKey doesn't have GC'd objects currently, but we mark just in case
+            // actually ValueKey is Null, Bool, Int, Float, String, Char.
+            // String is Rc<String>, not GcRc.
+        }
+    }
+
     fn clear_refs(&mut self) {
         self.elements.clear();
     }
@@ -551,11 +559,11 @@ pub struct MethodSignature {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Interface {
     pub name: Rc<String>,
-    pub methods: HashMap<String, MethodSignature>,
-    pub getters: HashMap<String, MethodSignature>,
-    pub setters: HashMap<String, MethodSignature>,
+    pub methods: IndexMap<String, MethodSignature>,
+    pub getters: IndexMap<String, MethodSignature>,
+    pub setters: IndexMap<String, MethodSignature>,
     pub type_params: Vec<String>,
-    pub type_constraints: HashMap<String, Vec<String>>,
+    pub type_constraints: IndexMap<String, Vec<String>>,
 }
 
 impl GcObject for Interface {
@@ -565,9 +573,9 @@ impl GcObject for Interface {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EnumType {
     pub name: Rc<String>,
-    pub variants: HashMap<String, EnumVariantDef>,
-    pub methods: HashMap<String, MethodInfo>,
-    pub static_methods: HashMap<String, MethodInfo>,
+    pub variants: IndexMap<String, EnumVariantDef>,
+    pub methods: IndexMap<String, MethodInfo>,
+    pub static_methods: IndexMap<String, MethodInfo>,
     pub module: Option<Rc<String>>,
     #[serde(default)]
     pub annotations: Vec<RuntimeAnnotation>,
@@ -611,26 +619,26 @@ impl PartialEq for EnumType {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Class {
     pub name: Rc<String>,
-    pub methods: HashMap<String, MethodInfo>,
-    pub static_methods: HashMap<String, MethodInfo>,
-    pub operators: HashMap<String, MethodInfo>,
-    pub constructor: Option<Value>,
+    pub superclass: Option<GcRc<Class>>,
+    pub static_fields: IndexMap<String, Value>,
+    pub methods: IndexMap<String, MethodInfo>,
+    pub static_methods: IndexMap<String, MethodInfo>,
+    pub constructor: Option<MethodInfo>,
     #[serde(skip, default)]
     pub native_constructor: Option<NativeFunction>,
-    pub superclass: Option<GcRc<Class>>,
-    pub static_fields: HashMap<String, Value>,
-    pub fields: HashMap<String, MethodVisibility>,
-    pub static_field_visibility: HashMap<String, MethodVisibility>,
-    pub getters: HashMap<String, MethodInfo>,
-    pub setters: HashMap<String, MethodInfo>,
-    pub static_getters: HashMap<String, MethodInfo>,
-    pub static_setters: HashMap<String, MethodInfo>,
+    pub operators: IndexMap<String, MethodInfo>,
+    pub fields: IndexMap<String, MethodVisibility>,
+    pub static_field_visibility: IndexMap<String, MethodVisibility>,
+    pub getters: IndexMap<String, MethodInfo>,
+    pub setters: IndexMap<String, MethodInfo>,
+    pub static_getters: IndexMap<String, MethodInfo>,
+    pub static_setters: IndexMap<String, MethodInfo>,
     pub module: Option<Rc<String>>,
     pub is_abstract: bool,
     pub is_pooled: bool,
     pub implements: Vec<Value>,
     pub type_params: Vec<String>,
-    pub type_constraints: HashMap<String, Vec<String>>,
+    pub type_constraints: IndexMap<String, Vec<String>>,
     #[serde(default)]
     pub annotations: Vec<RuntimeAnnotation>,
 }
@@ -1170,7 +1178,7 @@ impl<'a> IntoIterator for &'a ArrayState {
 }
 
 impl MapState {
-    pub fn new(entries: HashMap<String, Value>) -> Self {
+    pub fn new(entries: IndexMap<String, Value>) -> Self {
         Self {
             entries,
             is_immutable: false,
@@ -1185,9 +1193,8 @@ impl MapState {
         }
     }
 }
-
 impl std::ops::Deref for MapState {
-    type Target = HashMap<String, Value>;
+    type Target = IndexMap<String, Value>;
     fn deref(&self) -> &Self::Target {
         &self.entries
     }
@@ -1201,7 +1208,7 @@ impl std::ops::DerefMut for MapState {
 
 impl IntoIterator for MapState {
     type Item = (String, Value);
-    type IntoIter = std::collections::hash_map::IntoIter<String, Value>;
+    type IntoIter = indexmap::map::IntoIter<String, Value>;
     fn into_iter(self) -> Self::IntoIter {
         self.entries.into_iter()
     }
@@ -1209,14 +1216,14 @@ impl IntoIterator for MapState {
 
 impl<'a> IntoIterator for &'a MapState {
     type Item = (&'a String, &'a Value);
-    type IntoIter = std::collections::hash_map::Iter<'a, String, Value>;
+    type IntoIter = indexmap::map::Iter<'a, String, Value>;
     fn into_iter(self) -> Self::IntoIter {
         self.entries.iter()
     }
 }
 
 impl SetState {
-    pub fn new(elements: HashSet<ValueKey>) -> Self {
+    pub fn new(elements: IndexSet<ValueKey>) -> Self {
         Self {
             elements,
             is_immutable: false,
@@ -1231,9 +1238,8 @@ impl SetState {
         }
     }
 }
-
 impl std::ops::Deref for SetState {
-    type Target = HashSet<ValueKey>;
+    type Target = IndexSet<ValueKey>;
     fn deref(&self) -> &Self::Target {
         &self.elements
     }
@@ -1247,7 +1253,7 @@ impl std::ops::DerefMut for SetState {
 
 impl IntoIterator for SetState {
     type Item = ValueKey;
-    type IntoIter = std::collections::hash_set::IntoIter<ValueKey>;
+    type IntoIter = indexmap::set::IntoIter<ValueKey>;
     fn into_iter(self) -> Self::IntoIter {
         self.elements.into_iter()
     }
@@ -1255,7 +1261,7 @@ impl IntoIterator for SetState {
 
 impl<'a> IntoIterator for &'a SetState {
     type Item = &'a ValueKey;
-    type IntoIter = std::collections::hash_set::Iter<'a, ValueKey>;
+    type IntoIter = indexmap::set::Iter<'a, ValueKey>;
     fn into_iter(self) -> Self::IntoIter {
         self.elements.iter()
     }
@@ -1264,7 +1270,7 @@ impl<'a> IntoIterator for &'a SetState {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Object {
     pub class: Option<GcRc<Class>>,
-    pub fields: HashMap<String, Value>,
+    pub fields: IndexMap<String, Value>,
     pub is_immutable: bool,
     pub type_args: Option<Vec<Value>>,
 }
@@ -1273,7 +1279,7 @@ impl Object {
     pub fn new(class: Option<GcRc<Class>>, type_args: Option<Vec<Value>>) -> Self {
         Self {
             class,
-            fields: HashMap::new(),
+            fields: IndexMap::new(),
             is_immutable: false,
             type_args,
         }
@@ -1347,11 +1353,11 @@ impl GcObject for Object {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TupleState {
     pub elements: Vec<Value>,
-    pub names: Option<HashMap<String, usize>>,
+    pub names: Option<IndexMap<String, usize>>,
 }
 
 impl TupleState {
-    pub fn new(elements: Vec<Value>, names: Option<HashMap<String, usize>>) -> Self {
+    pub fn new(elements: Vec<Value>, names: Option<IndexMap<String, usize>>) -> Self {
         Self { elements, names }
     }
 }
@@ -1392,13 +1398,11 @@ pub enum IteratorState {
     },
     Map {
         map: GcRc<MapState>,
-        keys: Vec<String>,
         index: usize,
         is_entries: bool,
     },
     Set {
         set: GcRc<SetState>,
-        values: Vec<ValueKey>,
         index: usize,
     },
 }
@@ -1422,7 +1426,7 @@ impl GcObject for IteratorState {
             IteratorState::Range { .. } => {}
             IteratorState::Object { iterator } => iterator.borrow_mut().clear_refs(),
             IteratorState::Map { map, .. } => map.borrow_mut().clear_refs(),
-            IteratorState::Set { set, .. } => set.borrow_mut().clear(),
+            IteratorState::Set { set, .. } => set.borrow_mut().clear_refs(),
         }
     }
 }

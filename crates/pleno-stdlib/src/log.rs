@@ -2,6 +2,7 @@
 //!
 //! Provides leveled logging with customizable output.
 
+use indexmap::IndexMap;
 use pleno_value::{RuntimeError, VMProvider, Value};
 use std::rc::Rc;
 use std::sync::atomic::{AtomicU8, Ordering};
@@ -153,7 +154,7 @@ pub fn log_create(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, Runt
     };
 
     let gc = vm.get_gc();
-    let mut logger = std::collections::HashMap::new();
+    let mut logger = IndexMap::new();
 
     // Store prefix for use in closures (we'll use a simple approach)
     logger.insert("prefix".to_string(), Value::String(Rc::new(prefix)));

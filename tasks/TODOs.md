@@ -93,7 +93,7 @@ Continue with the implementation/fix/bugfix/update of next tasks in TECHNICAL_DE
 
 Ok continue with @SPECS_LOG.md  and if you need you can use @specs.md  for reference
 
-Check problems tab
+
 
 How we can optimize the code?
 

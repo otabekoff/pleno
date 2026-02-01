@@ -1,5 +1,5 @@
+use indexmap::IndexMap;
 use pleno_value::Value;
-use std::collections::HashMap;
 use std::rc::Rc;
 
 pub fn http_get(
@@ -159,7 +159,7 @@ pub fn http_head(
 
     // Return headers as a map
     let gc = vm.get_gc();
-    let mut headers_map = HashMap::new();
+    let mut headers_map = IndexMap::new();
     for (key, value) in response.headers() {
         if let Ok(v) = value.to_str() {
             headers_map.insert(key.to_string(), Value::String(Rc::new(v.to_string())));
@@ -199,7 +199,7 @@ pub fn http_options(
 
     // Return headers (Allow header is key for OPTIONS)
     let gc = vm.get_gc();
-    let mut headers_map = HashMap::new();
+    let mut headers_map = IndexMap::new();
     for (key, value) in response.headers() {
         if let Ok(v) = value.to_str() {
             headers_map.insert(key.to_string(), Value::String(Rc::new(v.to_string())));
@@ -296,7 +296,7 @@ pub fn http_request(
 
     // Return full response object
     let gc = vm.get_gc();
-    let mut result = HashMap::new();
+    let mut result = IndexMap::new();
 
     result.insert(
         "status".to_string(),
@@ -307,7 +307,7 @@ pub fn http_request(
         Value::Bool(response.status().is_success()),
     );
 
-    let mut headers_map = HashMap::new();
+    let mut headers_map = IndexMap::new();
     for (key, value) in response.headers() {
         if let Ok(v) = value.to_str() {
             headers_map.insert(key.to_string(), Value::String(Rc::new(v.to_string())));
@@ -331,7 +331,7 @@ pub fn http_router(
     _args: &[Value],
 ) -> Result<Value, pleno_value::RuntimeError> {
     let gc = vm.get_gc();
-    let mut router = HashMap::new();
+    let mut router = IndexMap::new();
 
     router.insert("get".to_string(), Value::NativeFunction(http_router_get));
     router.insert("post".to_string(), Value::NativeFunction(http_router_post));
@@ -365,7 +365,7 @@ pub fn http_server(
     _args: &[Value],
 ) -> Result<Value, pleno_value::RuntimeError> {
     let gc = vm.get_gc();
-    let mut server = HashMap::new();
+    let mut server = IndexMap::new();
 
     server.insert(
         "listen".to_string(),

@@ -1,3 +1,4 @@
+use indexmap::{IndexMap, IndexSet};
 use pleno_bytecode::{Chunk, Opcode, ParamSpec};
 use pleno_value::{
     ArrayState, Class, ClosureState, EnumType, EnumVariantDef, MapState, MethodOwner, MultiWaiter,
@@ -5,7 +6,7 @@ use pleno_value::{
     VMProvider, Value, ValueKey,
     gc::{GcObject, GcRc},
 };
-use std::collections::{HashMap, HashSet};
+// use std::collections::HashSet;
 use std::fs;
 use std::rc::Rc;
 
@@ -30,17 +31,17 @@ pub struct VM {
     pub gc: pleno_value::gc::GCManager,
     pub registers: Vec<Value>,
     pub frames: Vec<CallFrame>,
-    pub globals: HashMap<String, Value>,
-    pub modules: HashMap<String, Value>,
+    pub globals: IndexMap<String, Value>,
+    pub modules: IndexMap<String, Value>,
     pub functions: Vec<Function>,
     pub pending_tasks: Vec<AsyncTask>,
-    pub suspended_frames: HashMap<u64, SuspendedFrame>,
-    pub promises: HashMap<u64, Value>,
+    pub suspended_frames: IndexMap<u64, SuspendedFrame>,
+    pub promises: IndexMap<u64, Value>,
     pub next_promise_id: u64,
     pub multi_waiters: Vec<MultiWaiter>,
     pub builtin_resolver: Option<fn(&str, &str) -> Option<NativeFunction>>,
     pub run_depths: Vec<usize>,
-    pub current_named_args: HashMap<String, Value>,
+    pub current_named_args: IndexMap<String, Value>,
     pub instruction_count: u64,
     pub event_loop: event_loop::EventLoop,
 }
@@ -147,7 +148,7 @@ impl VMProvider for VM {
         let id = self.next_promise_id;
         self.next_promise_id += 1;
 
-        let mut map = HashMap::new();
+        let mut map = IndexMap::new();
         map.insert("id".to_string(), Value::Int(id as i64));
         map.insert(
             "variant".to_string(),
@@ -246,7 +247,7 @@ impl VMProvider for VM {
         self.is_instance(value, type_val)
     }
 
-    fn get_named_args(&self) -> &HashMap<String, Value> {
+    fn get_named_args(&self) -> &IndexMap<String, Value> {
         &self.current_named_args
     }
 
@@ -337,8 +338,8 @@ impl Default for VM {
 impl VM {
     pub fn new() -> Self {
         let gc = pleno_value::gc::GCManager::new(1000);
-        let globals = HashMap::new();
-        let modules = HashMap::new();
+        let globals = IndexMap::new();
+        let modules = IndexMap::new();
 
         Self {
             sandbox_config: None,
@@ -349,13 +350,13 @@ impl VM {
             modules,
             functions: Vec::new(),
             pending_tasks: Vec::new(),
-            suspended_frames: HashMap::new(),
-            promises: HashMap::new(),
+            suspended_frames: IndexMap::new(),
+            promises: IndexMap::new(),
             next_promise_id: 1,
             multi_waiters: Vec::new(),
             builtin_resolver: None,
             run_depths: Vec::new(),
-            current_named_args: HashMap::new(),
+            current_named_args: IndexMap::new(),
             instruction_count: 0,
             event_loop: event_loop::EventLoop::new(),
         }
@@ -562,7 +563,7 @@ impl VM {
                 continue;
             }
             // Update Promise map if it exists
-            if let Some(Value::Map(map)) = self.promises.remove(&task.promise_id) {
+            if let Some(Value::Map(map)) = self.promises.swap_remove(&task.promise_id) {
                 {
                     let mut b = map.borrow_mut();
                     b.insert(
@@ -605,7 +606,7 @@ impl VM {
                 }
             }
 
-            if let Some(suspended) = self.suspended_frames.remove(&task.promise_id) {
+            if let Some(suspended) = self.suspended_frames.swap_remove(&task.promise_id) {
                 let frame = suspended.frame;
                 self.registers[frame.base + suspended.await_reg] = task.value.clone();
                 self.frames.push(frame);
@@ -1034,7 +1035,7 @@ impl VM {
                 }
                 Opcode::NewMap => {
                     self.registers[base + a] =
-                        Value::Map(self.gc.allocate(MapState::new(HashMap::new()))?);
+                        Value::Map(self.gc.allocate(MapState::new(IndexMap::new()))?);
                 }
                 Opcode::NewArray => {
                     self.registers[base + a] =
@@ -1042,7 +1043,7 @@ impl VM {
                 }
                 Opcode::NewSet => {
                     self.registers[base + a] =
-                        Value::Set(self.gc.allocate(SetState::new(HashSet::new()))?);
+                        Value::Set(self.gc.allocate(SetState::new(IndexSet::new()))?);
                 }
                 Opcode::SetAdd => {
                     if self.functions[frame.function_index].is_pure {
@@ -1133,7 +1134,7 @@ impl VM {
                             let idx = t.elements.len();
                             t.elements.push(value);
                             if t.names.is_none() {
-                                t.names = Some(HashMap::new());
+                                t.names = Some(IndexMap::new());
                             }
                             t.names.as_mut().unwrap().insert(name, idx);
                         }
@@ -1196,7 +1197,7 @@ impl VM {
                             if map.borrow().is_immutable {
                                 return Err(self.throw_runtime_error("cannot modify immutable map"));
                             }
-                            map.borrow_mut().entries.remove(&name);
+                            map.borrow_mut().entries.swap_remove(&name);
                         }
                         _ => return Err(RuntimeError::new("map remove expects map")),
                     }
@@ -2772,30 +2773,30 @@ impl VM {
                     // Create the class first
                     let class = self.gc.allocate(Class {
                         name: Rc::new(name),
-                        methods: HashMap::new(),
-                        static_methods: HashMap::new(),
-                        operators: HashMap::new(),
+                        methods: IndexMap::new(),
+                        static_methods: IndexMap::new(),
+                        operators: IndexMap::new(),
                         constructor: None,
                         native_constructor: None,
                         superclass: None,
-                        static_fields: HashMap::new(),
-                        fields: HashMap::new(),
-                        static_field_visibility: HashMap::new(),
-                        getters: HashMap::new(),
-                        setters: HashMap::new(),
-                        static_getters: HashMap::new(),
-                        static_setters: HashMap::new(),
+                        static_fields: IndexMap::new(),
+                        fields: IndexMap::new(),
+                        static_field_visibility: IndexMap::new(),
+                        getters: IndexMap::new(),
+                        setters: IndexMap::new(),
+                        static_getters: IndexMap::new(),
+                        static_setters: IndexMap::new(),
                         module: module.clone(),
                         is_abstract: false,
                         is_pooled: false,
                         implements: Vec::new(),
                         type_params: Vec::new(),
-                        type_constraints: HashMap::new(),
+                        type_constraints: IndexMap::new(),
                         annotations: Vec::new(),
                     })?;
 
                     // Now parse methods with class reference
-                    let mut methods = HashMap::new();
+                    let mut methods = IndexMap::new();
                     let mut constructor = None;
                     for (method_name, value) in methods_map {
                         let info = parse_method_info(
@@ -2804,7 +2805,7 @@ impl VM {
                             module.as_ref(),
                         )?;
                         if method_name == "constructor" {
-                            constructor = Some(info.function.clone());
+                            constructor = Some(info.clone());
                             methods.insert(method_name, info);
                         } else {
                             methods.insert(method_name, info);
@@ -2829,9 +2830,9 @@ impl VM {
                     let methods_val = self.registers[base + c].clone();
                     let (methods, getters, setters) = match methods_val {
                         Value::Map(map) => {
-                            let mut methods = HashMap::new();
-                            let mut getters = HashMap::new();
-                            let mut setters = HashMap::new();
+                            let mut methods = IndexMap::new();
+                            let mut getters = IndexMap::new();
+                            let mut setters = IndexMap::new();
                             for (_name, val) in map.borrow().iter() {
                                 // Expected structure: [name, type, arity, is_static, is_async]
                                 if let Value::Array(meta) = val {
@@ -2877,7 +2878,7 @@ impl VM {
                             getters,
                             setters,
                             type_params: Vec::new(),
-                            type_constraints: HashMap::new(),
+                            type_constraints: IndexMap::new(),
                         })?);
                 }
                 Opcode::SetImplements => {
@@ -3034,10 +3035,10 @@ impl VM {
 
                     let constraints_map = match &self.registers[base + c] {
                         Value::Map(map) => map.borrow().entries.clone(),
-                        _ => HashMap::new(), // If reg c is not map (old bytecode?), or valid empty map
+                        _ => IndexMap::new(), // If reg c is not map (old bytecode?), or valid empty map
                     };
 
-                    let mut type_constraints = HashMap::new();
+                    let mut type_constraints = IndexMap::new();
                     for (param, constraints_val) in constraints_map {
                         if let Value::Array(arr) = constraints_val {
                             let constraints = arr
@@ -3076,7 +3077,7 @@ impl VM {
                     match class_val {
                         Value::Class(class) => {
                             let module = class.borrow().module.clone();
-                            let mut operators = HashMap::new();
+                            let mut operators = IndexMap::new();
                             for (op_name, value) in ops_map {
                                 let info = parse_method_info(
                                     value,
@@ -3294,7 +3295,7 @@ impl VM {
                         Value::Map(map) => map.borrow().entries.clone(),
                         _ => return Err(RuntimeError::new("static methods must be map")),
                     };
-                    let mut static_methods = HashMap::new();
+                    let mut static_methods = IndexMap::new();
                     let (class_ref, module) = match &self.registers[base + a] {
                         Value::Class(class) => {
                             let borrowed = class.borrow();
@@ -3327,7 +3328,7 @@ impl VM {
                         Value::Map(map) => map.borrow().entries.clone(),
                         _ => return Err(RuntimeError::new("getters must be map")),
                     };
-                    let mut getters = HashMap::new();
+                    let mut getters = IndexMap::new();
                     let (class_ref, module) = match &self.registers[base + a] {
                         Value::Class(class) => {
                             let borrowed = class.borrow();
@@ -3360,7 +3361,7 @@ impl VM {
                         Value::Map(map) => map.borrow().entries.clone(),
                         _ => return Err(RuntimeError::new("setters must be map")),
                     };
-                    let mut setters = HashMap::new();
+                    let mut setters = IndexMap::new();
                     let (class_ref, module) = match &self.registers[base + a] {
                         Value::Class(class) => {
                             let borrowed = class.borrow();
@@ -3393,7 +3394,7 @@ impl VM {
                         Value::Map(map) => map.borrow().entries.clone(),
                         _ => return Err(RuntimeError::new("static getters must be map")),
                     };
-                    let mut static_getters = HashMap::new();
+                    let mut static_getters = IndexMap::new();
                     let (class_ref, module) = match &self.registers[base + a] {
                         Value::Class(class) => {
                             let borrowed = class.borrow();
@@ -3430,7 +3431,7 @@ impl VM {
                         Value::Map(map) => map.borrow().entries.clone(),
                         _ => return Err(RuntimeError::new("static setters must be map")),
                     };
-                    let mut static_setters = HashMap::new();
+                    let mut static_setters = IndexMap::new();
                     let (class_ref, module) = match &self.registers[base + a] {
                         Value::Class(class) => {
                             let borrowed = class.borrow();
@@ -3465,9 +3466,9 @@ impl VM {
                     let module = frame.current_module.as_ref().map(Rc::clone);
                     let enum_type = self.gc.allocate(EnumType {
                         name,
-                        variants: HashMap::new(),
-                        methods: HashMap::new(),
-                        static_methods: HashMap::new(),
+                        variants: IndexMap::new(),
+                        methods: IndexMap::new(),
+                        static_methods: IndexMap::new(),
                         module,
                         annotations: Vec::new(),
                     })?;
@@ -3600,25 +3601,25 @@ impl VM {
                                 } else {
                                     let cls = self.gc.allocate(Class {
                                         name: Rc::new(shadow_name.clone()),
-                                        methods: HashMap::new(),
-                                        static_methods: HashMap::new(),
-                                        operators: HashMap::new(),
+                                        methods: IndexMap::new(),
+                                        static_methods: IndexMap::new(),
+                                        operators: IndexMap::new(),
                                         constructor: None,
                                         native_constructor: None,
                                         superclass: None,
-                                        static_fields: HashMap::new(),
-                                        fields: HashMap::new(),
-                                        static_field_visibility: HashMap::new(),
-                                        getters: HashMap::new(),
-                                        setters: HashMap::new(),
-                                        static_getters: HashMap::new(),
-                                        static_setters: HashMap::new(),
+                                        static_fields: IndexMap::new(),
+                                        fields: IndexMap::new(),
+                                        static_field_visibility: IndexMap::new(),
+                                        getters: IndexMap::new(),
+                                        setters: IndexMap::new(),
+                                        static_getters: IndexMap::new(),
+                                        static_setters: IndexMap::new(),
                                         module: None,
                                         is_abstract: false,
                                         is_pooled: false,
                                         implements: Vec::new(),
                                         type_params: Vec::new(),
-                                        type_constraints: HashMap::new(),
+                                        type_constraints: IndexMap::new(),
                                         annotations: Vec::new(),
                                     })?;
                                     self.globals.insert(shadow_name, Value::Class(cls.clone()));
@@ -4334,7 +4335,7 @@ impl VM {
                 let promise_id = self.next_promise_id;
                 self.next_promise_id += 1;
                 final_args.push(Value::Int(promise_id as i64));
-                let mut promise_map = HashMap::new();
+                let mut promise_map = IndexMap::new();
                 promise_map.insert("id".to_string(), Value::Int(promise_id as i64));
                 promise_map.insert(
                     "variant".to_string(),
@@ -4419,7 +4420,7 @@ impl VM {
         &mut self,
         callee: Value,
         positional: Vec<Value>,
-        named: HashMap<String, Value>,
+        named: IndexMap<String, Value>,
         return_reg: usize,
     ) -> Result<(), RuntimeError> {
         match callee {
@@ -4444,7 +4445,7 @@ impl VM {
             Value::Class(class) => {
                 let object = self.gc.allocate(Object::new(Some(class.clone()), None))?;
                 if let Some(handle) = class.borrow().constructor.clone() {
-                    let handle_idx = match handle {
+                    let handle_idx = match handle.function {
                         Value::Function(idx) => idx,
                         Value::Closure(ref c) => c.borrow().function,
                         _ => unreachable!("constructor must be function or closure"),
@@ -4458,7 +4459,7 @@ impl VM {
                     final_args.extend(args);
                     let override_value = Some(Value::Object(object.clone()));
                     self.call_function(
-                        handle,
+                        handle.function.clone(),
                         Some(Value::Object(object.clone())),
                         &final_args,
                         return_reg,
@@ -4479,7 +4480,7 @@ impl VM {
                     .gc
                     .allocate(Object::new(Some(class.clone()), Some(type_args.clone())))?;
                 if let Some(handle) = class.borrow().constructor.clone() {
-                    let handle_idx = match handle {
+                    let handle_idx = match handle.function {
                         Value::Function(idx) => idx,
                         Value::Closure(ref c) => c.borrow().function,
                         _ => unreachable!("constructor must be function or closure"),
@@ -4493,7 +4494,7 @@ impl VM {
                     final_args.extend(args);
                     let override_value = Some(Value::Object(object.clone()));
                     self.call_function(
-                        handle,
+                        handle.function.clone(),
                         Some(Value::Object(object.clone())),
                         &final_args,
                         return_reg,
@@ -4601,7 +4602,7 @@ impl VM {
         function_index: usize,
         has_receiver: bool,
         positional: &[Value],
-        named: &HashMap<String, Value>,
+        named: &IndexMap<String, Value>,
     ) -> Result<Vec<Value>, RuntimeError> {
         let function = self
             .functions
@@ -4744,7 +4745,7 @@ impl VM {
             self.gc.grace_bytes = 64 * 1024; // 64KB grace for emergency handling
         }
 
-        let mut map = HashMap::new();
+        let mut map = IndexMap::new();
         map.insert(
             "message".to_string(),
             Value::String(Rc::new(message.to_string())),
@@ -4907,7 +4908,7 @@ impl VM {
                 let val = Value::Object(object.clone());
                 if let Some(handle) = class.borrow().constructor.clone() {
                     self.call_function(
-                        handle,
+                        handle.function.clone(),
                         Some(val.clone()),
                         &args,
                         return_reg_idx,
@@ -4933,7 +4934,7 @@ impl VM {
                 let val = Value::Object(object.clone());
                 if let Some(handle) = class.borrow().constructor.clone() {
                     self.call_function(
-                        handle,
+                        handle.function.clone(),
                         Some(val.clone()),
                         &args,
                         return_reg_idx,

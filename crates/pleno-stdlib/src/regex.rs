@@ -1,5 +1,5 @@
+use indexmap::IndexMap;
 use pleno_value::{ArrayState, MapState, RuntimeError, VMProvider, Value};
-use std::collections::HashMap;
 use std::rc::Rc;
 
 pub fn regex_constructor(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
@@ -12,7 +12,7 @@ pub fn regex_constructor(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Valu
         }
     };
 
-    let mut map = HashMap::new();
+    let mut map = IndexMap::new();
     map.insert(
         "variant".to_string(),
         Value::String(Rc::new("Regex".to_string())),

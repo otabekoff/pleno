@@ -18,8 +18,9 @@ pub mod security;
 pub mod test;
 pub mod time;
 
+use indexmap::IndexMap;
 use pleno_value::{MapState, VMProvider, Value};
-use std::collections::HashMap;
+// use std::collections::HashMap;
 use std::rc::Rc;
 
 pub fn register(vm: &mut dyn VMProvider) {
@@ -28,10 +29,10 @@ pub fn register(vm: &mut dyn VMProvider) {
     vm.set_builtin_resolver(builtins::resolve_builtin_method);
 
     let gc = vm.get_gc();
-    let mut modules = HashMap::new();
+    let mut modules = IndexMap::new();
 
     // std:path
-    let mut path_module = HashMap::new();
+    let mut path_module = IndexMap::new();
     path_module.insert("join".to_string(), Value::NativeFunction(path::path_join));
     path_module.insert(
         "dirname".to_string(),
@@ -71,7 +72,7 @@ pub fn register(vm: &mut dyn VMProvider) {
     );
 
     // std:process
-    let mut process_module = HashMap::new();
+    let mut process_module = IndexMap::new();
     process_module.insert(
         "cwd".to_string(),
         Value::NativeFunction(process::process_cwd),
@@ -98,7 +99,7 @@ pub fn register(vm: &mut dyn VMProvider) {
     );
 
     // std:io
-    let mut file_obj = HashMap::new();
+    let mut file_obj = IndexMap::new();
     file_obj.insert("read".to_string(), Value::NativeFunction(io::io_file_read));
     file_obj.insert(
         "write".to_string(),
@@ -123,7 +124,7 @@ pub fn register(vm: &mut dyn VMProvider) {
         Value::NativeFunction(io::io_file_read_lines),
     );
 
-    let mut dir_obj = HashMap::new();
+    let mut dir_obj = IndexMap::new();
     dir_obj.insert(
         "create".to_string(),
         Value::NativeFunction(io::io_directory_create),
@@ -157,7 +158,7 @@ pub fn register(vm: &mut dyn VMProvider) {
         Value::NativeFunction(io::io_directory_delete_recursive),
     );
 
-    let mut io_module = HashMap::new();
+    let mut io_module = IndexMap::new();
     io_module.insert(
         "File".to_string(),
         Value::Map(gc.allocate(MapState::new(file_obj)).unwrap()),
@@ -175,14 +176,14 @@ pub fn register(vm: &mut dyn VMProvider) {
     );
 
     // std:json
-    let mut json_obj = HashMap::new();
+    let mut json_obj = IndexMap::new();
     json_obj.insert("parse".to_string(), Value::NativeFunction(json::json_parse));
     json_obj.insert(
         "stringify".to_string(),
         Value::NativeFunction(json::json_stringify),
     );
 
-    let mut json_module = HashMap::new();
+    let mut json_module = IndexMap::new();
     json_module.insert(
         "JSON".to_string(),
         Value::Map(gc.allocate(MapState::new(json_obj)).unwrap()),
@@ -193,7 +194,7 @@ pub fn register(vm: &mut dyn VMProvider) {
     );
 
     // std:time
-    let mut time_module = HashMap::new();
+    let mut time_module = IndexMap::new();
     time_module.insert("now".to_string(), Value::NativeFunction(time::time_now));
     time_module.insert(
         "format".to_string(),
@@ -206,7 +207,7 @@ pub fn register(vm: &mut dyn VMProvider) {
         Value::NativeFunction(time::set_timeout),
     );
 
-    let mut datetime_obj = HashMap::new();
+    let mut datetime_obj = IndexMap::new();
     datetime_obj.insert(
         "now".to_string(),
         Value::NativeFunction(time::time_datetime_now),
@@ -222,7 +223,7 @@ pub fn register(vm: &mut dyn VMProvider) {
     );
 
     // std:math
-    let mut math_module = HashMap::new();
+    let mut math_module = IndexMap::new();
     math_module.insert("abs".to_string(), Value::NativeFunction(math::math_abs));
     math_module.insert("min".to_string(), Value::NativeFunction(math::math_min));
     math_module.insert("max".to_string(), Value::NativeFunction(math::math_max));
@@ -270,7 +271,7 @@ pub fn register(vm: &mut dyn VMProvider) {
     );
 
     // std:json
-    let mut json_module = HashMap::new();
+    let mut json_module = IndexMap::new();
     json_module.insert("parse".to_string(), Value::NativeFunction(json::json_parse));
     json_module.insert(
         "stringify".to_string(),
@@ -282,7 +283,7 @@ pub fn register(vm: &mut dyn VMProvider) {
     );
 
     // std:http
-    let mut http_module = HashMap::new();
+    let mut http_module = IndexMap::new();
     http_module.insert("get".to_string(), Value::NativeFunction(http::http_get));
     http_module.insert("post".to_string(), Value::NativeFunction(http::http_post));
     http_module.insert("put".to_string(), Value::NativeFunction(http::http_put));
@@ -314,7 +315,7 @@ pub fn register(vm: &mut dyn VMProvider) {
     );
 
     // std:regex
-    let mut regex_module = HashMap::new();
+    let mut regex_module = IndexMap::new();
     regex_module.insert(
         "Regex".to_string(),
         Value::NativeFunction(regex::regex_constructor),
@@ -325,7 +326,7 @@ pub fn register(vm: &mut dyn VMProvider) {
     );
 
     // std:reflect
-    let mut reflect_module = HashMap::new();
+    let mut reflect_module = IndexMap::new();
     reflect_module.insert(
         "getTypeName".to_string(),
         Value::NativeFunction(reflect::reflect_get_type_name),
@@ -362,7 +363,7 @@ pub fn register(vm: &mut dyn VMProvider) {
     modules.insert("std:reflect".to_string(), reflect_val.clone());
 
     // std:test
-    let mut assert_obj = HashMap::new();
+    let mut assert_obj = IndexMap::new();
     assert_obj.insert(
         "equal".to_string(),
         Value::NativeFunction(test::assert_equal),
@@ -400,7 +401,7 @@ pub fn register(vm: &mut dyn VMProvider) {
         Value::NativeFunction(test::assert_length_of),
     );
 
-    let mut test_module = HashMap::new();
+    let mut test_module = IndexMap::new();
     test_module.insert(
         "describe".to_string(),
         Value::NativeFunction(test::test_describe),
@@ -424,7 +425,7 @@ pub fn register(vm: &mut dyn VMProvider) {
     );
 
     // std:gc - Garbage Collection control
-    let mut gc_module = HashMap::new();
+    let mut gc_module = IndexMap::new();
     gc_module.insert("collect".to_string(), Value::NativeFunction(gc::gc_collect));
     gc_module.insert(
         "heapSize".to_string(),
@@ -438,7 +439,7 @@ pub fn register(vm: &mut dyn VMProvider) {
     modules.insert("std:gc".to_string(), gc_val.clone());
 
     // std:security - Sandboxing
-    let mut security_module = HashMap::new();
+    let mut security_module = IndexMap::new();
     security_module.insert(
         "Sandbox".to_string(),
         Value::NativeFunction(security::sandbox_new),
@@ -447,7 +448,7 @@ pub fn register(vm: &mut dyn VMProvider) {
     modules.insert("std:security".to_string(), security_val.clone());
 
     // std:net - Low-Level Networking
-    let mut net_module = HashMap::new();
+    let mut net_module = IndexMap::new();
     net_module.insert(
         "listen".to_string(),
         Value::NativeFunction(net::net_tcp_listen),
@@ -462,7 +463,7 @@ pub fn register(vm: &mut dyn VMProvider) {
     );
 
     // std:os
-    let mut os_module = HashMap::new();
+    let mut os_module = IndexMap::new();
     os_module.insert(
         "platform".to_string(),
         Value::NativeFunction(os::os_platform),
@@ -482,7 +483,7 @@ pub fn register(vm: &mut dyn VMProvider) {
     );
 
     // std:concurrency
-    let mut concurrency_module = HashMap::new();
+    let mut concurrency_module = IndexMap::new();
     concurrency_module.insert(
         "Mutex".to_string(),
         Value::NativeFunction(concurrency::native_mutex_new),
@@ -497,7 +498,7 @@ pub fn register(vm: &mut dyn VMProvider) {
     // Let's also add them as top level functions if we want for now?
     // Better to have a Class-like structure.
 
-    let mut mutex_proto = HashMap::new();
+    let mut mutex_proto = IndexMap::new();
     mutex_proto.insert(
         "lock".to_string(),
         Value::NativeFunction(concurrency::native_mutex_lock),
@@ -511,7 +512,7 @@ pub fn register(vm: &mut dyn VMProvider) {
         Value::Map(gc.allocate(MapState::new(mutex_proto)).unwrap()),
     );
 
-    let mut chan_proto = HashMap::new();
+    let mut chan_proto = IndexMap::new();
     chan_proto.insert(
         "send".to_string(),
         Value::NativeFunction(concurrency::native_channel_send),
@@ -545,7 +546,7 @@ pub fn register(vm: &mut dyn VMProvider) {
     // std:dotenv
 
     // std:dotenv
-    let mut dotenv_module = HashMap::new();
+    let mut dotenv_module = IndexMap::new();
     dotenv_module.insert(
         "config".to_string(),
         Value::NativeFunction(dotenv::dotenv_config),
@@ -556,7 +557,7 @@ pub fn register(vm: &mut dyn VMProvider) {
     );
 
     // std:log - Logging
-    let mut log_module = HashMap::new();
+    let mut log_module = IndexMap::new();
     log_module.insert("trace".to_string(), Value::NativeFunction(log::log_trace));
     log_module.insert("debug".to_string(), Value::NativeFunction(log::log_debug));
     log_module.insert("info".to_string(), Value::NativeFunction(log::log_info));
