@@ -43,6 +43,7 @@ const node_1 = require("vscode-languageclient/node");
 const iconInjector_1 = require("./iconInjector");
 const utils_1 = require("./utils");
 const projectExplorer_1 = require("./projectExplorer");
+const dashboard_1 = require("./dashboard");
 class PlmTaskProvider {
     static PlmType = 'plm';
     provideTasks() {
@@ -322,6 +323,10 @@ function activate(context) {
         const terminal = vscode.window.activeTerminal || vscode.window.createTerminal('Pleno');
         terminal.show();
         terminal.sendText(`${(0, utils_1.getPlenoPath)(context)} plm run ${scriptName}`);
+    }), vscode.commands.registerCommand('pleno.showDashboard', () => {
+        dashboard_1.PlenoDashboardPanel.createOrShow(context.extensionUri);
+    }), vscode.commands.registerCommand('pleno.openWalkthrough', () => {
+        vscode.commands.executeCommand('workbench.action.openWalkthrough', 'pleno.pleno-language#pleno-welcome', false);
     }));
     return {
         extendMarkdownIt(md) {

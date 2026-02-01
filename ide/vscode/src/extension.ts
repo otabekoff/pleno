@@ -11,6 +11,7 @@ import {
 import { injectPlenoIcons } from './iconInjector';
 import { getPlenoPath, getPlenoLspPath } from './utils';
 import { PlenoProjectProvider } from './projectExplorer';
+import { PlenoDashboardPanel } from './dashboard';
 
 
 class PlmTaskProvider implements vscode.TaskProvider {
@@ -362,6 +363,12 @@ export function activate(context: vscode.ExtensionContext) {
             const terminal = vscode.window.activeTerminal || vscode.window.createTerminal('Pleno');
             terminal.show();
             terminal.sendText(`${getPlenoPath(context)} plm run ${scriptName}`);
+        }),
+        vscode.commands.registerCommand('pleno.showDashboard', () => {
+            PlenoDashboardPanel.createOrShow(context.extensionUri);
+        }),
+        vscode.commands.registerCommand('pleno.openWalkthrough', () => {
+            vscode.commands.executeCommand('workbench.action.openWalkthrough', 'pleno.pleno-language#pleno-welcome', false);
         })
     );
 
