@@ -3,9 +3,11 @@ Next actionable tasks. This is your real daily driver. Rule: If it’s in todo.m
 # To Do
 
 ## High priority
+
 - [ ] Implement AST visitor
-- [ ] Write tests for lexer
+- [x] Write tests for lexer
 
 ## Medium
+
 - [ ] Update README
 - [ ] Add logging
