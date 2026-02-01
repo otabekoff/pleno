@@ -1,48 +1,69 @@
 # Pleno Project Management Makefile
 
-.PHONY: help repl run test build lint format docs-dev docs-build docs-preview package clean
+# Configuration
+PREFIX ?= $(HOME)/.local
+BIN_DIR = $(PREFIX)/bin
+TARGET_DIR = target/release
+
+# Binaries
+BINS = pleno plm pleno-lsp pleno-repl
+
+.PHONY: help build release install uninstall vscode test lint format clean all
 
 help:
 	@echo "Pleno Management Commands:"
-	@echo "  repl           Start the interactive REPL"
-	@echo "  run FILE=path  Run a specified .pln file"
-	@echo "  test           Run all unit and integration tests"
-	@echo "  build          Build optimized production binaries"
-	@echo "  lint           Run clippy for static analysis"
-	@echo "  format         Format the entire codebase"
-	@echo "  docs-dev       Start Vitepress development server"
-	@echo "  docs-build     Build static documentation"
-	@echo "  docs-preview   Preview the built documentation"
-	@echo "  package        Package the binary into a compressed archive"
-	@echo "  install        Install binaries to user path (Windows)"
-	@echo "  all            Run format, lint, test, and build"
+	@echo "  build          Build all crates in debug mode"
+	@echo "  release        Build optimized production binaries"
+	@echo "  install        Install binaries to $(BIN_DIR)"
+	@echo "  uninstall      Remove binaries from $(BIN_DIR)"
+	@echo "  vscode         Package and install VSCode extension"
+	@echo "  vscode-watch   Watch and compile VSCode extension"
+	@echo "  vscode-test    Run VSCode extension tests"
+	@echo "  test           Run all workspace tests"
+	@echo "  lint           Run clippy checks"
+	@echo "  format         Format Rust and VSCode source code"
 	@echo "  clean          Remove build artifacts"
+	@echo ""
+	@echo "Variables:"
+	@echo "  PREFIX         Installation prefix (default: $(HOME)/.local)"
 
-all: format lint test build
-
-install:
-	pwsh -File tasks/install.ps1
-
-repl:
-	cargo run -p pleno-repl
-
-run:
-	@if [ -z "$(FILE)" ]; then echo "Error: FILE variable is required. Example: make run FILE=examples/hello.pln"; exit 1; fi
-	cargo run -p pleno-cli -- run $(FILE)
-
-test:
-	cargo test --workspace
+all: format lint test release
 
 build:
+	cargo build --workspace
+
+release:
 	cargo build --release --workspace
 
-lint:
-	cargo clippy --workspace --all-targets --all-features -- -D warnings
+install: release
+	@mkdir -p $(BIN_DIR)
+	@for bin in $(BINS); do \
+		if [ -f $(TARGET_DIR)/$$bin ]; then \
+			cp $(TARGET_DIR)/$$bin $(BIN_DIR)/; \
+			chmod +x $(BIN_DIR)/$$bin; \
+			echo "✓ Installed $$bin to $(BIN_DIR)"; \
+		else \
+			echo "⚠ Warning: $$bin not found in $(TARGET_DIR)"; \
+		fi \
+	done
+	@echo "Installation complete. Ensure $(BIN_DIR) is in your PATH."
 
-format:
-	cargo fmt --all
-	npm run format
+uninstall:
+	@for bin in $(BINS); do \
+		rm -f $(BIN_DIR)/$$bin; \
+		echo "Removed $$bin"; \
+	done
 
+vscode:
+	cd ide/vscode && npm install && npm run all
+
+vscode-watch:
+	cd ide/vscode && npm run watch
+
+vscode-test:
+	cd ide/vscode && npm test
+
+# Documentation
 docs-dev:
 	npm run docs:dev
 
@@ -52,13 +73,23 @@ docs-build:
 docs-preview:
 	npm run docs:preview
 
-package: build
+# Packaging
+package: release
 	@mkdir -p dist
-	tar -czf dist/pleno-linux-x64.tar.gz -C target/release pleno-cli pleno-repl
+	tar -czf dist/pleno-linux-x64.tar.gz -C $(TARGET_DIR) $(BINS)
 	@echo "Package created: dist/pleno-linux-x64.tar.gz"
+
+test:
+	cargo test --workspace
+
+lint:
+	cargo clippy --workspace --all-targets --all-features -- -D warnings
+
+format:
+	cargo fmt --all
+	cd ide/vscode && npm run compile && npm run lint
 
 clean:
 	cargo clean
 	rm -rf dist/
-	rm -rf docs/.vitepress/dist
-	rm -rf docs/.vitepress/cache
+	cd ide/vscode && rm -rf out *.vsix

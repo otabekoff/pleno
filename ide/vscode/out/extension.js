@@ -156,6 +156,82 @@ function activate(context) {
     client = new node_1.LanguageClient('plenoLanguageServer', 'Pleno Language Server', serverOptions, clientOptions);
     // Start the client. This will also launch the server
     client.start();
+    // Test Explorer Setup
+    const testController = vscode.tests.createTestController('plenoTests', 'Pleno Tests');
+    context.subscriptions.push(testController);
+    const testItemMap = new Map();
+    const getOrCreateFile = (uri) => {
+        const existing = testController.items.get(uri.toString());
+        if (existing) {
+            return existing;
+        }
+        const file = testController.createTestItem(uri.toString(), uri.path.split('/').pop(), uri);
+        testController.items.add(file);
+        testItemMap.set(uri.toString(), file);
+        return file;
+    };
+    const discoverTests = async () => {
+        const files = await vscode.workspace.findFiles('**/*.pln', '**/node_modules/**');
+        for (const file of files) {
+            getOrCreateFile(file);
+        }
+    };
+    discoverTests();
+    const runHandler = async (request, token) => {
+        const run = testController.createTestRun(request);
+        const queue = [];
+        if (request.include) {
+            request.include.forEach(test => queue.push(test));
+        }
+        else {
+            testController.items.forEach(test => queue.push(test));
+        }
+        for (const test of queue) {
+            if (token.isCancellationRequested) {
+                run.skipped(test);
+                continue;
+            }
+            run.started(test);
+            const start = Date.now();
+            try {
+                const filePath = vscode.Uri.parse(test.id).fsPath;
+                const { exec } = require('child_process');
+                const plenoPath = cliFound ? 'pleno' : context.asAbsolutePath(path.join('..', '..', 'target', 'release', 'pleno'));
+                exec(`${plenoPath} test "${filePath}" --json`, (error, stdout, stderr) => {
+                    const duration = Date.now() - start;
+                    try {
+                        const output = JSON.parse(stdout);
+                        if (output.failed === 0) {
+                            run.passed(test, duration);
+                        }
+                        else {
+                            const result = output.results[0];
+                            const message = result ? result.message : 'Test failed';
+                            run.failed(test, new vscode.TestMessage(message), duration);
+                        }
+                    }
+                    catch {
+                        run.errored(test, new vscode.TestMessage(`Parse error: ${stdout}\n${stderr}`), duration);
+                    }
+                    if (test === queue[queue.length - 1]) {
+                        run.end();
+                    }
+                });
+            }
+            catch (e) {
+                run.errored(test, new vscode.TestMessage(e.message));
+                if (test === queue[queue.length - 1]) {
+                    run.end();
+                }
+            }
+        }
+    };
+    testController.createRunProfile('Run', vscode.TestRunProfileKind.Run, runHandler, true);
+    const watcher = vscode.workspace.createFileSystemWatcher('**/*.pln');
+    watcher.onDidCreate(uri => getOrCreateFile(uri));
+    watcher.onDidChange(uri => getOrCreateFile(uri));
+    watcher.onDidDelete(uri => testController.items.delete(uri.toString()));
+    context.subscriptions.push(watcher);
     // Register commands
     context.subscriptions.push(vscode.commands.registerCommand('pleno.runFile', () => {
         const editor = vscode.window.activeTextEditor;
