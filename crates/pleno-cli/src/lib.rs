@@ -381,8 +381,11 @@ fn run_file(path: &str, config: Option<pleno_value::SandboxConfig>) {
     let program = match parser.parse_program() {
         Ok(program) => program,
         Err(err) => {
-            let diagnostic =
+            let mut diagnostic =
                 pleno_diagnostics::Diagnostic::error(&err.message).with_label(err.span, "");
+            if let Some(hint) = err.hint {
+                diagnostic = diagnostic.with_note(hint);
+            }
             eprintln!(
                 "{}",
                 pleno_diagnostics::DiagnosticReporter::report(&diagnostic, &source)

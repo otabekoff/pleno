@@ -339,9 +339,42 @@ fn test_empty_blocks() {
 }
 
 #[test]
-fn test_single_line_blocks() {
-    let input = "fn single(){return 1;}";
-    let expected = "fn single() {\n    return 1;\n}\n";
+fn test_decoration_formatting() {
+    let input = "@logged @authenticated fn test(x:Int){return x;}";
+    let expected = "@logged\n@authenticated\nfn test(x: Int) {\n    return x;\n}\n";
+    let result = format_code(input, &FormatOptions::default()).unwrap();
+    assert_eq!(result, expected);
+}
+
+#[test]
+fn test_async_await_formatting() {
+    let input = "async fn fetchData(url){let res=await http.get(url);return res;}";
+    let expected =
+        "async fn fetchData(url) {\n    let res = await http.get(url);\n    return res;\n}\n";
+    let result = format_code(input, &FormatOptions::default()).unwrap();
+    assert_eq!(result, expected);
+}
+
+#[test]
+fn test_enum_formatting() {
+    let input = "enum Color{Red,Green,Blue} enum Status{Pending,Active}";
+    let expected = "enum Color {\n    Red,\n    Green,\n    Blue\n}\nenum Status {\n    Pending,\n    Active\n}\n";
+    let result = format_code(input, &FormatOptions::default()).unwrap();
+    assert_eq!(result, expected);
+}
+
+#[test]
+fn test_generics_formatting() {
+    let input = "class Box<T>{private value:T; fn get():T{return this.value;}}";
+    let expected = "class Box<T> {\n    private value: T;\n    fn get(): T {\n        return this.value;\n    }\n}\n";
+    let result = format_code(input, &FormatOptions::default()).unwrap();
+    assert_eq!(result, expected);
+}
+
+#[test]
+fn test_char_literal_formatting() {
+    let input = "let a='A';let b='\\n';";
+    let expected = "let a = 'A';\nlet b = '\\n';\n";
     let result = format_code(input, &FormatOptions::default()).unwrap();
     assert_eq!(result, expected);
 }

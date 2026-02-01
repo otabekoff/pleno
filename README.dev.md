@@ -100,24 +100,32 @@ cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo doc --workspace --no-deps --open
 ```
 
-### Running Pleno Programs
+### Advanced CLI Tools
+
+Pleno provides several tools for language developers to inspect internal state:
 
 ```bash
-# Run a file
-cargo run --bin pleno-cli -- run path/to/file.pln
+# Debug AST (pretty-prints the Abstract Syntax Tree)
+cargo run --bin pleno-cli -- debug-ast path/to/file.pln
 
-# Run tests in a directory
-cargo run --bin pleno-cli -- test tests/
+# Compile to bytecode (.plc file)
+cargo run --bin pleno-cli -- compile path/to/file.pln
 
-# Format Pleno code
-cargo run --bin pleno-cli -- format path/to/file.pln
+# Watch mode (automatically re-runs file on changes)
+cargo run --bin pleno-cli -- watch path/to/file.pln
 
-# Lint Pleno code
-cargo run --bin pleno-cli -- lint path/to/file.pln
+# Type Check/Semantic Check (without full execution)
+cargo run --bin pleno-cli -- check path/to/file.pln
 
-# Generate documentation
-cargo run --bin pleno-cli -- doc sources/ docs_output/
+# Start Language Server (LSP)
+cargo run --bin pleno-cli -- lsp
 ```
+
+### Enhanced Diagnostics
+
+Pleno provides improved error reporting with actionable hints:
+- **Parser Hints**: Suggests fixes for common syntax errors (e.g., missing semicolons).
+- **Diagnostics**: Labeled spans point directly to the source of errors.
 
 ### Package Manager (plm)
 
@@ -136,6 +144,39 @@ cargo run --bin pleno-cli -- plm build
 
 # Publish package
 cargo run --bin pleno-cli -- plm publish
+```
+
+---
+
+## Benchmarking
+
+Pleno is designed for high performance. We maintain a benchmarking suite in the `bench/` directory to track performance vs Python and Node.js.
+
+### Running Benchmarks
+
+> [!IMPORTANT]
+> Always run benchmarks using the **release** build for accurate results.
+
+1. **Build Pleno in release mode:**
+   ```bash
+   cargo build --release
+   ```
+
+2. **Run the benchmark script:**
+   ```bash
+   # Requires Python 3 to run the orchestrator
+   python3 bench/run_bench.py
+   ```
+
+### Benchmark Cases
+Located in `bench/cases/`:
+- `fib.pln`: Recursive Fibonacci (CPU-intensive test of Function calls and Integer ops)
+- `loop.pln`: Million iterations loop (test of VM dispatch/loop overhead)
+
+### Profiling
+To identify bottlenecks, use `cargo-flamegraph` (requires `perf` on Linux):
+```bash
+cargo flamegraph --bin pleno-cli -- run path/to/benchmark.pln
 ```
 
 ---

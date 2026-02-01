@@ -2,9 +2,16 @@
 
 http://localhost:5173/pleno/specs/ is showing next page to introduction which is itself, and causing loop on docs.
 
+Now, these tasks of the stage are partially done. Nork on it and make it complete. add/edit/update/upgrade/fix/bugfix/implement/make changes/review/test/document
+
 csv, sqlite3 or latest
 
-Unicode, emoji.
+VSCode extension should be able to download and setup Pleno.
+
+Add info and instructions to release. Add x64, x86...
+
+Unicode, emojis, gradients, pleno ascii text.
+
 Let's do bench. Make bench folder benchmark project reporting about benchmarking of Pleno. Reports. Not only speed tests. Also, we need to compare with other languages like Python, Rust, Go, Kotlin, C, C++, Java, JavaScript, TypeScript, etc.
 
 Optimizations and error management in Pleno in a structured way, aslo fix the showing line numbers like Rust or other thing?
@@ -188,25 +195,6 @@ By following these separate processes for both highlight.js and VS Code, you can
 
 Work on #[test]
 #[ignore] s and make them work and fix. what's needed? make them work.
-
-----
-
-## Roadmap Items (From ROADMAP.md)
-
-## Next Steps
-
-1. **Start with High Priority, Low/Medium Effort items:**
-   - Compiler error handling improvements
-   - Linter placeholder fixes
-
-2. **Then tackle High Priority, High Effort items:**
-   - VM array methods (map, reduce, filter)
-
-3. **Finally address Medium/Low Priority items:**
-   - Parser feature additions
-   - Performance optimizations
-   - Documentation completion
-
 
 ---
 
