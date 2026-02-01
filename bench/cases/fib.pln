@@ -9,3 +9,4 @@ let end = __native_time_now();
 
 print("Fibonacci(30) = " + result.toString());
 print("Time: " + ((end - start) * 1000).toString() + "ms");
+

@@ -102,3 +102,20 @@ To enable Pleno file icons:
 ## License
 
 MIT
+
+
+<!-- 
+"onStartupFinished",
+    "onLanguage:pleno",
+    "onView:plenoProject",
+    "onView:plenoOutline",
+    "onCommand:pleno.showDashboard",
+    "onCommand:pleno.showControlPanel",
+    "onCommand:pleno.runFile",
+    "onCommand:pleno.checkFile",
+    "onCommand:pleno.refreshProject",
+    "onCommand:pleno.reloadWorkspace",
+    "onCommand:pleno.openDocs",
+    "onCommand:pleno.openWalkthrough",
+    "onCommand:pleno.createProject",
+ -->

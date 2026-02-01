@@ -9,6 +9,13 @@ use pleno_value::{ArrayState, MapState, RuntimeAnnotation, Value};
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BuildProfile {
+    Debug,
+    Release,
+    Test,
+}
+
 #[derive(Debug, Clone)]
 struct MacroDef {
     params: Vec<String>,
@@ -87,6 +94,7 @@ pub struct Compiler {
     boxed_vars: Vec<HashSet<String>>,
     finally_stack: Vec<Option<Stmt>>,
     pub is_async: bool,
+    pub profile: BuildProfile,
     _source_map: pleno_diagnostics::SourceMap,
 }
 
@@ -132,7 +140,13 @@ impl Compiler {
             boxed_vars: vec![HashSet::new()],
             finally_stack: Vec::new(),
             is_async: false,
+            profile: BuildProfile::Debug,
         }
+    }
+
+    pub fn with_profile(mut self, profile: BuildProfile) -> Self {
+        self.profile = profile;
+        self
     }
 
     fn error(&self, message: &str, span: Span) -> CompileError {

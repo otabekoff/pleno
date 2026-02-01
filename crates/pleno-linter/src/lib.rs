@@ -28,12 +28,21 @@ impl std::fmt::Display for Severity {
 }
 
 #[derive(Debug, Clone)]
+pub struct LintRelatedInformation {
+    pub message: String,
+    pub line: usize,
+    pub column: usize,
+    pub file: Option<String>,
+}
+
+#[derive(Debug, Clone)]
 pub struct LintDiagnostic {
     pub rule_name: String,
     pub message: String,
     pub severity: Severity,
     pub line: usize,
     pub column: usize,
+    pub related_information: Vec<LintRelatedInformation>,
 }
 
 #[derive(Debug, Clone)]
@@ -154,20 +163,6 @@ impl ScopeTracker {
         }
         false
     }
-
-    fn is_shadowed(&self, name: &str) -> bool {
-        // Check if name exists in any outer scope (not current)
-        if self.globals.contains(name) {
-            return true;
-        }
-        // Skip current scope, check outer ones
-        for scope in self.scopes.iter().rev().skip(1) {
-            if scope.declarations.contains_key(name) {
-                return true;
-            }
-        }
-        false
-    }
 }
 
 pub struct Linter {
@@ -202,6 +197,7 @@ impl Linter {
                     severity: Severity::Error,
                     line,
                     column,
+                    related_information: vec![],
                 });
                 return diagnostics;
             }
@@ -217,6 +213,7 @@ impl Linter {
                     severity: Severity::Error,
                     line,
                     column,
+                    related_information: vec![],
                 });
                 return diagnostics;
             }
@@ -262,6 +259,7 @@ impl Linter {
                     severity: Severity::Warning,
                     line: line_num + 1,
                     column: max_length + 1,
+                    related_information: vec![],
                 });
             }
         }
@@ -278,6 +276,7 @@ impl Linter {
                     severity: Severity::Info,
                     line: line_num + 1,
                     column: line.len(),
+                    related_information: vec![],
                 });
             }
         }
@@ -299,6 +298,7 @@ impl Linter {
                         severity: Severity::Info,
                         line: line_num + 1,
                         column: semi_pos + 2,
+                        related_information: vec![],
                     });
                 }
             }
@@ -360,6 +360,7 @@ impl Linter {
                                 severity: Severity::Warning,
                                 line: line_num + 1,
                                 column: abs_pos + 1,
+                                related_information: vec![],
                             });
                             break;
                         }
@@ -395,17 +396,34 @@ impl<'a> LintVisitor<'a> {
                 }
                 let (line, col) = position_from_offset(self.source, stmt.span.start);
                 // Check for shadowing before declaring
-                if self.config.warn_shadowed_vars && self.scope_tracker.is_shadowed(name) {
-                    self.diagnostics.push(LintDiagnostic {
-                        rule_name: "no-shadow".to_string(),
-                        message: format!(
-                            "Variable '{}' shadows a variable from an outer scope",
-                            name
-                        ),
-                        severity: Severity::Warning,
-                        line,
-                        column: col,
-                    });
+                if self.config.warn_shadowed_vars {
+                    // Find where it was declared in outer scope
+                    let mut related = vec![];
+                    for scope in self.scope_tracker.scopes.iter().rev().skip(1) {
+                        if let Some((l, c)) = scope.declarations.get(name) {
+                            related.push(LintRelatedInformation {
+                                message: format!("Original declaration of '{}' is here", name),
+                                line: *l,
+                                column: *c,
+                                file: None,
+                            });
+                            break;
+                        }
+                    }
+
+                    if !related.is_empty() {
+                        self.diagnostics.push(LintDiagnostic {
+                            rule_name: "no-shadow".to_string(),
+                            message: format!(
+                                "Variable '{}' shadows a variable from an outer scope",
+                                name
+                            ),
+                            severity: Severity::Warning,
+                            line,
+                            column: col,
+                            related_information: related,
+                        });
+                    }
                 }
                 self.scope_tracker.declare(name.clone(), line, col);
             }
@@ -419,6 +437,7 @@ impl<'a> LintVisitor<'a> {
                         severity: Severity::Error,
                         line,
                         column: col,
+                        related_information: vec![],
                     });
                 } else {
                     self.scope_tracker.use_var(name);
@@ -555,6 +574,7 @@ impl<'a> LintVisitor<'a> {
                         severity: Severity::Error,
                         line,
                         column: col,
+                        related_information: vec![],
                     });
                 } else {
                     self.scope_tracker.use_var(name);
@@ -619,6 +639,7 @@ impl<'a> LintVisitor<'a> {
                         severity: Severity::Warning,
                         line: *line,
                         column: *col,
+                        related_information: vec![],
                     });
                 }
             }
