@@ -1023,6 +1023,7 @@ dependencies = [
 name = "pleno-bytecode"
 version = "0.1.0"
 dependencies = [
+ "indexmap",
  "pleno-ast",
  "pleno-common",
  "pleno-value",

@@ -120,6 +120,8 @@ pub enum Opcode {
     SetCell,
     SetAnnotations,
     AddStaticMethod,
+    SetFieldType,
+    SetStaticFieldType,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -189,6 +191,8 @@ pub struct FunctionProto {
     pub is_hot: bool,
     pub no_optimize: bool,
     pub type_params: Vec<String>,
+    #[serde(default)]
+    pub type_constraints: indexmap::IndexMap<String, Vec<String>>,
     #[serde(default)]
     pub annotations: Vec<pleno_value::RuntimeAnnotation>,
 }

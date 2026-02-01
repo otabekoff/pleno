@@ -16,6 +16,57 @@ fn native_to_string(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, R
     Ok(Value::String(Rc::new(val.to_string())))
 }
 
+fn native_char_is_digit(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    let c = match args.first() {
+        Some(Value::Char(c)) => *c,
+        _ => return Err(RuntimeError::new("Char.isDigit expects a Char")),
+    };
+    Ok(Value::Bool(c.is_numeric()))
+}
+
+fn native_char_is_alpha(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    let c = match args.first() {
+        Some(Value::Char(c)) => *c,
+        _ => return Err(RuntimeError::new("Char.isAlpha expects a Char")),
+    };
+    Ok(Value::Bool(c.is_alphabetic()))
+}
+
+fn native_char_is_whitespace(
+    _vm: &mut dyn VMProvider,
+    args: &[Value],
+) -> Result<Value, RuntimeError> {
+    let c = match args.first() {
+        Some(Value::Char(c)) => *c,
+        _ => return Err(RuntimeError::new("Char.isWhitespace expects a Char")),
+    };
+    Ok(Value::Bool(c.is_whitespace()))
+}
+
+fn native_char_to_upper(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    let c = match args.first() {
+        Some(Value::Char(c)) => *c,
+        _ => return Err(RuntimeError::new("Char.toUpperCase expects a Char")),
+    };
+    Ok(Value::Char(c.to_uppercase().next().unwrap_or(c)))
+}
+
+fn native_char_to_lower(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    let c = match args.first() {
+        Some(Value::Char(c)) => *c,
+        _ => return Err(RuntimeError::new("Char.toLowerCase expects a Char")),
+    };
+    Ok(Value::Char(c.to_lowercase().next().unwrap_or(c)))
+}
+
+fn native_char_to_int(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    let c = match args.first() {
+        Some(Value::Char(c)) => *c,
+        _ => return Err(RuntimeError::new("Char.toInt expects a Char")),
+    };
+    Ok(Value::Int(c as i64))
+}
+
 fn native_int_parse(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
     let s = match args.get(1).or_else(|| args.first()) {
         Some(Value::String(s)) => s.as_str(),
@@ -237,6 +288,20 @@ pub fn register_builtins(vm: &mut dyn VMProvider) {
     let int_map = {
         let mut m = IndexMap::new();
         m.insert("parse".to_string(), Value::NativeFunction(native_int_parse));
+        m.insert(
+            "__native_type".to_string(),
+            Value::String(Rc::new("Int".to_string())),
+        );
+        m.insert(
+            "__implements".to_string(),
+            Value::Array(
+                vm.get_gc()
+                    .allocate(ArrayState::new(vec![Value::String(Rc::new(
+                        "Comparable".to_string(),
+                    ))]))
+                    .unwrap(),
+            ),
+        );
         vm.get_gc().allocate(MapState::new(m)).unwrap()
     };
     vm.register_global("Int".to_string(), Value::Map(int_map));
@@ -247,11 +312,17 @@ pub fn register_builtins(vm: &mut dyn VMProvider) {
             "parse".to_string(),
             Value::NativeFunction(native_float_parse),
         );
+        m.insert(
+            "__native_type".to_string(),
+            Value::String(Rc::new("Float".to_string())),
+        );
         vm.get_gc().allocate(MapState::new(m)).unwrap()
     };
     vm.register_global("Float".to_string(), Value::Map(float_map));
 
-    for ty in &["Bool", "String", "Array", "Map", "Object", "Null", "Any"] {
+    for ty in &[
+        "Bool", "String", "Array", "Map", "Object", "Null", "Any", "Char",
+    ] {
         vm.register_global(ty.to_string(), Value::String(Rc::new(ty.to_string())));
     }
     vm.register_global(
@@ -642,6 +713,12 @@ pub fn resolve_builtin_method(ty: &str, name: &str) -> Option<pleno_value::Nativ
         ("Tuple", "iterator") => Some(native_tuple_iterator),
         ("Range", "iterator") => Some(native_range_iterator),
         ("Iterator", "next") => Some(native_iterator_next),
+        ("Char", "isDigit") => Some(native_char_is_digit),
+        ("Char", "isAlpha") => Some(native_char_is_alpha),
+        ("Char", "isWhitespace") => Some(native_char_is_whitespace),
+        ("Char", "toUpperCase") => Some(native_char_to_upper),
+        ("Char", "toLowerCase") => Some(native_char_to_lower),
+        ("Char", "toInt") => Some(native_char_to_int),
         (_, "toString") => Some(native_to_string),
         _ => None,
     }

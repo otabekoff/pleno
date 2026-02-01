@@ -8,4 +8,5 @@ license.workspace = true
 pleno-value = { workspace = true }
 pleno-common = { workspace = true }
 pleno-ast = { workspace = true }
+indexmap = { workspace = true, features = ["serde"] }
 serde = { workspace = true, features = ["derive"] }
