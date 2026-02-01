@@ -135,7 +135,7 @@ impl Compiler {
 
     fn error(&self, message: &str, span: Span) -> CompileError {
         use pleno_diagnostics::{Diagnostic, DiagnosticReporter};
-        let diagnostic = Diagnostic::new(message, span);
+        let diagnostic = Diagnostic::error(message).with_label(span, "");
         let formatted = DiagnosticReporter::report(&diagnostic, &self.source);
         CompileError::new(formatted)
     }

@@ -1,0 +1,11 @@
+fn fib(n) {
+    if n <= 1 { return n; }
+    return fib(n - 1) + fib(n - 2);
+}
+
+let start = __native_time_now_ns();
+let result = fib(30);
+let end = __native_time_now_ns();
+
+print("Fibonacci(30) = " + result);
+print("Time: " + ((end - start) / 1000000) + "ms");

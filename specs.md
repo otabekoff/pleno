@@ -63,10 +63,21 @@ Int      // 64-bit signed integer
 Float    // 64-bit floating point
 String   // UTF-8 string
 Bool     // true or false
-Char     // Single Unicode character
+Char     // Single Unicode character, e.g., 'A', 'π', '\n'
 Null     // null type
 Void     // No return value
 Any      // Dynamic type (opt-out of type checking)
+```
+
+#### Char Literals ✅
+Characters are enclosed in single quotes:
+```pleno
+let a = 'A';
+let pi = 'π';
+let newline = '\n';
+let tab = '\t';
+```
+Unlike some other languages, `Char` is a distinct primitive type in Pleno, not just a small integer or a single-character string.
 ```
 
 #### Type Annotations
@@ -2109,16 +2120,37 @@ fn criticalPath() {
 
 ---
 
-## 19. Security Features ✅
+## 19. Developer Experience & Diagnostics ✅
+
+Pleno is designed with a focus on helpful error messages and developer tooling. The diagnostic system provides clear, "Rust-like" error reporting with source-level spans, multi-label diagnostics, and actionable hints.
+
+### 19.1 Advanced Diagnostics
+```
+Error: Expected ';' after let statement
+   --> file:10:5
+    |
+ 10 |     let x = 10
+    |                ^ expected ';' here
+```
+
+The diagnostic system supports:
+- **Visual Spans**: Precisely underlining problematic code.
+- **Multiple Labels**: One error can point to multiple related locations in the source.
+- **Hints and Notes**: Providing suggestions for how to fix the error.
+- **Colorized Output**: High-contrast, color-coded output for different severity levels.
+
+---
+
+## 20. Security Features ✅
 *Note: Sandboxing, resource limits, and hardened capability-based IO are implemented.*
 
-### 19.1 Safe Defaults
+### 20.1 Safe Defaults
 - No implicit type coercion
 - Strict null checking
 - Bounds checking on arrays
 - Integer overflow detection
 
-### 19.2 Sandboxing
+### 20.2 Sandboxing
 
 ```pleno
 import { Sandbox } from "std:security";
@@ -2143,7 +2175,7 @@ try {
 
 ---
 
-## Conclusion
+## 21. Conclusion
 
 Pleno is designed to be:
 - **Easy to learn**: Familiar syntax, clear semantics

@@ -22,28 +22,37 @@ impl fmt::Display for Severity {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Diagnostic {
-    pub message: String,
+pub struct Label {
     pub span: Span,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Diagnostic {
     pub severity: Severity,
+    pub message: String,
+    pub labels: Vec<Label>,
+    pub notes: Vec<String>,
     pub code: Option<String>,
-    pub hint: Option<String>,
 }
 
 impl Diagnostic {
-    pub fn new(message: impl Into<String>, span: Span) -> Self {
+    pub fn new(severity: Severity, message: impl Into<String>) -> Self {
         Self {
+            severity,
             message: message.into(),
-            span,
-            severity: Severity::Error,
+            labels: Vec::new(),
+            notes: Vec::new(),
             code: None,
-            hint: None,
         }
     }
 
-    pub fn with_severity(mut self, severity: Severity) -> Self {
-        self.severity = severity;
-        self
+    pub fn error(message: impl Into<String>) -> Self {
+        Self::new(Severity::Error, message)
+    }
+
+    pub fn warning(message: impl Into<String>) -> Self {
+        Self::new(Severity::Warning, message)
     }
 
     pub fn with_code(mut self, code: impl Into<String>) -> Self {
@@ -51,8 +60,16 @@ impl Diagnostic {
         self
     }
 
-    pub fn with_hint(mut self, hint: impl Into<String>) -> Self {
-        self.hint = Some(hint.into());
+    pub fn with_label(mut self, span: Span, message: impl Into<String>) -> Self {
+        self.labels.push(Label {
+            span,
+            message: message.into(),
+        });
+        self
+    }
+
+    pub fn with_note(mut self, note: impl Into<String>) -> Self {
+        self.notes.push(note.into());
         self
     }
 }
@@ -61,48 +78,100 @@ pub struct DiagnosticReporter;
 
 impl DiagnosticReporter {
     pub fn report(diagnostic: &Diagnostic, source: &str) -> String {
-        let (line_num, col_num) = Self::get_line_col(source, diagnostic.span.start);
-        let line_content = Self::get_line_content(source, line_num);
-
         let mut output = String::new();
 
-        // Header
+        // Header colors
         let severity_color = match diagnostic.severity {
-            Severity::Error => "\x1b[31m",   // Red
-            Severity::Warning => "\x1b[33m", // Yellow
-            _ => "\x1b[34m",                 // Blue
+            Severity::Error => "\x1b[31;1m",   // Bold Red
+            Severity::Warning => "\x1b[33;1m", // Bold Yellow
+            Severity::Info => "\x1b[34;1m",    // Bold Blue
+            Severity::Hint => "\x1b[36;1m",    // Bold Cyan
         };
         let reset = "\x1b[0m";
 
+        // Pre-calculate line info and max width
+        let mut label_infos = Vec::new();
+        let mut max_width = 0;
+
+        for label in &diagnostic.labels {
+            let (line_num, col_num) = Self::get_line_col(source, label.span.start);
+            let line_content = Self::get_line_content(source, line_num);
+            let width = line_num.to_string().len();
+            if width > max_width {
+                max_width = width;
+            }
+            label_infos.push((line_num, col_num, line_content));
+        }
+
+        if max_width < 1 {
+            max_width = 1;
+        }
+
+        // 1. Message Header
         output.push_str(&format!(
-            "{}{}{}: {}\n",
-            severity_color, diagnostic.severity, reset, diagnostic.message
+            "{}{}{}: {}{}\n",
+            severity_color, diagnostic.severity, reset, diagnostic.message, reset
         ));
 
+        // 2. Location Info (Arrow)
+        if let Some(first_label) = label_infos.first() {
+            let (line_num, col_num, _) = first_label;
+            let arrow_indent = " ".repeat(max_width + 1);
+            output.push_str(&format!(
+                "{}-->{} {}:{}:{}\n",
+                arrow_indent, reset, "file", line_num, col_num
+            ));
+        }
+
+        // 3. Optional Error Code
         if let Some(code) = &diagnostic.code {
-            output.push_str(&format!("  --> [{}]\n", code));
+            let code_indent = " ".repeat(max_width + 1);
+            output.push_str(&format!(
+                "{}-->{} [{}] {}\n",
+                code_indent, reset, code, reset
+            ));
         }
 
-        // Location
-        output.push_str(&format!("  --> per line {}:{}\n", line_num, col_num));
-        output.push_str("   |\n");
-        output.push_str(&format!(" {:<3} | {}\n", line_num, line_content));
+        // 4. Labels and Source Code
+        let gutter_indent = " ".repeat(max_width + 1);
+        for (i, label) in diagnostic.labels.iter().enumerate() {
+            let (line_num, col_num, line_content) = &label_infos[i];
 
-        // Underline
-        let line_num_str = format!("{}", line_num);
-        let padding_width = 1 + std::cmp::max(3, line_num_str.len()) + 3 + col_num - 1;
-        let padding = " ".repeat(padding_width);
-        let length = diagnostic.span.end - diagnostic.span.start;
-        let underline = "^".repeat(std::cmp::max(1, length));
-        output.push_str(&format!(
-            "{}{}{}{}\n",
-            padding, severity_color, underline, reset
-        ));
+            output.push_str(&format!("{} |\n", gutter_indent));
+            output.push_str(&format!(
+                " {:>width$} | {}\n",
+                line_num,
+                line_content,
+                width = max_width
+            ));
 
-        if let Some(hint) = &diagnostic.hint {
-            output.push_str(&format!("   = hint: {}\n", hint));
+            // Underline
+            let underline_padding = " ".repeat(*col_num - 1);
+            let length = if label.span.end > label.span.start {
+                label.span.end - label.span.start
+            } else {
+                1
+            };
+
+            let max_len = line_content.len().saturating_sub(col_num - 1);
+            let length = std::cmp::min(length, max_len);
+            let underline = "^".repeat(std::cmp::max(1, length));
+
+            output.push_str(&format!(
+                "{} | {}{}{} {}\n",
+                gutter_indent, underline_padding, severity_color, underline, label.message
+            ));
         }
 
+        // 5. Notes
+        if !diagnostic.notes.is_empty() {
+            output.push_str(&format!("{} |\n", gutter_indent));
+            for note in &diagnostic.notes {
+                output.push_str(&format!("{} = note: {}\n", gutter_indent, note));
+            }
+        }
+
+        output.push_str(reset);
         output
     }
 
