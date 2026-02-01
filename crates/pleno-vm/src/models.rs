@@ -64,6 +64,21 @@ pub struct CallFrame {
     pub exception_handlers: Vec<ExceptionHandler>,
 }
 
+/// Optional parameters for function calls, reducing argument count.
+#[derive(Debug, Clone, Default)]
+pub struct CallOptions {
+    pub return_override: Option<Value>,
+    pub closure_state: Option<GcRc<ClosureState>>,
+    pub current_owner: Option<MethodOwner>,
+    pub type_args: Vec<Value>,
+}
+
+impl CallOptions {
+    pub fn new() -> Self {
+        Self::default()
+    }
+}
+
 impl GcObject for CallFrame {
     fn mark(&self, gc: &mut MarkAndSweepGC) {
         if let Some(val) = &self.return_override {

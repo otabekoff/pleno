@@ -3,8 +3,7 @@ use pleno_bytecode::{Chunk, Opcode, ParamSpec};
 use pleno_value::{
     ArrayState, Class, ClosureState, EnumType, EnumVariantDef, MapState, MethodOwner, MultiWaiter,
     MultiWaiterMode, NativeFunction, Object, Range, RuntimeError, SetState, ThunkState, TupleState,
-    VMProvider, Value, ValueKey,
-    gc::{GcObject, GcRc},
+    VMProvider, Value, ValueKey, gc::GcObject,
 };
 // use std::collections::HashSet;
 use std::fs;
@@ -73,11 +72,8 @@ impl VMProvider for VM {
                     None,
                     &args,
                     return_reg_idx,
-                    None,
-                    None,
-                    None,
                     false,
-                    Vec::new(),
+                    CallOptions::new(),
                 )?;
             }
             Value::Closure(state) => {
@@ -87,11 +83,11 @@ impl VMProvider for VM {
                     None,
                     &args,
                     return_reg_idx,
-                    None,
-                    Some(state.clone()),
-                    None,
                     false,
-                    Vec::new(),
+                    CallOptions {
+                        closure_state: Some(state.clone()),
+                        ..Default::default()
+                    },
                 )?;
             }
             Value::BoundMethod {
@@ -105,11 +101,11 @@ impl VMProvider for VM {
                     Some(*receiver.clone()),
                     &args,
                     return_reg_idx,
-                    None,
-                    None,
-                    Some(owner),
                     false,
-                    Vec::new(),
+                    CallOptions {
+                        current_owner: Some(owner),
+                        ..Default::default()
+                    },
                 )?;
             }
             Value::NativeFunction(f) => {
@@ -789,11 +785,11 @@ impl VM {
                                 Some(Value::Object(obj.clone())),
                                 &[],
                                 func_reg,
-                                None,
-                                None,
-                                Some(method_info.owner.clone()),
                                 false,
-                                Vec::new(),
+                                CallOptions {
+                                    current_owner: Some(method_info.owner.clone()),
+                                    ..Default::default()
+                                },
                             )?;
                             continue;
                         }
@@ -835,11 +831,11 @@ impl VM {
                                 Some(Value::Object(obj.clone())),
                                 &[],
                                 func_reg,
-                                None,
-                                None,
-                                Some(method_info.owner.clone()),
                                 false,
-                                Vec::new(),
+                                CallOptions {
+                                    current_owner: Some(method_info.owner.clone()),
+                                    ..Default::default()
+                                },
                             )?;
                             continue;
                         }
@@ -1594,11 +1590,11 @@ impl VM {
                                         Some(Value::Object(object.clone())),
                                         &[value],
                                         base + a,
-                                        None,
-                                        None,
-                                        Some(info.owner.clone()),
                                         false,
-                                        Vec::new(),
+                                        CallOptions {
+                                            current_owner: Some(info.owner.clone()),
+                                            ..Default::default()
+                                        },
                                     )?;
                                     continue;
                                 }
@@ -1651,11 +1647,11 @@ impl VM {
                                     None,
                                     &[value],
                                     base + a,
-                                    None,
-                                    None,
-                                    Some(info.owner.clone()),
                                     false,
-                                    Vec::new(),
+                                    CallOptions {
+                                        current_owner: Some(info.owner.clone()),
+                                        ..Default::default()
+                                    },
                                 )?;
                                 continue;
                             }
@@ -1879,11 +1875,11 @@ impl VM {
                                         Some(Value::Object(object.clone())),
                                         &[],
                                         base + a,
-                                        None,
-                                        None,
-                                        Some(info.owner.clone()),
                                         false,
-                                        Vec::new(),
+                                        CallOptions {
+                                            current_owner: Some(info.owner.clone()),
+                                            ..Default::default()
+                                        },
                                     )?;
                                     continue;
                                 }
@@ -1940,11 +1936,11 @@ impl VM {
                                     None,
                                     &[],
                                     base + a,
-                                    None,
-                                    None,
-                                    Some(info.owner.clone()),
                                     false,
-                                    Vec::new(),
+                                    CallOptions {
+                                        current_owner: Some(info.owner.clone()),
+                                        ..Default::default()
+                                    },
                                 )?;
                                 continue;
                             }
@@ -2401,11 +2397,12 @@ impl VM {
                             Some(Value::Object(this_obj.clone())),
                             &args,
                             base + a,
-                            Some(Value::Object(this_obj.clone())),
-                            None,
-                            Some(info.owner.clone()),
                             false,
-                            Vec::new(),
+                            CallOptions {
+                                return_override: Some(Value::Object(this_obj.clone())),
+                                current_owner: Some(info.owner.clone()),
+                                ..Default::default()
+                            },
                         )?;
                     } else {
                         // No constructor, just return null
@@ -2541,11 +2538,11 @@ impl VM {
                             })),
                             &[right],
                             base + a,
-                            None,
-                            None,
-                            Some(op_info.owner.clone()),
                             false,
-                            Vec::new(),
+                            CallOptions {
+                                current_owner: Some(op_info.owner.clone()),
+                                ..Default::default()
+                            },
                         )?;
                         continue;
                     }
@@ -2571,11 +2568,11 @@ impl VM {
                             })),
                             &[right],
                             base + a,
-                            None,
-                            None,
-                            Some(op_info.owner.clone()),
                             false,
-                            Vec::new(),
+                            CallOptions {
+                                current_owner: Some(op_info.owner.clone()),
+                                ..Default::default()
+                            },
                         )?;
                         continue;
                     }
@@ -2601,11 +2598,11 @@ impl VM {
                             })),
                             &[right],
                             base + a,
-                            None,
-                            None,
-                            Some(op_info.owner.clone()),
                             false,
-                            Vec::new(),
+                            CallOptions {
+                                current_owner: Some(op_info.owner.clone()),
+                                ..Default::default()
+                            },
                         )?;
                         continue;
                     }
@@ -2631,11 +2628,11 @@ impl VM {
                             })),
                             &[right],
                             base + a,
-                            None,
-                            None,
-                            Some(op_info.owner.clone()),
                             false,
-                            Vec::new(),
+                            CallOptions {
+                                current_owner: Some(op_info.owner.clone()),
+                                ..Default::default()
+                            },
                         )?;
                         continue;
                     }
@@ -2661,11 +2658,11 @@ impl VM {
                             })),
                             &[right],
                             base + a,
-                            None,
-                            None,
-                            Some(op_info.owner.clone()),
                             false,
-                            Vec::new(),
+                            CallOptions {
+                                current_owner: Some(op_info.owner.clone()),
+                                ..Default::default()
+                            },
                         )?;
                         continue;
                     }
@@ -2709,11 +2706,11 @@ impl VM {
                             })),
                             &[right],
                             base + a,
-                            None,
-                            None,
-                            Some(op_info.owner.clone()),
                             false,
-                            Vec::new(),
+                            CallOptions {
+                                current_owner: Some(op_info.owner.clone()),
+                                ..Default::default()
+                            },
                         )?;
                         continue;
                     }
@@ -2739,11 +2736,11 @@ impl VM {
                             })),
                             &[right],
                             base + a,
-                            None,
-                            None,
-                            Some(op_info.owner.clone()),
                             false,
-                            Vec::new(),
+                            CallOptions {
+                                current_owner: Some(op_info.owner.clone()),
+                                ..Default::default()
+                            },
                         )?;
                         continue;
                     }
@@ -4601,19 +4598,22 @@ impl VM {
         }
     }
 
-    #[allow(clippy::too_many_arguments)]
     fn call_function(
         &mut self,
         callee: Value,
         receiver: Option<Value>,
         args: &[Value],
         return_reg_idx: usize,
-        return_override: Option<Value>,
-        mut closure_state: Option<GcRc<pleno_value::ClosureState>>,
-        current_owner: Option<MethodOwner>,
         args_already_processed: bool,
-        type_args: Vec<Value>,
+        opts: CallOptions,
     ) -> Result<(), RuntimeError> {
+        let CallOptions {
+            return_override,
+            mut closure_state,
+            current_owner,
+            type_args,
+        } = opts;
+
         let function_index = match callee {
             Value::Function(idx) => idx,
             Value::Closure(c) => {
@@ -4787,11 +4787,12 @@ impl VM {
                         Some(Value::Object(object.clone())),
                         &final_args,
                         return_reg,
-                        override_value,
-                        None,
-                        Some(MethodOwner::Class(class.clone())),
                         true,
-                        Vec::new(),
+                        CallOptions {
+                            return_override: override_value,
+                            current_owner: Some(MethodOwner::Class(class.clone())),
+                            ..Default::default()
+                        },
                     )
                 } else if positional.is_empty() && named.is_empty() {
                     self.registers[return_reg] = Value::Object(object);
@@ -4823,11 +4824,12 @@ impl VM {
                         Some(Value::Object(object.clone())),
                         &final_args,
                         return_reg,
-                        override_value,
-                        None,
-                        Some(MethodOwner::Class(class.clone())),
                         true,
-                        Vec::new(),
+                        CallOptions {
+                            return_override: override_value,
+                            current_owner: Some(MethodOwner::Class(class.clone())),
+                            ..Default::default()
+                        },
                     )
                 } else if positional.is_empty() && named.is_empty() {
                     self.registers[return_reg] = Value::Object(object);
@@ -4848,11 +4850,8 @@ impl VM {
                     None,
                     &args,
                     return_reg,
-                    None,
-                    None,
-                    None,
                     true,
-                    Vec::new(),
+                    CallOptions::new(),
                 )
             }
             Value::BoundMethod {
@@ -4879,11 +4878,11 @@ impl VM {
                     Some(*receiver.clone()),
                     &final_args,
                     return_reg,
-                    None,
-                    None,
-                    Some(owner),
                     true,
-                    Vec::new(),
+                    CallOptions {
+                        current_owner: Some(owner),
+                        ..Default::default()
+                    },
                 )
             }
             Value::StaticMethod {
@@ -4901,11 +4900,11 @@ impl VM {
                     None,
                     &args,
                     return_reg,
-                    None,
-                    None,
-                    Some(owner),
                     true,
-                    Vec::new(),
+                    CallOptions {
+                        current_owner: Some(owner),
+                        ..Default::default()
+                    },
                 )
             }
             Value::Closure(state) => {
@@ -4916,11 +4915,11 @@ impl VM {
                     None,
                     &args,
                     return_reg,
-                    None,
-                    Some(state.clone()),
-                    None,
                     true,
-                    Vec::new(),
+                    CallOptions {
+                        closure_state: Some(state.clone()),
+                        ..Default::default()
+                    },
                 )
             }
             _ => Err(RuntimeError::new("call on non-callable value")),
@@ -5137,11 +5136,8 @@ impl VM {
                     None,
                     &args,
                     return_reg,
-                    None,
-                    None,
-                    None,
                     false,
-                    Vec::new(),
+                    CallOptions::new(),
                 )?;
             }
             Value::BoundFunction {
@@ -5156,11 +5152,11 @@ impl VM {
                     None,
                     &args,
                     return_reg,
-                    None,
-                    None,
-                    None,
                     false,
-                    type_args.clone(),
+                    CallOptions {
+                        type_args: type_args.clone(),
+                        ..Default::default()
+                    },
                 )?;
             }
             Value::Closure(state) => {
@@ -5170,11 +5166,11 @@ impl VM {
                     None,
                     &args,
                     return_reg,
-                    None,
-                    Some(state.clone()),
-                    None,
                     false,
-                    Vec::new(),
+                    CallOptions {
+                        closure_state: Some(state.clone()),
+                        ..Default::default()
+                    },
                 )?;
             }
             Value::NativeFunction(func) => match func(self, &args) {
@@ -5214,11 +5210,11 @@ impl VM {
                     Some(*receiver.clone()),
                     &args,
                     return_reg,
-                    None,
-                    None,
-                    Some(owner),
                     false,
-                    Vec::new(),
+                    CallOptions {
+                        current_owner: Some(owner),
+                        ..Default::default()
+                    },
                 )?;
             }
             Value::StaticMethod {
@@ -5229,11 +5225,11 @@ impl VM {
                     None,
                     &args,
                     return_reg,
-                    None,
-                    None,
-                    Some(owner),
                     true,
-                    Vec::new(),
+                    CallOptions {
+                        current_owner: Some(owner),
+                        ..Default::default()
+                    },
                 )?;
             }
             Value::Class(class) => {
@@ -5251,11 +5247,12 @@ impl VM {
                         Some(val.clone()),
                         &args,
                         return_reg,
-                        Some(val),
-                        None,
-                        Some(MethodOwner::Class(class.clone())),
                         false,
-                        Vec::new(),
+                        CallOptions {
+                            return_override: Some(val),
+                            current_owner: Some(MethodOwner::Class(class.clone())),
+                            ..Default::default()
+                        },
                     )?;
                 } else {
                     self.registers[return_reg] = val;
@@ -5278,11 +5275,13 @@ impl VM {
                         Some(val.clone()),
                         &args,
                         return_reg,
-                        Some(val),
-                        None,
-                        Some(MethodOwner::Class(class.clone())),
                         false,
-                        type_args.clone(),
+                        CallOptions {
+                            return_override: Some(val),
+                            current_owner: Some(MethodOwner::Class(class.clone())),
+                            type_args: type_args.clone(),
+                            ..Default::default()
+                        },
                     )?;
                 } else {
                     self.registers[return_reg] = val;
