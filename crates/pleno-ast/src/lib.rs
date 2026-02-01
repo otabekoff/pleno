@@ -188,11 +188,20 @@ pub enum Pattern {
 pub struct Stmt {
     pub kind: StmtKind,
     pub span: Span,
+    /// Number of blank lines before this statement (for formatting preservation)
+    pub leading_blank_lines: u8,
+    /// Trailing inline comment on the same line as this statement
+    pub trailing_comment: Option<String>,
 }
 
 impl Stmt {
     pub fn new(kind: StmtKind, span: Span) -> Self {
-        Self { kind, span }
+        Self {
+            kind,
+            span,
+            leading_blank_lines: 0,
+            trailing_comment: None,
+        }
     }
 }
 

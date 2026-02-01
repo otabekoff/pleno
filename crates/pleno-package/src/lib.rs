@@ -857,7 +857,7 @@ impl PackageManager {
 
         let source = std::fs::read_to_string(&main_path)?;
         let tokens = lex(&source).map_err(|e| PackageError::LexError(format!("{:?}", e)))?;
-        let mut parser = Parser::new(tokens);
+        let mut parser = Parser::new(tokens, &source);
         let program = parser
             .parse_program()
             .map_err(|e| PackageError::ParseError(format!("{:?}", e)))?;

@@ -607,7 +607,7 @@ pub fn generate_docs(source: &str, file_name: &str) -> Result<String, String> {
     let tokens = pleno_lexer::lex(source).map_err(|e| format!("Lex error: {}", e.message))?;
 
     // Parse
-    let mut parser = pleno_parser::Parser::new(tokens);
+    let mut parser = pleno_parser::Parser::new(tokens, source);
     let program = parser
         .parse_program()
         .map_err(|e| format!("Parse error: {}", e.message))?;

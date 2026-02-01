@@ -181,7 +181,7 @@ fn execute_line(vm: &mut VM, line: &str) {
     };
 
     // Parse
-    let mut parser = pleno_parser::Parser::new(tokens);
+    let mut parser = pleno_parser::Parser::new(tokens, line);
     let program = match parser.parse_program() {
         Ok(p) => p,
         Err(err) => {

@@ -10,20 +10,18 @@ pub fn dotenv_config(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, 
 
     if let Ok(file) = File::open(path) {
         let reader = BufReader::new(file);
-        for line in reader.lines() {
-            if let Ok(line) = line {
-                let text = line.trim();
-                if text.is_empty() || text.starts_with('#') {
-                    continue;
-                }
-                if let Some((key, val)) = text.split_once('=') {
-                    let key = key.trim();
-                    let val = val.trim();
-                    // Basic quote handling could be added here if needed
-                    // Singleton VM constraint makes this relatively safe
-                    unsafe {
-                        std::env::set_var(key, val);
-                    }
+        for line in reader.lines().map_while(Result::ok) {
+            let text = line.trim();
+            if text.is_empty() || text.starts_with('#') {
+                continue;
+            }
+            if let Some((key, val)) = text.split_once('=') {
+                let key = key.trim();
+                let val = val.trim();
+                // Basic quote handling could be added here if needed
+                // Singleton VM constraint makes this relatively safe
+                unsafe {
+                    std::env::set_var(key, val);
                 }
             }
         }

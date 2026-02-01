@@ -247,7 +247,7 @@ fn run_single_test(path: &PathBuf, stats: &mut TestStats) {
         }
     };
 
-    let mut parser = pleno_parser::Parser::new(tokens);
+    let mut parser = pleno_parser::Parser::new(tokens, &source);
     let program = match parser.parse_program() {
         Ok(program) => program,
         Err(err) => {
@@ -336,7 +336,7 @@ fn debug_ast(path: &str) {
         }
     };
 
-    let mut parser = pleno_parser::Parser::new(tokens);
+    let mut parser = pleno_parser::Parser::new(tokens, &source);
     match parser.parse_program() {
         Ok(program) => {
             println!("{:#?}", program);
@@ -376,7 +376,7 @@ fn run_file(path: &str, config: Option<pleno_value::SandboxConfig>) {
         }
     };
 
-    let mut parser = pleno_parser::Parser::new(tokens);
+    let mut parser = pleno_parser::Parser::new(tokens, &source);
     let program = match parser.parse_program() {
         Ok(program) => program,
         Err(err) => {
@@ -488,7 +488,7 @@ fn format_single_file(path: &PathBuf) {
         }
     };
 
-    let mut parser = pleno_parser::Parser::new(tokens);
+    let mut parser = pleno_parser::Parser::new(tokens, &source);
     let program = match parser.parse_program() {
         Ok(program) => program,
         Err(err) => {
@@ -588,7 +588,7 @@ fn check_file(path: &str) {
         }
     };
 
-    let mut parser = pleno_parser::Parser::new(tokens);
+    let mut parser = pleno_parser::Parser::new(tokens, &source);
     let program = match parser.parse_program() {
         Ok(program) => program,
         Err(err) => {
@@ -681,7 +681,7 @@ fn compile_file(path: &str) {
         }
     };
 
-    let mut parser = pleno_parser::Parser::new(tokens);
+    let mut parser = pleno_parser::Parser::new(tokens, &source);
     let program = match parser.parse_program() {
         Ok(program) => program,
         Err(err) => {

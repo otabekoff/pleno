@@ -130,7 +130,7 @@ impl Linter {
         };
 
         // Then, parse it to get the AST
-        let ast = match Parser::new(tokens).parse_program() {
+        let ast = match Parser::new(tokens, source).parse_program() {
             Ok(program) => program,
             Err(e) => {
                 let (line, column) = position_from_offset(source, e.span.start);

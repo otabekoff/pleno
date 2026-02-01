@@ -4927,7 +4927,7 @@ impl VM {
             RuntimeError::new(format!("failed to read module {resolved_key}: {err}"))
         })?;
         let tokens = pleno_lexer::lex(&source).map_err(|err| RuntimeError::new(err.message))?;
-        let mut parser = pleno_parser::Parser::new(tokens);
+        let mut parser = pleno_parser::Parser::new(tokens, &source);
         let program = parser
             .parse_program()
             .map_err(|err| RuntimeError::new(err.message))?;
