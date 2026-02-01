@@ -915,23 +915,23 @@ impl Compiler {
         self.current_span = expr.span;
 
         // Try constant folding (skip for simple literals as they are handled efficiently below)
-        if !matches!(expr.kind, ExprKind::Literal(_)) {
-            if let Some(folded) = self.try_fold_expr(expr) {
-                let reg = self.registers.allocate()?;
-                match folded {
-                    Value::Null => self.emit(Opcode::LoadNull, reg, 0, 0),
-                    Value::Bool(true) => self.emit(Opcode::LoadTrue, reg, 0, 0),
-                    Value::Bool(false) => self.emit(Opcode::LoadFalse, reg, 0, 0),
-                    Value::Int(val) if (-128..=127).contains(&val) => {
-                        self.emit(Opcode::LoadInt, reg, val as u8, 0);
-                    }
-                    _ => {
-                        let const_idx = self.add_constant(folded);
-                        self.emit(Opcode::LoadConst, reg, const_idx, 0);
-                    }
+        if !matches!(expr.kind, ExprKind::Literal(_))
+            && let Some(folded) = self.try_fold_expr(expr)
+        {
+            let reg = self.registers.allocate()?;
+            match folded {
+                Value::Null => self.emit(Opcode::LoadNull, reg, 0, 0),
+                Value::Bool(true) => self.emit(Opcode::LoadTrue, reg, 0, 0),
+                Value::Bool(false) => self.emit(Opcode::LoadFalse, reg, 0, 0),
+                Value::Int(val) if (-128..=127).contains(&val) => {
+                    self.emit(Opcode::LoadInt, reg, val as u8, 0);
                 }
-                return Ok(reg);
+                _ => {
+                    let const_idx = self.add_constant(folded);
+                    self.emit(Opcode::LoadConst, reg, const_idx, 0);
+                }
             }
+            return Ok(reg);
         }
 
         match &expr.kind {
@@ -2027,7 +2027,7 @@ impl Compiler {
             inclusive,
         } = &iterable.kind
         {
-            if names.len() > 1 {
+            if names.len() != 1 {
                 return Err(self.error(
                     "range-based for loops only support one variable",
                     iterable.span,
@@ -2614,19 +2614,18 @@ impl Compiler {
     ) -> Result<RuntimeAnnotation, CompileError> {
         let mut args = Vec::new();
         for arg in &annotation.args {
-            match &arg.kind {
-                ExprKind::Literal(lit) => {
-                    let val = match lit {
-                        Literal::Int(i) => Value::Int(*i),
-                        Literal::Float(f) => Value::Float(*f),
-                        Literal::String(s) => Value::String(s.clone().into()),
-                        Literal::Bool(b) => Value::Bool(*b),
-                        Literal::Null => Value::Null,
-                        Literal::Char(c) => Value::Char(*c),
-                    };
-                    args.push(val);
-                }
-                _ => return Err(self.error("annotation arguments must be literals", arg.span)),
+            if let ExprKind::Literal(lit) = &arg.kind {
+                let val = match lit {
+                    Literal::Int(i) => Value::Int(*i),
+                    Literal::Float(f) => Value::Float(*f),
+                    Literal::String(s) => Value::String(s.clone().into()),
+                    Literal::Bool(b) => Value::Bool(*b),
+                    Literal::Null => Value::Null,
+                    Literal::Char(c) => Value::Char(*c),
+                };
+                args.push(val);
+            } else {
+                return Err(self.error("annotation arguments must be literals", arg.span));
             }
         }
         Ok(RuntimeAnnotation {
@@ -2783,19 +2782,17 @@ impl Compiler {
             .iter()
             .map(|name| {
                 let (has_default, is_variadic, is_keyword_only) = if name == "this" {
-                    (false, false, false)
+                    (false, false, false) // 'this' has no default, not variadic, not keyword-only
+                } else if let Some(param) = decl.params.iter().find(|param| param.name == *name) {
+                    (
+                        param.default.is_some(),
+                        param.is_variadic,
+                        param.is_keyword_only,
+                    )
                 } else {
-                    decl.params
-                        .iter()
-                        .find(|param| param.name == *name)
-                        .map(|param| {
-                            (
-                                param.default.is_some(),
-                                param.is_variadic,
-                                param.is_keyword_only,
-                            )
-                        })
-                        .unwrap_or((false, false, false))
+                    // This case should ideally not be reached if 'params' correctly reflects 'decl.params'
+                    // and 'this' is handled. Fallback to default.
+                    (false, false, false)
                 };
                 ParamSpec {
                     name: name.clone(),
@@ -3569,7 +3566,7 @@ impl Compiler {
 
         for variant in &decl.variants {
             let variant_name_idx = self.add_constant(Value::String(variant.name.clone().into()));
-            let param_count = variant.params.as_ref().map(|p| p.len()).unwrap_or(0);
+            let param_count = variant.params.as_ref().map_or(0, |p| p.len());
             self.emit(
                 Opcode::AddVariant,
                 enum_reg,

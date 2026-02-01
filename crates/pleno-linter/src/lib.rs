@@ -481,11 +481,10 @@ impl<'a> LintVisitor<'a> {
                 self.check_unused_in_current_scope();
                 self.scope_tracker.exit_scope();
             }
-            StmtKind::Return(value) => {
-                if let Some(v) = value {
-                    self.visit_expr(v);
-                }
+            StmtKind::Return(Some(value)) => {
+                self.visit_expr(value);
             }
+            StmtKind::Return(None) => {}
             StmtKind::Expr(expr) => self.visit_expr(expr),
             StmtKind::Class {
                 name,

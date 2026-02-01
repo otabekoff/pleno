@@ -135,8 +135,8 @@ impl DocGenerator {
 
         for line in doc_str.lines() {
             let line = line.trim();
-            if line.starts_with("@param") {
-                let content = line[6..].trim();
+            if let Some(stripped) = line.strip_prefix("@param") {
+                let content = stripped.trim();
                 let parts: Vec<&str> = content.splitn(2, ' ').collect();
                 if !parts.is_empty() && !parts[0].is_empty() {
                     params.push(DocParam {
@@ -144,20 +144,19 @@ impl DocGenerator {
                         description: parts.get(1).map(|s| s.to_string()).unwrap_or_default(),
                     });
                 }
-            } else if line.starts_with("@returns") || line.starts_with("@return") {
-                let desc = if line.starts_with("@returns") {
-                    line[8..].trim().to_string()
-                } else {
-                    line[7..].trim().to_string()
-                };
+            } else if let Some(stripped) = line
+                .strip_prefix("@returns")
+                .or_else(|| line.strip_prefix("@return"))
+            {
+                let desc = stripped.trim().to_string();
                 if !desc.is_empty() {
                     returns = Some(DocReturns { description: desc });
                 }
             } else {
-                let cleaned_line = if line.starts_with("///") {
-                    line[3..].trim()
-                } else if line.starts_with("//") {
-                    line[2..].trim()
+                let cleaned_line = if let Some(stripped) = line.strip_prefix("///") {
+                    stripped.trim()
+                } else if let Some(stripped) = line.strip_prefix("//") {
+                    stripped.trim()
                 } else {
                     line
                 };

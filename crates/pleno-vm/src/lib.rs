@@ -710,7 +710,7 @@ impl VM {
                 .frames
                 .last_mut()
                 .ok_or_else(|| RuntimeError::new("no frame"))?;
-            let instruction = self.functions[frame.function_index].chunk.code[frame.ip].clone();
+            let instruction = self.functions[frame.function_index].chunk.code[frame.ip];
             let _opcode = instruction.opcode();
             // println!("VM::run_step: ip={:04} {:?}", frame.ip, _opcode);
 
@@ -1331,8 +1331,8 @@ impl VM {
                         Value::Set(set) => {
                             let values = set
                                 .borrow()
+                                .elements
                                 .iter()
-                                .cloned()
                                 .map(|key| key.to_value())
                                 .collect::<Vec<_>>();
                             Ok(Value::Array(self.gc.allocate(ArrayState::new(values))?))
