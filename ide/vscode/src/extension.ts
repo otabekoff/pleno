@@ -14,29 +14,64 @@ export function activate(context: vscode.ExtensionContext) {
     // Try to inject icon theme patches
     injectPlenoIcons(context);
 
-    // LSP Server setup
-    // 1. Try to use 'pleno-lsp' from PATH
-    // 2. Fallback to local 'target/release/pleno-lsp' (development)
+    const config = vscode.workspace.getConfiguration('pleno');
+    const customLspPath = config.get<string>('lsp.path');
+
+    // Tool check setup
+    let lspPath = customLspPath || 'pleno-lsp';
+    let lspFound = false;
+    let cliFound = false;
 
     const command = process.platform === 'win32' ? 'where' : 'which';
-    let serverPath = 'pleno-lsp';
-    
+
+    // Check for LSP
     try {
-        require('child_process').execSync(`${command} pleno-lsp`);
+        require('child_process').execSync(`${command} ${lspPath}`);
+        lspFound = true;
     } catch {
-       // Not in PATH, use local fallback
-       serverPath = context.asAbsolutePath(
-         path.join('..', '..', 'target', 'release', 'pleno-lsp')
-       );
+        if (!customLspPath) {
+            // Try local fallback for LSP
+            const localLsp = context.asAbsolutePath(
+                path.join('..', '..', 'target', 'release', 'pleno-lsp')
+            );
+            if (require('fs').existsSync(localLsp)) {
+                lspPath = localLsp;
+                lspFound = true;
+            }
+        }
     }
-    
-    let serverModule = serverPath;
+
+    // Check for CLI
+    try {
+        require('child_process').execSync(`${command} pleno`);
+        cliFound = true;
+    } catch {
+        // Try local fallback for CLI
+        const localCli = context.asAbsolutePath(
+            path.join('..', '..', 'target', 'release', 'pleno')
+        );
+        if (require('fs').existsSync(localCli)) {
+            cliFound = true;
+        }
+    }
+
+    if (lspFound && cliFound) {
+        vscode.window.showInformationMessage(`Pleno extension activated. LSP and CLI found.`);
+    } else if (lspFound) {
+        vscode.window.showWarningMessage('Pleno CLI not found. Running and checking files may not work. Please install the Pleno toolchain.');
+    } else if (cliFound) {
+        vscode.window.showWarningMessage('Pleno LSP server not found. Advanced features like hover and go-to-definition will be disabled.');
+    } else {
+        vscode.window.showErrorMessage('Pleno toolchain (CLI & LSP) not found. Please check your installation and settings.');
+    }
+
+    let serverPath = lspPath;
 
     // If the extension is launched in debug mode then the debug server options are used
     // Otherwise the run options are used
     let serverOptions: ServerOptions = {
-        run: { command: serverModule, transport: TransportKind.stdio },
-        debug: { command: serverModule, transport: TransportKind.stdio }
+        run: { command: serverPath, transport: TransportKind.stdio },
+        debug: { command: serverPath, transport: TransportKind.stdio }
     };
 
     // Options to control the language client
@@ -59,6 +94,33 @@ export function activate(context: vscode.ExtensionContext) {
 
     // Start the client. This will also launch the server
     client.start();
+
+    // Register commands
+    context.subscriptions.push(
+        vscode.commands.registerCommand('pleno.runFile', () => {
+            const editor = vscode.window.activeTextEditor;
+            if (editor) {
+                const terminal = vscode.window.activeTerminal || vscode.window.createTerminal('Pleno');
+                terminal.show();
+                terminal.sendText(`pleno run "${editor.document.fileName}"`);
+            }
+        }),
+        vscode.commands.registerCommand('pleno.checkFile', () => {
+            const editor = vscode.window.activeTextEditor;
+            if (editor) {
+                const terminal = vscode.window.activeTerminal || vscode.window.createTerminal('Pleno');
+                terminal.show();
+                terminal.sendText(`pleno check "${editor.document.fileName}"`);
+            }
+        }),
+        vscode.commands.registerCommand('pleno.restartServer', async () => {
+            if (client) {
+                await client.stop();
+                client.start();
+                vscode.window.showInformationMessage('Pleno Language Server restarted.');
+            }
+        })
+    );
 
     return {
         extendMarkdownIt(md: any) {
@@ -85,11 +147,11 @@ export function activate(context: vscode.ExtensionContext) {
 
 function escapeHtml(unsafe: string) {
     return unsafe
-         .replace(/&/g, "&amp;")
-         .replace(/</g, "&lt;")
-         .replace(/>/g, "&gt;")
-         .replace(/"/g, "&quot;")
-         .replace(/'/g, "&#039;");
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
 }
 
 export function deactivate(): Thenable<void> | undefined {

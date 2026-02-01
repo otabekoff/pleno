@@ -68,5 +68,20 @@
       "open": "'",
       "close": "'"
     }
+  ],
+  "indentationRules": {
+    "increaseIndentPattern": "^.*\\{[^}]*$",
+    "decreaseIndentPattern": "^\\s*\\}.*$"
+  },
+  "onEnterRules": [
+    {
+      "beforeText": {
+        "pattern": "^\\s*///"
+      },
+      "action": {
+        "indent": "none",
+        "appendText": "/// "
+      }
+    }
   ]
 }
