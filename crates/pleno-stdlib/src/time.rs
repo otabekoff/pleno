@@ -222,3 +222,53 @@ pub fn time_datetime_now(
 
     Ok(map_val)
 }
+
+pub fn set_timeout(
+    vm: &mut dyn pleno_value::VMProvider,
+    args: &[Value],
+) -> Result<Value, RuntimeError> {
+    if args.len() < 2 {
+        return Err(RuntimeError::new(
+            "setTimeout expects at least 2 arguments: callback and delay",
+        ));
+    }
+
+    let callback = args[0].clone();
+    let delay = match args[1] {
+        Value::Int(ms) => ms.max(0) as u64,
+        _ => return Err(RuntimeError::new("delay must be an integer")),
+    };
+
+    let callback_args = args[2..].to_vec();
+    let id = vm.add_timer(delay, callback, callback_args);
+    Ok(Value::Int(id as i64))
+}
+
+pub fn sleep(vm: &mut dyn pleno_value::VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    if args.len() < 1 {
+        return Err(RuntimeError::new(
+            "sleep expects at least 1 argument: delay",
+        ));
+    }
+
+    let _delay = match args[0] {
+        Value::Int(ms) => ms.max(0) as u64,
+        _ => return Err(RuntimeError::new("delay must be an integer")),
+    };
+
+    let (_id, _promise) = vm.create_promise()?;
+
+    // Create a callback that resolves this promise
+    // We need a way to resolve the promise.
+    // Since we don't have closures in Rust native functions easily here without extensive boilerplate,
+    // we can use a special "ResolvePromise" native function or similar.
+    // OR: we implement add_timer logic in VM to support specialized tasks.
+    // BUT: The easiest way for now is to just have setTimeout.
+    // Implementing sleep specifically might require internal VM support for "Resolve this promise after X ms".
+    // Let's defer sleep for a moment and focused on setTimeout which takes a Pleno callback.
+    // If I want to implement sleep, I can do it in Pleno code:
+    // fn sleep(ms) { return new Promise((resolve) => setTimeout(resolve, ms)); }
+    // So I only need setTimeout exposed!
+
+    Ok(Value::Null)
+}

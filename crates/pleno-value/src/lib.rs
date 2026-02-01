@@ -20,6 +20,7 @@ pub trait VMProvider {
     fn register_module(&mut self, name: String, value: Value);
     fn register_global(&mut self, name: String, value: Value);
     fn set_builtin_resolver(&mut self, resolver: fn(&str, &str) -> Option<NativeFunction>);
+    fn add_timer(&mut self, delay_ms: u64, callback: Value, args: Vec<Value>) -> u64;
     fn check_is_instance(&self, value: &Value, type_val: &Value) -> bool;
     fn get_named_args(&self) -> &HashMap<String, Value>;
     fn is_io_allowed(&self) -> bool {
@@ -269,6 +270,7 @@ pub struct MutexState {
 pub struct ChannelState {
     pub buffer: std::collections::VecDeque<Value>,
     pub capacity: usize,
+    pub closed: bool,
     #[serde(skip)]
     pub send_waiters: Vec<(usize, Value)>, // (Promise ID, Value to send) - cannot serialize easily due to tuple
     pub recv_waiters: Vec<usize>, // Promise IDs waiting for value

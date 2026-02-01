@@ -10,11 +10,13 @@ use std::fs;
 use std::rc::Rc;
 
 mod access;
+pub mod event_loop;
 mod models;
 mod utils;
 mod value_ops;
 
 pub use access::*;
+pub use event_loop::*;
 pub use models::*;
 pub use utils::*;
 pub use value_ops::*;
@@ -40,6 +42,7 @@ pub struct VM {
     pub run_depths: Vec<usize>,
     pub current_named_args: HashMap<String, Value>,
     pub instruction_count: u64,
+    pub event_loop: event_loop::EventLoop,
 }
 
 #[derive(Debug, Clone)]
@@ -112,6 +115,22 @@ impl VMProvider for VM {
                 final_args.extend(args);
                 let result = function(self, &final_args)?;
                 return Ok(result);
+            }
+            Value::Map(map) => {
+                let callable = map.borrow().get("__call__").cloned();
+                if let Some(callable) = callable {
+                    return self.call(callable, args);
+                } else {
+                    return Err(RuntimeError::new("value is not callable"));
+                }
+            }
+            Value::Object(obj) => {
+                let callable = obj.borrow().fields.get("__call__").cloned();
+                if let Some(callable) = callable {
+                    return self.call(callable, args);
+                } else {
+                    return Err(RuntimeError::new("value is not callable"));
+                }
             }
             _ => return Err(RuntimeError::new("value is not callable")),
         }
@@ -217,6 +236,10 @@ impl VMProvider for VM {
 
     fn set_builtin_resolver(&mut self, resolver: fn(&str, &str) -> Option<NativeFunction>) {
         self.builtin_resolver = Some(resolver);
+    }
+
+    fn add_timer(&mut self, delay_ms: u64, callback: Value, args: Vec<Value>) -> u64 {
+        self.event_loop.add_timer(delay_ms, callback, args)
     }
 
     fn check_is_instance(&self, value: &Value, type_val: &Value) -> bool {
@@ -334,6 +357,7 @@ impl VM {
             run_depths: Vec::new(),
             current_named_args: HashMap::new(),
             instruction_count: 0,
+            event_loop: event_loop::EventLoop::new(),
         }
     }
 
@@ -380,9 +404,12 @@ impl VM {
         });
 
         let mut last_result = Value::Null;
-        while !self.frames.is_empty() || !self.pending_tasks.is_empty() {
+        let mut script_finished = false;
+
+        loop {
+            // 1. Run synchronous code until we hit a suspension point or finish
             if !self.frames.is_empty() {
-                last_result = match self.run_until(0) {
+                let result = match self.run_until(0) {
                     Ok(val) => val,
                     Err(mut err) => {
                         if err.handled {
@@ -392,13 +419,56 @@ impl VM {
                         return Err(err);
                     }
                 };
+                if self.frames.is_empty() && !script_finished {
+                    last_result = result;
+                    script_finished = true;
+                }
             }
-            if !self.pending_tasks.is_empty()
-                && let Err(mut err) = self.process_tasks()
-            {
-                self.enrich_error(&mut err);
-                return Err(err);
+
+            // 2. Process pending tasks (Promises resolved by previous sync code)
+            if !self.pending_tasks.is_empty() {
+                if let Err(mut err) = self.process_tasks() {
+                    self.enrich_error(&mut err);
+                    return Err(err);
+                }
+                continue; // Task processing might have resumed frames, so loop back
             }
+
+            // 3. If we have frames (resumed) or tasks (new), loop back immediately
+            if !self.frames.is_empty() || !self.pending_tasks.is_empty() {
+                continue;
+            }
+
+            // 4. Check Event Loop (Timers/IO)
+            if !self.event_loop.is_empty() {
+                // Determine wait time (for now we might spin or sleep briefly,
+                // but efficiently we should sleep until next timer)
+                if let Some(wait_time) = self.event_loop.next_timeout() {
+                    // In a real loop we'd sleep, but here we just tick if time passed?
+                    // Or sleep thread?
+                    // For testing, just sleeping is fine.
+                    if !wait_time.is_zero() {
+                        std::thread::sleep(wait_time);
+                    }
+                }
+
+                if let Some(task) = self.event_loop.tick() {
+                    // Convert EventLoop Task to VM pending task or call directly
+                    // It's safer to push to pending_tasks to run on next loop iteration
+                    self.pending_tasks.push(AsyncTask {
+                        promise_id: task.promise_id.unwrap_or(0), // 0 or ignored if not a promise
+                        value: Value::Null,                       // Or pass args?
+                        callee: Some(task.callback),
+                        args: Some(task.args),
+                        is_async: true,
+                        is_resolved: false,
+                    });
+                    continue;
+                }
+            }
+
+            // 5. If no frames, no pending tasks, and event loop empty -> Done
+            break;
         }
         Ok(last_result)
     }
@@ -636,6 +706,14 @@ impl VM {
         }
 
         loop {
+            let frame = self
+                .frames
+                .last_mut()
+                .ok_or_else(|| RuntimeError::new("no frame"))?;
+            let instruction = self.functions[frame.function_index].chunk.code[frame.ip].clone();
+            let opcode = instruction.opcode();
+            println!("VM::run_step: ip={:04} {:?}", frame.ip, opcode);
+
             self.instruction_count += 1;
             if self.instruction_count.is_multiple_of(100)
                 && let Some(config) = &self.sandbox_config
@@ -2679,6 +2757,7 @@ impl VM {
                         _ => return Err(RuntimeError::new("global name must be string")),
                     };
                     let value = self.globals.get(&name).cloned().unwrap_or(Value::Null);
+                    println!("VM: GetGlobal '{}' => {:?}", name, value);
                     self.registers[base + a] = value;
                 }
                 Opcode::SetGlobal => {
@@ -2692,6 +2771,7 @@ impl VM {
                         _ => return Err(RuntimeError::new("global name must be string")),
                     };
                     let value = self.registers[base + a].clone();
+                    println!("VM: SetGlobal '{}' => {:?}", name, value);
                     self.globals.insert(name, value);
                 }
                 Opcode::DefineClass => {
@@ -4279,6 +4359,9 @@ impl VM {
                 promise_map.insert("value".to_string(), Value::Null);
                 let promise = Value::Map(self.gc.allocate(MapState::new(promise_map))?);
                 self.promises.insert(promise_id, promise.clone());
+                if return_reg >= self.registers.len() {
+                    self.registers.resize(return_reg + 1, Value::Null);
+                }
                 self.registers[return_reg] = promise;
             }
 
@@ -4727,6 +4810,7 @@ impl VM {
         args: Vec<Value>,
         return_reg_idx: usize,
     ) -> Result<(), RuntimeError> {
+        // println!("VM::call_any_value: calling {:?}", callee);
         match callee {
             Value::Thunk(_) => {
                 let forced = self.force_thunk(callee)?;
@@ -4773,6 +4857,9 @@ impl VM {
             }
             Value::NativeFunction(func) => match func(self, &args) {
                 Ok(result) => {
+                    if return_reg_idx >= self.registers.len() {
+                        self.registers.resize(return_reg_idx + 1, Value::Null);
+                    }
                     self.registers[return_reg_idx] = result;
                 }
                 Err(err) => {
@@ -4784,6 +4871,9 @@ impl VM {
                 merged_args.extend(args);
                 match function(self, &merged_args) {
                     Ok(result) => {
+                        if return_reg_idx >= self.registers.len() {
+                            self.registers.resize(return_reg_idx + 1, Value::Null);
+                        }
                         self.registers[return_reg_idx] = result;
                     }
                     Err(err) => {
@@ -4906,6 +4996,14 @@ impl VM {
             }
             Value::Map(map) => {
                 let callable = map.borrow().get("__call__").cloned();
+                if let Some(callable) = callable {
+                    self.call_any_value(callable, args, return_reg_idx)?;
+                } else {
+                    return Err(RuntimeError::new("value is not callable"));
+                }
+            }
+            Value::Object(obj) => {
+                let callable = obj.borrow().fields.get("__call__").cloned();
                 if let Some(callable) = callable {
                     self.call_any_value(callable, args, return_reg_idx)?;
                 } else {

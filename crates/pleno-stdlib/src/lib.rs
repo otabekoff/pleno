@@ -200,6 +200,10 @@ pub fn register(vm: &mut dyn VMProvider) {
     );
     time_module.insert("parse".to_string(), Value::NativeFunction(time::time_parse));
     time_module.insert("parts".to_string(), Value::NativeFunction(time::time_parts));
+    time_module.insert(
+        "setTimeout".to_string(),
+        Value::NativeFunction(time::set_timeout),
+    );
 
     let mut datetime_obj = HashMap::new();
     datetime_obj.insert(
@@ -426,6 +430,69 @@ pub fn register(vm: &mut dyn VMProvider) {
         "std:net".to_string(),
         Value::Map(gc.allocate(MapState::new(net_module)).unwrap()),
     );
+
+    // std:concurrency
+    let mut concurrency_module = HashMap::new();
+    concurrency_module.insert(
+        "Mutex".to_string(),
+        Value::NativeFunction(concurrency::native_mutex_new),
+    );
+    concurrency_module.insert(
+        "Channel".to_string(),
+        Value::NativeFunction(concurrency::native_channel_new),
+    );
+    // Explicitly add lock/unlock for Mutex if needed, but they are likely bound methods or static
+    // Let's assume them for now as standalone natives if not using Classes yet.
+    // However, MutexState likely expects them to be called on it.
+    // Let's also add them as top level functions if we want for now?
+    // Better to have a Class-like structure.
+
+    let mut mutex_proto = HashMap::new();
+    mutex_proto.insert(
+        "lock".to_string(),
+        Value::NativeFunction(concurrency::native_mutex_lock),
+    );
+    mutex_proto.insert(
+        "unlock".to_string(),
+        Value::NativeFunction(concurrency::native_mutex_unlock),
+    );
+    concurrency_module.insert(
+        "MutexProto".to_string(),
+        Value::Map(gc.allocate(MapState::new(mutex_proto)).unwrap()),
+    );
+
+    let mut chan_proto = HashMap::new();
+    chan_proto.insert(
+        "send".to_string(),
+        Value::NativeFunction(concurrency::native_channel_send),
+    );
+    chan_proto.insert(
+        "recv".to_string(),
+        Value::NativeFunction(concurrency::native_channel_recv),
+    );
+    chan_proto.insert(
+        "close".to_string(),
+        Value::NativeFunction(concurrency::native_channel_close),
+    );
+    chan_proto.insert(
+        "iterator".to_string(),
+        Value::NativeFunction(concurrency::native_channel_iterator),
+    );
+    chan_proto.insert(
+        "next".to_string(),
+        Value::NativeFunction(concurrency::native_channel_next),
+    );
+    concurrency_module.insert(
+        "ChannelProto".to_string(),
+        Value::Map(gc.allocate(MapState::new(chan_proto)).unwrap()),
+    );
+
+    modules.insert(
+        "std:concurrency".to_string(),
+        Value::Map(gc.allocate(MapState::new(concurrency_module)).unwrap()),
+    );
+
+    // std:dotenv
 
     // std:dotenv
     let mut dotenv_module = HashMap::new();
