@@ -21,7 +21,7 @@ pub fn run_pleno() {
             print_help();
         }
         "-v" | "--version" => {
-            println!("pleno {}", env!("CARGO_PKG_VERSION"));
+            println!("pleno {VERSION}", VERSION = env!("CARGO_PKG_VERSION"));
         }
         "init" => {
             handle_init(&mut args);
@@ -79,13 +79,13 @@ pub fn run_pleno() {
         }
         "lsp" => {
             if let Err(e) = pleno_lsp::start() {
-                eprintln!("LSP server error: {}", e);
+                eprintln!("LSP server error: {e}");
                 process::exit(1);
             }
         }
         "repl" => {
             if let Err(e) = pleno_repl::start() {
-                eprintln!("REPL error: {}", e);
+                eprintln!("REPL error: {e}");
                 process::exit(1);
             }
         }

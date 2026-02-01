@@ -150,9 +150,8 @@ fn evaluates_inheritance_and_super() {
 
 #[test]
 fn evaluates_static_method() {
-    // TODO: Enable when static methods are fully implemented
-    // let value = eval("class Util { static fn val() { return 7; } } Util.val();");
-    // assert_eq!(value, pleno_value::Value::Int(7));
+    let value = eval("class Util { static fn val() { return 7; } } Util.val();");
+    assert_eq!(value, pleno_value::Value::Int(7));
 }
 
 #[test]
@@ -170,27 +169,24 @@ fn evaluates_default_args() {
 
 #[test]
 fn evaluates_named_args() {
-    // TODO: Enable when parser supports named arguments
-    // let value = eval("fn sum(a, b, c = 1) { return a + b + c; } sum(b = 2, a = 1);");
-    // assert_eq!(value, pleno_value::Value::Int(4));
+    let value = eval("fn sum(a, b, c = 1) { return a + b + c; } sum(b = 2, a = 1);");
+    assert_eq!(value, pleno_value::Value::Int(4));
 }
 
 #[test]
 fn evaluates_named_args_on_method() {
-    // TODO: Enable when parser supports named arguments
-    // let value = eval(
-    //     "class Calc { fn add(a, b = 1) { return a + b; } } let c = Calc(); c.add(b = 3, a = 2);",
-    // );
-    // assert_eq!(value, pleno_value::Value::Int(5));
+    let value = eval(
+        "class Calc { fn add(a, b = 1) { return a + b; } } let c = Calc(); c.add(b = 3, a = 2);",
+    );
+    assert_eq!(value, pleno_value::Value::Int(5));
 }
 
 #[test]
 fn evaluates_named_args_on_closure() {
-    // TODO: Enable when parser supports named arguments
-    // let value = eval(
-    //     "fn make() { fn inner(a, b = 2) { return a + b; } return inner; } let f = make(); f(b = 3, a = 1);",
-    // );
-    // assert_eq!(value, pleno_value::Value::Int(4));
+    let value = eval(
+        "fn make() { fn inner(a, b = 2) { return a + b; } return inner; } let f = make(); f(b = 3, a = 1);",
+    );
+    assert_eq!(value, pleno_value::Value::Int(4));
 }
 
 #[test]
@@ -217,11 +213,10 @@ fn allows_private_field_in_method() {
 
 #[test]
 fn denies_private_static_field_access() {
-    // TODO: Enable when static field privacy is fully implemented
-    // let result = eval_result(
-    //     "class A { private static secret; static fn set(v) { A.secret = v; } } A.set(3); A.secret;",
-    // );
-    // assert!(result.unwrap_err().contains("static field access denied"));
+    let result = eval_result(
+        "class A { private static secret; static fn set(v) { A.secret = v; } } A.set(3); A.secret;",
+    );
+    assert!(result.unwrap_err().contains("static field access denied"));
 }
 
 #[test]
@@ -324,9 +319,8 @@ fn evaluates_variadic_args() {
 
 #[test]
 fn evaluates_keyword_only_args() {
-    // TODO: Enable when parser supports keyword-only arguments
-    // let value = eval("fn add(a, *, b) { return a + b; } add(2, b = 3);");
-    // assert_eq!(value, pleno_value::Value::Int(5));
+    let value = eval("fn add(a, *, b) { return a + b; } add(2, b = 3);");
+    assert_eq!(value, pleno_value::Value::Int(5));
 }
 
 #[test]

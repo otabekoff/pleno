@@ -40,3 +40,5 @@ After doing each job, do cargo fmt for workspace.
 Always check for problems tab. Mainly at the end of finishing response. Fix them.
 
 Don't do `2>&1` or `| head -n 50` like endings of commands if not needed.
+
+Don't use `sed` command to replace contents if you are not sure and there is danger of this.

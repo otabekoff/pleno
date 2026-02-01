@@ -57,12 +57,13 @@ pub struct Function {
     pub is_async: bool,
     pub is_pure: bool,
     pub type_params: Vec<String>,
+    pub type_constraints: IndexMap<String, Vec<String>>,
     pub annotations: Vec<pleno_value::RuntimeAnnotation>,
 }
 
 impl VMProvider for VM {
     fn call(&mut self, callee: Value, args: Vec<Value>) -> Result<Value, RuntimeError> {
-        let return_reg = self.registers.len();
+        let return_reg_idx = self.registers.len();
         // Execute until the callee frame returns
         let depth = self.frames.len();
         match callee {
@@ -71,11 +72,12 @@ impl VMProvider for VM {
                     Value::Function(handle),
                     None,
                     &args,
-                    return_reg,
+                    return_reg_idx,
                     None,
                     None,
                     None,
                     false,
+                    Vec::new(),
                 )?;
             }
             Value::Closure(state) => {
@@ -84,11 +86,12 @@ impl VMProvider for VM {
                     Value::Function(borrowed.function),
                     None,
                     &args,
-                    return_reg,
+                    return_reg_idx,
                     None,
                     Some(state.clone()),
                     None,
                     false,
+                    Vec::new(),
                 )?;
             }
             Value::BoundMethod {
@@ -101,11 +104,12 @@ impl VMProvider for VM {
                     *function.clone(),
                     Some(*receiver.clone()),
                     &args,
-                    return_reg,
+                    return_reg_idx,
                     None,
                     None,
                     Some(owner),
                     false,
+                    Vec::new(),
                 )?;
             }
             Value::NativeFunction(f) => {
@@ -379,6 +383,7 @@ impl VM {
             is_async: false,
             is_pure: false,
             type_params: Vec::new(),
+            type_constraints: IndexMap::new(),
             params: Vec::new(),
             annotations: Vec::new(),
         };
@@ -401,6 +406,7 @@ impl VM {
             current_owner: None,
             current_module: None,
             current_module_path: None,
+            type_args: Vec::new(),
             exception_handlers: Vec::new(),
         });
 
@@ -787,6 +793,7 @@ impl VM {
                                 None,
                                 Some(method_info.owner.clone()),
                                 false,
+                                Vec::new(),
                             )?;
                             continue;
                         }
@@ -832,6 +839,7 @@ impl VM {
                                 None,
                                 Some(method_info.owner.clone()),
                                 false,
+                                Vec::new(),
                             )?;
                             continue;
                         }
@@ -890,6 +898,7 @@ impl VM {
                         is_async: proto.is_async,
                         is_pure: proto.is_pure,
                         type_params: proto.type_params.clone(),
+                        type_constraints: proto.type_constraints.clone(),
                         annotations: proto.annotations.clone(),
                     });
                     let captures = vec![Value::Null; c];
@@ -917,6 +926,7 @@ impl VM {
                         is_async: true,
                         is_pure: proto.is_pure,
                         type_params: proto.type_params.clone(),
+                        type_constraints: proto.type_constraints.clone(),
                         annotations: proto.annotations.clone(),
                     });
                     self.registers[base + a] = Value::Function(func_index);
@@ -942,6 +952,7 @@ impl VM {
                         is_async: proto.is_async,
                         is_pure: proto.is_pure,
                         type_params: proto.type_params.clone(),
+                        type_constraints: proto.type_constraints.clone(),
                         annotations: proto.annotations.clone(),
                     });
                     self.registers[base + a] = Value::Function(func_index);
@@ -1260,6 +1271,28 @@ impl VM {
                                     self.throw_runtime_error("cannot modify immutable object")
                                 );
                             }
+
+                            let class = object.borrow().class.clone();
+                            if let Some(class) = class {
+                                let ty_name = class.borrow().field_types.get(&name).cloned();
+                                if let Some(Some(ty_name)) = ty_name {
+                                    let type_val = if let Some(val) = self.globals.get(&ty_name) {
+                                        val.clone()
+                                    } else {
+                                        Value::String(Rc::new(ty_name.clone()))
+                                    };
+
+                                    if !self.is_instance(&value, &type_val) {
+                                        let actual_type_name = value.type_name().to_string();
+                                        let msg = format!(
+                                            "Type error: field '{}' expected {}, got {}",
+                                            name, ty_name, actual_type_name
+                                        );
+                                        return Err(self.throw_runtime_error(&msg));
+                                    }
+                                }
+                            }
+
                             self.gc
                                 .track_allocation(std::mem::size_of::<Value>() + name.len())?;
                             object.borrow_mut().fields.insert(name, value);
@@ -1565,6 +1598,7 @@ impl VM {
                                         None,
                                         Some(info.owner.clone()),
                                         false,
+                                        Vec::new(),
                                     )?;
                                     continue;
                                 }
@@ -1578,6 +1612,24 @@ impl VM {
                                         current_module.as_ref(),
                                     ) {
                                         return Err(self.throw_runtime_error("field access denied"));
+                                    }
+                                }
+
+                                let ty_name = class.borrow().field_types.get(&name).cloned();
+                                if let Some(Some(ty_name)) = ty_name {
+                                    let type_val = if let Some(val) = self.globals.get(&ty_name) {
+                                        val.clone()
+                                    } else {
+                                        Value::String(Rc::new(ty_name.clone()))
+                                    };
+
+                                    if !self.is_instance(&value, &type_val) {
+                                        let actual_type_name = value.type_name().to_string();
+                                        let msg = format!(
+                                            "Type error: field '{}' expected {}, got {}",
+                                            name, ty_name, actual_type_name
+                                        );
+                                        return Err(self.throw_runtime_error(&msg));
                                     }
                                 }
                             }
@@ -1603,6 +1655,7 @@ impl VM {
                                     None,
                                     Some(info.owner.clone()),
                                     false,
+                                    Vec::new(),
                                 )?;
                                 continue;
                             }
@@ -1622,6 +1675,25 @@ impl VM {
                                     );
                                 }
                             }
+
+                            let ty_name = class.borrow().static_field_types.get(&name).cloned();
+                            if let Some(Some(ty_name)) = ty_name {
+                                let type_val = if let Some(val) = self.globals.get(&ty_name) {
+                                    val.clone()
+                                } else {
+                                    Value::String(Rc::new(ty_name.clone()))
+                                };
+
+                                if !self.is_instance(&value, &type_val) {
+                                    let actual_type_name = value.type_name().to_string();
+                                    let msg = format!(
+                                        "Type error: static field '{}' expected {}, got {}",
+                                        name, ty_name, actual_type_name
+                                    );
+                                    return Err(self.throw_runtime_error(&msg));
+                                }
+                            }
+
                             class.borrow_mut().static_fields.insert(name, value);
                         }
                         _ => return Err(RuntimeError::new("field set on non-object")),
@@ -1811,6 +1883,7 @@ impl VM {
                                         None,
                                         Some(info.owner.clone()),
                                         false,
+                                        Vec::new(),
                                     )?;
                                     continue;
                                 }
@@ -1871,6 +1944,7 @@ impl VM {
                                     None,
                                     Some(info.owner.clone()),
                                     false,
+                                    Vec::new(),
                                 )?;
                                 continue;
                             }
@@ -2082,6 +2156,17 @@ impl VM {
                                 }
                             }
                         },
+                        Value::Char(c) => {
+                            if let Some(func) = self.builtin_resolver.and_then(|r| r("Char", &name))
+                            {
+                                Value::BoundNativeMethod {
+                                    receiver: Box::new(Value::Char(c)),
+                                    function: func,
+                                }
+                            } else {
+                                return Err(self.handle_property_error(&name));
+                            }
+                        }
                         Value::Tuple(tuple) => {
                             let t = tuple.borrow();
                             if let Ok(idx) = name.parse::<usize>() {
@@ -2320,6 +2405,7 @@ impl VM {
                             None,
                             Some(info.owner.clone()),
                             false,
+                            Vec::new(),
                         )?;
                     } else {
                         // No constructor, just return null
@@ -2459,6 +2545,7 @@ impl VM {
                             None,
                             Some(op_info.owner.clone()),
                             false,
+                            Vec::new(),
                         )?;
                         continue;
                     }
@@ -2488,6 +2575,7 @@ impl VM {
                             None,
                             Some(op_info.owner.clone()),
                             false,
+                            Vec::new(),
                         )?;
                         continue;
                     }
@@ -2517,6 +2605,7 @@ impl VM {
                             None,
                             Some(op_info.owner.clone()),
                             false,
+                            Vec::new(),
                         )?;
                         continue;
                     }
@@ -2546,6 +2635,7 @@ impl VM {
                             None,
                             Some(op_info.owner.clone()),
                             false,
+                            Vec::new(),
                         )?;
                         continue;
                     }
@@ -2575,6 +2665,7 @@ impl VM {
                             None,
                             Some(op_info.owner.clone()),
                             false,
+                            Vec::new(),
                         )?;
                         continue;
                     }
@@ -2622,6 +2713,7 @@ impl VM {
                             None,
                             Some(op_info.owner.clone()),
                             false,
+                            Vec::new(),
                         )?;
                         continue;
                     }
@@ -2651,6 +2743,7 @@ impl VM {
                             None,
                             Some(op_info.owner.clone()),
                             false,
+                            Vec::new(),
                         )?;
                         continue;
                     }
@@ -2741,7 +2834,50 @@ impl VM {
                         Value::String(value) => value.as_str().to_string(),
                         _ => return Err(RuntimeError::new("global name must be string")),
                     };
-                    let value = self.globals.get(&name).cloned().unwrap_or(Value::Null);
+                    let mut value = self.globals.get(&name).cloned();
+
+                    if value.is_none() {
+                        // Check function type parameters
+                        for (i, param) in function.type_params.iter().enumerate() {
+                            if param == &name {
+                                if i < frame.type_args.len() {
+                                    value = Some(frame.type_args[i].clone());
+                                }
+                                break;
+                            }
+                        }
+
+                        // Check class type parameters
+                        if value.is_none() {
+                            if let Some(MethodOwner::Class(cls)) = &frame.current_owner {
+                                let cls = cls.borrow();
+                                for (i, param) in cls.type_params.iter().enumerate() {
+                                    if param == &name {
+                                        // First try to get from receiver (this)
+                                        let receiver_val = &self.registers[frame.base];
+                                        if let Value::Object(obj) = receiver_val {
+                                            if let Some(type_args) = &obj.borrow().type_args {
+                                                if i < type_args.len() {
+                                                    value = Some(type_args[i].clone());
+                                                }
+                                            }
+                                        }
+
+                                        // Fallback to frame type args if receiver didn't work
+                                        // (e.g. constructor call where frame args are class args)
+                                        if value.is_none() && function.type_params.is_empty() {
+                                            if i < frame.type_args.len() {
+                                                value = Some(frame.type_args[i].clone());
+                                            }
+                                        }
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    let value = value.unwrap_or(Value::Null);
                     println!("VM: GetGlobal '{}' => {:?}", name, value);
                     self.registers[base + a] = value;
                 }
@@ -2780,7 +2916,9 @@ impl VM {
                         native_constructor: None,
                         superclass: None,
                         static_fields: IndexMap::new(),
+                        static_field_types: IndexMap::new(),
                         fields: IndexMap::new(),
+                        field_types: IndexMap::new(),
                         static_field_visibility: IndexMap::new(),
                         getters: IndexMap::new(),
                         setters: IndexMap::new(),
@@ -3018,6 +3156,45 @@ impl VM {
                         _ => return Err(RuntimeError::new("SetImplements on non-class value")),
                     }
                 }
+                Opcode::SetFieldType => {
+                    let class_val = self.registers[base + a].clone();
+                    let field_name = match &function.chunk.constants[b] {
+                        Value::String(value) => value.as_str().to_string(),
+                        _ => return Err(RuntimeError::new("field name must be string")),
+                    };
+                    let type_name = match &function.chunk.constants[c] {
+                        Value::String(value) => Some(value.as_str().to_string()),
+                        Value::Null => None,
+                        _ => return Err(RuntimeError::new("type name must be string or null")),
+                    };
+
+                    if let Value::Class(class) = class_val {
+                        class.borrow_mut().field_types.insert(field_name, type_name);
+                    } else {
+                        return Err(RuntimeError::new("SetFieldType on non-class value"));
+                    }
+                }
+                Opcode::SetStaticFieldType => {
+                    let class_val = self.registers[base + a].clone();
+                    let field_name = match &function.chunk.constants[b] {
+                        Value::String(value) => value.as_str().to_string(),
+                        _ => return Err(RuntimeError::new("field name must be string")),
+                    };
+                    let type_name = match &function.chunk.constants[c] {
+                        Value::String(value) => Some(value.as_str().to_string()),
+                        Value::Null => None,
+                        _ => return Err(RuntimeError::new("type name must be string or null")),
+                    };
+
+                    if let Value::Class(class) = class_val {
+                        class
+                            .borrow_mut()
+                            .static_field_types
+                            .insert(field_name, type_name);
+                    } else {
+                        return Err(RuntimeError::new("SetStaticFieldType on non-class value"));
+                    }
+                }
                 Opcode::SetTypeParams => {
                     let class_val = self.registers[base + a].clone();
                     let params_val = match &self.registers[base + b] {
@@ -3234,6 +3411,34 @@ impl VM {
                                     func_proto.type_params.len(),
                                     args.len()
                                 )));
+                            }
+
+                            // Verify constraints
+                            for (i, param_name) in func_proto.type_params.iter().enumerate() {
+                                if let Some(constraints) =
+                                    func_proto.type_constraints.get(param_name)
+                                {
+                                    for constraint_name in constraints {
+                                        let constraint_type =
+                                            if let Some(val) = self.globals.get(constraint_name) {
+                                                val.clone()
+                                            } else {
+                                                Value::String(Rc::new(constraint_name.clone()))
+                                            };
+
+                                        if !self.check_type_compatible(&args[i], &constraint_type) {
+                                            let arg_type_name =
+                                                self.get_value_type_name_for_specialize(&args[i]);
+                                            return Err(self.throw_runtime_error(&format!(
+                                                "Generic constraint failed: Type '{}' does not satisfy constraint '{}' for parameter '{}' in function '{}'",
+                                                arg_type_name,
+                                                constraint_name,
+                                                param_name,
+                                                func_proto.name
+                                            )));
+                                        }
+                                    }
+                                }
                             }
 
                             self.registers[base + a] = Value::BoundFunction {
@@ -3608,7 +3813,9 @@ impl VM {
                                         native_constructor: None,
                                         superclass: None,
                                         static_fields: IndexMap::new(),
+                                        static_field_types: IndexMap::new(),
                                         fields: IndexMap::new(),
+                                        field_types: IndexMap::new(),
                                         static_field_visibility: IndexMap::new(),
                                         getters: IndexMap::new(),
                                         setters: IndexMap::new(),
@@ -3932,6 +4139,51 @@ impl VM {
         }
     }
 
+    fn resolve_type_param(&self, name: &str) -> Option<Value> {
+        let frame = self.frames.last()?;
+        let function = &self.functions[frame.function_index];
+
+        // Check function type parameters
+        for (i, param) in function.type_params.iter().enumerate() {
+            if param == name {
+                if i < frame.type_args.len() {
+                    return Some(frame.type_args[i].clone());
+                }
+                break;
+            }
+        }
+
+        // Check class type parameters
+        if let Some(MethodOwner::Class(cls)) = &frame.current_owner {
+            let cls = cls.borrow();
+            for (i, param) in cls.type_params.iter().enumerate() {
+                if param == name {
+                    // First try to get from receiver (this)
+                    if frame.base < self.registers.len() {
+                        let receiver_val = &self.registers[frame.base];
+                        if let Value::Object(obj) = receiver_val {
+                            if let Some(type_args) = &obj.borrow().type_args {
+                                if i < type_args.len() {
+                                    return Some(type_args[i].clone());
+                                }
+                            }
+                        }
+                    }
+
+                    // Fallback to frame type args if receiver didn't work
+                    // (e.g. constructor call where frame args are class args)
+                    if function.type_params.is_empty() {
+                        if i < frame.type_args.len() {
+                            return Some(frame.type_args[i].clone());
+                        }
+                    }
+                    break;
+                }
+            }
+        }
+        None
+    }
+
     pub fn is_instance(&self, value: &Value, type_val: &Value) -> bool {
         match type_val {
             Value::String(s) => {
@@ -3973,6 +4225,9 @@ impl VM {
                     }
                     true
                 } else {
+                    if let Some(resolved) = self.resolve_type_param(s) {
+                        return self.is_instance(value, &resolved);
+                    }
                     matches!(
                         (s, value),
                         ("Int", Value::Int(_))
@@ -3988,8 +4243,20 @@ impl VM {
                             | ("Channel", Value::Channel(_))
                             | ("File", Value::File(_))
                             | ("Null", Value::Null)
+                            | ("Char", Value::Char(_))
                             | ("Any", _)
                     )
+                }
+            }
+            Value::Map(m) => {
+                if let Some(Value::String(s)) = m.borrow().entries.get("__native_type") {
+                    let type_name = s.as_str();
+                    matches!(
+                        (type_name, value),
+                        ("Int", Value::Int(_)) | ("Float", Value::Float(_))
+                    )
+                } else {
+                    false
                 }
             }
             Value::Class(target_class) => match value {
@@ -4158,6 +4425,29 @@ impl VM {
                 if s.as_str() == "Any" {
                     return true;
                 }
+                if let Some(frame) = self.frames.last() {
+                    // First check function's own type_params
+                    let function = &self.functions[frame.function_index];
+                    for (i, tp_name) in function.type_params.iter().enumerate() {
+                        if tp_name == s.as_str() {
+                            if i < frame.type_args.len() {
+                                return self.check_type_compatible(val_type, &frame.type_args[i]);
+                            }
+                        }
+                    }
+                    // Then check owner class's type_params
+                    if let Some(MethodOwner::Class(cls)) = &frame.current_owner {
+                        let cls_ref = cls.borrow();
+                        for (i, tp_name) in cls_ref.type_params.iter().enumerate() {
+                            if tp_name == s.as_str() {
+                                if i < frame.type_args.len() {
+                                    return self
+                                        .check_type_compatible(val_type, &frame.type_args[i]);
+                                }
+                            }
+                        }
+                    }
+                }
                 match val_type {
                     Value::String(vs) => vs.as_str() == s.as_str(),
                     Value::Class(cls) => cls.borrow().name.as_str() == s.as_str(),
@@ -4175,8 +4465,31 @@ impl VM {
                     }
                     false
                 }
+                Value::BoundClass { class, .. } => {
+                    let mut current = Some(class.clone());
+                    while let Some(cls) = current {
+                        if cls.as_ptr() == target_class.as_ptr() {
+                            return true;
+                        }
+                        current = cls.borrow().superclass.clone();
+                    }
+                    false
+                }
                 _ => false,
             },
+            Value::Map(m) => {
+                if let Some(Value::String(s)) = m.borrow().entries.get("__native_type") {
+                    match s.as_str() {
+                        "Int" => return matches!(val_type, Value::Int(_)),
+                        "Float" => return matches!(val_type, Value::Float(_)),
+                        "String" => return matches!(val_type, Value::String(_)),
+                        "Bool" => return matches!(val_type, Value::Bool(_)),
+                        "Char" => return matches!(val_type, Value::Char(_)),
+                        _ => {}
+                    }
+                }
+                false
+            }
             Value::Interface(target_iface) => match val_type {
                 Value::Class(cls) | Value::BoundClass { class: cls, .. } => {
                     let iface = target_iface.borrow();
@@ -4193,6 +4506,23 @@ impl VM {
                             }
                         }
                         current = c.borrow().superclass.clone();
+                    }
+                    false
+                }
+                Value::Map(m) => {
+                    let iface = target_iface.borrow();
+                    if let Some(Value::Array(impls)) = m.borrow().entries.get("__implements") {
+                        for imp in &impls.borrow().elements {
+                            match imp {
+                                Value::String(s) if s.as_str() == iface.name.as_str() => {
+                                    return true;
+                                }
+                                Value::Interface(i) if i.borrow().name == iface.name => {
+                                    return true;
+                                }
+                                _ => {}
+                            }
+                        }
                     }
                     false
                 }
@@ -4285,11 +4615,12 @@ impl VM {
         callee: Value,
         receiver: Option<Value>,
         args: &[Value],
-        return_reg: usize,
+        return_reg_idx: usize,
         return_override: Option<Value>,
         mut closure_state: Option<GcRc<pleno_value::ClosureState>>,
         current_owner: Option<MethodOwner>,
         args_already_processed: bool,
+        type_args: Vec<Value>,
     ) -> Result<(), RuntimeError> {
         let function_index = match callee {
             Value::Function(idx) => idx,
@@ -4344,10 +4675,10 @@ impl VM {
                 promise_map.insert("value".to_string(), Value::Null);
                 let promise = Value::Map(self.gc.allocate(MapState::new(promise_map))?);
                 self.promises.insert(promise_id, promise.clone());
-                if return_reg >= self.registers.len() {
-                    self.registers.resize(return_reg + 1, Value::Null);
+                if return_reg_idx >= self.registers.len() {
+                    self.registers.resize(return_reg_idx + 1, Value::Null);
                 }
-                self.registers[return_reg] = promise;
+                self.registers[return_reg_idx] = promise;
             }
 
             for param in function.params.iter() {
@@ -4405,12 +4736,13 @@ impl VM {
             function_index, // Use function_index directly
             ip: 0,
             base,
-            return_reg,
+            return_reg: return_reg_idx,
             return_override,
             closure_state,
             current_owner,
             current_module,
             current_module_path,
+            type_args,
             exception_handlers: Vec::new(),
         });
         Ok(())
@@ -4467,6 +4799,7 @@ impl VM {
                         None,
                         Some(MethodOwner::Class(class.clone())),
                         true,
+                        Vec::new(),
                     )
                 } else if positional.is_empty() && named.is_empty() {
                     self.registers[return_reg] = Value::Object(object);
@@ -4502,6 +4835,7 @@ impl VM {
                         None,
                         Some(MethodOwner::Class(class.clone())),
                         true,
+                        Vec::new(),
                     )
                 } else if positional.is_empty() && named.is_empty() {
                     self.registers[return_reg] = Value::Object(object);
@@ -4526,6 +4860,7 @@ impl VM {
                     None,
                     None,
                     true,
+                    Vec::new(),
                 )
             }
             Value::BoundMethod {
@@ -4556,6 +4891,7 @@ impl VM {
                     None,
                     Some(owner),
                     true,
+                    Vec::new(),
                 )
             }
             Value::StaticMethod {
@@ -4577,6 +4913,7 @@ impl VM {
                     None,
                     Some(owner),
                     true,
+                    Vec::new(),
                 )
             }
             Value::Closure(state) => {
@@ -4591,6 +4928,7 @@ impl VM {
                     Some(state.clone()),
                     None,
                     true,
+                    Vec::new(),
                 )
             }
             _ => Err(RuntimeError::new("call on non-callable value")),
@@ -4793,38 +5131,44 @@ impl VM {
         &mut self,
         callee: Value,
         args: Vec<Value>,
-        return_reg_idx: usize,
+        return_reg: usize,
     ) -> Result<(), RuntimeError> {
         // println!("VM::call_any_value: calling {:?}", callee);
         match callee {
             Value::Thunk(_) => {
                 let forced = self.force_thunk(callee)?;
-                return self.call_any_value(forced, args, return_reg_idx);
+                return self.call_any_value(forced, args, return_reg);
             }
             Value::Function(handle) => {
                 self.call_function(
                     Value::Function(handle),
                     None,
                     &args,
-                    return_reg_idx,
+                    return_reg,
                     None,
                     None,
                     None,
                     false,
+                    Vec::new(),
                 )?;
             }
-            Value::BoundFunction { function, .. } => {
+            Value::BoundFunction {
+                function,
+                type_args,
+                ..
+            } => {
                 // Type args are currently ignored during call as Pleno uses erasure or they are just for checking
                 // If reification is needed, we'd pass them to call_function
                 self.call_function(
                     *function.clone(),
                     None,
                     &args,
-                    return_reg_idx,
+                    return_reg,
                     None,
                     None,
                     None,
                     false,
+                    type_args.clone(),
                 )?;
             }
             Value::Closure(state) => {
@@ -4833,19 +5177,20 @@ impl VM {
                     Value::Closure(state.clone()),
                     None,
                     &args,
-                    return_reg_idx,
+                    return_reg,
                     None,
                     Some(state.clone()),
                     None,
                     false,
+                    Vec::new(),
                 )?;
             }
             Value::NativeFunction(func) => match func(self, &args) {
                 Ok(result) => {
-                    if return_reg_idx >= self.registers.len() {
-                        self.registers.resize(return_reg_idx + 1, Value::Null);
+                    if return_reg >= self.registers.len() {
+                        self.registers.resize(return_reg + 1, Value::Null);
                     }
-                    self.registers[return_reg_idx] = result;
+                    self.registers[return_reg] = result;
                 }
                 Err(err) => {
                     return Err(self.throw_runtime_error(&err.message));
@@ -4856,10 +5201,10 @@ impl VM {
                 merged_args.extend(args);
                 match function(self, &merged_args) {
                     Ok(result) => {
-                        if return_reg_idx >= self.registers.len() {
-                            self.registers.resize(return_reg_idx + 1, Value::Null);
+                        if return_reg >= self.registers.len() {
+                            self.registers.resize(return_reg + 1, Value::Null);
                         }
-                        self.registers[return_reg_idx] = result;
+                        self.registers[return_reg] = result;
                     }
                     Err(err) => {
                         return Err(self.throw_runtime_error(&err.message));
@@ -4876,11 +5221,12 @@ impl VM {
                     *function.clone(),
                     Some(*receiver.clone()),
                     &args,
-                    return_reg_idx,
+                    return_reg,
                     None,
                     None,
                     Some(owner),
                     false,
+                    Vec::new(),
                 )?;
             }
             Value::StaticMethod {
@@ -4890,11 +5236,12 @@ impl VM {
                     *function.clone(),
                     None,
                     &args,
-                    return_reg_idx,
+                    return_reg,
                     None,
                     None,
                     Some(owner),
                     true,
+                    Vec::new(),
                 )?;
             }
             Value::Class(class) => {
@@ -4911,14 +5258,15 @@ impl VM {
                         handle.function.clone(),
                         Some(val.clone()),
                         &args,
-                        return_reg_idx,
+                        return_reg,
                         Some(val),
                         None,
                         Some(MethodOwner::Class(class.clone())),
                         false,
+                        Vec::new(),
                     )?;
                 } else {
-                    self.registers[return_reg_idx] = val;
+                    self.registers[return_reg] = val;
                 }
             }
             Value::BoundClass { class, type_args } => {
@@ -4937,14 +5285,15 @@ impl VM {
                         handle.function.clone(),
                         Some(val.clone()),
                         &args,
-                        return_reg_idx,
+                        return_reg,
                         Some(val),
                         None,
                         Some(MethodOwner::Class(class.clone())),
                         false,
+                        type_args.clone(),
                     )?;
                 } else {
-                    self.registers[return_reg_idx] = val;
+                    self.registers[return_reg] = val;
                 }
             }
             Value::VariantConstructor {
@@ -4958,7 +5307,7 @@ impl VM {
                     variant_name: Rc::clone(&variant_name),
                     data,
                 };
-                self.registers[return_reg_idx] = variant;
+                self.registers[return_reg] = variant;
             }
             Value::Partial {
                 callee,
@@ -4977,12 +5326,12 @@ impl VM {
                     merged_args.push(args[new_arg_idx].clone());
                     new_arg_idx += 1;
                 }
-                self.call_any_value(*callee.clone(), merged_args, return_reg_idx)?;
+                self.call_any_value(*callee.clone(), merged_args, return_reg)?;
             }
             Value::Map(map) => {
                 let callable = map.borrow().get("__call__").cloned();
                 if let Some(callable) = callable {
-                    self.call_any_value(callable, args, return_reg_idx)?;
+                    self.call_any_value(callable, args, return_reg)?;
                 } else {
                     return Err(RuntimeError::new("value is not callable"));
                 }
@@ -4990,7 +5339,7 @@ impl VM {
             Value::Object(obj) => {
                 let callable = obj.borrow().fields.get("__call__").cloned();
                 if let Some(callable) = callable {
-                    self.call_any_value(callable, args, return_reg_idx)?;
+                    self.call_any_value(callable, args, return_reg)?;
                 } else {
                     return Err(RuntimeError::new("value is not callable"));
                 }
@@ -5043,6 +5392,7 @@ impl VM {
             is_async: false,
             is_pure: false,
             type_params: Vec::new(),
+            type_constraints: IndexMap::new(),
             annotations: Vec::new(),
         };
         let func_index = self.functions.len();
@@ -5062,12 +5412,34 @@ impl VM {
             current_owner: None,
             current_module: Some(Rc::clone(&module_rc)),
             current_module_path: Some(Rc::new(resolved_key.clone())),
+            type_args: Vec::new(),
             exception_handlers: Vec::new(),
         });
         let result = self.run_until(depth)?;
         self.registers.truncate(base);
         self.modules.insert(resolved_key, result.clone());
         Ok(result)
+    }
+    fn get_value_type_name_for_specialize(&self, val: &Value) -> String {
+        match val {
+            Value::Class(c) => c.borrow().name.to_string(),
+            Value::BoundClass { class, .. } => class.borrow().name.to_string(),
+            Value::Interface(i) => i.borrow().name.to_string(),
+            Value::BoundInterface { interface, .. } => interface.borrow().name.to_string(),
+            Value::Map(m) => {
+                if let Some(Value::String(s)) = m.borrow().get("__native_type") {
+                    s.to_string()
+                } else {
+                    "Map".to_string()
+                }
+            }
+            Value::String(s) => s.to_string(),
+            Value::Char(_) => "Char".to_string(),
+            Value::Int(_) => "Int".to_string(),
+            Value::Float(_) => "Float".to_string(),
+            Value::Bool(_) => "Bool".to_string(),
+            _ => "Unknown".to_string(),
+        }
     }
 }
 

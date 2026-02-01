@@ -60,6 +60,7 @@ pub struct CallFrame {
     pub current_owner: Option<MethodOwner>,
     pub current_module: Option<Rc<String>>,
     pub current_module_path: Option<Rc<String>>,
+    pub type_args: Vec<Value>,
     pub exception_handlers: Vec<ExceptionHandler>,
 }
 
@@ -76,6 +77,9 @@ impl GcObject for CallFrame {
                 MethodOwner::Class(class) => gc.mark_object(&class.to_gc_object()),
                 MethodOwner::Enum(enum_type) => gc.mark_object(&enum_type.to_gc_object()),
             }
+        }
+        for arg in &self.type_args {
+            arg.mark(gc);
         }
     }
 }
