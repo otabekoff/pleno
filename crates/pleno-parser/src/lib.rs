@@ -20,6 +20,8 @@ pub struct Parser {
     comments: Vec<Comment>,
     token_docs: HashMap<usize, String>,
     index: usize,
+    line_starts: Vec<usize>,
+    last_stmt_end_line: usize,
 }
 
 struct FunctionDeclarationConfig {
@@ -34,7 +36,7 @@ struct FunctionDeclarationConfig {
 }
 
 impl Parser {
-    pub fn new(raw_tokens: Vec<Token>) -> Self {
+    pub fn new(raw_tokens: Vec<Token>, source: &str) -> Self {
         let mut tokens = Vec::new();
         let mut comments = Vec::new();
         let mut token_docs = HashMap::new();
@@ -60,11 +62,28 @@ impl Parser {
             }
         }
 
+        // Compute line starts from source
+        let mut line_starts = vec![0];
+        for (i, ch) in source.char_indices() {
+            if ch == '\n' {
+                line_starts.push(i + 1);
+            }
+        }
+
         Self {
             tokens,
             comments,
             token_docs,
             index: 0,
+            line_starts,
+            last_stmt_end_line: 0,
+        }
+    }
+
+    fn get_line(&self, offset: usize) -> usize {
+        match self.line_starts.binary_search(&offset) {
+            Ok(line_idx) => line_idx + 1,
+            Err(next_line_idx) => next_line_idx,
         }
     }
 
@@ -94,8 +113,40 @@ impl Parser {
         Expr::new(kind, Span::new(start.start, self.previous_span().end))
     }
 
-    fn wrap_stmt(&self, kind: StmtKind, start: Span) -> Stmt {
-        Stmt::new(kind, Span::new(start.start, self.previous_span().end))
+    fn wrap_stmt(&mut self, kind: StmtKind, start: Span) -> Stmt {
+        let span = Span::new(start.start, self.previous_span().end);
+        let start_line = self.get_line(span.start);
+
+        let leading_blank_lines =
+            if self.last_stmt_end_line > 0 && start_line > self.last_stmt_end_line {
+                (start_line - self.last_stmt_end_line - 1).min(255) as u8
+            } else {
+                0
+            };
+
+        let end_line = self.get_line(span.end);
+
+        // Find trailing comment on the same line
+        let trailing_comment_idx = self.comments.iter().position(|c| {
+            let comment_line = self.get_line(c.span.start);
+            comment_line == end_line && c.span.start > span.end
+        });
+
+        let trailing_comment = if let Some(idx) = trailing_comment_idx {
+            let comment = self.comments.remove(idx);
+            Some(comment.content)
+        } else {
+            None
+        };
+
+        self.last_stmt_end_line = end_line;
+
+        Stmt {
+            kind,
+            span,
+            leading_blank_lines,
+            trailing_comment,
+        }
     }
 
     fn parse_stmt(&mut self) -> Result<Stmt, ParseError> {
@@ -655,6 +706,8 @@ impl Parser {
             Some(Box::new(Stmt {
                 kind: StmtKind::Expr(self.parse_expr()?),
                 span: self.previous_span(),
+                leading_blank_lines: 0,
+                trailing_comment: None,
             }))
         } else {
             None
@@ -2422,7 +2475,7 @@ impl Parser {
                     message: format!("Lex error in interpolation: {}", e.message),
                     span,
                 })?;
-                let mut sub_parser = Parser::new(tokens);
+                let mut sub_parser = Parser::new(tokens, &expr_str);
                 let expr = sub_parser.parse_expr().map_err(|e| ParseError {
                     message: format!("Parse error in interpolation: {}", e.message),
                     span,

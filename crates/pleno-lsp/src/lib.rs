@@ -66,7 +66,7 @@ impl ServerState {
         };
 
         // Parsing
-        let mut parser = pleno_parser::Parser::new(tokens);
+        let mut parser = pleno_parser::Parser::new(tokens, &text);
         match parser.parse_program() {
             Ok(program) => {
                 // Index symbols

@@ -3,7 +3,7 @@ use pleno_vm::VM;
 
 fn eval(source: &str) -> pleno_value::Value {
     let tokens = pleno_lexer::lex(source).expect("lex failed");
-    let mut parser = pleno_parser::Parser::new(tokens);
+    let mut parser = pleno_parser::Parser::new(tokens, source);
     let program = parser.parse_program().expect("parse failed");
     let mut compiler = Compiler::new(source.to_string());
     let chunk = compiler.compile(&program).expect("compile failed");

@@ -646,11 +646,9 @@ impl Compiler {
                     self.inline_return_stack.last_mut().unwrap().push(jump);
                 } else {
                     // Execute valid finally blocks in reverse order
-                    let pending_finally: Vec<_> = self.finally_stack.iter().cloned().collect();
-                    for stmt in pending_finally.iter().rev() {
-                        if let Some(finally_stmt) = stmt {
-                            self.compile_stmt(finally_stmt)?;
-                        }
+                    let pending_finally = self.finally_stack.to_vec();
+                    for finally_stmt in pending_finally.iter().rev().flatten() {
+                        self.compile_stmt(finally_stmt)?;
                     }
                     self.emit(Opcode::Return, reg, 0, 0);
                 }
@@ -2826,10 +2824,14 @@ impl Compiler {
             ExprKind::Block(stmts) => Stmt {
                 kind: StmtKind::Block(stmts.clone()),
                 span: body.span,
+                leading_blank_lines: 0,
+                trailing_comment: None,
             },
             _ => Stmt {
                 kind: StmtKind::Return(Some((*body).clone())),
                 span: body.span,
+                leading_blank_lines: 0,
+                trailing_comment: None,
             },
         };
         let decl = FunctionDecl {
@@ -4331,10 +4333,14 @@ impl Compiler {
                     ExprKind::Block(stmts) => Stmt {
                         kind: StmtKind::Block(stmts.clone()),
                         span: body.span,
+                        leading_blank_lines: 0,
+                        trailing_comment: None,
                     },
                     _ => Stmt {
                         kind: StmtKind::Return(Some((**body).clone())),
                         span: body.span,
+                        leading_blank_lines: 0,
+                        trailing_comment: None,
                     },
                 };
                 self.collect_stmt_refs(&body_stmt, referenced)
@@ -4746,10 +4752,14 @@ impl Compiler {
                     ExprKind::Block(stmts) => Stmt {
                         kind: StmtKind::Block(stmts.clone()),
                         span: body.span,
+                        leading_blank_lines: 0,
+                        trailing_comment: None,
                     },
                     _ => Stmt {
                         kind: StmtKind::Return(Some((**body).clone())),
                         span: body.span,
+                        leading_blank_lines: 0,
+                        trailing_comment: None,
                     },
                 };
                 let decl = FunctionDecl {

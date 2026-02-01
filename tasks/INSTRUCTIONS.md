@@ -17,3 +17,6 @@ Always do `cargo clippy --workspace --all-targets --all-features -- -D warnings`
 You can use `gh` command to manage github and repo for more advsanced stuff?
 
 add/edit/update/upgrade/fix/bugfix/implement/make changes/review/test
+
+run cargo clippy --workspace and fix the warnings/errors/problems/issues/recommendations.
+

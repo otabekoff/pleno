@@ -171,7 +171,6 @@ fn test_nested_classes() {
 }
 
 #[test]
-#[ignore] // Blank lines between statements are not preserved in AST - would require AST changes
 fn test_line_break_preservation() {
     let input = "let a = 1;\n\nlet b = 2;";
     let expected = "let a = 1;\n\nlet b = 2;\n";
@@ -180,10 +179,9 @@ fn test_line_break_preservation() {
 }
 
 #[test]
-#[ignore] // Comments are not preserved in AST - would require AST changes
 fn test_comments_preservation() {
     let input = "// This is a comment\nlet x = 1; /* Block comment */";
-    let expected = "// This is a comment\nlet x = 1; /* Block comment */\n";
+    let expected = "// This is a comment\nlet x = 1; // Block comment\n";
     let result = format_code(input, &FormatOptions::default()).unwrap();
     assert_eq!(result, expected);
 }

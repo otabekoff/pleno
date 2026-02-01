@@ -125,9 +125,17 @@ impl Formatter {
     }
 
     fn format_statement(&mut self, stmt: &Stmt, indent_level: usize) -> String {
-        let result = self.emit_comments_before(stmt.span.start, indent_level);
+        let mut result = self.emit_comments_before(stmt.span.start, indent_level);
+
+        // Prepend blank lines
+        if stmt.leading_blank_lines > 0 {
+            for _ in 0..stmt.leading_blank_lines {
+                result.push('\n');
+            }
+        }
+
         let current_indent = self.indent(indent_level);
-        let stmt_str = match &stmt.kind {
+        let mut stmt_str = match &stmt.kind {
             StmtKind::Module { name, body, .. } => {
                 if let Some(stmts) = body {
                     let mut result = format!("{}module {} {{\n", current_indent, name);
@@ -734,7 +742,20 @@ impl Formatter {
                 result
             }
         };
-        result + &stmt_str
+
+        // Append trailing comment if present
+        if let Some(comment) = &stmt.trailing_comment {
+            // Remove trailing newline if it exists
+            if stmt_str.ends_with('\n') {
+                stmt_str.pop();
+            }
+            stmt_str.push_str(" //");
+            stmt_str.push_str(comment);
+            stmt_str.push('\n');
+        }
+
+        result.push_str(&stmt_str);
+        result
     }
 
     fn format_expression(&mut self, expr: &Expr, indent_level: usize) -> String {
@@ -1284,7 +1305,7 @@ pub fn format_code(source: &str, options: &FormatOptions) -> Result<String, Stri
 
     // Parse the source into an AST
     let tokens = lex(source).map_err(|e| e.message)?;
-    let mut parser = Parser::new(tokens);
+    let mut parser = Parser::new(tokens, source);
     let program = parser.parse_program().map_err(|e| e.message)?;
 
     // Create formatter with options

@@ -3,7 +3,7 @@ use pleno_parser::Parser;
 
 fn parse(input: &str) -> pleno_ast::Program {
     let tokens = pleno_lexer::lex(input).unwrap();
-    let mut parser = Parser::new(tokens);
+    let mut parser = Parser::new(tokens, input);
     parser.parse_program().unwrap()
 }
 
