@@ -41,6 +41,14 @@
   "activationEvents": [
     "onLanguage:pleno",
     "onView:plenoProject",
+    "onCommand:pleno.runFile",
+    "onCommand:pleno.checkFile",
+    "onCommand:pleno.restartServer",
+    "onCommand:pleno.openDocs",
+    "onCommand:pleno.openRepl",
+    "onCommand:pleno.showDashboard",
+    "onCommand:pleno.openWalkthrough",
+    "onStartupFinished",
     "workspaceContains:**/pleno.toml",
     "onTaskType:pleno",
     "onTaskType:plm"

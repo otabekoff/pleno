@@ -44,6 +44,7 @@ const iconInjector_1 = require("./iconInjector");
 const utils_1 = require("./utils");
 const projectExplorer_1 = require("./projectExplorer");
 const dashboard_1 = require("./dashboard");
+const formatter_1 = require("./formatter");
 class PlmTaskProvider {
     static PlmType = 'plm';
     provideTasks() {
@@ -107,16 +108,21 @@ class PlenoTaskProvider {
 let client;
 let myStatusBarItem;
 function activate(context) {
+    console.log('[Pleno] activate() called');
     try {
         return _activate(context);
     }
     catch (e) {
+        console.error('[Pleno] Activation failed:', e);
         vscode.window.showErrorMessage(`Failed to activate Pleno extension: ${e}`);
     }
 }
 function _activate(context) {
+    console.log('[Pleno] Entering _activate');
     const outputChannel = vscode.window.createOutputChannel('Pleno');
     outputChannel.appendLine('Pleno extension activating...');
+    // 0. Register formatter
+    context.subscriptions.push(vscode.languages.registerDocumentFormattingEditProvider('pleno', new formatter_1.PlenoFormattingProvider(context)));
     // 1. Register commands first (so they exist even if later steps fail)
     context.subscriptions.push(vscode.commands.registerCommand('pleno.showOutput', () => {
         outputChannel.show();
