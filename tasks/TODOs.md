@@ -1,18 +1,7 @@
 ## Priority: Standard Library & GC Integration
 
-http://localhost:5173/pleno/specs/ is showing next page to introduction which is itself, and causing loop on docs.
 
 Now, these tasks of the stage are partially done. Nork on it and make it complete. add/edit/update/upgrade/fix/bugfix/implement/make changes/review/test/document.
-
-csv, sqlite3 or latest
-
-VSCode extension should be able to download and setup Pleno.
-
-Add info and instructions to release. Add x64, x86...
-
-Unicode, emojis, gradients, pleno ascii text.
-
-Let's do bench. Make bench folder benchmark project reporting about benchmarking of Pleno. Reports. Not only speed tests. Also, we need to compare with other languages like Python, Rust, Go, Kotlin, C, C++, Java, JavaScript, TypeScript, etc. Make sure the benchmarking is done solely and based on truth. It should show the truth. It is not just making for Pleno to win. We've to be trustworthy. We've to show the truth. We've to be transparent. We've to be fair.
 
 Optimizations and error management in Pleno in a structured way, aslo fix the showing line numbers like Rust or other thing?
 
@@ -35,13 +24,6 @@ Work on each crate and make the working and complete and doing their job fully.
 
 ---
 
-On commit check each of the crate, test, clippy, fmt, and more. build, build workspace, also do these in workspace level too.
-
-add cargo clippy to husky
-
-adding to x86, x64, both, arm, amd, and the other stuffs, appimage, .deb and more on release?
-
----
 
 publishing with certificates not to consided the programming language as virus and installing safely on mac, windows and linux.
 
@@ -55,7 +37,6 @@ Remove debug logs.
 
 Code Runner extension should support for Pleno programming language.
 
-After doing each job, do cargo fmt for workspace.
 
 Now, as we have finished v1 of the Pleno programming langguage, I want you to fully think and write, plan the next v2 of Pleno programming language. We need V2 roadmap, v2-specs.md. Here we'll add better features, make the old and inconsistent things enhanced, better, implement new features and support many things, more stdlibs. and many more. Think more and write detailed, Things will be added, upgraded, updated, fixed, supported.
 
@@ -87,7 +68,7 @@ We've to think about better github management, better actions, better commits, b
 
 New folder called prompts.
 
-V2, weill be the most ideal one.
+V2, we'll be the most ideal one.
 
 Add more licenses from rust like githuib stuff.
 

@@ -14,6 +14,8 @@ jobs:
       matrix:
         job:
           - { target: x86_64-unknown-linux-gnu, os: ubuntu-latest }
+          - { target: aarch64-unknown-linux-gnu, os: ubuntu-latest }
+          - { target: i686-unknown-linux-gnu, os: ubuntu-latest }
           - { target: x86_64-apple-darwin, os: macos-latest }
           - { target: aarch64-apple-darwin, os: macos-latest }
           - { target: x86_64-pc-windows-msvc, os: windows-latest }
@@ -29,32 +31,53 @@ jobs:
       - name: Rust Cache
         uses: Swatinem/rust-cache@v2
 
+      - name: Install System Dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          if [ "${{ matrix.job.target }}" == "aarch64-unknown-linux-gnu" ]; then
+            sudo apt-get install -y gcc-aarch64-linux-gnu
+            echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
+          elif [ "${{ matrix.job.target }}" == "i686-unknown-linux-gnu" ]; then
+            sudo apt-get install -y gcc-multilib
+          fi
+
       - name: Build
         run: cargo build --release --workspace --target ${{ matrix.job.target }}
 
-      - name: Package (Unix)
-        if: runner.os != 'Windows'
+      - name: Packaging
+        shell: bash
         run: |
           mkdir -p dist
-          cp target/${{ matrix.job.target }}/release/pleno dist/
-          cp target/${{ matrix.job.target }}/release/plm dist/
+          EXT=""
+          if [ "${{ runner.os }}" == "Windows" ]; then
+            EXT=".exe"
+          fi
+          
+          # Copy binaries
+          cp target/${{ matrix.job.target }}/release/pleno$EXT dist/pleno$EXT
+          cp target/${{ matrix.job.target }}/release/plm$EXT dist/plm$EXT
+          
+          # Generate .deb for Linux
+          if [ "${{ runner.os }}" == "Linux" ] && [ "${{ matrix.job.target }}" == "x86_64-unknown-linux-gnu" ]; then
+             cargo install cargo-deb
+             cargo deb --target ${{ matrix.job.target }} --output dist/pleno_${{ github.ref_name }}_amd64.deb
+          fi
+          
+          # Archive
           cd dist
-          tar -czf ../pleno-${{ github.ref_name }}-${{ matrix.job.target }}.tar.gz .
-
-      - name: Package (Windows)
-        if: runner.os == 'Windows'
-        run: |
-          mkdir dist
-          copy target/${{ matrix.job.target }}/release/pleno.exe dist/
-          copy target/${{ matrix.job.target }}/release/plm.exe dist/
-          cd dist
-          Compress-Archive -Path * -DestinationPath ../pleno-${{ github.ref_name }}-${{ matrix.job.target }}.zip
+          if [ "${{ runner.os }}" == "Windows" ]; then
+            Compress-Archive -Path * -DestinationPath ../pleno-${{ github.ref_name }}-${{ matrix.job.target }}.zip
+          else
+            tar -czf ../pleno-${{ github.ref_name }}-${{ matrix.job.target }}.tar.gz .
+          fi
 
       - name: Upload Release Artifacts
         uses: softprops/action-gh-release@v1
         with:
           files: |
-            pleno-${{ github.ref_name }}-${{ matrix.job.target }}.tar.gz
-            pleno-${{ github.ref_name }}-${{ matrix.job.target }}.zip
+            pleno-${{ github.ref_name }}-${{ matrix.job.target }}.*
+            dist/*.deb
+          generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

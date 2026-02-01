@@ -32,7 +32,7 @@ export default defineConfig({
     nav: [
       { text: 'Home', link: '/' },
       { text: 'Guide', link: '/guide/getting-started' },
-      { text: 'Specification', link: '/specs/core-syntax-fundamentals' },
+      { text: 'Specification', link: '/specs/' },
       { text: 'Stdlib', link: '/stdlib/' },
       { text: 'Examples', link: '/examples' }
     ],
@@ -51,7 +51,7 @@ export default defineConfig({
         {
           text: 'Language Specification',
           items: [
-            { text: 'Introduction', link: '/specs/index' },
+            { text: 'Introduction', link: '/specs/' },
             { text: 'Core Syntax', link: '/specs/core-syntax-fundamentals' },
             { text: 'Control Flow', link: '/specs/control-flow' },
             { text: 'Functions', link: '/specs/functions' },

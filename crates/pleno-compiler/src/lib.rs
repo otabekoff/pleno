@@ -1,9 +1,10 @@
 use pleno_ast::{
-    Expr, ExprKind, FieldDecl, FunctionDecl, FunctionKind, Literal, MapItem, Pattern, Program,
-    Span, Stmt, StmtKind, Visibility,
+    BinaryOp, Expr, ExprKind, FieldDecl, FunctionDecl, FunctionKind, Literal, MapItem, Pattern,
+    Program, Span, Stmt, StmtKind, Visibility,
 };
 use pleno_bytecode::{Chunk, FunctionProto, Instruction, Opcode, ParamSpec};
-use pleno_value::{RuntimeAnnotation, Value};
+use pleno_value::gc::GcRc;
+use pleno_value::{ArrayState, MapState, RuntimeAnnotation, Value};
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
@@ -836,8 +837,103 @@ impl Compiler {
         }
     }
 
+    fn try_fold_expr(&self, expr: &Expr) -> Option<Value> {
+        match &expr.kind {
+            ExprKind::Literal(lit) => Some(match lit {
+                Literal::Null => Value::Null,
+                Literal::Bool(b) => Value::Bool(*b),
+                Literal::Int(i) => Value::Int(*i),
+                Literal::Float(f) => Value::Float(*f),
+                Literal::String(s) => Value::String(s.clone().into()),
+                Literal::Char(c) => Value::Char(*c),
+            }),
+            ExprKind::ArrayLiteral(items) => {
+                let mut values = Vec::new();
+                for item in items {
+                    values.push(self.try_fold_expr(item)?);
+                }
+                Some(Value::Array(GcRc::new(ArrayState {
+                    elements: values,
+                    is_immutable: false,
+                })))
+            }
+            ExprKind::MapLiteral(entries) => {
+                let mut map = HashMap::new();
+                for item in entries {
+                    match item {
+                        MapItem::Entry(key, value_expr) => {
+                            let value = self.try_fold_expr(value_expr)?;
+                            map.insert(key.clone(), value);
+                        }
+                        MapItem::Spread(_) => return None,
+                    }
+                }
+                Some(Value::Map(GcRc::new(MapState {
+                    entries: map,
+                    is_immutable: false,
+                })))
+            }
+            ExprKind::Binary { left, op, right } => {
+                let l_val = self.try_fold_expr(left)?;
+                let r_val = self.try_fold_expr(right)?;
+
+                match (op, l_val, r_val) {
+                    (BinaryOp::Add, Value::Int(a), Value::Int(b)) => {
+                        Some(Value::Int(a.wrapping_add(b)))
+                    }
+                    (BinaryOp::Add, Value::Float(a), Value::Float(b)) => Some(Value::Float(a + b)),
+                    (BinaryOp::Subtract, Value::Int(a), Value::Int(b)) => {
+                        Some(Value::Int(a.wrapping_sub(b)))
+                    }
+                    (BinaryOp::Subtract, Value::Float(a), Value::Float(b)) => {
+                        Some(Value::Float(a - b))
+                    }
+                    (BinaryOp::Multiply, Value::Int(a), Value::Int(b)) => {
+                        Some(Value::Int(a.wrapping_mul(b)))
+                    }
+                    (BinaryOp::Multiply, Value::Float(a), Value::Float(b)) => {
+                        Some(Value::Float(a * b))
+                    }
+                    (BinaryOp::Divide, Value::Int(a), Value::Int(b)) => {
+                        if b == 0 {
+                            None
+                        } else {
+                            Some(Value::Int(a.wrapping_div(b)))
+                        }
+                    }
+                    (BinaryOp::Divide, Value::Float(a), Value::Float(b)) => {
+                        Some(Value::Float(a / b))
+                    }
+                    _ => None,
+                }
+            }
+            _ => None,
+        }
+    }
+
     fn compile_expr(&mut self, expr: &Expr) -> Result<u8, CompileError> {
         self.current_span = expr.span;
+
+        // Try constant folding (skip for simple literals as they are handled efficiently below)
+        if !matches!(expr.kind, ExprKind::Literal(_)) {
+            if let Some(folded) = self.try_fold_expr(expr) {
+                let reg = self.registers.allocate()?;
+                match folded {
+                    Value::Null => self.emit(Opcode::LoadNull, reg, 0, 0),
+                    Value::Bool(true) => self.emit(Opcode::LoadTrue, reg, 0, 0),
+                    Value::Bool(false) => self.emit(Opcode::LoadFalse, reg, 0, 0),
+                    Value::Int(val) if (-128..=127).contains(&val) => {
+                        self.emit(Opcode::LoadInt, reg, val as u8, 0);
+                    }
+                    _ => {
+                        let const_idx = self.add_constant(folded);
+                        self.emit(Opcode::LoadConst, reg, const_idx, 0);
+                    }
+                }
+                return Ok(reg);
+            }
+        }
+
         match &expr.kind {
             ExprKind::Literal(lit) => {
                 let reg = self.registers.allocate()?;

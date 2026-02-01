@@ -151,3 +151,30 @@ And make a framework like express in nodejs.
 LLVM or cranelift support.
 
 ----
+
+
+# Pleno v1: Final Hardening & Minor Tasks
+
+This document tracks minor technical debts, deferred features, and final polish tasks for the Pleno v1 release.
+
+## Future (v1.x)
+- [ ] **JIT**: Detailed JIT implementation plan.
+- [ ] **Switch Opcode**: Implement `Switch` instruction for O(1) match dispatch (result of performance investigation).
+- [ ] **Macro expansion explorer**: Tooling to see how macros expand.
+- [ ] **Package Registry**: Design for a central Pleno package registry.
+
+
+---
+
+csv, sqlite3 or latest
+
+---
+
+Unicode, emojis, gradients, pleno ascii text.
+
+
+---
+
+VSCode extension should be able to download and setup Pleno.
+
+---
