@@ -47,12 +47,18 @@ pub struct Task {
     pub promise_id: Option<u64>,
 }
 
+impl Default for EventLoop {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl EventLoop {
     pub fn new() -> Self {
         Self {
             timers: std::collections::BinaryHeap::new(),
             ready_queue: VecDeque::new(),
-            next_timer_id: 0,
+            next_timer_id: 1,
         }
     }
 

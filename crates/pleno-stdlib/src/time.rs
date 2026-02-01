@@ -245,7 +245,7 @@ pub fn set_timeout(
 }
 
 pub fn sleep(vm: &mut dyn pleno_value::VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
-    if args.len() < 1 {
+    if args.is_empty() {
         return Err(RuntimeError::new(
             "sleep expects at least 1 argument: delay",
         ));
