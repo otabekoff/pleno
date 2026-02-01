@@ -4,7 +4,7 @@
 class Outer {
     static class Inner {
         static fn hello() {
-            println("Hello from Inner!");
+            print("Hello from Inner!");
         }
     }
 }
@@ -13,4 +13,4 @@ Outer.Inner.hello(); // Expected: "Hello from Inner!"
 
 let Inner = Outer.Inner;
 let innerInstance = new Inner();
-println(innerInstance);
+print(innerInstance);

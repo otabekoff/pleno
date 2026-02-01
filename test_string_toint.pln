@@ -1,0 +1,5 @@
+// Simple test for String.toInt
+let s = "42";
+print("String value: " + s);
+let num = s.toInt();
+print("Converted: " + num.toString());

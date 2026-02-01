@@ -92,7 +92,8 @@ fn native_float_parse(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value,
 pub fn register_builtins(vm: &mut dyn VMProvider) {
     // Globals
     vm.register_global("print".to_string(), Value::NativeFunction(native_print));
-    vm.register_global("println".to_string(), Value::NativeFunction(native_print));
+    vm.register_global("input".to_string(), Value::NativeFunction(native_input));
+    vm.register_global("assert".to_string(), Value::NativeFunction(native_assert));
     vm.register_global("id".to_string(), Value::NativeFunction(native_id));
     vm.register_global("typeof".to_string(), Value::NativeFunction(native_typeof));
     vm.register_global(
@@ -635,6 +636,8 @@ pub fn resolve_builtin_method(ty: &str, name: &str) -> Option<pleno_value::Nativ
         ("String", "charAt") => Some(native_string_char_at),
         ("String", "indexOf") => Some(native_string_index_of),
         ("String", "repeat") => Some(native_string_repeat),
+        ("String", "toInt") => Some(native_string_to_int),
+        ("String", "toFloat") => Some(native_string_to_float),
         ("Array", "push") => Some(native_array_push),
         ("Array", "pop") => Some(native_array_pop),
         ("Array", "shift") => Some(native_array_shift),
@@ -738,8 +741,12 @@ fn is_truthy(value: &Value) -> bool {
 }
 
 // Global functions
-fn native_print(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
-    // eprintln!("DEBUG: native_print called. Allowed: {}", vm.is_io_allowed());
+/// Helper function for print implementation with configurable default end
+fn print_impl(
+    vm: &mut dyn VMProvider,
+    args: &[Value],
+    default_end: &str,
+) -> Result<Value, RuntimeError> {
     vm.check_purity()?;
     if !vm.is_io_allowed() {
         return Err(RuntimeError::new("SecurityError: IO access denied"));
@@ -752,7 +759,7 @@ fn native_print(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, Runtim
     let end = named_args
         .get("end")
         .and_then(|v| v.as_str())
-        .unwrap_or("\n");
+        .unwrap_or(default_end);
 
     let file_arg = named_args.get("file");
     let flush_arg = named_args.get("flush");
@@ -808,6 +815,49 @@ fn native_print(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, Runtim
         }
     }
     Ok(Value::Null)
+}
+
+/// print: Outputs text WITH a trailing newline by default (Python-style)
+fn native_print(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    print_impl(vm, args, "\n")
+}
+
+/// assert: Throws an error if condition is false
+fn native_assert(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    let condition = args.first().unwrap_or(&Value::Bool(false));
+    let message = args
+        .get(1)
+        .map(|v| v.to_string())
+        .unwrap_or_else(|| "Assertion failed".to_string());
+
+    if !is_truthy(condition) {
+        return Err(RuntimeError::new(format!("AssertionError: {}", message)));
+    }
+    Ok(Value::Null)
+}
+
+/// input: Reads a line from stdin, optionally displaying a prompt
+fn native_input(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    vm.check_purity()?;
+    if !vm.is_io_allowed() {
+        return Err(RuntimeError::new("SecurityError: IO access denied"));
+    }
+
+    // Print optional prompt (without newline)
+    if let Some(prompt) = args.first() {
+        print!("{}", prompt);
+        std::io::stdout().flush().ok();
+    }
+
+    // Read line from stdin
+    let mut line = String::new();
+    std::io::stdin()
+        .read_line(&mut line)
+        .map_err(|e| RuntimeError::new(format!("input error: {}", e)))?;
+
+    // Trim trailing newline/carriage return
+    let result = line.trim_end_matches(&['\r', '\n'][..]).to_string();
+    Ok(Value::String(Rc::new(result)))
 }
 
 fn native_id(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
@@ -1052,6 +1102,31 @@ fn native_string_repeat(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Valu
         _ => 0,
     };
     Ok(Value::String(Rc::new(s.repeat(n))))
+}
+
+fn native_string_to_int(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    let s = match &args[0] {
+        Value::String(s) => s.as_str().trim(),
+        _ => return Err(RuntimeError::new("expected string")),
+    };
+    match s.parse::<i64>() {
+        Ok(i) => Ok(Value::Int(i)),
+        Err(_) => Err(RuntimeError::new(format!("Cannot convert '{}' to Int", s))),
+    }
+}
+
+fn native_string_to_float(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    let s = match &args[0] {
+        Value::String(s) => s.as_str().trim(),
+        _ => return Err(RuntimeError::new("expected string")),
+    };
+    match s.parse::<f64>() {
+        Ok(f) => Ok(Value::Float(f)),
+        Err(_) => Err(RuntimeError::new(format!(
+            "Cannot convert '{}' to Float",
+            s
+        ))),
+    }
 }
 
 fn native_array_push(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {

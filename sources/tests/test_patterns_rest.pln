@@ -1,7 +1,7 @@
 fn test_patterns(val) {
    match (val) {
-       case (1, 2, ...rest) => println(rest), 
-       case _ => println("Other"),
+       case (1, 2, ...rest) => print(rest), 
+       case _ => print("Other"),
    }
 }
 test_patterns([1, 2, 3, 4]);

@@ -9,5 +9,5 @@ fn test_if(item) {
 }
 
 let my_item = {"active": true, "calc": fn() => 42};
-println(test_if(my_item));
+print(test_if(my_item));
 

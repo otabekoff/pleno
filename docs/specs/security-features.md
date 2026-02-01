@@ -3,15 +3,18 @@
 Pleno provides a multi-layered security model including memory safety, strict encapsulation, and resource-bounded sandboxing.
 
 ### 20.1 Safe Defaults
+
 - **No implicit type coercion**: Forces explicit conversion to prevent subtle bugs.
 - **Strict null checking**: Reduces null-pointer style exceptions.
 - **Bounds checking**: All array and string accesses are checked.
 - **Integer overflow detection**: Prevents wrapping by throwing errors.
 
 ### 20.2 Sandboxing
+
 Pleno allows running untrusted code with restricted capabilities. Restrictions can be applied via CLI flags for the entire process, or programmatically using the `std:security` module.
 
 #### CLI Flags
+
 - `--max-instructions <N>`: Stop execution after N virtual instructions.
 - `--max-memory <BYTES>`: Stop execution if memory exceeds limit.
 - `--allow-io <bool>`: Enable/disable file system access.
@@ -20,6 +23,7 @@ Pleno allows running untrusted code with restricted capabilities. Restrictions c
 - `--allow-network <bool>`: Enable/disable network access.
 
 #### Programmatic Sandbox
+
 The `std:security` module allows creating isolated execution environments.
 
 ```pleno
@@ -48,4 +52,5 @@ try {
 ```
 
 ### 20.3 Encapsulation
+
 Pleno enforces `private` and `protected` access modifiers at runtime. Attempting to access private members from outside the class scope results in a `field access denied` runtime error.

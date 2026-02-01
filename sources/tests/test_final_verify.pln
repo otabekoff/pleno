@@ -2,40 +2,40 @@ import math from "std:math";
 import regex from "std:regex";
 
 fn test_math_new() {
-    println("--- Math New Features ---");
+    print("--- Math New Features ---");
     let Math = math.Math;
-    println("PI: " + Math.PI);
-    println("E: " + Math.E);
-    println("Max(1, 5, 2): " + Math.max(1, 5, 2));
-    println("Min(10, -5, 3): " + Math.min(10, -5, 3));
+    print("PI: " + Math.PI);
+    print("E: " + Math.E);
+    print("Max(1, 5, 2): " + Math.max(1, 5, 2));
+    print("Min(10, -5, 3): " + Math.min(10, -5, 3));
     
     let r = Math.randomInt(1, 10);
-    println("RandomInt(1, 10): " + r);
+    print("RandomInt(1, 10): " + r);
     if (r >= 1 && r < 10) {
-        println("RandomInt range OK");
+        print("RandomInt range OK");
     } else {
-        println("RandomInt range ERROR");
+        print("RandomInt range ERROR");
     }
 }
 
 fn test_regex_oo() {
-    println("--- Regex OO Features ---");
+    print("--- Regex OO Features ---");
     let Regex = regex.Regex;
     let pattern = Regex("(\\w+)@(\\w+\\.\\w+)");
     let m = pattern.match("user@example.com");
     if (m != null) {
-        println("Match OK");
-        println("Group 0: " + m.group(0)); // "user@example.com"
-        println("Group 1: " + m.group(1)); // "user"
-        println("Group 2: " + m.group(2)); // "example.com"
+        print("Match OK");
+        print("Group 0: " + m.group(0)); // "user@example.com"
+        print("Group 1: " + m.group(1)); // "user"
+        print("Group 2: " + m.group(2)); // "example.com"
     } else {
-        println("Match FAILED");
+        print("Match FAILED");
     }
     
     let text = "abc 123 def 456";
     let p2 = Regex("\\d+");
     let matches = p2.findAll(text);
-    println("FindAll: " + matches); // ["123", "456"]
+    print("FindAll: " + matches); // ["123", "456"]
 }
 
 test_math_new();

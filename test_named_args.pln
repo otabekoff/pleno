@@ -1,5 +1,5 @@
 fn greet(name, age = "unknown") {
-    println("Hello, " + name + "! You are " + age + " years old.");
+    print("Hello, " + name + "! You are " + age + " years old.");
 }
 
 // Global function call with named args

@@ -1,15 +1,15 @@
 // test_instruction_limit.pln
 fn main() {
-    println("Starting infinite loop test...");
+    print("Starting infinite loop test...");
     try {
         let mut i = 0;
         while (true) {
             i = i + 1;
         }
     } catch (e) {
-        println("Caught: " + e.message);
-        println("Peak Memory: " + e.peakMemory.toString());
-        println("Instructions: " + e.instructions.toString());
+        print("Caught: " + e.message);
+        print("Peak Memory: " + e.peakMemory.toString());
+        print("Instructions: " + e.instructions.toString());
     }
 }
 main();

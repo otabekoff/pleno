@@ -1,4 +1,5 @@
 # Pleno Programming Language
+
 ## Complete Language Specification v1.0
 
 **File Extension:** `.pln`  
@@ -11,6 +12,7 @@
 ## 1. Core Syntax & Fundamentals ✅
 
 ### 1.1 Comments ✅
+
 ```pleno
 // Single-line comment
 
@@ -24,6 +26,7 @@
 ### 1.2 Variables & Constants ✅
 
 #### Variables (mutable) ✅
+
 ```pleno
 let x = 10;                    // Type inference
 let name: String = "Alice";    // Explicit type
@@ -31,6 +34,7 @@ let mut counter = 0;           // Explicitly mutable
 ```
 
 #### Constants (truly immutable)
+
 ```pleno
 const PI = 3.14159;            // Compile-time constant
 const MAX_USERS: Int = 1000;   // Typed constant
@@ -42,6 +46,7 @@ const list = [1, 2, 3];
 ```
 
 #### Deep Immutability ✅
+
 ```pleno
 const deep obj = {
     name: "Alice",
@@ -52,12 +57,13 @@ const deep obj = {
 // obj.scores[0] = 100;         // ERROR
 
 // Note: 'let deep' is also supported for runtime-initialized immutability.
-let deep data = fetchData(); 
+let deep data = fetchData();
 ```
 
 ### 1.3 Type System
 
 #### Primitive Types
+
 ```pleno
 Int      // 64-bit signed integer
 Float    // 64-bit floating point
@@ -70,15 +76,19 @@ Any      // Dynamic type (opt-out of type checking)
 ```
 
 #### Char Literals ✅
+
 Characters are enclosed in single quotes:
+
 ```pleno
 let a = 'A';
 let pi = 'π';
 let newline = '\n';
 let tab = '\t';
 ```
+
 Unlike some other languages, `Char` is a distinct primitive type in Pleno, not just a small integer or a single-character string.
-```
+
+````
 
 #### Type Annotations
 ```pleno
@@ -91,9 +101,10 @@ let data: Any = "flexible";
 fn calculate(x: Int, y: Float): Float {
     return x * y;
 }
-```
+````
 
 #### Type Inference
+
 ```pleno
 let count = 42;              // Inferred as Int
 let ratio = 3.14;            // Inferred as Float
@@ -102,6 +113,7 @@ let mixed = null;            // Inferred as Null (can be reassigned)
 ```
 
 #### Union Types
+
 ```pleno
 let result: Int | String = 42;
 result = "error";  // Valid
@@ -112,6 +124,7 @@ fn process(value: Int | Float | String): String {
 ```
 
 #### Optional Types
+
 ```pleno
 let optional: Int? = null;   // Can be Int or null
 let username: String? = "alice";
@@ -127,6 +140,7 @@ let definite = username!;  // Use with caution
 ```
 
 #### Type Guards
+
 ```pleno
 fn processValue(val: Int | String) {
     if (val is Int) {
@@ -139,14 +153,15 @@ fn processValue(val: Int | String) {
 }
 ```
 
-
 ### 1.4 TypeOf Operator ✅
+
 ```pleno
 let x = 42;
 print(typeof(x));  // "Int"
 ```
 
 ### 1.5 Increment & Decrement ✅
+
 ```pleno
 let mut i = 0;
 i++;    // Post-increment (returns 0, i becomes 1)
@@ -160,6 +175,7 @@ arr[0]--;
 ```
 
 ### 1.6 String Interpolation ✅
+
 Strings support interpolation using the `${expression}` syntax. Expressions within `${}` are evaluated and their string representation is embedded in the literal.
 
 ```pleno
@@ -180,6 +196,7 @@ print("Result: ${"nested " + name}");
 ### 2.1 Conditionals ✅
 
 #### If-Else
+
 ```pleno
 if (condition) {
     // code
@@ -194,6 +211,7 @@ let status = if (score >= 60) "Pass" else "Fail";
 ```
 
 #### Pattern Matching (Match Expression) ✅
+
 ```pleno
 match (value) {
     case 0 => print("zero"),
@@ -215,6 +233,7 @@ let category = match (age) {
 ### 2.2 Loops ✅
 
 #### For Loop
+
 ```pleno
 // Traditional for ✅
 for (let i = 0; i < 10; i++) {
@@ -242,6 +261,7 @@ for (i in 0..=10) {     // Inclusive end
 ```
 
 #### While Loop ✅
+
 ```pleno
 while (condition) {
     // code
@@ -254,6 +274,7 @@ do {
 ```
 
 #### Loop Control ✅
+
 ```pleno
 break;        // Exit loop
 continue;     // Skip to next iteration
@@ -273,6 +294,7 @@ outer: for (i in 0..10) {
 ### 3.1 Function Declaration ✅
 
 #### Basic Function
+
 ```pleno
 fn greet(name: String): String {
     return "Hello, " + name;
@@ -291,6 +313,7 @@ fn add(a: Int, b: Int): Int => a + b; ✅
 ```
 
 ### 3.2 Default Parameters ✅
+
 ```pleno
 fn greet(name: String, greeting: String = "Hello"): String {
     return greeting + ", " + name;
@@ -301,6 +324,7 @@ greet("Bob", "Hi");          // "Hi, Bob"
 ```
 
 ### 3.3 Named Parameters
+
 ```pleno
 fn createUser(name: String, age: Int, active: Bool = true) {
     // implementation
@@ -312,6 +336,7 @@ createUser(age: 25, name: "Bob", active: false);
 ```
 
 ### 3.4 Variable Arguments
+
 ```pleno
 fn sum(...numbers: Int[]): Int {
     let total = 0;
@@ -325,6 +350,7 @@ sum(1, 2, 3, 4, 5);  // 15
 ```
 
 ### 3.4.1 Keyword-Only Parameters
+
 ```pleno
 fn add(a: Int, *, b: Int): Int {
     return a + b;
@@ -334,6 +360,7 @@ add(1, b: 2); // OK
 ```
 
 ### 3.5 Higher-Order Functions
+
 ```pleno
 fn applyOperation(x: Int, y: Int, op: (Int, Int) => Int): Int {
     return op(x, y);
@@ -346,6 +373,7 @@ let operation: (Int, Int) => Int = fn(a, b) => a * b;
 ```
 
 ### 3.6 Closures
+
 ```pleno
 fn makeCounter(): () => Int {
     let count = 0;
@@ -361,6 +389,7 @@ print(counter());  // 2
 ```
 
 ### 3.7 Anonymous Functions & Lambdas
+
 ```pleno
 // Anonymous function
 let multiply = fn(x: Int, y: Int): Int {
@@ -386,13 +415,13 @@ class Person {
     // Private fields (truly encapsulated)
     private name: String;
     private age: Int;
-    
+
     // Protected field (accessible in subclasses)
     protected id: String;
-    
+
     // Public field
     public active: Bool;
-    
+
     // Constructor
     constructor(name: String, age: Int) {
         this.name = name;
@@ -400,22 +429,22 @@ class Person {
         this.id = generateId();
         this.active = true;
     }
-    
+
     // Public method
     public fn greet(): String {
         return "Hello, I'm " + this.name;
     }
-    
+
     // Private method
     private fn generateId(): String {
         return "ID_" + Math.random().toString();
     }
-    
+
     // Getter
     public fn getName(): String {
         return this.name;
     }
-    
+
     // Setter with validation
     public fn setAge(newAge: Int) {
         if (newAge >= 0 && newAge <= 150) {
@@ -438,18 +467,18 @@ print(person.active);   // OK: Public field
 ```pleno
 class Circle {
     private radius: Float;
-    
+
     constructor(radius: Float) {
         this.radius = radius;
     }
-    
+
     // Property with getter
     property area: Float {
         get {
             return Math.PI * this.radius * this.radius;
         }
     }
-    
+
     // Property with getter and setter
     property diameter: Float {
         get {
@@ -471,11 +500,11 @@ circle.diameter = 20.0;  // Sets radius to 10
 ```pleno
 class Animal {
     protected name: String;
-    
+
     constructor(name: String) {
         this.name = name;
     }
-    
+
     public fn speak(): String {
         return "Some sound";
     }
@@ -483,18 +512,18 @@ class Animal {
 
 class Dog extends Animal {
     private breed: String;
-    
+
     constructor(name: String, breed: String) {
         super(name);  // Call parent constructor
         this.breed = breed;
     }
-    
+
     // Override parent method
     @override
     public fn speak(): String {
         return "Woof! I'm " + this.name;
     }
-    
+
     public fn getBreed(): String {
         return this.breed;
     }
@@ -509,14 +538,14 @@ print(dog.speak());  // "Woof! I'm Buddy"
 ```pleno
 abstract class Shape {
     protected color: String;
-    
+
     constructor(color: String) {
         this.color = color;
     }
-    
+
     // Abstract method (must be implemented by subclasses)
     abstract fn area(): Float;
-    
+
     // Concrete method
     public fn describe(): String {
         return "A " + this.color + " shape";
@@ -526,13 +555,13 @@ abstract class Shape {
 class Rectangle extends Shape {
     private width: Float;
     private height: Float;
-    
+
     constructor(color: String, width: Float, height: Float) {
         super(color);
         this.width = width;
         this.height = height;
     }
-    
+
     @override
     fn area(): Float {
         return this.width * this.height;
@@ -560,20 +589,20 @@ interface Resizable {
 class Canvas implements Drawable, Resizable {
     private color: String;
     private size: Float;
-    
+
     constructor(color: String, size: Float) {
         this.color = color;
         this.size = size;
     }
-    
+
     fn draw(): Void {
         print("Drawing canvas");
     }
-    
+
     fn getColor(): String {
         return this.color;
     }
-    
+
     fn resize(factor: Float): Void {
         this.size *= factor;
     }
@@ -586,19 +615,19 @@ class Canvas implements Drawable, Resizable {
 class MathUtils {
     // Static constant
     public static const PI: Float = 3.14159;
-    
+
     // Static field
     private static instanceCount: Int = 0;
-    
+
     constructor() {
         MathUtils.instanceCount++;
     }
-    
+
     // Static method
     public static fn square(x: Float): Float {
         return x * x;
     }
-    
+
     public static fn getInstanceCount(): Int {
         return MathUtils.instanceCount;
     }
@@ -906,12 +935,12 @@ try {
 ```pleno
 class ValidationError extends Error {
     private field: String;
-    
+
     constructor(message: String, field: String) {
         super(message);
         this.field = field;
     }
-    
+
     public fn getField(): String {
         return this.field;
     }
@@ -1167,15 +1196,15 @@ let inferred = identity(3.14);  // Type inferred as Float
 ```pleno
 class Box<T> {
     private value: T;
-    
+
     constructor(value: T) {
         this.value = value;
     }
-    
+
     public fn get(): T {
         return this.value;
     }
-    
+
     public fn set(value: T): Void {
         this.value = value;
     }
@@ -1191,7 +1220,7 @@ let strBox = Box<String>("hello");
 // Constraint: T must implement Comparable
 fn findMax<T: Comparable>(items: T[]): T? {
     if (items.isEmpty()) return None;
-    
+
     let max = items[0];
     for (item in items) {
         if (item > max) {
@@ -1220,18 +1249,18 @@ interface Container<T> {
 
 class ArrayList<T> implements Container<T> {
     private items: T[] = [];
-    
+
     fn add(item: T): Void {
         this.items.push(item);
     }
-    
+
     fn get(index: Int): T? {
         if (index >= 0 && index < this.items.length) {
             return Some(this.items[index]);
         }
         return None;
     }
-    
+
     fn size(): Int {
         return this.items.length;
     }
@@ -1332,6 +1361,7 @@ class GameObject {
 ### 13.1 Global Functions ✅
 
 #### `print(...values, sep=" ", end="\n")` ✅
+
 The `print` function outputs values to the standard output. It supports multiple arguments and keyword arguments for custom formatting.
 
 - `values`: Zero or more values to print.
@@ -1344,7 +1374,25 @@ print("A", "B", "C", sep=", ");   // Output: A, B, C\n
 print("A", end="!"); print("B");  // Output: A!B\n
 ```
 
+#### `input(prompt?: String): String` ✅
+
+Reads a line from standard input, optionally printing a prompt message first.
+
+```pleno
+let name = input("Enter name: ");
+let raw = input(); // No prompt
+```
+
+#### `assert(condition: Bool, message?: String): Void` ✅
+
+Throws an error if the condition is false.
+
+```pleno
+assert(x > 0, "x must be positive");
+```
+
 ### 13.2 String Operations
+
 Strings in Pleno provide various methods for manipulation.
 
 ```pleno
@@ -1363,6 +1411,8 @@ str.substring(0, 5);           // "Hello"
 str.charAt(0);                 // "H"
 str.indexOf("o");              // 4
 str.repeat(3);                 // "Hello, World!Hello, World!Hello, World!"
+str.toInt();                   // Convert to Int (e.g. "123" -> 123)
+str.toFloat();                 // Convert to Float (e.g. "12.5" -> 12.5)
 
 // String interpolation
 let name = "Alice";
@@ -1479,7 +1529,7 @@ import { Http } from "std:http";
 // GET request
 async fn fetchData() {
     let response = await Http.get("https://api.example.com/data");
-    
+
     if (response.status == 200) {
         let data = JSON.parse(response.body);
         return data;
@@ -1497,7 +1547,7 @@ async fn createUser(user: User) {
             "Content-Type": "application/json"
         }
     );
-    
+
     return JSON.parse(response.body);
 }
 
@@ -1527,9 +1577,12 @@ let duration = Duration.hours(2);
 let future = now.add(duration);
 let past = now.subtract(Duration.days(7));
 ```
+
     print("date1 is later");
+
 }
-```
+
+````
 
 ### 13.8 Regular Expressions
 
@@ -1558,7 +1611,7 @@ if (match) {
     print(match.group(1));  // "user"
     print(match.group(2));  // "example.com"
 }
-```
+````
 
 ### 13.9 Low-level Networking
 
@@ -1576,21 +1629,21 @@ let connection = Net.connect("example.com:80");
 
 #### Net API Reference
 
-| Method | Signature | Description |
-|--------|-----------|-------------|
-| `listen` | `Net.listen(addr: String) -> Listener` | Bind to address and listen for connections |
-| `connect` | `Net.connect(addr: String) -> Connection` | Connect to a remote TCP endpoint |
+| Method    | Signature                                 | Description                                |
+| --------- | ----------------------------------------- | ------------------------------------------ |
+| `listen`  | `Net.listen(addr: String) -> Listener`    | Bind to address and listen for connections |
+| `connect` | `Net.connect(addr: String) -> Connection` | Connect to a remote TCP endpoint           |
 
 #### Listener Object
 
-| Property | Type | Description |
-|----------|------|-------------|
+| Property  | Type     | Description                                |
+| --------- | -------- | ------------------------------------------ |
 | `address` | `String` | The bound address (e.g., "127.0.0.1:8080") |
 
 #### Connection Object
 
-| Property | Type | Description |
-|----------|------|-------------|
+| Property        | Type     | Description                 |
+| --------------- | -------- | --------------------------- |
 | `remoteAddress` | `String` | The remote endpoint address |
 
 > [!NOTE]
@@ -1605,23 +1658,23 @@ import { describe, test, beforeEach, afterEach, assert } from "std:test";
 
 describe("Math operations", fn() {
     let value = 0;
-    
+
     beforeEach(fn() {
         value = 10;  // Setup before each test
     });
-    
+
     afterEach(fn() {
         value = 0;   // Cleanup after each test
     });
-    
+
     test("addition works", fn() {
         assert.equal(value + 5, 15);
     });
-    
+
     test("subtraction works", fn() {
         assert.equal(value - 3, 7);
     });
-    
+
     describe("edge cases", fn() {
         test("zero handling", fn() {
             assert.equal(value * 0, 0);
@@ -1632,17 +1685,17 @@ describe("Math operations", fn() {
 
 #### Assertions
 
-| Method | Description |
-|--------|-------------|
-| `assert.equal(a, b)` | Deep equality check |
-| `assert.notEqual(a, b)` | Deep inequality check |
-| `assert.true(value)` | Expects value to be `true` |
-| `assert.false(value)` | Expects value to be `false` |
-| `assert.null(value)` | Expects value to be `null` |
-| `assert.notNull(value)` | Expects value to not be `null` |
-| `assert.throws(fn)` | Expects function to throw an error |
+| Method                              | Description                        |
+| ----------------------------------- | ---------------------------------- |
+| `assert.equal(a, b)`                | Deep equality check                |
+| `assert.notEqual(a, b)`             | Deep inequality check              |
+| `assert.true(value)`                | Expects value to be `true`         |
+| `assert.false(value)`               | Expects value to be `false`        |
+| `assert.null(value)`                | Expects value to be `null`         |
+| `assert.notNull(value)`             | Expects value to not be `null`     |
+| `assert.throws(fn)`                 | Expects function to throw an error |
 | `assert.contains(collection, item)` | Checks if collection contains item |
-| `assert.lengthOf(collection, n)` | Checks collection length equals n |
+| `assert.lengthOf(collection, n)`    | Checks collection length equals n  |
 
 ### 13.11 Collection API Reference ✅
 
@@ -1802,27 +1855,27 @@ repeat!(3, {
 class Vector {
     private x: Float;
     private y: Float;
-    
+
     constructor(x: Float, y: Float) {
         this.x = x;
         this.y = y;
     }
-    
+
     // Overload + operator
     operator +(other: Vector): Vector {
         return Vector(this.x + other.x, this.y + other.y);
     }
-    
+
     // Overload * operator (scalar multiplication)
     operator *(scalar: Float): Vector {
         return Vector(this.x * scalar, this.y * scalar);
     }
-    
+
     // Overload == operator
     operator ==(other: Vector): Bool {
         return this.x == other.x && this.y == other.y;
     }
-    
+
     // Overload [] operator
     operator [](index: Int): Float {
         match (index) {
@@ -1849,7 +1902,7 @@ extend String {
     fn reversed(): String {
         return this.split("").reverse().join("");
     }
-    
+
     fn isPalindrome(): Bool {
         return this == this.reversed();
     }
@@ -1881,7 +1934,7 @@ print(numbers.second());  // Some(2)
 class Route {
     public path: String;
     public method: String;
-    
+
     constructor(path: String, method: String = "GET") {
         this.path = path;
         this.method = method;
@@ -1943,7 +1996,7 @@ enum Direction {
     South,
     East,
     West;
-    
+
     fn opposite(): Direction {
         match (this) {
             case Direction.North => return Direction.South,
@@ -2021,25 +2074,25 @@ import { test, assert, describe, beforeEach, afterEach } from "std:test";
 // Test suite
 describe("Calculator", fn() {
     let calc: Calculator;
-    
+
     beforeEach(fn() {
         calc = Calculator();
     });
-    
+
     afterEach(fn() {
         calc = null;
     });
-    
+
     test("should add numbers correctly", fn() {
         let result = calc.add(2, 3);
         assert.equal(result, 5);
     });
-    
+
     test("should handle negative numbers", fn() {
         let result = calc.add(-5, 3);
         assert.equal(result, -2);
     });
-    
+
     test("should throw on division by zero", fn() {
         assert.throws(fn() => calc.divide(10, 0));
     });
@@ -2159,30 +2212,30 @@ import { JSON } from "std:json";
 class TodoManager {
     private todos: Array<Todo> = [];
     private file: String = "todos.json";
-    
+
     constructor() {
         this.load();
     }
-    
+
     fn add(title: String) {
         let todo = Todo(title);
         this.todos.push(todo);
         this.save();
         print("Added: " + title);
     }
-    
+
     fn list() {
         if (this.todos.isEmpty()) {
             print("No todos yet!");
             return;
         }
-        
+
         for (index, todo in this.todos) {
             let status = todo.completed ? "[✓]" : "[ ]";
             print(`${index + 1}. ${status} ${todo.title}`);
         }
     }
-    
+
     fn complete(index: Int) {
         if (index >= 0 && index < this.todos.length) {
             this.todos[index].completed = true;
@@ -2190,7 +2243,7 @@ class TodoManager {
             print("Completed: " + this.todos[index].title);
         }
     }
-    
+
     fn remove(index: Int) {
         if (index >= 0 && index < this.todos.length) {
             let removed = this.todos.remove(index);
@@ -2198,11 +2251,11 @@ class TodoManager {
             print("Removed: " + removed.title);
         }
     }
-    
+
     private fn save() {
         File.write(this.file, JSON.stringify(this.todos));
     }
-    
+
     private fn load() {
         if (File.exists(this.file)) {
             let content = File.read(this.file);
@@ -2214,7 +2267,7 @@ class TodoManager {
 class Todo {
     public title: String;
     public completed: Bool = false;
-    
+
     constructor(title: String) {
         this.title = title;
     }
@@ -2222,12 +2275,12 @@ class Todo {
 
 fn main(args: String[]) {
     let manager = TodoManager();
-    
+
     if (args.length == 0) {
         print("Usage: todo [add|list|complete|remove] ...");
         return;
     }
-    
+
     match (args[0]) {
         case "add" => {
             if (args.length > 1) {
@@ -2253,14 +2306,17 @@ fn main(args: String[]) {
 ---
 
 ## 18. Performance Features ✅
-*Note: Advanced performance features like JIT and advanced GC hints are planned for future releases. Phase 1 optimizations (DCE, Inlining) are implemented.*
+
+_Note: Advanced performance features like JIT and advanced GC hints are planned for future releases. Phase 1 optimizations (DCE, Inlining) are implemented._
 
 ### 18.1 JIT Compilation
+
 - Hot path optimization
 - Automatic inlining of small functions
 - Dead code elimination
 
 ### 18.2 Memory Management
+
 - Generational garbage collection
 - Reference counting for immediate cleanup
 - Optional manual memory hints
@@ -2295,6 +2351,7 @@ fn criticalPath() {
 Pleno is designed with a focus on helpful error messages and developer tooling. The diagnostic system provides clear, "Rust-like" error reporting with source-level spans, multi-label diagnostics, and actionable hints.
 
 ### 19.1 Advanced Diagnostics
+
 ```
 Error: Expected ';' after let statement
    --> file:10:5
@@ -2304,6 +2361,7 @@ Error: Expected ';' after let statement
 ```
 
 The diagnostic system supports:
+
 - **Visual Spans**: Precisely underlining problematic code.
 - **Multiple Labels**: One error can point to multiple related locations in the source.
 - **Hints and Notes**: Providing suggestions for how to fix the error.
@@ -2312,9 +2370,11 @@ The diagnostic system supports:
 ---
 
 ## 20. Security Features ✅
-*Note: Sandboxing, resource limits, and hardened capability-based IO are implemented.*
+
+_Note: Sandboxing, resource limits, and hardened capability-based IO are implemented._
 
 ### 20.1 Safe Defaults
+
 - No implicit type coercion
 - Strict null checking
 - Bounds checking on arrays
@@ -2339,7 +2399,7 @@ try {
         return calculate(data);
     });
 } catch (e) {
-    println("Sandbox violation: " + e.message);
+    print("Sandbox violation: " + e.message);
 }
 ```
 
@@ -2348,6 +2408,7 @@ try {
 ## 21. Conclusion
 
 Pleno is designed to be:
+
 - **Easy to learn**: Familiar syntax, clear semantics
 - **Safe by default**: Strong typing, real encapsulation, memory safety
 - **Powerful**: OOP, functional, and procedural paradigms

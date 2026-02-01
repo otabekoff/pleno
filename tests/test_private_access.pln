@@ -8,11 +8,11 @@ class Secret {
 
 fn main() {
     let s = Secret();
-    println("Getter: " + s.getKey());
+    print("Getter: " + s.getKey());
     try {
-        println("Direct: " + s.key);
+        print("Direct: " + s.key);
     } catch (e) {
-        println("Caught: " + e.message);
+        print("Caught: " + e.message);
     }
 }
 main();

@@ -2,16 +2,16 @@
 fn main() {
     try {
         let x = "5" + 5;
-        println("Result: " + x);
+        print("Result: " + x);
     } catch (e) {
-        println("Caught: " + e.message);
+        print("Caught: " + e.message);
     }
 
     try {
         let y = 1 + "2";
-        println("Result: " + y);
+        print("Result: " + y);
     } catch (e) {
-        println("Caught: " + e.message);
+        print("Caught: " + e.message);
     }
 }
 main();
