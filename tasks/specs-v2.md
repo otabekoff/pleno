@@ -225,4 +225,46 @@ This document tracks known technical debts and areas requiring improvement in Pl
 
 ---
 
+Code Runner extension should support for Pleno programming language.
+
+---
+
+LSP and IDE features. REPL, also colors?.
+
+More comment types?
+
+
+---
+
+New folder called prompts.
+
+---
+
+V2, we'll be the most ideal one.
+
+Add more licenses from rust like githuib stuff.
+
+---
+
+I heard somewhere, making everything Boxed or boexed expressions in programming language is not good way and it makes slow. Is it true? Why? How can we avoid it? Is it possible to avoid it? How can we make it better? Do we have such cases or not? If we have such places, do we need to make them better and avoid or are there the places where they should be like so?
+
+---
+
+To earn at a stage where we can write compiler of Pleno with itself, what should we do?
+
+---
+
+How we can optimize the code?
+
+How we can make Pleno very fast even if it is dynamic?
+
+---
+
+# QUESTIONS
+- To reach self-hosted compiler programming level what we need to do?
+- To make this programming language very fast what we need to do?
+
+
+---
+
 
