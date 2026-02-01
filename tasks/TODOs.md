@@ -3,11 +3,9 @@
 
 ---
 
-OK, continue to semantic highlighting, code actions and test explorer.
+OK, continue with the example projects list, learn and make the Pleno vscode extension well.
 
-Also from the example projects list, learn and make the Pleno vscode extension well.
-
-Go one by one into each of the sample projects and learn. Not to forget which to entered and which is done or not, use tree command in that folder for folders and write output into a file to use as tracking file. And turn into task items like - [ ] and work with each of them. Go into each folder one by one and think, do we need that folder, can we take something or learn something from it, if yes enter, otherwise status skipped, also after marking a folder as done, then make tell what did you get from that folder.
+Go one by one into each of the sample projects and learn. We're using a tracking file if you remember. Go with each of them and learn and apply to our extension. Go into each folder one by one and think, do we need that folder, can we take something or learn something from it, if yes enter, otherwise status skipped, also after marking a folder as done, then make tell what did you get from that folder.
 
 ---
 
