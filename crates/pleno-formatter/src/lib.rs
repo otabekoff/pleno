@@ -148,11 +148,9 @@ impl Formatter {
     fn format_statement(&mut self, stmt: &Stmt, indent_level: usize) -> String {
         let mut result = self.emit_comments_before(stmt.span.start, indent_level);
 
-        // Prepend blank lines
+        // Prepend blank lines (max 1)
         if stmt.leading_blank_lines > 0 {
-            for _ in 0..stmt.leading_blank_lines {
-                result.push('\n');
-            }
+            result.push('\n');
         }
 
         let current_indent = self.indent(indent_level);

@@ -4,6 +4,8 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process;
 
+use chrono::Datelike;
+use pleno_compiler::BuildProfile;
 use pleno_package::{Dependency, DependencyDetail, Manifest};
 
 pub fn run_pleno() {
@@ -86,7 +88,7 @@ pub fn run_pleno() {
                     test_path = arg;
                 }
             }
-            run_tests(&test_path, json_output);
+            run_tests(&test_path, json_output, BuildProfile::Test);
         }
         "debug-ast" => {
             let path = args.next().unwrap_or_else(|| {
@@ -112,7 +114,7 @@ pub fn run_pleno() {
                 eprintln!("Error: 'compile' requires a file path");
                 process::exit(1);
             });
-            compile_file(&path);
+            compile_file(&path, BuildProfile::Debug);
         }
         "watch" => {
             let path = args.next().unwrap_or_else(|| {
@@ -127,7 +129,7 @@ pub fn run_pleno() {
             handle_doc(path.as_deref(), output.as_deref());
         }
         _ => {
-            run_file(&command, None);
+            run_file(&command, None, BuildProfile::Debug);
         }
     }
 }
@@ -150,6 +152,18 @@ fn run_plm_core(args: &mut std::iter::Peekable<std::iter::Skip<std::env::Args>>)
         "run" => handle_plm_run(args),
         "publish" => handle_plm_publish(args),
         "build" => handle_build(args),
+        "test" => {
+            let mut test_path = "sources/tests".to_string();
+            let mut json_output = false;
+            for arg in args.by_ref() {
+                if arg == "--json" {
+                    json_output = true;
+                } else {
+                    test_path = arg;
+                }
+            }
+            run_tests(&test_path, json_output, BuildProfile::Test);
+        }
         "info" => handle_plm_info(args),
         "-h" | "--help" => {
             println!("Pleno Module Manager (plm)");
@@ -222,14 +236,14 @@ pub fn print_help() {
     );
 }
 
-fn run_tests(path: &str, json_output: bool) {
+fn run_tests(path: &str, json_output: bool, profile: BuildProfile) {
     let path_buf = PathBuf::from(path);
     let mut stats = TestStats::default();
 
     if path_buf.is_dir() {
-        run_tests_in_dir(&path_buf, &mut stats, json_output);
+        run_tests_in_dir(&path_buf, &mut stats, json_output, profile);
     } else {
-        run_single_test(&path_buf, &mut stats, json_output);
+        run_single_test(&path_buf, &mut stats, json_output, profile);
     }
 
     if json_output {
@@ -259,20 +273,30 @@ struct TestStats {
     results: Vec<serde_json::Value>,
 }
 
-fn run_tests_in_dir(dir: &PathBuf, stats: &mut TestStats, json_output: bool) {
+fn run_tests_in_dir(
+    dir: &PathBuf,
+    stats: &mut TestStats,
+    json_output: bool,
+    profile: BuildProfile,
+) {
     if let Ok(entries) = fs::read_dir(dir) {
         for entry in entries.flatten() {
             let path = entry.path();
             if path.is_dir() {
-                run_tests_in_dir(&path, stats, json_output);
+                run_tests_in_dir(&path, stats, json_output, profile);
             } else if path.extension().is_some_and(|ext| ext == "pln") {
-                run_single_test(&path, stats, json_output);
+                run_single_test(&path, stats, json_output, profile);
             }
         }
     }
 }
 
-fn run_single_test(path: &PathBuf, stats: &mut TestStats, json_output: bool) {
+fn run_single_test(
+    path: &PathBuf,
+    stats: &mut TestStats,
+    json_output: bool,
+    profile: BuildProfile,
+) {
     let source = match fs::read_to_string(path) {
         Ok(contents) => contents,
         Err(err) => {
@@ -342,8 +366,8 @@ fn run_single_test(path: &PathBuf, stats: &mut TestStats, json_output: bool) {
     let is_expected_compile_error = source.contains("// EXPECT_COMPILE_ERROR");
     let is_expected_runtime_error = source.contains("// EXPECT_RUNTIME_ERROR");
 
-    let mut compiler = pleno_compiler::Compiler::new(source);
-    let chunk = match compiler.compile(&program) {
+    let compiler = pleno_compiler::Compiler::new(source);
+    let chunk = match compiler.with_profile(profile).compile(&program) {
         Ok(chunk) => {
             if is_expected_compile_error {
                 if !json_output {
@@ -479,7 +503,7 @@ fn debug_ast(path: &str) {
     }
 }
 
-fn run_file(path: &str, config: Option<pleno_value::SandboxConfig>) {
+fn run_file(path: &str, config: Option<pleno_value::SandboxConfig>, profile: BuildProfile) {
     use pleno_diagnostics::{DiagnosticReporter, ToDiagnostic};
     if !path.ends_with(".pln") {
         eprintln!("Error: Only .pln format file extensions are supported");
@@ -517,8 +541,8 @@ fn run_file(path: &str, config: Option<pleno_value::SandboxConfig>) {
         }
     };
 
-    let mut compiler = pleno_compiler::Compiler::new(source.clone());
-    let chunk = match compiler.compile(&program) {
+    let compiler = pleno_compiler::Compiler::new(source.clone());
+    let chunk = match compiler.with_profile(profile).compile(&program) {
         Ok(chunk) => chunk,
         Err(err) => {
             eprintln!(
@@ -764,7 +788,7 @@ fn watch_file(path: &str) {
         eprintln!("Error: Only .pln format file extensions are supported");
         process::exit(1);
     }
-    run_file(&path.to_string_lossy(), None);
+    run_file(&path.to_string_lossy(), None, BuildProfile::Debug);
 
     let (tx, rx) = channel();
     let mut watcher: RecommendedWatcher = Watcher::new(tx, Config::default()).unwrap();
@@ -786,7 +810,7 @@ fn watch_file(path: &str) {
                 while rx.try_recv().is_ok() {}
                 print!("\x1B[2J\x1B[1;1H"); // Clear screen
                 println!("File changed. Re-running...");
-                run_file(&path.to_string_lossy(), None);
+                run_file(&path.to_string_lossy(), None, BuildProfile::Debug);
             }
             Ok(Err(e)) => println!("watch error: {:?}", e),
             Err(e) => println!("watch error: {:?}", e),
@@ -794,7 +818,7 @@ fn watch_file(path: &str) {
     }
 }
 
-fn compile_file(path: &str) {
+fn compile_file(path: &str, profile: BuildProfile) {
     if !path.ends_with(".pln") {
         eprintln!("Error: Only .pln format file extensions are supported");
         process::exit(1);
@@ -830,8 +854,8 @@ fn compile_file(path: &str) {
         }
     };
 
-    let mut compiler = pleno_compiler::Compiler::new(source);
-    let chunk = match compiler.compile(&program) {
+    let compiler = pleno_compiler::Compiler::new(source);
+    let chunk = match compiler.with_profile(profile).compile(&program) {
         Ok(chunk) => chunk,
         Err(err) => {
             eprintln!("Compile error: {}", err.diagnostic.message);
@@ -860,12 +884,428 @@ fn handle_init(args: &mut std::iter::Peekable<std::iter::Skip<std::env::Args>>) 
             .and_then(|p| p.file_name().map(|n| n.to_string_lossy().to_string()))
             .unwrap_or_else(|| "my-app".to_string())
     });
-    let manifest = Manifest::new(&name, "0.1.0");
+
+    let mut manifest = Manifest::new(&name, "0.1.0");
+
+    // Add standard scripts
+    manifest
+        .scripts
+        .insert("dev".to_string(), "pleno run src/main.pln".to_string());
+    manifest
+        .scripts
+        .insert("test".to_string(), "plm test".to_string());
+    manifest
+        .scripts
+        .insert("build".to_string(), "plm build".to_string());
+    manifest
+        .scripts
+        .insert("check".to_string(), "pleno check src/main.pln".to_string());
+    manifest
+        .scripts
+        .insert("repl".to_string(), "pleno-repl".to_string());
+
     if let Err(e) = manifest.save_to_file("pleno.toml") {
         eprintln!("Failed to create pleno.toml: {}", e);
         process::exit(1);
     }
-    println!("Created pleno.toml for {}", name);
+
+    // Create src directory and main.pln
+    let src_dir = Path::new("src");
+    if !src_dir.exists() {
+        fs::create_dir_all(src_dir).expect("Failed to create src directory");
+    }
+    let main_pln = src_dir.join("main.pln");
+    if !main_pln.exists() {
+        let content = r#"/// This is the entry point of your Pleno application.
+///
+/// You can run this file using `plm run dev` (defined in pleno.toml)
+/// or explicitly with `pleno run src/main.pln`.
+
+fn main() {
+    // Single-line comment: Define a variable
+    let world = "world!";
+
+    /*
+     * Multi-line comment:
+     * Print the hello message to the standard output.
+     */
+    print("Hello, ", world);
+}
+
+// Run the main function
+main();
+
+// Minimal test case to verify basic functionality
+// Run tests with `plm test`
+#[test]
+fn test_addition() {
+    assert(1 + 1 == 2, "Math should work");
+}
+"#;
+        fs::write(main_pln, content).expect("Failed to create src/main.pln");
+    }
+
+    // Create README.md
+    let readme = Path::new("README.md");
+    if !readme.exists() {
+        let content = format!(
+            r#"# {}
+
+Welcome to your new Pleno project!
+
+## About Pleno
+
+Pleno is a dynamic, type-safe programming language designed for production. It combines modern features with a focus on stability and ease of use.
+
+## Getting Started
+
+The entry point of this project is [`src/main.pln`](./src/main.pln).
+
+### Prerequisites
+
+Ensure you have the Pleno toolchain installed. You can verify this by running:
+
+```bash
+pleno --version
+plm --version
+```
+
+### Commands
+
+This project includes a `pleno.toml` file with standard scripts for your convenience:
+
+- **Run in Development**:
+  ```bash
+  plm run dev
+  ```
+  Or using the default task:
+  ```bash
+  plm run
+  ```
+
+- **Build**:
+  ```bash
+  plm build          # Default (Debug)
+  plm build --debug  # Debug profile
+  plm build --release # Release profile
+  ```
+
+- **Test**:
+  ```bash
+  plm test
+  ```
+  Runs all tests in the project (including the one in `src/main.pln`).
+
+- **Check**:
+  ```bash
+  plm run check
+  ```
+  Checks the syntax and semantics of `src/main.pln`.
+
+- **REPL**:
+  ```bash
+  plm run repl
+  ```
+  Starts the Pleno Read-Eval-Print Loop.
+
+## Documentation
+
+For more information about the Pleno programming language, please visit the [official documentation](https://pleno-lang.org/docs). // Replace with actual URL if different
+"#,
+            name
+        );
+        fs::write(readme, content).expect("Failed to create README.md");
+    }
+
+    // Create LICENSE (MIT)
+    let license = Path::new("LICENSE");
+    if !license.exists() {
+        let content = format!(
+            r#"MIT License
+
+Copyright (c) {} <Your Name/Organization>
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+"#,
+            chrono::Local::now().year()
+        );
+        fs::write(license, content).expect("Failed to create LICENSE");
+    }
+
+    // Create CONTRIBUTING.md
+    let contributing = Path::new("CONTRIBUTING.md");
+    if !contributing.exists() {
+        let content = r#"# Contributing to this Project
+
+We love your input! We want to make contributing to this project as easy and transparent as possible, whether it's:
+
+- Reporting a bug
+- Discussing the current state of the code
+- Submitting a fix
+- Proposing new features
+- Becoming a maintainer
+
+## We Use [Github Flow](https://guides.github.com/introduction/flow/index.html), So All Code Changes Happen Through Pull Requests
+
+Pull requests are the best way to propose changes to the codebase (we use [Github Flow](https://guides.github.com/introduction/flow/index.html)). We actively welcome your pull requests:
+
+1. Fork the repo and create your branch from `main`.
+2. If you've added code that should be tested, add tests.
+3. If you've changed APIs, update the documentation.
+4. Ensure the test suite passes.
+5. Make sure your code lints.
+6. Issue that pull request!
+
+## Any contributions you make will be under the MIT Software License
+
+In short, when you submit code changes, your submissions are understood to be under the same [MIT License](LICENSE) that covers the project. Feel free to contact the maintainers if that's a concern.
+
+## Report bugs using Github's [issue tracker](https://github.com/path/to/repo/issues)
+
+We use GitHub issues to track public bugs. Report a bug by [opening a new issue](); it's that easy!
+"#;
+        fs::write(contributing, content).expect("Failed to create CONTRIBUTING.md");
+    }
+
+    // Create SECURITY.md
+    let security = Path::new("SECURITY.md");
+    if !security.exists() {
+        let content = r#"# Security Policy
+
+## Supported Versions
+
+Use this section to tell people about which versions of your project are currently being supported with security updates.
+
+| Version | Supported          |
+| ------- | ------------------ |
+| 0.1.x   | :white_check_mark: |
+| < 0.1   | :x:                |
+
+## Reporting a Vulnerability
+
+We take the security of our software seriously. If you believe you have found a security vulnerability in this project, please report it to us as described below.
+
+**Please do not report security vulnerabilities through public GitHub issues.**
+
+Instead, please report them via email to [security@example.com](mailto:security@example.com).
+
+You should receive a response within 24 hours. If for some reason you do not, please follow up via email to ensure we received your original message.
+"#;
+        fs::write(security, content).expect("Failed to create SECURITY.md");
+    }
+
+    // Create CHANGELOG.md
+    let changelog = Path::new("CHANGELOG.md");
+    if !changelog.exists() {
+        let content = r#"# Changelog
+
+All notable changes to this project will be documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [Unreleased]
+
+### Added
+- Initial project setup.
+"#;
+        fs::write(changelog, content).expect("Failed to create CHANGELOG.md");
+    }
+
+    // Create CODE_OF_CONDUCT.md
+    let coc = Path::new("CODE_OF_CONDUCT.md");
+    if !coc.exists() {
+        let content = r#"# Contributor Covenant Code of Conduct
+
+## Our Pledge
+
+In the interest of fostering an open and welcoming environment, we as
+contributors and maintainers pledge to making participation in our project and
+our community a harassment-free experience for everyone, regardless of age, body
+size, disability, ethnicity, sex characteristics, gender identity and expression,
+level of experience, education, socio-economic status, nationality, personal
+appearance, race, religion, or sexual identity and orientation.
+
+## Our Standards
+
+Examples of behavior that contributes to creating a positive environment
+include:
+
+* Using welcoming and inclusive language
+* Being respectful of differing viewpoints and experiences
+* Gracefully accepting constructive criticism
+* Focusing on what is best for the community
+* Showing empathy towards other community members
+
+## Enforcement
+
+Instances of abusive, harassing, or otherwise unacceptable behavior may be
+reported by contacting the project team at [email@example.com]. All
+complaints will be reviewed and investigated and will result in a response that
+is deemed necessary and appropriate to the circumstances. The project team is
+obligated to maintain confidentiality with regard to the reporter of an incident.
+"#;
+        fs::write(coc, content).expect("Failed to create CODE_OF_CONDUCT.md");
+    }
+
+    // Create .vscode directory and configs
+    let vscode_dir = Path::new(".vscode");
+    if !vscode_dir.exists() {
+        fs::create_dir_all(vscode_dir).expect("Failed to create .vscode directory");
+    }
+
+    // tasks.json
+    let tasks_json = vscode_dir.join("tasks.json");
+    if !tasks_json.exists() {
+        let content = r#"{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "plm: plm build --debug",
+      "type": "shell",
+      "command": "plm",
+      "args": ["build", "--debug"],
+      "group": "build",
+      "presentation": {
+        "reveal": "always",
+        "panel": "new"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "plm: plm build --release",
+      "type": "shell",
+      "command": "plm",
+      "args": ["build", "--release"],
+      "group": "build",
+      "presentation": {
+        "reveal": "always",
+        "panel": "new"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "plm: plm build --test",
+      "type": "shell",
+      "command": "plm",
+      "args": ["build", "--test"],
+      "group": "test",
+      "presentation": {
+        "reveal": "always",
+        "panel": "new"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "plm: plm build",
+      "type": "shell",
+      "command": "plm",
+      "args": ["build"],
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "plm: plm run dev",
+      "type": "shell",
+      "command": "plm",
+      "args": ["run", "dev"],
+      "presentation": {
+        "reveal": "always",
+        "panel": "shared"
+      },
+      "problemMatcher": []
+    }
+  ]
+}"#;
+        fs::write(tasks_json, content).expect("Failed to create .vscode/tasks.json");
+    }
+
+    // settings.json
+    let settings_json = vscode_dir.join("settings.json");
+    if !settings_json.exists() {
+        let content = r#"{
+  "files.autoSave": "afterDelay",
+  "files.autoSaveDelay": 0,
+  "files.autoSaveWhenNoErrors": true,
+  "files.autoSaveWorkspaceFilesOnly": true,
+  "files.refactoring.autoSave": true,
+  "editor.formatOnSave": true,
+  "editor.formatOnSaveMode": "file",
+  "files.associations": {
+    ".pln": "pleno"
+  },
+  "explorer.fileNesting.enabled": true,
+  "explorer.fileNesting.expand": false,
+  "explorer.fileNesting.patterns": {
+    "*.ts": "${capture}.js",
+    "*.js": "${capture}.js.map, ${capture}.min.js, ${capture}.d.ts",
+    "*.jsx": "${capture}.js",
+    "*.tsx": "${capture}.ts",
+    "tsconfig.json": "tsconfig.*.json",
+    "package.json": "package-lock.json, yarn.lock, pnpm-lock.yaml, bun.lockb, bun.lock",
+    "pubspec.yaml": "pubspec.lock,pubspec_overrides.yaml,.packages,.flutter-plugins,.flutter-plugins-dependencies,.metadata",
+    "*.dart": "${capture}.g.dart",
+    "Cargo.toml": "Cargo.lock",
+    "pleno.toml": "pleno.lock",
+    "README.md": "CONTRIBUTING.*, LICENSE, LICENCE, LICENSE.*, LICENCE.*, COPYING, AUTHORS, MODERATORS, CONTRIBUTORS, SECURITY.*, CHANGELOG, CHANGELOG.*, CODE_OF_CONDUCT.*"
+  }
+}"#;
+        fs::write(settings_json, content).expect("Failed to create .vscode/settings.json");
+    }
+
+    // launch.json
+    let launch_json = vscode_dir.join("launch.json");
+    if !launch_json.exists() {
+        let content = r#"{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "type": "pleno",
+            "request": "launch",
+            "name": "Launch main.pln",
+            "program": "src/main.pln",
+            "stopOnEntry": false
+        }
+    ]
+}"#;
+        fs::write(launch_json, content).expect("Failed to create .vscode/launch.json");
+    }
+
+    // extensions.json
+    let extensions_json = vscode_dir.join("extensions.json");
+    if !extensions_json.exists() {
+        let content = r#"{
+    "recommendations": [
+        "pleno.pleno-language"
+    ]
+}"#;
+        fs::write(extensions_json, content).expect("Failed to create .vscode/extensions.json");
+    }
+
+    println!("Initialized Pleno project: {}", name);
 }
 
 fn handle_install(args: &mut std::iter::Peekable<std::iter::Skip<std::env::Args>>) {
@@ -874,9 +1314,10 @@ fn handle_install(args: &mut std::iter::Peekable<std::iter::Skip<std::env::Args>
     let mut offline = false;
     let mut is_dev = false;
 
-    while let Some(arg) = args.next() {
+    let iter = args.by_ref();
+    while let Some(arg) = iter.next() {
         if arg == "--features" {
-            if let Some(f_list) = args.next() {
+            if let Some(f_list) = iter.next() {
                 for f in f_list.split(',') {
                     features.push(f.to_string());
                 }
@@ -1043,16 +1484,50 @@ fn handle_plm_publish(_args: &mut std::iter::Peekable<std::iter::Skip<std::env::
 }
 
 fn handle_build(args: &mut std::iter::Peekable<std::iter::Skip<std::env::Args>>) {
-    let target = args.next();
+    let mut target = None;
+    // let mut debug = false;
+    let mut release = false;
+    let mut test_mode = false;
+
+    for arg in args.by_ref() {
+        if arg == "--debug" {
+            // debug = true;
+        } else if arg == "--release" {
+            release = true;
+        } else if arg == "--test" {
+            test_mode = true;
+        } else if target.is_none() {
+            target = Some(arg);
+        }
+    }
+
+    let build_profile = if release {
+        BuildProfile::Release
+    } else if test_mode {
+        BuildProfile::Test
+    } else {
+        BuildProfile::Debug
+    };
+
+    println!(
+        "Building for {}...",
+        if release {
+            "release"
+        } else if test_mode {
+            "test"
+        } else {
+            "debug"
+        }
+    );
 
     match target {
         Some(t) if t.ends_with(".pln") => {
-            compile_file(&t);
+            compile_file(&t, build_profile);
         }
         Some(t) => {
             if let Ok(manifest) = Manifest::load_from_file("pleno.toml") {
                 let entry = &manifest.package.main;
-                compile_file(entry);
+                compile_file(entry, build_profile);
             } else {
                 eprintln!("Error: No pleno.toml found and '{}' is not a .pln file", t);
                 process::exit(1);
@@ -1061,7 +1536,7 @@ fn handle_build(args: &mut std::iter::Peekable<std::iter::Skip<std::env::Args>>)
         None => {
             if let Ok(manifest) = Manifest::load_from_file("pleno.toml") {
                 let entry = &manifest.package.main;
-                compile_file(entry);
+                compile_file(entry, build_profile);
             } else {
                 eprintln!(
                     "Error: 'build' requires a target (file or package) and no pleno.toml found"
@@ -1127,34 +1602,35 @@ fn handle_run(args: &mut std::iter::Peekable<std::iter::Skip<std::env::Args>>) {
     let mut allowed_write_paths = Vec::new();
     let mut sandbox_active = false;
 
-    while let Some(arg) = args.next() {
+    let iter = args.by_ref();
+    while let Some(arg) = iter.next() {
         if arg == "--max-memory" {
-            if let Some(m) = args.next() {
+            if let Some(m) = iter.next() {
                 max_memory = m.parse::<usize>().unwrap_or(0);
                 sandbox_active = true;
             }
         } else if arg == "--max-instructions" {
-            if let Some(m) = args.next() {
+            if let Some(m) = iter.next() {
                 max_instructions = m.parse::<u64>().unwrap_or(0);
                 sandbox_active = true;
             }
         } else if arg == "--allow-io" {
-            if let Some(m) = args.next() {
+            if let Some(m) = iter.next() {
                 allow_io = m.parse::<bool>().unwrap_or(true);
                 sandbox_active = true;
             }
         } else if arg == "--allow-network" {
-            if let Some(m) = args.next() {
+            if let Some(m) = iter.next() {
                 allow_network = m.parse::<bool>().unwrap_or(true);
                 sandbox_active = true;
             }
         } else if arg == "--allow-read" {
-            if let Some(m) = args.next() {
+            if let Some(m) = iter.next() {
                 allowed_read_paths.push(m);
                 sandbox_active = true;
             }
         } else if arg == "--allow-write" {
-            if let Some(m) = args.next() {
+            if let Some(m) = iter.next() {
                 allowed_write_paths.push(m);
                 sandbox_active = true;
             }
@@ -1179,7 +1655,7 @@ fn handle_run(args: &mut std::iter::Peekable<std::iter::Skip<std::env::Args>>) {
             };
 
             if t.ends_with(".pln") {
-                run_file(&t, config);
+                run_file(&t, config, BuildProfile::Debug);
             } else {
                 match Manifest::load_from_file("pleno.toml") {
                     Ok(manifest) => {

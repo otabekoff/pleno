@@ -19,6 +19,7 @@ struct Symbol {
     detail: Option<String>,
     #[allow(dead_code)]
     file_path: PathBuf,
+    children: Vec<Symbol>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -80,7 +81,21 @@ impl ServerState {
         let linter = Linter::default();
         let lint_diags = linter.lint(&text);
         for ld in lint_diags {
-            diagnostics.push(json!({
+            let mut related = Vec::new();
+            for ri in ld.related_information {
+                related.push(json!({
+                    "location": {
+                        "uri": ri.file.unwrap_or_else(|| uri.clone()),
+                        "range": {
+                            "start": { "line": ri.line.saturating_sub(1), "character": ri.column.saturating_sub(1) },
+                            "end": { "line": ri.line.saturating_sub(1), "character": ri.column }
+                        }
+                    },
+                    "message": ri.message
+                }));
+            }
+
+            let mut diag = json!({
                 "range": {
                     "start": { "line": ld.line.saturating_sub(1), "character": ld.column.saturating_sub(1) },
                     "end": { "line": ld.line.saturating_sub(1), "character": ld.column }
@@ -91,7 +106,15 @@ impl ServerState {
                     pleno_linter::Severity::Info => 3,
                 },
                 "message": ld.message
-            }));
+            });
+
+            if !related.is_empty() {
+                diag.as_object_mut()
+                    .unwrap()
+                    .insert("relatedInformation".to_string(), json!(related));
+            }
+
+            diagnostics.push(diag);
         }
 
         // Parsing
@@ -662,21 +685,7 @@ pub fn start() -> io::Result<()> {
                         && let Some(text) = state.documents.get(uri_str)
                     {
                         for sym in symbols {
-                            let (start, end) = span_to_range(text, sym.span.start, sym.span.end);
-                            symbols_out.push(json!({
-                                "name": sym.name,
-                                "kind": match sym.kind {
-                                    SymbolKind::Function | SymbolKind::Method => 12, // Function
-                                    SymbolKind::Class => 5, // Class
-                                    SymbolKind::Variable | SymbolKind::Field => 13, // Variable
-                                    _ => 1,
-                                },
-                                "location": {
-                                    "uri": uri_str,
-                                    "range": { "start": start, "end": end }
-                                },
-                                "detail": sym.detail.as_deref().unwrap_or("")
-                            }));
+                            symbols_out.push(symbol_to_json(sym, text, uri_str));
                         }
                     }
 
@@ -1061,6 +1070,7 @@ fn extract_symbols(program: &Program, file_path: &Path) -> Vec<Symbol> {
                     span: stmt.span,
                     detail: Some(detail),
                     file_path: file_path.to_path_buf(),
+                    children: vec![],
                 });
             }
             StmtKind::Class {
@@ -1069,36 +1079,41 @@ fn extract_symbols(program: &Program, file_path: &Path) -> Vec<Symbol> {
                 fields,
                 ..
             } => {
+                let mut class_children = Vec::new();
+
+                // Index methods
+                for method in methods {
+                    let detail = format!("method {}(...)", method.name);
+                    class_children.push(Symbol {
+                        name: method.name.clone(),
+                        kind: SymbolKind::Method,
+                        span: method.body.span, // Use body span as fallback
+                        detail: Some(detail),
+                        file_path: file_path.to_path_buf(),
+                        children: vec![],
+                    });
+                }
+
+                // Index fields
+                for field in fields {
+                    class_children.push(Symbol {
+                        name: field.name.clone(),
+                        kind: SymbolKind::Field,
+                        span: stmt.span, // Fallback to class span
+                        detail: Some(format!("field {}", field.name)),
+                        file_path: file_path.to_path_buf(),
+                        children: vec![],
+                    });
+                }
+
                 symbols.push(Symbol {
                     name: name.clone(),
                     kind: SymbolKind::Class,
                     span: stmt.span,
                     detail: Some(format!("class {}", name)),
                     file_path: file_path.to_path_buf(),
+                    children: class_children,
                 });
-
-                // Index methods
-                for method in methods {
-                    let detail = format!("method {}.{}(...)", name, method.name);
-                    symbols.push(Symbol {
-                        name: method.name.clone(),
-                        kind: SymbolKind::Method,
-                        span: method.body.span, // Use body span as fallback
-                        detail: Some(detail),
-                        file_path: file_path.to_path_buf(),
-                    });
-                }
-
-                // Index fields
-                for field in fields {
-                    symbols.push(Symbol {
-                        name: field.name.clone(),
-                        kind: SymbolKind::Field,
-                        span: stmt.span, // Fallback to class span as FieldDecl lacks span
-                        detail: Some(format!("field {}.{}", name, field.name)),
-                        file_path: file_path.to_path_buf(),
-                    });
-                }
             }
             StmtKind::Interface { name, .. } => {
                 symbols.push(Symbol {
@@ -1107,6 +1122,7 @@ fn extract_symbols(program: &Program, file_path: &Path) -> Vec<Symbol> {
                     span: stmt.span,
                     detail: Some(format!("interface {}", name)),
                     file_path: file_path.to_path_buf(),
+                    children: vec![],
                 });
             }
             StmtKind::Let { name, ty, .. } => {
@@ -1117,6 +1133,7 @@ fn extract_symbols(program: &Program, file_path: &Path) -> Vec<Symbol> {
                     span: stmt.span,
                     detail: Some(format!("let {}: {}", name, t)),
                     file_path: file_path.to_path_buf(),
+                    children: vec![],
                 });
             }
             _ => {}
@@ -1347,6 +1364,49 @@ fn add_token_from_span(
             token_modifiers: modifiers,
         });
     }
+}
+
+fn symbol_to_json(sym: &Symbol, text: &str, uri: &str) -> Value {
+    let (start, end) = span_to_range(text, sym.span.start, sym.span.end);
+    let mut children = Vec::new();
+    for child in &sym.children {
+        children.push(symbol_to_json(child, text, uri));
+    }
+
+    let mut map = serde_json::Map::new();
+    map.insert("name".to_string(), json!(sym.name));
+    map.insert(
+        "location".to_string(),
+        json!({
+            "uri": uri,
+            "range": {
+                "start": start,
+                "end": end
+            }
+        }),
+    );
+    map.insert(
+        "kind".to_string(),
+        json!(match sym.kind {
+            SymbolKind::Function | SymbolKind::Method => 12, // Function
+            SymbolKind::Class => 5,                          // Class
+            SymbolKind::Variable | SymbolKind::Field => 13,  // Variable
+            SymbolKind::Interface => 11,                     // Interface
+        }),
+    );
+    map.insert("range".to_string(), json!({ "start": start, "end": end }));
+    map.insert(
+        "selectionRange".to_string(),
+        json!({ "start": start, "end": end }),
+    );
+    if let Some(detail) = &sym.detail {
+        map.insert("detail".to_string(), json!(detail));
+    }
+    if !children.is_empty() {
+        map.insert("children".to_string(), json!(children));
+    }
+
+    Value::Object(map)
 }
 
 fn get_word_at_position(source: &str, line: u32, character: u32) -> Option<String> {

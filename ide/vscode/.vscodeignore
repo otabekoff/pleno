@@ -6,4 +6,7 @@ node_modules/**
 src/**
 tsconfig.json
 .eslintrc.json
-!out/**
+esbuild.js
+*.vsix
+!out/extension.js
+!out/**/*.js

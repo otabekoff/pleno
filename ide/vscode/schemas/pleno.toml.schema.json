@@ -1,0 +1,141 @@
+{
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "Pleno Manifest Schema",
+    "type": "object",
+    "required": [
+        "package"
+    ],
+    "properties": {
+        "package": {
+            "type": "object",
+            "required": [
+                "name",
+                "version"
+            ],
+            "properties": {
+                "name": {
+                    "type": "string",
+                    "description": "The name of the package"
+                },
+                "version": {
+                    "type": "string",
+                    "description": "The version of the package"
+                },
+                "description": {
+                    "type": "string",
+                    "description": "A short description of the package"
+                },
+                "main": {
+                    "type": "string",
+                    "default": "src/main.pln",
+                    "description": "The entry point of the package"
+                }
+            }
+        },
+        "scripts": {
+            "type": "object",
+            "additionalProperties": {
+                "type": "string"
+            },
+            "description": "Custom scripts that can be run with 'plm run <script>'"
+        },
+        "features": {
+            "type": "object",
+            "additionalProperties": {
+                "type": "array",
+                "items": {
+                    "type": "string"
+                }
+            },
+            "description": "Optional features for the package"
+        },
+        "dependencies": {
+            "type": "object",
+            "additionalProperties": {
+                "oneOf": [
+                    {
+                        "type": "string",
+                        "description": "A version requirement string"
+                    },
+                    {
+                        "type": "object",
+                        "properties": {
+                            "version": {
+                                "type": "string"
+                            },
+                            "git": {
+                                "type": "string"
+                            },
+                            "path": {
+                                "type": "string"
+                            },
+                            "branch": {
+                                "type": "string"
+                            },
+                            "tag": {
+                                "type": "string"
+                            },
+                            "rev": {
+                                "type": "string"
+                            },
+                            "optional": {
+                                "type": "boolean"
+                            },
+                            "features": {
+                                "type": "array",
+                                "items": {
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    }
+                ]
+            },
+            "description": "Runtime dependencies"
+        },
+        "dev-dependencies": {
+            "type": "object",
+            "additionalProperties": {
+                "oneOf": [
+                    {
+                        "type": "string",
+                        "description": "A version requirement string"
+                    },
+                    {
+                        "type": "object",
+                        "properties": {
+                            "version": {
+                                "type": "string"
+                            },
+                            "git": {
+                                "type": "string"
+                            },
+                            "path": {
+                                "type": "string"
+                            },
+                            "branch": {
+                                "type": "string"
+                            },
+                            "tag": {
+                                "type": "string"
+                            },
+                            "rev": {
+                                "type": "string"
+                            },
+                            "optional": {
+                                "type": "boolean"
+                            },
+                            "features": {
+                                "type": "array",
+                                "items": {
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    }
+                ]
+            },
+            "description": "Development dependencies"
+        }
+    }
+}
