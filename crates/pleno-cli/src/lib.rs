@@ -367,7 +367,8 @@ fn run_file(path: &str, config: Option<pleno_value::SandboxConfig>) {
     let tokens = match pleno_lexer::lex(&source) {
         Ok(tokens) => tokens,
         Err(err) => {
-            let diagnostic = pleno_diagnostics::Diagnostic::new(&err.message, err.span);
+            let diagnostic =
+                pleno_diagnostics::Diagnostic::error(&err.message).with_label(err.span, "");
             eprintln!(
                 "{}",
                 pleno_diagnostics::DiagnosticReporter::report(&diagnostic, &source)
@@ -380,7 +381,8 @@ fn run_file(path: &str, config: Option<pleno_value::SandboxConfig>) {
     let program = match parser.parse_program() {
         Ok(program) => program,
         Err(err) => {
-            let diagnostic = pleno_diagnostics::Diagnostic::new(&err.message, err.span);
+            let diagnostic =
+                pleno_diagnostics::Diagnostic::error(&err.message).with_label(err.span, "");
             eprintln!(
                 "{}",
                 pleno_diagnostics::DiagnosticReporter::report(&diagnostic, &source)
@@ -409,7 +411,8 @@ fn run_file(path: &str, config: Option<pleno_value::SandboxConfig>) {
         Ok(Ok(_)) => {}
         Ok(Err(err)) => {
             if let Some(span) = err.span {
-                let diagnostic = pleno_diagnostics::Diagnostic::new(&err.message, span);
+                let diagnostic =
+                    pleno_diagnostics::Diagnostic::error(&err.message).with_label(span, "");
                 eprintln!(
                     "{}",
                     pleno_diagnostics::DiagnosticReporter::report(&diagnostic, &source)

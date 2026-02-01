@@ -711,8 +711,8 @@ impl VM {
                 .last_mut()
                 .ok_or_else(|| RuntimeError::new("no frame"))?;
             let instruction = self.functions[frame.function_index].chunk.code[frame.ip].clone();
-            let opcode = instruction.opcode();
-            println!("VM::run_step: ip={:04} {:?}", frame.ip, opcode);
+            let _opcode = instruction.opcode();
+            // println!("VM::run_step: ip={:04} {:?}", frame.ip, _opcode);
 
             self.instruction_count += 1;
             if self.instruction_count.is_multiple_of(100)

@@ -303,6 +303,7 @@ fn deep_equal(a: &Value, b: &Value) -> bool {
         (Value::Int(a), Value::Int(b)) => a == b,
         (Value::Float(a), Value::Float(b)) => (a - b).abs() < f64::EPSILON,
         (Value::String(a), Value::String(b)) => a == b,
+        (Value::Char(a), Value::Char(b)) => a == b,
         (Value::Array(a), Value::Array(b)) => {
             let a = a.borrow();
             let b = b.borrow();

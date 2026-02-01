@@ -4,6 +4,7 @@ http://localhost:5173/pleno/specs/ is showing next page to introduction which is
 
 csv, sqlite3 or latest
 
+Unicode, emoji.
 Let's do bench. Make bench folder benchmark project reporting about benchmarking of Pleno. Reports. Not only speed tests. Also, we need to compare with other languages like Python, Rust, Go, Kotlin, C, C++, Java, JavaScript, TypeScript, etc.
 
 Optimizations and error management in Pleno in a structured way, aslo fix the showing line numbers like Rust or other thing?
@@ -191,20 +192,6 @@ Work on #[test]
 ----
 
 ## Roadmap Items (From ROADMAP.md)
-
-
-Now, these tasks of the stage are partially done. Nork on it and make it complete. add/edit/update/upgrade/fix/bugfix/implement/make changes/review/test/document:
-
-### Stage 14 - v1 Hardening (Started)
-
-- **Test suite expansion**: **Started** (Formatter tests enabled).
-- **Error messages**: **Partial**.
-- **Performance benchmarking**: **Missing**.
-- **Documentation completion**: **Missing**.
-
-**Decision**: I recommend we proceed by adding **Benchmarks** (Stage 14 performance) or expanding **Test Coverage** (Stage 14 hardening) next, as strictly requested in the previous turn.
-
----
 
 ## Next Steps
 
