@@ -10,3 +10,4 @@
 .logs/
 docs/.vitepress/dist
 docs/.vitepress/cachetemp/
+docs/.vitepress/cache/
