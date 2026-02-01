@@ -18,8 +18,8 @@ This document consolidates identified technical debt and implementation gaps fou
 
 - [x] **Named Arguments**: Parser supports named arguments (`f(x: 1)`), and they are correctly handled by the compiler and VM.
 - [x] **Keyword-only Arguments**: Parser, compiler, and VM support for keyword-only arguments (`fn f(a, *, b)`) is fully implemented and tested.
-- [ ] **Generic Constraints**: `T: Comparable` is parsed but not enforced.
+- [x] **Generic Constraints**: `T: Comparable` is parsed giving validation error in VM if not satisfied. Confirmed working with generic resolution fixes.
 
 ## Stdlib
 
-- [ ] **Rich API**: Collections (Map, Set, Array) need more comprehensive built-in methods (currently relying heavily on VM-level opcodes).
+- [x] **Rich API**: Collections (Map, Set, Array) have comprehensive built-in methods (`map`, `filter`, `reduce`, `flatMap`, `every`, `some`, `entries`, `keys`, `values`, `union`, `intersection`, `difference`, etc.).

@@ -1,4 +1,9 @@
-everytime after doing the tasks, if working according to or by tracking files, then don't forget to update them.
+We're not just creating a programming language. We're creating a production level, dynamic and type safe programming language that works. Unlike python it will have real encapsulation, constants and unlike other programming languages and python Pleno will have modern features and it fixes many things other programming languages doesn't have and inspires many best features from other pogramming languages. And it should be stable, based on specs and rules and ready for production.
+
+
+Now, these tasks of the stage are partially done. Nork on it and make it complete. add/edit/update/upgrade/fix/bugfix/implement/make changes/review/test/document.
+
+Everytime after doing the tasks, if working according to or by tracking files, then don't forget to update them.
 
 Always update the docs.
 
@@ -42,3 +47,5 @@ Always check for problems tab. Mainly at the end of finishing response. Fix them
 Don't do `2>&1` or `| head -n 50` like endings of commands if not needed.
 
 Don't use `sed` command to replace contents if you are not sure and there is danger of this.
+
+Eyes are coward, hands are heroes. The eye is afraid, but the hand is brave. Fear looks bigger than it really is. It’s not as hard as it looks. Once you start, it’s easier. The hardest part is getting started. Something looks scary or difficult at first, but when you actually start doing it, it turns out to be manageable. And the thing you're escaping will be the thing that you need in most cases. So, don't escape from implementing, refactring and making great results.

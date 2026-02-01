@@ -650,6 +650,9 @@ pub fn resolve_builtin_method(ty: &str, name: &str) -> Option<pleno_value::Nativ
         ("Array", "reduce") => Some(native_array_reduce),
         ("Array", "forEach") => Some(native_array_for_each),
         ("Array", "reverse") => Some(native_array_reverse),
+        ("Array", "flatMap") => Some(native_array_flat_map),
+        ("Array", "every") => Some(native_array_every),
+        ("Array", "some") => Some(native_array_some),
         ("Array", "sort") => Some(native_array_sort),
         ("Array", "contains") => Some(native_array_contains),
         ("Array", "indexOf") => Some(native_array_index_of),
@@ -1267,6 +1270,70 @@ fn native_array_for_each(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Valu
     }
     Ok(Value::Null)
 }
+
+fn native_array_flat_map(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    let arr = match &args[0] {
+        Value::Array(a) => a.clone(),
+        _ => return Err(RuntimeError::new("expected array")),
+    };
+    let cb = args
+        .get(1)
+        .cloned()
+        .ok_or_else(|| RuntimeError::new("flatMap expects callback"))?;
+    let items = arr.borrow().elements.clone();
+    let mut results = Vec::new();
+    for item in items {
+        let res = vm.call(cb.clone(), vec![item])?;
+        match res {
+            Value::Array(inner) => {
+                results.extend(inner.borrow().elements.clone());
+            }
+            _ => results.push(res),
+        }
+    }
+    Ok(Value::Array(
+        vm.get_gc().allocate(ArrayState::new(results))?,
+    ))
+}
+
+fn native_array_every(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    let arr = match &args[0] {
+        Value::Array(a) => a.clone(),
+        _ => return Err(RuntimeError::new("expected array")),
+    };
+    let cb = args
+        .get(1)
+        .cloned()
+        .ok_or_else(|| RuntimeError::new("every expects callback"))?;
+    let items = arr.borrow().elements.clone();
+    for item in items {
+        let res = vm.call(cb.clone(), vec![item])?;
+        if !is_truthy(&res) {
+            return Ok(Value::Bool(false));
+        }
+    }
+    Ok(Value::Bool(true))
+}
+
+fn native_array_some(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    let arr = match &args[0] {
+        Value::Array(a) => a.clone(),
+        _ => return Err(RuntimeError::new("expected array")),
+    };
+    let cb = args
+        .get(1)
+        .cloned()
+        .ok_or_else(|| RuntimeError::new("some expects callback"))?;
+    let items = arr.borrow().elements.clone();
+    for item in items {
+        let res = vm.call(cb.clone(), vec![item])?;
+        if is_truthy(&res) {
+            return Ok(Value::Bool(true));
+        }
+    }
+    Ok(Value::Bool(false))
+}
+
 fn native_array_reverse(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
     let arr = match &args[0] {
         Value::Array(a) => a,
@@ -1274,7 +1341,7 @@ fn native_array_reverse(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Valu
     };
     arr.borrow().ensure_mutable()?;
     arr.borrow_mut().elements.reverse();
-    Ok(Value::Null)
+    Ok(args[0].clone())
 }
 fn native_array_sort(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
     let arr = match &args[0] {

@@ -1,11 +1,6 @@
 ## Priority: Standard Library & GC Integration
 
-
-Now, these tasks of the stage are partially done. Nork on it and make it complete. add/edit/update/upgrade/fix/bugfix/implement/make changes/review/test/document.
-
 Optimizations and error management in Pleno in a structured way, aslo fix the showing line numbers like Rust or other thing?
-
-We're not just creating a programming language. We're creating a production level, dynamic and type safe programming language that works. Unlike python it will have real encapsulation, constants and unlike other programming languages and python Pleno will have modern features and it fixes many things other programming languages doesn't have and inspires many best features from other pogramming languages. And it should be stable, based on specs and rules and ready for production.
 
 ---
 
@@ -30,6 +25,7 @@ Remove debug logs.
 
 Code Runner extension should support for Pleno programming language.
 
+---
 
 Now, as we have finished v1 of the Pleno programming langguage, I want you to fully think and write, plan the next v2 of Pleno programming language. We need V2 roadmap, v2-specs.md. Here we'll add better features, make the old and inconsistent things enhanced, better, implement new features and support many things, more stdlibs. and many more. Think more and write detailed, Things will be added, upgraded, updated, fixed, supported.
 
@@ -41,8 +37,6 @@ Better error reporting like Rust's.
 
 More comment types?
 
-end, sep and others?
-
 V1 missing things noti implemented, deferred, technical debts should be identifed and should be saved to one file. v1-last-tasks.md
 
 Scripts, management tools, makefile better vesrion. Organize the project.
@@ -50,8 +44,6 @@ Scripts, management tools, makefile better vesrion. Organize the project.
 Move to new version of taks management in tasks folder. New workflow.
 
 More examples. Benchmark. IDE Features.
-
-
 
 Clean the project sources folder.
 
@@ -64,8 +56,6 @@ New folder called prompts.
 V2, we'll be the most ideal one.
 
 Add more licenses from rust like githuib stuff.
-
-Also, do we have support for more than one print stuff parameters like in python  wiith comma and other programming languages? Endless? Look, should we add it or our programmign language design is different and has such thing support in another way? Or better solution? What about println? What about sep, end and other such things to print? Think about this and should we add them?
 
 I heard somewhere, making everything Boxed or boexed expressions in programming language is not good way and it makes slow. Is it true? Why? How can we avoid it? Is it possible to avoid it? How can we make it better? Do we have such cases or not? If we have such places, do we need to make them better and avoid or are there the places where they should be like so?
 
@@ -107,20 +97,16 @@ Via Claude AI generate V2 specs. Upgrades/updates/news/critical and breakign cha
 
 AI model's generation exceeded the maximum output token limit like error might happen and couldn't do some works, or execution tool may have failed in some cases and some changes might not have been applied.
 
-Instruction to AI:
-Eyes are coward, hands are heroes. The eye is afraid, but the hand is brave. Fear looks bigger than it really is. It’s not as hard as it looks. Once you start, it’s easier. The hardest part is getting started. Something looks scary or difficult at first, but when you actually start doing it, it turns out to be manageable. And the thing you're escaping will be the thing that you need in most cases. So, don't escape from implementing, refactring and making great results.
+
 
 Add benching, reporting. Pleno vs Python vs JS vs TS vs Java vs C++ vs C vs Rust vs Kotlin. Speed and other tests? Builtin time tracking tests vs outer command execution time tests. Languages' inner time trackers may differ, so we need some command prompt/terminal tool?
 
-To reach self-hosted compiler programming level what we need to do?
-
-To make this programming language very fast what we need to do?
-
-To make this programming language very stable what we need to do?
-
-To make this programming language complete what we need to do?
-
-To make this programming language all platforms supported and very good tooling what we need to do?
+# QUESTIONS
+- To reach self-hosted compiler programming level what we need to do?
+- To make this programming language very fast what we need to do?
+- To make this programming language very stable what we need to do?
+- To make this programming language complete what we need to do?
+- To make this programming language all platforms supported and very good tooling what we need to do?
 
 Now it is time to renew/fefresh the specs.md with what our programming language has and can do.
 
