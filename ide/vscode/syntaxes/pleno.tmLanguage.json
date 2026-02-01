@@ -1,6 +1,6 @@
 {
   "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
-	"name": "Pleno",
+  "name": "Pleno",
   "scopeName": "source.pleno",
   "patterns": [
     {
@@ -74,15 +74,11 @@
       "patterns": [
         {
           "name": "keyword.control.pleno",
-          "match": "\\b(let|const|mut|fn|return|if|else|for|while|match|class|interface|enum|import|export|async|await|try|catch|finally|throw|abstract|implements|extends|constructor|property|get|set|static|override|case|do|label|break|continue|typeof)\\b"
+          "match": "\\b(let|const|mut|fn|return|if|else|for|while|match|class|interface|enum|import|from|as|export|module|case|do|label|break|continue|try|catch|finally|throw|abstract|implements|extends|constructor|property|get|set|static|override|label|typeof|extend|operator|macro|lazy|move|type|where|yield|implicit|explicit|init|deinit|del|global|nonlocal|struct|union|is|in|new)\\b"
         },
         {
           "name": "storage.modifier.pleno",
-          "match": "\\b(public|private|protected|internal|mut|const|static|abstract|override|deep|immutable)\\b"
-        },
-        {
-          "name": "keyword.operator.logical.pleno",
-          "match": "\\b(is|as|in)\\b"
+          "match": "\\b(public|private|protected|internal|static|abstract|override|deep|readonly|required|virtual|implicit|explicit|global|nonlocal|mut|const|immutable)\\b"
         }
       ]
     },
@@ -90,7 +86,7 @@
       "patterns": [
         {
           "name": "storage.type.pleno",
-          "match": "\\b(Int|Float|String|Bool|Char|Void|Any|Null|Map|Set|Promise|Result|Option)\\b"
+          "match": "\\b(Int|Float|String|Bool|Char|Void|Any|Null|Map|Set|Promise|Result|Option|Self|self)\\b"
         }
       ]
     },
@@ -110,11 +106,11 @@
         },
         {
           "name": "keyword.operator.arrow.pleno",
-          "match": "=>"
+          "match": "=>|->"
         },
         {
           "name": "keyword.operator.range.pleno",
-          "match": "\\.\\.=?|\\.\\."
+          "match": "\\.\\.=?|\\.\\.\\.?"
         },
         {
           "name": "keyword.operator.comparison.pleno",
@@ -126,15 +122,19 @@
         },
         {
           "name": "keyword.operator.arithmetic.pleno",
-          "match": "\\+|\\-|\\*|/|%"
+          "match": "\\+|\\-|\\*|/|%|\\+\\+|\\-\\-"
         },
         {
           "name": "keyword.operator.logical.pleno",
           "match": "&&|\\|\\||!"
         },
         {
+          "name": "keyword.operator.bitwise.pleno",
+          "match": "&|\\||\\^|~|<<|>>"
+        },
+        {
           "name": "keyword.operator.other.pleno",
-          "match": "\\?|\\!|\\*"
+          "match": "\\?|\\!|\\*|@|#|\\$"
         }
       ]
     },

@@ -5,13 +5,16 @@ Official VS Code extension for the [Pleno programming language](https://github.c
 ## Features
 
 ### Syntax Highlighting
+
 Full syntax highlighting support for `.pln` files, including:
+
 - Keywords, operators, and control flow
 - Functions, classes, and interfaces
 - Strings, numbers, and comments
 - Type annotations
 
 ### Code Snippets
+
 Quick insertion of common Pleno constructs:
 | Prefix | Description |
 |--------|-------------|
@@ -19,52 +22,66 @@ Quick insertion of common Pleno constructs:
 | `fnr` | Function with return type |
 | `class` | Class declaration |
 | `classex` | Class with extends |
-| `interface` | Interface declaration |
-| `enum` | Enum declaration |
+| `prop` | Property declaration |
+| `get` / `set` | Getter / Setter declaration |
+| `op` | Operator overload |
+| `macro` | Macro declaration |
 | `for` | For-in loop |
-| `forr` | For range loop |
 | `while` | While loop |
 | `if` / `ife` | If / If-else statement |
-| `match` | Match expression |
-| `import` | Import statement |
-| `try` | Try-catch block |
-| `let` / `const` / `mut` | Variable declarations |
+| `tryf` | Try-catch-finally block |
 
 ### Language Server (LSP)
+
 - **Diagnostics**: Real-time syntax error reporting
-- **Go to Definition**: Navigate to function, class, and variable definitions (works across files!)
-- **Hover Information**: View symbol kind and signature on hover
+- **Go to Definition**: Navigate to function, class, and variable definitions
+- **Hover Information**: View symbol signatures on hover
+- **Activation Alert**: Notifies you if the LSP is found and where
+
+### Commands
+
+- **Run Current File**: Execute the active `.pln` file in the terminal.
+- **Check Current File**: Perform a static check of the active file.
+- **Restart Server**: Manually restart the Pleno Language Server.
 
 ### Markdown Support
-Syntax highlighting in Markdown fenced code blocks using ` ```pleno ` or ` ```pln `.
+
+Full syntax highlighting in Markdown fenced code blocks using ` ```pleno ` or ` ```pln `.
 
 ### File Icons
-Custom file icons for `.pln` files (requires selecting "Pleno File Icons" in File Icon Theme settings).
+
+Custom file icons for `.pln` and `.pleno` files.
 
 ## Installation
 
-### 1. Install Libraries (LSP)
-To get the full experience (diagnostics, hover, go-to-definition), you need to install the Pleno binaries.
+### 1. Install Pleno CLI & LSP
 
-1.  Clone the repository.
-2.  Run the installer:
-    ```powershell
-    magke install
-    # OR 
-    pwsh -File tasks/install.ps1
-    ```
-    This builds the tools and adds them to your `%USERPROFILE%\.pleno\bin` in PATH.
+The extension requires `pleno` and `pleno-lsp` to be in your PATH.
+
+1.  Clone the [Pleno repository](https://github.com/otabekoff/pleno).
+2.  Install via Makefile: `make install`.
 
 ### 2. Install Extension
-1.  Run `npm install` and `npm run pack` in `ide/vscode`.
-2.  Install the generated `.vsix` in VS Code.
+
+1.  Open the "Extensions" view in VS Code (`Ctrl+Shift+X`).
+2.  Search for "Pleno" or install from VSIX.
 
 ## Configuration
 
-The extension automatically looks for `pleno-lsp` in your system PATH. If not found, it tries to use the local development build in `target/release`.
+You can configure the extension in `settings.json`:
+
+```json
+{
+  "pleno.lsp.path": "pleno-lsp",
+  "pleno.trace.server": "messages"
+}
+```
+
+## Icons
 
 To enable Pleno file icons:
-3. Select "Pleno File Icons" in "Preferences: File Icon Theme".
+
+1. Select "Pleno" in "Preferences: File Icon Theme".
 
 ## Links
 

@@ -2,7 +2,7 @@
   "name": "pleno-language",
   "displayName": "Pleno Language Support",
   "description": "Pleno Programming Language Support Extension for VSCode with Syntax highlighting for Pleno (.pln)",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "publisher": "pleno",
   "icon": "resources/icon.png",
   "engines": {
@@ -16,6 +16,10 @@
     "type": "git",
     "directory": "ide/vscode"
   },
+  "homepage": "https://github.com/otabekoff/pleno#readme",
+  "bugs": {
+    "url": "https://github.com/otabekoff/pleno/issues"
+  },
   "main": "out/extension.js",
   "scripts": {
     "compile": "tsc -p ./",
@@ -23,7 +27,8 @@
     "pretest": "npm run compile && npm run lint",
     "lint": "eslint src --ext ts",
     "test": "node ./out/test/runTest.js",
-    "pack": "vsce package && antigravity --install-extension pleno-language-0.0.1.vsix"
+    "pack": "vsce package && antigravity --install-extension pleno-language-0.1.0.vsix",
+    "all": "npm run pretest && npm run pack"
   },
   "devDependencies": {
     "@types/node": "25.x",
@@ -34,8 +39,10 @@
     "typescript": "^5.9.3"
   },
   "activationEvents": [
+    "onLanguage:pleno",
     "onCommand:markdown.showPreview",
-    "onCommand:markdown.showPreviewToSide"
+    "onCommand:markdown.showPreviewToSide",
+    "workspaceContains:**/*.pln"
   ],
   "contributes": {
     "languages": [
@@ -56,11 +63,50 @@
         "id": "pleno",
         "label": "Pleno",
         "path": "./resources/file-icons.json"
+      }
+    ],
+    "snippets": [
+      {
+        "language": "pleno",
+        "path": "./snippets/pleno.json"
+      }
+    ],
+    "configuration": {
+      "type": "object",
+      "title": "Pleno",
+      "properties": {
+        "pleno.lsp.path": {
+          "type": "string",
+          "default": "pleno-lsp",
+          "description": "Path to the Pleno Language Server executable."
+        },
+        "pleno.trace.server": {
+          "type": "string",
+          "enum": [
+            "off",
+            "messages",
+            "verbose"
+          ],
+          "default": "off",
+          "description": "Traces the communication between VS Code and the Pleno Language Server."
+        }
+      }
+    },
+    "commands": [
+      {
+        "command": "pleno.runFile",
+        "title": "Pleno: Run Current File",
+        "category": "Pleno"
       },
       {
-        "id": "pleno-material",
-        "label": "Pleno (Material)",
-        "path": "./resources/file-icons-material.json"
+        "command": "pleno.checkFile",
+        "title": "Pleno: Check Current File",
+        "category": "Pleno"
+      },
+      {
+        "command": "pleno.restartServer",
+        "title": "Pleno: Restart Language Server",
+        "category": "Pleno"
       }
     ],
     "grammars": [

@@ -193,6 +193,62 @@
         ],
         "description": "Pleno println statement"
     },
+    "Property": {
+        "prefix": "prop",
+        "body": [
+            "property ${1:name}: ${2:Type};"
+        ],
+        "description": "Pleno property declaration"
+    },
+    "Getter": {
+        "prefix": "get",
+        "body": [
+            "get ${1:name}() {",
+            "\t$0",
+            "}"
+        ],
+        "description": "Pleno getter"
+    },
+    "Setter": {
+        "prefix": "set",
+        "body": [
+            "set ${1:name}(${2:value}) {",
+            "\t$0",
+            "}"
+        ],
+        "description": "Pleno setter"
+    },
+    "Operator": {
+        "prefix": "op",
+        "body": [
+            "operator ${1:+}(${2:other}) {",
+            "\t$0",
+            "}"
+        ],
+        "description": "Pleno operator overload"
+    },
+    "Macro": {
+        "prefix": "macro",
+        "body": [
+            "macro ${1:name}(${2:params}) {",
+            "\t$0",
+            "}"
+        ],
+        "description": "Pleno macro declaration"
+    },
+    "Try-Catch-Finally": {
+        "prefix": "tryf",
+        "body": [
+            "try {",
+            "\t$1",
+            "} catch ${2:error} {",
+            "\t$3",
+            "} finally {",
+            "\t$0",
+            "}"
+        ],
+        "description": "Pleno try-catch-finally block"
+    },
     "Constructor": {
         "prefix": "constructor",
         "body": [
