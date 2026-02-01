@@ -2881,7 +2881,7 @@ impl Compiler {
                 );
                 let msg_reg = compiler.registers.allocate()?;
                 let msg_const = compiler.add_constant(Value::String(Rc::new(msg)));
-                compiler.emit(Opcode::LoadConst, msg_reg, msg_const as u8, 0);
+                compiler.emit(Opcode::LoadConst, msg_reg, msg_const, 0);
 
                 // Add current value's type to the message for better debugging
                 let type_name_reg = compiler.registers.allocate()?;
