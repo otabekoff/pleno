@@ -37,49 +37,94 @@ exports.activate = activate;
 exports.deactivate = deactivate;
 const vscode = __importStar(require("vscode"));
 const path = __importStar(require("path"));
+const fs = __importStar(require("fs"));
+const child_process_1 = require("child_process");
 const node_1 = require("vscode-languageclient/node");
 const iconInjector_1 = require("./iconInjector");
+const utils_1 = require("./utils");
+const projectExplorer_1 = require("./projectExplorer");
+class PlmTaskProvider {
+    static PlmType = 'plm';
+    provideTasks() {
+        const workspaceFolders = vscode.workspace.workspaceFolders;
+        if (!workspaceFolders || workspaceFolders.length === 0) {
+            return [];
+        }
+        const tasks = [];
+        for (const folder of workspaceFolders) {
+            const manifestPath = path.join(folder.uri.fsPath, 'package.pln');
+            if (fs.existsSync(manifestPath)) {
+                tasks.push(this.createTask('build', folder));
+                tasks.push(this.createTask('test', folder));
+                tasks.push(this.createTask('install', folder));
+                tasks.push(this.createTask('run', folder));
+            }
+        }
+        return tasks;
+    }
+    resolveTask(task) {
+        const command = task.definition.command;
+        if (command) {
+            return new vscode.Task(task.definition, task.scope ?? vscode.TaskScope.Workspace, command, 'plm', new vscode.ShellExecution(`plm ${command}`));
+        }
+        return undefined;
+    }
+    createTask(command, folder) {
+        const definition = { type: PlmTaskProvider.PlmType, command };
+        const task = new vscode.Task(definition, folder, `plm ${command}`, 'plm', new vscode.ShellExecution(`plm ${command}`));
+        if (command === 'build') {
+            task.group = vscode.TaskGroup.Build;
+        }
+        else if (command === 'test') {
+            task.group = vscode.TaskGroup.Test;
+        }
+        return task;
+    }
+}
+class PlenoTaskProvider {
+    static PlenoType = 'pleno';
+    provideTasks() {
+        const editor = vscode.window.activeTextEditor;
+        if (!editor || editor.document.languageId !== 'pleno') {
+            return [];
+        }
+        const tasks = [];
+        const file = editor.document.fileName;
+        tasks.push(new vscode.Task({ type: PlenoTaskProvider.PlenoType, command: 'run', file }, vscode.TaskScope.Workspace, 'pleno run', 'pleno', new vscode.ShellExecution(`pleno run "${file}"`)));
+        tasks.push(new vscode.Task({ type: PlenoTaskProvider.PlenoType, command: 'check', file }, vscode.TaskScope.Workspace, 'pleno check', 'pleno', new vscode.ShellExecution(`pleno check "${file}"`)));
+        return tasks;
+    }
+    resolveTask(task) {
+        const command = task.definition.command;
+        const file = task.definition.file || '${file}';
+        if (command) {
+            return new vscode.Task(task.definition, task.scope ?? vscode.TaskScope.Workspace, command, 'pleno', new vscode.ShellExecution(`pleno ${command} "${file}"`));
+        }
+        return undefined;
+    }
+}
 let client;
 let myStatusBarItem;
 function activate(context) {
     // Try to inject icon theme patches
     (0, iconInjector_1.injectPlenoIcons)(context);
-    const config = vscode.workspace.getConfiguration('pleno');
-    const customLspPath = config.get('lsp.path');
+    // Register task providers
+    context.subscriptions.push(vscode.tasks.registerTaskProvider(PlmTaskProvider.PlmType, new PlmTaskProvider()));
+    context.subscriptions.push(vscode.tasks.registerTaskProvider(PlenoTaskProvider.PlenoType, new PlenoTaskProvider()));
+    // Register project explorer
+    const rootPath = (vscode.workspace.workspaceFolders && (vscode.workspace.workspaceFolders.length > 0))
+        ? vscode.workspace.workspaceFolders[0].uri.fsPath : undefined;
+    const projectProvider = new projectExplorer_1.PlenoProjectProvider(context, rootPath);
+    vscode.window.registerTreeDataProvider('plenoProject', projectProvider);
     const outputChannel = vscode.window.createOutputChannel('Pleno');
     outputChannel.appendLine('Pleno extension activating...');
     // Tool check setup
-    let lspPath = customLspPath || 'pleno-lsp';
-    let lspFound = false;
-    let cliFound = false;
-    const command = process.platform === 'win32' ? 'where' : 'which';
-    // Check for LSP
-    try {
-        require('child_process').execSync(`${command} ${lspPath}`);
-        lspFound = true;
-    }
-    catch {
-        if (!customLspPath) {
-            // Try local fallback for LSP
-            const localLsp = context.asAbsolutePath(path.join('..', '..', 'target', 'release', 'pleno-lsp'));
-            if (require('fs').existsSync(localLsp)) {
-                lspPath = localLsp;
-                lspFound = true;
-            }
-        }
-    }
-    // Check for CLI
-    try {
-        require('child_process').execSync(`${command} pleno`);
-        cliFound = true;
-    }
-    catch {
-        // Try local fallback for CLI
-        const localCli = context.asAbsolutePath(path.join('..', '..', 'target', 'release', 'pleno'));
-        if (require('fs').existsSync(localCli)) {
-            cliFound = true;
-        }
-    }
+    const lspPath = (0, utils_1.getPlenoLspPath)(context);
+    const cliPath = (0, utils_1.getPlenoPath)(context);
+    outputChannel.appendLine(`LSP path: ${lspPath}`);
+    outputChannel.appendLine(`CLI path: ${cliPath}`);
+    const lspFound = lspPath.includes('pleno-lsp'); // Simplified check for logs
+    const cliFound = cliPath.includes('pleno');
     // Create status bar item
     myStatusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
     myStatusBarItem.text = `$(zap) Pleno`;
@@ -198,9 +243,8 @@ function activate(context) {
             const start = Date.now();
             try {
                 const filePath = vscode.Uri.parse(test.id).fsPath;
-                const { exec } = require('child_process');
                 const plenoPath = cliFound ? 'pleno' : context.asAbsolutePath(path.join('..', '..', 'target', 'release', 'pleno'));
-                exec(`${plenoPath} test "${filePath}" --json`, (error, stdout, stderr) => {
+                (0, child_process_1.exec)(`${plenoPath} test "${filePath}" --json`, (error, stdout, stderr) => {
                     const duration = Date.now() - start;
                     try {
                         const output = JSON.parse(stdout);
@@ -272,8 +316,12 @@ function activate(context) {
     }), vscode.commands.registerCommand('pleno.openRepl', () => {
         const terminal = vscode.window.activeTerminal || vscode.window.createTerminal('Pleno REPL');
         terminal.show();
-        // Assuming 'plm repl' or 'pleno repl' or just 'pleno-repl'
-        terminal.sendText('pleno-repl');
+        // Assuming 'plm repl' or 'pleno-repl'
+        terminal.sendText(`${(0, utils_1.getPlenoPath)(context)}-repl`);
+    }), vscode.commands.registerCommand('pleno.runScript', (scriptName) => {
+        const terminal = vscode.window.activeTerminal || vscode.window.createTerminal('Pleno');
+        terminal.show();
+        terminal.sendText(`${(0, utils_1.getPlenoPath)(context)} plm run ${scriptName}`);
     }));
     return {
         extendMarkdownIt(md) {

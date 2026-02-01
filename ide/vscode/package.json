@@ -163,9 +163,28 @@
           "text.html.markdown"
         ]
       }
-    ]
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "pleno-explorer",
+          "title": "Pleno",
+          "icon": "resources/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "pleno-explorer": [
+        {
+          "id": "plenoProject",
+          "name": "Project Overview",
+          "icon": "resources/icon.svg"
+        }
+      ]
+    }
   },
   "dependencies": {
+    "smol-toml": "^1.6.0",
     "vscode-languageclient": "^9.0.1"
   }
 }

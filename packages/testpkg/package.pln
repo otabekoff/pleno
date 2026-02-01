@@ -1,1 +1,4 @@
-{"name": "testpkg", "main": "main.pln"}
+[package]
+name = "testpkg"
+main = "main.pln"
+version = "0.1.0"
