@@ -150,7 +150,7 @@ fn run_plm_core(args: &mut std::iter::Peekable<std::iter::Skip<std::env::Args>>)
             println!("  install [url]    Install dependencies or a specific package");
             println!("  update           Update all dependencies");
             println!("  remove <name>    Remove a dependency");
-            println!("  run <script>     Run a script defined in package.pln");
+            println!("  run <script>     Run a script defined in pleno.toml");
             println!("  publish          Publish the current package");
             println!("  build            Build the current package");
             println!();
@@ -194,7 +194,7 @@ pub fn print_help() {
           install [url]      Install dependencies or a specific package\n\
           update             Update all dependencies\n\
           remove <name>      Remove a dependency\n\
-          run <script>       Run a script defined in package.pln\n\n\
+          run <script>       Run a script defined in pleno.toml\n\n\
         Options:\n\
           -h, --help                Show this help message\n\
           -v, --version             Show version information\n\
@@ -846,11 +846,11 @@ fn handle_init(args: &mut std::iter::Peekable<std::iter::Skip<std::env::Args>>) 
             .unwrap_or_else(|| "my-app".to_string())
     });
     let manifest = Manifest::new(&name, "0.1.0");
-    if let Err(e) = manifest.save_to_file("package.pln") {
-        eprintln!("Failed to create package.pln: {}", e);
+    if let Err(e) = manifest.save_to_file("pleno.toml") {
+        eprintln!("Failed to create pleno.toml: {}", e);
         process::exit(1);
     }
-    println!("Created package.pln for {}", name);
+    println!("Created pleno.toml for {}", name);
 }
 
 fn handle_install(args: &mut std::iter::Peekable<std::iter::Skip<std::env::Args>>) {
@@ -875,10 +875,10 @@ fn handle_install(args: &mut std::iter::Peekable<std::iter::Skip<std::env::Args>
         }
     }
 
-    let mut manifest = match Manifest::load_from_file("package.pln") {
+    let mut manifest = match Manifest::load_from_file("pleno.toml") {
         Ok(m) => m,
         Err(e) => {
-            eprintln!("Failed to load package.pln: {}", e);
+            eprintln!("Failed to load pleno.toml: {}", e);
             process::exit(1);
         }
     };
@@ -938,8 +938,8 @@ fn handle_install(args: &mut std::iter::Peekable<std::iter::Skip<std::env::Args>
         } else {
             manifest.dependencies.insert(name.clone(), dep);
         }
-        if let Err(e) = manifest.save_to_file("package.pln") {
-            eprintln!("Failed to save package.pln: {}", e);
+        if let Err(e) = manifest.save_to_file("pleno.toml") {
+            eprintln!("Failed to save pleno.toml: {}", e);
             process::exit(1);
         }
         println!("Added {} to dependencies", name);
@@ -960,10 +960,10 @@ fn handle_install(args: &mut std::iter::Peekable<std::iter::Skip<std::env::Args>
 }
 
 fn handle_update(_args: &mut std::iter::Peekable<std::iter::Skip<std::env::Args>>) {
-    let mut manifest = match Manifest::load_from_file("package.pln") {
+    let mut manifest = match Manifest::load_from_file("pleno.toml") {
         Ok(m) => m,
         Err(e) => {
-            eprintln!("Failed to load package.pln: {}", e);
+            eprintln!("Failed to load pleno.toml: {}", e);
             process::exit(1);
         }
     };
@@ -979,10 +979,10 @@ fn handle_remove(args: &mut std::iter::Peekable<std::iter::Skip<std::env::Args>>
         eprintln!("Error: 'remove' requires a package name");
         process::exit(1);
     });
-    let mut manifest = match Manifest::load_from_file("package.pln") {
+    let mut manifest = match Manifest::load_from_file("pleno.toml") {
         Ok(m) => m,
         Err(e) => {
-            eprintln!("Failed to load package.pln: {}", e);
+            eprintln!("Failed to load pleno.toml: {}", e);
             process::exit(1);
         }
     };
@@ -998,10 +998,10 @@ fn handle_plm_run(args: &mut std::iter::Peekable<std::iter::Skip<std::env::Args>
         eprintln!("Error: 'run' requires a script name");
         process::exit(1);
     });
-    let manifest = match Manifest::load_from_file("package.pln") {
+    let manifest = match Manifest::load_from_file("pleno.toml") {
         Ok(m) => m,
         Err(e) => {
-            eprintln!("Failed to load package.pln: {}", e);
+            eprintln!("Failed to load pleno.toml: {}", e);
             process::exit(1);
         }
     };
@@ -1013,10 +1013,10 @@ fn handle_plm_run(args: &mut std::iter::Peekable<std::iter::Skip<std::env::Args>
 }
 
 fn handle_plm_publish(_args: &mut std::iter::Peekable<std::iter::Skip<std::env::Args>>) {
-    let manifest = match Manifest::load_from_file("package.pln") {
+    let manifest = match Manifest::load_from_file("pleno.toml") {
         Ok(m) => m,
         Err(e) => {
-            eprintln!("Failed to load package.pln: {}", e);
+            eprintln!("Failed to load pleno.toml: {}", e);
             process::exit(1);
         }
     };
@@ -1035,21 +1035,21 @@ fn handle_build(args: &mut std::iter::Peekable<std::iter::Skip<std::env::Args>>)
             compile_file(&t);
         }
         Some(t) => {
-            if let Ok(manifest) = Manifest::load_from_file("package.pln") {
+            if let Ok(manifest) = Manifest::load_from_file("pleno.toml") {
                 let entry = &manifest.package.main;
                 compile_file(entry);
             } else {
-                eprintln!("Error: No package.pln found and '{}' is not a .pln file", t);
+                eprintln!("Error: No pleno.toml found and '{}' is not a .pln file", t);
                 process::exit(1);
             }
         }
         None => {
-            if let Ok(manifest) = Manifest::load_from_file("package.pln") {
+            if let Ok(manifest) = Manifest::load_from_file("pleno.toml") {
                 let entry = &manifest.package.main;
                 compile_file(entry);
             } else {
                 eprintln!(
-                    "Error: 'build' requires a target (file or package) and no package.pln found"
+                    "Error: 'build' requires a target (file or package) and no pleno.toml found"
                 );
                 process::exit(1);
             }
@@ -1063,7 +1063,7 @@ fn handle_plm_info(args: &mut std::iter::Peekable<std::iter::Skip<std::env::Args
         args.next();
     }
 
-    match Manifest::load_from_file("package.pln") {
+    match Manifest::load_from_file("pleno.toml") {
         Ok(manifest) => {
             if json_output {
                 println!("{}", serde_json::to_string_pretty(&manifest).unwrap());
@@ -1095,7 +1095,7 @@ fn handle_plm_info(args: &mut std::iter::Peekable<std::iter::Skip<std::env::Args
             if json_output {
                 println!(r#"{{"error": "{}"}}"#, e);
             } else {
-                eprintln!("Error loading package.pln: {}", e);
+                eprintln!("Error loading pleno.toml: {}", e);
             }
             process::exit(1);
         }
@@ -1166,12 +1166,12 @@ fn handle_run(args: &mut std::iter::Peekable<std::iter::Skip<std::env::Args>>) {
             if t.ends_with(".pln") {
                 run_file(&t, config);
             } else {
-                match Manifest::load_from_file("package.pln") {
+                match Manifest::load_from_file("pleno.toml") {
                     Ok(manifest) => {
                         let manager = pleno_package::PackageManager::new("packages");
                         if let Err(_e) = manager.run_script(&manifest, &t) {
                             eprintln!(
-                                "Script '{}' not found in package.pln, and file '{}' does not exist.",
+                                "Script '{}' not found in pleno.toml, and file '{}' does not exist.",
                                 t, t
                             );
                             process::exit(1);
@@ -1185,14 +1185,14 @@ fn handle_run(args: &mut std::iter::Peekable<std::iter::Skip<std::env::Args>>) {
             }
         }
         None => {
-            match Manifest::load_from_file("package.pln") {
+            match Manifest::load_from_file("pleno.toml") {
                 Ok(manifest) => {
                     let manager = pleno_package::PackageManager::new("packages");
                     // Default script to run if none provided? 'start' is a common default.
                     let script = "start";
                     if let Err(_e) = manager.run_script(&manifest, script) {
                         eprintln!(
-                            "Error: No target provided and 'start' script not found in package.pln"
+                            "Error: No target provided and 'start' script not found in pleno.toml"
                         );
                         process::exit(1);
                     }

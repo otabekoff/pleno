@@ -52,7 +52,7 @@ class PlmTaskProvider {
         }
         const tasks = [];
         for (const folder of workspaceFolders) {
-            const manifestPath = path.join(folder.uri.fsPath, 'package.pln');
+            const manifestPath = path.join(folder.uri.fsPath, 'pleno.toml');
             if (fs.existsSync(manifestPath)) {
                 tasks.push(this.createTask('build', folder));
                 tasks.push(this.createTask('test', folder));

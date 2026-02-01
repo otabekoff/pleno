@@ -579,7 +579,7 @@ impl PackageManager {
             || manifest.dev_dependencies.remove(name).is_some()
         {
             println!("Removing {}...", name);
-            manifest.save_to_file("package.pln")?;
+            manifest.save_to_file("pleno.toml")?;
             let dest = self.packages_dir.join(name);
             if dest.exists() {
                 std::fs::remove_dir_all(dest)?;
@@ -765,7 +765,7 @@ impl PackageManager {
                 self.verify_checksum(&bytes, sha)?;
             }
 
-            let file_name = source.split('/').next_back().unwrap_or("package.pln");
+            let file_name = source.split('/').next_back().unwrap_or("pleno.toml");
             std::fs::write(dest.join(file_name), bytes)?;
         } else if source.starts_with("./") || source.starts_with("../") || source.starts_with("/") {
             let src_path = PathBuf::from(source);
