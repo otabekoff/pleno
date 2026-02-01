@@ -86,6 +86,7 @@ pub struct Compiler {
     macros: HashMap<String, MacroDef>,
     boxed_vars: Vec<HashSet<String>>,
     finally_stack: Vec<Option<Stmt>>,
+    pub is_async: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -128,6 +129,7 @@ impl Compiler {
             macros: HashMap::new(),
             boxed_vars: vec![HashSet::new()],
             finally_stack: Vec::new(),
+            is_async: false,
         }
     }
 
@@ -285,6 +287,17 @@ impl Compiler {
                 } else if *is_deep {
                     // let deep should also work
                     self.emit(Opcode::Freeze, reg, 1, 0);
+                }
+                if self
+                    .boxed_vars
+                    .last()
+                    .map(|b| b.contains(name))
+                    .unwrap_or(false)
+                {
+                    let cell_reg = self.registers.allocate()?;
+                    self.emit(Opcode::MakeCell, cell_reg, reg, 0);
+                    self.emit(Opcode::Move, reg, cell_reg, 0);
+                    self.free_temp(cell_reg);
                 }
                 self.insert_local(name.clone(), reg, *mutable, ty.clone())?;
                 if *is_lazy {
@@ -2239,6 +2252,9 @@ impl Compiler {
         let loop_start = self.chunk.code.len();
         let item_reg = self.registers.allocate()?;
         self.emit(Opcode::IterNext, item_reg, iter_reg, 0);
+        if self.is_async {
+            self.emit(Opcode::Await, item_reg, item_reg, 0);
+        }
 
         let is_done_reg = self.registers.allocate()?;
         self.emit(Opcode::Eq, is_done_reg, item_reg, missing_reg);
@@ -2586,6 +2602,7 @@ impl Compiler {
         let captures = self.analyze_captures(decl, is_method);
         let mut compiler = Compiler::new(String::new());
         compiler.is_top_level = false;
+        compiler.is_async = decl.is_async;
         compiler.push_scope();
         compiler.module_name = self.module_name.clone();
         compiler.captures = captures
@@ -3839,6 +3856,28 @@ impl Compiler {
                     }
                 }
             }
+            ExprKind::Await { expr } => self.collect_idents_expr(expr, used, scope),
+            ExprKind::Paren(expr) => self.collect_idents_expr(expr, used, scope),
+            ExprKind::InterpolatedString(parts) => {
+                for part in parts {
+                    self.collect_idents_expr(part, used, scope);
+                }
+            }
+            ExprKind::AssertNotNull(expr) => self.collect_idents_expr(expr, used, scope),
+            ExprKind::SafeCall { callee, args } => {
+                self.collect_idents_expr(callee, used, scope);
+                for arg in args {
+                    match arg {
+                        pleno_ast::CallArg::Positional(e)
+                        | pleno_ast::CallArg::Named(_, e)
+                        | pleno_ast::CallArg::Spread(e) => {
+                            self.collect_idents_expr(e, used, scope);
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            ExprKind::SafeProperty { object, .. } => self.collect_idents_expr(object, used, scope),
             _ => {}
         }
     }
@@ -4281,11 +4320,52 @@ impl Compiler {
                 }
             }
             StmtKind::Return(Some(expr)) => self.collect_expr_refs(expr, referenced),
+            StmtKind::For { iterable, body, .. } => {
+                self.collect_expr_refs(iterable, referenced);
+                self.collect_stmt_refs(body, referenced);
+            }
+            StmtKind::CFor {
+                init,
+                condition,
+                step,
+                body,
+            } => {
+                if let Some(init) = init {
+                    self.collect_stmt_refs(init, referenced);
+                }
+                if let Some(condition) = condition {
+                    self.collect_expr_refs(condition, referenced);
+                }
+                if let Some(step) = step {
+                    self.collect_stmt_refs(step, referenced);
+                }
+                self.collect_stmt_refs(body, referenced);
+            }
+            StmtKind::DoWhile { body, condition } => {
+                self.collect_stmt_refs(body, referenced);
+                self.collect_expr_refs(condition, referenced);
+            }
+            StmtKind::Try {
+                try_branch,
+                catch_branches,
+                finally_branch,
+            } => {
+                self.collect_stmt_refs(try_branch, referenced);
+                for catch in catch_branches {
+                    self.collect_stmt_refs(&catch.body, referenced);
+                }
+                if let Some(finally) = finally_branch {
+                    self.collect_stmt_refs(finally, referenced);
+                }
+            }
+            StmtKind::Throw(expr) => self.collect_expr_refs(expr, referenced),
+            StmtKind::Labeled { stmt, .. } => self.collect_stmt_refs(stmt, referenced),
             _ => {}
         }
     }
 
     fn collect_expr_refs(&self, expr: &Expr, referenced: &mut HashSet<String>) {
+        // println!("Compiler::collect_expr_refs: testing {:?}", expr.kind);
         match &expr.kind {
             ExprKind::Ident(name) => {
                 referenced.insert(name.clone());
@@ -4344,6 +4424,86 @@ impl Compiler {
                     },
                 };
                 self.collect_stmt_refs(&body_stmt, referenced)
+            }
+            ExprKind::Await { expr } => self.collect_expr_refs(expr, referenced),
+            ExprKind::Paren(expr) => self.collect_expr_refs(expr, referenced),
+            ExprKind::If {
+                condition,
+                then_branch,
+                else_branch,
+            } => {
+                self.collect_expr_refs(condition, referenced);
+                self.collect_expr_refs(then_branch, referenced);
+                self.collect_expr_refs(else_branch, referenced);
+            }
+            ExprKind::Match { expr, arms } => {
+                self.collect_expr_refs(expr, referenced);
+                for arm in arms {
+                    if let Some(guard) = &arm.guard {
+                        self.collect_expr_refs(guard, referenced);
+                    }
+                    self.collect_expr_refs(&arm.body, referenced);
+                }
+            }
+            ExprKind::Is { left, .. } => self.collect_expr_refs(left, referenced),
+            ExprKind::SafeCall { callee, args } => {
+                self.collect_expr_refs(callee, referenced);
+                for arg in args {
+                    match arg {
+                        pleno_ast::CallArg::Positional(e) => self.collect_expr_refs(e, referenced),
+                        pleno_ast::CallArg::Named(_, e) => self.collect_expr_refs(e, referenced),
+                        pleno_ast::CallArg::Spread(e) => self.collect_expr_refs(e, referenced),
+                        _ => {}
+                    }
+                }
+            }
+            ExprKind::SafeProperty { object, .. } => self.collect_expr_refs(object, referenced),
+            ExprKind::AssertNotNull(expr) => self.collect_expr_refs(expr, referenced),
+            ExprKind::Pipeline { left, right } => {
+                self.collect_expr_refs(left, referenced);
+                self.collect_expr_refs(right, referenced);
+            }
+            ExprKind::InterpolatedString(parts) => {
+                for part in parts {
+                    self.collect_expr_refs(part, referenced);
+                }
+            }
+            ExprKind::TupleLiteral(exprs) => {
+                for e in exprs {
+                    self.collect_expr_refs(e, referenced);
+                }
+            }
+            ExprKind::NamedTupleLiteral(items) => {
+                for (_, e) in items {
+                    self.collect_expr_refs(e, referenced);
+                }
+            }
+            ExprKind::SetLiteral(exprs) => {
+                for e in exprs {
+                    self.collect_expr_refs(e, referenced);
+                }
+            }
+            ExprKind::Slice {
+                collection,
+                start,
+                end,
+            } => {
+                self.collect_expr_refs(collection, referenced);
+                if let Some(s) = start {
+                    self.collect_expr_refs(s, referenced);
+                }
+                if let Some(e) = end {
+                    self.collect_expr_refs(e, referenced);
+                }
+            }
+            ExprKind::Spread(expr) => self.collect_expr_refs(expr, referenced),
+            ExprKind::Range { start, end, .. } => {
+                if let Some(s) = start {
+                    self.collect_expr_refs(s, referenced);
+                }
+                if let Some(e) = end {
+                    self.collect_expr_refs(e, referenced);
+                }
             }
             _ => {}
         }
@@ -4584,7 +4744,11 @@ impl Compiler {
         mutable: bool,
         ty: Option<String>,
     ) -> Result<(), CompileError> {
-        let is_boxed = self.find_boxed_vars(&[]).contains(&name); // Placeholder for scoped boxed check
+        let is_boxed = self
+            .boxed_vars
+            .last()
+            .map(|b| b.contains(&name))
+            .unwrap_or(false);
         if let Some(scope) = self.locals.last_mut() {
             if scope.contains_key(&name) {
                 return Err(CompileError::new(format!(
@@ -4606,7 +4770,7 @@ impl Compiler {
     }
 
     fn resolve_local(&self, name: &str) -> Option<Local> {
-        for scope in self.locals.iter().rev() {
+        for (_i, scope) in self.locals.iter().enumerate().rev() {
             if let Some(local) = scope.get(name) {
                 return Some(local.clone());
             }

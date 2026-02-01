@@ -1,14 +1,12 @@
 ## Priority: Standard Library & GC Integration
 
+http://localhost:5173/pleno/specs/ is showing next page to introduction which is itself, and causing loop on docs.
 
 Let's do bench. Make bench folder benchmark project reporting about benchmarking of Pleno. Reports. Not only speed tests. Also, we need to compare with other languages like Python, Rust, Go, Kotlin, C, C++, Java, JavaScript, TypeScript, etc.
 
 Optimizations and error management in Pleno in a structured way, aslo fix the showing line numbers like Rust or other thing?
 
 We're not just creating a programming language. We're creating a production level, dynamic and type safe programming language that works. Unlike python it will have real encapsulation, constants and unlike other programming languages and python Pleno will have modern features and it fixes many things other programming languages doesn't have and inspires many best features from other pogramming languages. And it should be stable, based on specs and rules and ready for production.
-
-http://localhost:5173/pleno/specs/ is showing next page to introduction which is itself, and causing loop on docs.
-
 
 Type checking is not working fully I think, we've to review and rethink and reconsider and rework on it.
 
@@ -194,25 +192,6 @@ Work on #[test]
 
 
 Now, these tasks of the stage are partially done. Nork on it and make it complete. add/edit/update/upgrade/fix/bugfix/implement/make changes/review/test:
-
-### Stage 9 - Async + Concurrency (Started)
-
-- **Actual async execution**: **Missing** (Tests explicitly note "function... not truly async yet"; foundation exists but execution is synchronous).
-- **Promise resolution**: **Done** (Implemented and tested).
-- **Event loop**: **Missing** (No specialized event loop logic found in VM).
-- **Concurrency primitives**: **Partial**  `Mutex`    
-     `Channel`    
-     types exist in `pleno-value`    
-    , VM handles them via builtins, but deep integration logic is minimal).
-
-### Stage 10 - Standard Library (Partial)
-
-- **Full implementations**: **Partial**  `Math`    
-    , `JSON`    
-    , `OS`    
-     refactored/implemented; others likely missing).
-- **Native function bindings**: **Partial**  `__native_*`    
-     bindings mechanism exists and logic is in place).
 
 ### Stage 11 - Tooling (Partial)
 

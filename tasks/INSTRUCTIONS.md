@@ -21,3 +21,13 @@ add/edit/update/upgrade/fix/bugfix/implement/make changes/review/test
 run cargo clippy --workspace and fix the warnings/errors/problems/issues/recommendations.
 
 If duplicated code, don't just remove one. Think which one to left or not. Always we need latest, working, more features included, complete one.
+
+Make sure no duplicates in source code files like below, or are they optional or for a reason?
+```rust
+        let mut last_result = Value::Null;
+        let mut last_result = Value::Null;
+```
+
+When you run some commands and there are warnings or errors, you're continuing on what you're doing, instead of fixing those errors and warnings first. Do fix them then continue from where you're if such situations happen.
+
+If you add some part of code, make sure you're not replacing some other part of the code which is needed. For example, let's say we have A, B, D codes, you wanted to add E, then don't remove D if not needed to do that or you want to add C and don't remove B or D if it is not needed to be done so.
