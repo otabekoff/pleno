@@ -6,17 +6,17 @@ This document tracks minor technical debts, deferred features, and final polish 
 - [ ] **Diagnostics**: Add even more suggestions/hints to common parser errors.
 - [ ] **Standard Library**: Complete any remaining undocumented methods in `std:io` and `std:net`.
 - [ ] **Performance**: Investigate potential optimizations in the VM's dispatch loop for `match` expressions.
-- [ ] **Linter**: Add a rule for detecting shadowed variables that might cause confusion.
+- [x] **Linter**: Add a rule for detecting shadowed variables that might cause confusion.
 - [ ] **Compiler**: Refine constant folding for complex data structures (nested arrays/maps).
 
 ## Documentation
-- [ ] **Tutorials**: Create a "Getting Started" guide for new users.
+- [x] **Tutorials**: Create a "Getting Started" guide for new users.
 - [ ] **Standard Library Reference**: Generate a full API reference from doc comments.
-- [ ] **Examples**: Add more comprehensive examples of async/concurrency patterns.
+- [x] **Examples**: Add more comprehensive examples of async/concurrency patterns.
 
 ## Infrastructure
 - [ ] **CI/CD**: Ensure all integration tests run on every push.
-- [ ] **Benchmarks**: Add regression testing for performance benchmarks.
+- [x] **Benchmarks**: Add regression testing for performance benchmarks.
 
 ## Future (v1.x)
 - [ ] **JIT**: Detailed JIT implementation plan.

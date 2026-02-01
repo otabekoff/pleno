@@ -1,0 +1,23 @@
+let start = __native_time_now();
+
+// Collection operations benchmark
+let arr = [];
+for (i in 0..10000) {
+    arr.push(i);
+}
+
+// Map
+let doubled = arr.map(|x| => x * 2);
+
+// Filter
+let evens = doubled.filter(|x| => x % 4 == 0);
+
+// Reduce
+let sum = evens.reduce(|acc, x| => acc + x, 0);
+
+let end = __native_time_now();
+print("Original length: " + arr.length.toString());
+print("Doubled length: " + doubled.length.toString());
+print("Evens length: " + evens.length.toString());
+print("Sum: " + sum.toString());
+print("Time: " + ((end - start) * 1000).toString() + "ms");

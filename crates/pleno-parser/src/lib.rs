@@ -209,11 +209,10 @@ impl Parser {
                 self.advance();
                 match self.peek_kind() {
                     TokenKind::KeywordClass => self.parse_class_stmt(annotations, true, doc),
-                    other => Err(ParseError {
-                        hint: None,
-                        message: format!("Expected 'class' after 'abstract', found {other:?}"),
-                        span: self.peek_span(),
-                    }),
+                    other => Err(self.error(
+                        format!("Expected 'class' after 'abstract', found {other:?}"),
+                        self.peek_span(),
+                    )),
                 }
             }
             TokenKind::KeywordInterface => self.parse_interface_stmt(annotations, doc),
@@ -246,11 +245,10 @@ impl Parser {
                         start_span,
                     ))
                 } else {
-                    Err(ParseError {
-                        hint: None,
-                        message: "Expected 'fn' after 'async'".to_string(),
-                        span: self.previous_span(),
-                    })
+                    Err(self.error(
+                        "Expected 'fn' after 'async'".to_string(),
+                        self.previous_span(),
+                    ))
                 }
             }
             TokenKind::KeywordReturn => self.parse_return_stmt(),
@@ -259,12 +257,11 @@ impl Parser {
             TokenKind::LBrace => self.parse_block_stmt(),
             _ => {
                 if !annotations.is_empty() {
-                    return Err(ParseError {
-                        hint: None,
-                        message: "Annotations are only allowed on functions, classes, and fields"
+                    return Err(self.error(
+                        "Annotations are only allowed on functions, classes, and fields"
                             .to_string(),
-                        span: self.previous_span(),
-                    });
+                        self.previous_span(),
+                    ));
                 }
                 let expr = self.parse_expr()?;
                 if self.matches(&TokenKind::Equal) {
@@ -290,11 +287,10 @@ impl Parser {
                             },
                             start_span,
                         )),
-                        _ => Err(ParseError {
-                            hint: None,
-                            message: "Invalid assignment target".to_string(),
-                            span: self.previous_span(),
-                        }),
+                        _ => Err(self.error(
+                            "Invalid assignment target".to_string(),
+                            self.previous_span(),
+                        )),
                     };
                 }
                 if self.matches(&TokenKind::Semicolon)
@@ -303,11 +299,10 @@ impl Parser {
                 {
                     Ok(self.wrap_stmt(StmtKind::Expr(expr), start_span))
                 } else {
-                    Err(ParseError {
-                        hint: None,
-                        message: "Expected ';' after expression".to_string(),
-                        span: self.previous_span(),
-                    })
+                    Err(self.error(
+                        "Expected ';' after expression".to_string(),
+                        self.previous_span(),
+                    ))
                 }
             }
         }
@@ -331,11 +326,10 @@ impl Parser {
         let name = match self.advance().kind.clone() {
             TokenKind::Ident(value) => value,
             other => {
-                return Err(ParseError {
-                    hint: None,
-                    message: format!("Expected identifier after 'let', found {other:?}"),
-                    span: self.previous_span(),
-                });
+                return Err(self.error(
+                    format!("Expected identifier after 'let', found {other:?}"),
+                    self.previous_span(),
+                ));
             }
         };
         let ty = if self.matches(&TokenKind::Colon) {
@@ -367,11 +361,7 @@ impl Parser {
         let start_span = self.peek_span();
         self.advance(); // consume const
         if self.matches(&TokenKind::KeywordMut) {
-            return Err(ParseError {
-                hint: None,
-                message: "const cannot be mutable".to_string(),
-                span: self.previous_span(),
-            });
+            return Err(self.error("const cannot be mutable".to_string(), self.previous_span()));
         }
 
         let is_deep = self.matches(&TokenKind::KeywordDeep);
@@ -379,11 +369,10 @@ impl Parser {
         let name = match self.advance().kind.clone() {
             TokenKind::Ident(value) => value,
             other => {
-                return Err(ParseError {
-                    hint: None,
-                    message: format!("Expected identifier after 'const', found {other:?}"),
-                    span: self.previous_span(),
-                });
+                return Err(self.error(
+                    format!("Expected identifier after 'const', found {other:?}"),
+                    self.previous_span(),
+                ));
             }
         };
         let ty = if self.matches(&TokenKind::Colon) {
@@ -466,11 +455,7 @@ impl Parser {
                     },
                     start_span,
                 )),
-                _ => Err(ParseError {
-                    hint: None,
-                    message: "Invalid assignment target".to_string(),
-                    span: expr.span,
-                }),
+                _ => Err(self.error("Invalid assignment target".to_string(), expr.span)),
             };
         }
         Ok(self.wrap_stmt(StmtKind::Expr(expr), start_span))
@@ -482,11 +467,10 @@ impl Parser {
         let name = match self.advance().kind.clone() {
             TokenKind::Ident(value) => value,
             other => {
-                return Err(ParseError {
-                    hint: None,
-                    message: format!("Expected module name, found {other:?}"),
-                    span: self.previous_span(),
-                });
+                return Err(self.error(
+                    format!("Expected module name, found {other:?}"),
+                    self.previous_span(),
+                ));
             }
         };
 
@@ -504,11 +488,9 @@ impl Parser {
             let mut body = Vec::new();
             while !self.matches(&TokenKind::RBrace) {
                 if self.is_at_end() {
-                    return Err(ParseError {
-                        hint: None,
-                        message: "Unterminated module block".to_string(),
-                        span: self.peek_span(),
-                    });
+                    return Err(
+                        self.error("Unterminated module block".to_string(), self.peek_span())
+                    );
                 }
                 body.push(self.parse_stmt()?);
             }
@@ -539,11 +521,10 @@ impl Parser {
         let name = match self.advance().kind.clone() {
             TokenKind::Ident(value) => value,
             other => {
-                return Err(ParseError {
-                    hint: None,
-                    message: format!("Expected macro name after 'macro', found {other:?}"),
-                    span: self.previous_span(),
-                });
+                return Err(self.error(
+                    format!("Expected macro name after 'macro', found {other:?}"),
+                    self.previous_span(),
+                ));
             }
         };
         self.expect(TokenKind::LParen, "Expected '(' after macro name")?;
@@ -553,13 +534,12 @@ impl Parser {
                 let param = match self.advance().kind.clone() {
                     TokenKind::Ident(value) => value,
                     other => {
-                        return Err(ParseError {
-                            hint: None,
-                            message: format!(
+                        return Err(self.error(
+                            format!(
                                 "Expected parameter name in macro declaration, found {other:?}"
                             ),
-                            span: self.previous_span(),
-                        });
+                            self.previous_span(),
+                        ));
                     }
                 };
                 params.push(param);
@@ -715,11 +695,10 @@ impl Parser {
                 let name = match self.advance().kind.clone() {
                     TokenKind::Ident(name) => name,
                     _ => {
-                        return Err(ParseError {
-                            hint: None,
-                            message: "Expected identifier in for loop".to_string(),
-                            span: self.previous_span(),
-                        });
+                        return Err(self.error(
+                            "Expected identifier in for loop".to_string(),
+                            self.previous_span(),
+                        ));
                     }
                 };
                 names.push(name);
@@ -817,11 +796,10 @@ impl Parser {
         let target = match self.advance().kind.clone() {
             TokenKind::Ident(value) => value,
             other => {
-                return Err(ParseError {
-                    hint: None,
-                    message: format!("Expected extension target name, found {other:?}"),
-                    span: self.previous_span(),
-                });
+                return Err(self.error(
+                    format!("Expected extension target name, found {other:?}"),
+                    self.previous_span(),
+                ));
             }
         };
 
@@ -867,11 +845,10 @@ impl Parser {
         let name = match self.advance().kind.clone() {
             TokenKind::Ident(value) => value,
             other => {
-                return Err(ParseError {
-                    hint: None,
-                    message: format!("Expected interface name, found {other:?}"),
-                    span: self.previous_span(),
-                });
+                return Err(self.error(
+                    format!("Expected interface name, found {other:?}"),
+                    self.previous_span(),
+                ));
             }
         };
 
@@ -883,11 +860,10 @@ impl Parser {
                 let parent = match self.advance().kind.clone() {
                     TokenKind::Ident(value) => value,
                     other => {
-                        return Err(ParseError {
-                            hint: None,
-                            message: format!("Expected extended interface name, found {other:?}"),
-                            span: self.previous_span(),
-                        });
+                        return Err(self.error(
+                            format!("Expected extended interface name, found {other:?}"),
+                            self.previous_span(),
+                        ));
                     }
                 };
                 extends.push(parent);
@@ -939,11 +915,10 @@ impl Parser {
         let name = match self.advance().kind.clone() {
             TokenKind::Ident(value) => value,
             other => {
-                return Err(ParseError {
-                    hint: None,
-                    message: format!("Expected enum name, found {other:?}"),
-                    span: self.previous_span(),
-                });
+                return Err(self.error(
+                    format!("Expected enum name, found {other:?}"),
+                    self.previous_span(),
+                ));
             }
         };
 
@@ -969,11 +944,10 @@ impl Parser {
             let variant_name = match self.advance().kind.clone() {
                 TokenKind::Ident(value) => value,
                 other => {
-                    return Err(ParseError {
-                        hint: None,
-                        message: format!("Expected variant name, found {other:?}"),
-                        span: self.previous_span(),
-                    });
+                    return Err(self.error(
+                        format!("Expected variant name, found {other:?}"),
+                        self.previous_span(),
+                    ));
                 }
             };
 
@@ -984,11 +958,10 @@ impl Parser {
                     let param_name = match self.advance().kind.clone() {
                         TokenKind::Ident(value) => value,
                         other => {
-                            return Err(ParseError {
-                                hint: None,
-                                message: format!("Expected parameter name, found {other:?}"),
-                                span: self.previous_span(),
-                            });
+                            return Err(self.error(
+                                format!("Expected parameter name, found {other:?}"),
+                                self.previous_span(),
+                            ));
                         }
                     };
                     let ty = if self.matches(&TokenKind::Colon) {
@@ -1107,22 +1080,20 @@ impl Parser {
             let name = match self.advance().kind.clone() {
                 TokenKind::Ident(name) => name,
                 other => {
-                    return Err(ParseError {
-                        hint: None,
-                        message: format!("Expected identifier in catch, found {other:?}"),
-                        span: self.previous_span(),
-                    });
+                    return Err(self.error(
+                        format!("Expected identifier in catch, found {other:?}"),
+                        self.previous_span(),
+                    ));
                 }
             };
             let ty = if self.matches(&TokenKind::Colon) {
                 match self.advance().kind.clone() {
                     TokenKind::Ident(ty) => Some(ty),
                     other => {
-                        return Err(ParseError {
-                            hint: None,
-                            message: format!("Expected type name in catch, found {other:?}"),
-                            span: self.previous_span(),
-                        });
+                        return Err(self.error(
+                            format!("Expected type name in catch, found {other:?}"),
+                            self.previous_span(),
+                        ));
                     }
                 }
             } else {
@@ -1138,11 +1109,10 @@ impl Parser {
             None
         };
         if catch_branches.is_empty() && finally_branch.is_none() {
-            return Err(ParseError {
-                hint: None,
-                message: "try statement must have at least one catch or finally block".to_string(),
-                span: self.previous_span(),
-            });
+            return Err(self.error(
+                "try statement must have at least one catch or finally block".to_string(),
+                self.previous_span(),
+            ));
         }
         Ok(self.wrap_stmt(
             StmtKind::Try {
@@ -1173,24 +1143,20 @@ impl Parser {
                     let name = match self.advance().kind.clone() {
                         TokenKind::Ident(value) => value,
                         other => {
-                            return Err(ParseError {
-                                hint: None,
-                                message: format!("Expected import name, found {other:?}"),
-                                span: self.previous_span(),
-                            });
+                            return Err(self.error(
+                                format!("Expected import name, found {other:?}"),
+                                self.previous_span(),
+                            ));
                         }
                     };
                     let alias = if self.matches(&TokenKind::KeywordAs) {
                         match self.advance().kind.clone() {
                             TokenKind::Ident(value) => Some(value),
                             other => {
-                                return Err(ParseError {
-                                    hint: None,
-                                    message: format!(
-                                        "Expected alias name after 'as', found {other:?}"
-                                    ),
-                                    span: self.previous_span(),
-                                });
+                                return Err(self.error(
+                                    format!("Expected alias name after 'as', found {other:?}"),
+                                    self.previous_span(),
+                                ));
                             }
                         }
                     } else {
@@ -1211,19 +1177,17 @@ impl Parser {
                     match self.advance().kind.clone() {
                         TokenKind::Ident(value) => value,
                         other => {
-                            return Err(ParseError {
-                                hint: None,
-                                message: format!("Expected alias after 'as', found {other:?}"),
-                                span: self.previous_span(),
-                            });
+                            return Err(self.error(
+                                format!("Expected alias after 'as', found {other:?}"),
+                                self.previous_span(),
+                            ));
                         }
                     }
                 } else {
-                    return Err(ParseError {
-                        hint: None,
-                        message: "Expected 'as' alias after '*' import".to_string(),
-                        span: self.previous_span(),
-                    });
+                    return Err(self.error(
+                        "Expected 'as' alias after '*' import".to_string(),
+                        self.previous_span(),
+                    ));
                 };
                 self.expect(TokenKind::KeywordFrom, "Expected 'from' after import alias")?;
                 pleno_ast::ImportKind::Star { alias }
@@ -1241,11 +1205,10 @@ impl Parser {
         let path = match self.advance().kind.clone() {
             TokenKind::String(value) => value,
             other => {
-                return Err(ParseError {
-                    hint: None,
-                    message: format!("Expected string literal path, found {other:?}"),
-                    span: self.previous_span(),
-                });
+                return Err(self.error(
+                    format!("Expected string literal path, found {other:?}"),
+                    self.previous_span(),
+                ));
             }
         };
         self.expect_with_hint(
@@ -1265,33 +1228,30 @@ impl Parser {
         self.advance();
         if self.matches(&TokenKind::LBrace) {
             if !annotations.is_empty() {
-                return Err(ParseError {
-                    hint: None,
-                    message: "Annotations are not allowed on export lists".to_string(),
-                    span: self.previous_span(),
-                });
+                return Err(self.error(
+                    "Annotations are not allowed on export lists".to_string(),
+                    self.previous_span(),
+                ));
             }
             let mut items = Vec::new();
             while !matches!(self.peek_kind(), TokenKind::RBrace) {
                 let name = match self.advance().kind.clone() {
                     TokenKind::Ident(value) => value,
                     other => {
-                        return Err(ParseError {
-                            hint: None,
-                            message: format!("Expected export name, found {other:?}"),
-                            span: self.previous_span(),
-                        });
+                        return Err(self.error(
+                            format!("Expected export name, found {other:?}"),
+                            self.previous_span(),
+                        ));
                     }
                 };
                 let alias = if self.matches(&TokenKind::KeywordAs) {
                     match self.advance().kind.clone() {
                         TokenKind::Ident(value) => Some(value),
                         other => {
-                            return Err(ParseError {
-                                hint: None,
-                                message: format!("Expected alias name after 'as', found {other:?}"),
-                                span: self.previous_span(),
-                            });
+                            return Err(self.error(
+                                format!("Expected alias name after 'as', found {other:?}"),
+                                self.previous_span(),
+                            ));
                         }
                     }
                 } else {
@@ -1312,11 +1272,10 @@ impl Parser {
             TokenKind::KeywordLet => self.parse_let_stmt(doc)?,
             TokenKind::KeywordConst => self.parse_const_stmt(doc)?,
             other => {
-                return Err(ParseError {
-                    hint: None,
-                    message: format!("Expected declaration after export, found {other:?}"),
-                    span: self.peek().span,
-                });
+                return Err(self.error(
+                    format!("Expected declaration after export, found {other:?}"),
+                    self.peek().span,
+                ));
             }
         };
         Ok(self.wrap_stmt(StmtKind::Export(Box::new(stmt)), start_span))
@@ -1333,11 +1292,10 @@ impl Parser {
         let name = match self.advance().kind.clone() {
             TokenKind::Ident(value) => value,
             other => {
-                return Err(ParseError {
-                    hint: None,
-                    message: format!("Expected class name, found {other:?}"),
-                    span: self.previous_span(),
-                });
+                return Err(self.error(
+                    format!("Expected class name, found {other:?}"),
+                    self.previous_span(),
+                ));
             }
         };
         let generics = self.parse_generic_params()?;
@@ -1345,11 +1303,10 @@ impl Parser {
             match self.advance().kind.clone() {
                 TokenKind::Ident(value) => Some(value),
                 other => {
-                    return Err(ParseError {
-                        hint: None,
-                        message: format!("Expected superclass name, found {other:?}"),
-                        span: self.previous_span(),
-                    });
+                    return Err(self.error(
+                        format!("Expected superclass name, found {other:?}"),
+                        self.previous_span(),
+                    ));
                 }
             }
         } else {
@@ -1470,11 +1427,10 @@ impl Parser {
                         "[]".to_string()
                     }
                     other => {
-                        return Err(ParseError {
-                            hint: None,
-                            message: format!("Expected operator symbol, found {other:?}"),
-                            span: self.peek_span(),
-                        });
+                        return Err(self.error(
+                            format!("Expected operator symbol, found {other:?}"),
+                            self.peek_span(),
+                        ));
                     }
                 };
                 // Parse function parameters and body
@@ -1628,11 +1584,10 @@ impl Parser {
             let name = match self.advance().kind.clone() {
                 TokenKind::Ident(value) => value,
                 other => {
-                    return Err(ParseError {
-                        hint: None,
-                        message: format!("Expected field name in class body, found {other:?}"),
-                        span: self.previous_span(),
-                    });
+                    return Err(self.error(
+                        format!("Expected field name in class body, found {other:?}"),
+                        self.previous_span(),
+                    ));
                 }
             };
 
@@ -1692,11 +1647,10 @@ impl Parser {
             TokenKind::KeywordGet => "get".to_string(),
             TokenKind::KeywordSet => "set".to_string(),
             other => {
-                return Err(ParseError {
-                    hint: None,
-                    message: format!("Expected property name, found {other:?}"),
-                    span: self.previous_span(),
-                });
+                return Err(self.error(
+                    format!("Expected property name, found {other:?}"),
+                    self.previous_span(),
+                ));
             }
         };
 
@@ -1714,11 +1668,10 @@ impl Parser {
         while !self.check(&TokenKind::RBrace) && !self.is_at_end() {
             if self.matches(&TokenKind::KeywordGet) {
                 if getter.is_some() {
-                    return Err(ParseError {
-                        hint: None,
-                        message: "Property already has a getter".to_string(),
-                        span: self.previous_span(),
-                    });
+                    return Err(self.error(
+                        "Property already has a getter".to_string(),
+                        self.previous_span(),
+                    ));
                 }
                 let body = Box::new(self.parse_block_stmt()?);
                 getter = Some(pleno_ast::FunctionDecl {
@@ -1737,21 +1690,19 @@ impl Parser {
                 });
             } else if self.matches(&TokenKind::KeywordSet) {
                 if setter.is_some() {
-                    return Err(ParseError {
-                        hint: None,
-                        message: "Property already has a setter".to_string(),
-                        span: self.previous_span(),
-                    });
+                    return Err(self.error(
+                        "Property already has a setter".to_string(),
+                        self.previous_span(),
+                    ));
                 }
                 self.expect(TokenKind::LParen, "Expected '(' after 'set'")?;
                 let param_name = match self.advance().kind.clone() {
                     TokenKind::Ident(value) => value,
                     other => {
-                        return Err(ParseError {
-                            hint: None,
-                            message: format!("Expected parameter name in setter, found {other:?}"),
-                            span: self.previous_span(),
-                        });
+                        return Err(self.error(
+                            format!("Expected parameter name in setter, found {other:?}"),
+                            self.previous_span(),
+                        ));
                     }
                 };
                 self.expect(TokenKind::RParen, "Expected ')' after parameter name")?;
@@ -1778,14 +1729,13 @@ impl Parser {
                     doc: None,
                 });
             } else {
-                return Err(ParseError {
-                    hint: None,
-                    message: format!(
+                return Err(self.error(
+                    format!(
                         "Expected 'get' or 'set' in property body, found {:?}",
                         self.peek_kind()
                     ),
-                    span: self.peek_span(),
-                });
+                    self.peek_span(),
+                ));
             }
         }
 
@@ -1812,11 +1762,10 @@ impl Parser {
             let name = match self.advance().kind.clone() {
                 TokenKind::Ident(name) => name,
                 other => {
-                    return Err(ParseError {
-                        hint: None,
-                        message: format!("Expected generic parameter name, found {other:?}"),
-                        span: self.previous_span(),
-                    });
+                    return Err(self.error(
+                        format!("Expected generic parameter name, found {other:?}"),
+                        self.previous_span(),
+                    ));
                 }
             };
             let mut constraints = Vec::new();
@@ -1826,11 +1775,10 @@ impl Parser {
                     let constraint = match self.advance().kind.clone() {
                         TokenKind::Ident(name) => name,
                         other => {
-                            return Err(ParseError {
-                                hint: None,
-                                message: format!("Expected constraint name, found {other:?}"),
-                                span: self.previous_span(),
-                            });
+                            return Err(self.error(
+                                format!("Expected constraint name, found {other:?}"),
+                                self.previous_span(),
+                            ));
                         }
                     };
                     constraints.push(constraint);
@@ -1870,11 +1818,10 @@ impl Parser {
             TokenKind::KeywordGet => "get".to_string(),
             TokenKind::KeywordSet => "set".to_string(),
             other => {
-                return Err(ParseError {
-                    hint: None,
-                    message: format!("Expected function name, found {other:?}"),
-                    span: self.previous_span(),
-                });
+                return Err(self.error(
+                    format!("Expected function name, found {other:?}"),
+                    self.previous_span(),
+                ));
             }
         };
         let generics = self.parse_generic_params()?;
@@ -1905,11 +1852,10 @@ impl Parser {
             (config.visibility, config.is_static.unwrap_or(false))
         } else {
             if config.visibility.is_some() || config.is_static.unwrap_or(false) {
-                return Err(ParseError {
-                    hint: None,
-                    message: "Function modifiers are only allowed in classes".to_string(),
-                    span: self.previous_span(),
-                });
+                return Err(self.error(
+                    "Function modifiers are only allowed in classes".to_string(),
+                    self.previous_span(),
+                ));
             }
             (None, false)
         };
@@ -1941,11 +1887,10 @@ impl Parser {
         let name = match self.advance().kind.clone() {
             TokenKind::Ident(value) => value,
             other => {
-                return Err(ParseError {
-                    hint: None,
-                    message: format!("Expected accessor name, found {other:?}"),
-                    span: self.previous_span(),
-                });
+                return Err(self.error(
+                    format!("Expected accessor name, found {other:?}"),
+                    self.previous_span(),
+                ));
             }
         };
         self.expect(TokenKind::LParen, "Expected '(' after accessor name")?;
@@ -1953,18 +1898,16 @@ impl Parser {
         self.expect(TokenKind::RParen, "Expected ')' after accessor parameters")?;
         match kind {
             pleno_ast::FunctionKind::Getter if !params.is_empty() => {
-                return Err(ParseError {
-                    hint: None,
-                    message: "getter cannot take parameters".to_string(),
-                    span: self.previous_span(),
-                });
+                return Err(self.error(
+                    "getter cannot take parameters".to_string(),
+                    self.previous_span(),
+                ));
             }
             pleno_ast::FunctionKind::Setter if params.len() != 1 => {
-                return Err(ParseError {
-                    hint: None,
-                    message: "setter must take exactly one parameter".to_string(),
-                    span: self.previous_span(),
-                });
+                return Err(self.error(
+                    "setter must take exactly one parameter".to_string(),
+                    self.previous_span(),
+                ));
             }
             _ => {}
         }
@@ -1997,11 +1940,10 @@ impl Parser {
         let name = match self.advance().kind.clone() {
             TokenKind::Ident(name) => name,
             other => {
-                return Err(ParseError {
-                    hint: None,
-                    message: format!("Expected annotation name, found {other:?}"),
-                    span: self.previous_span(),
-                });
+                return Err(self.error(
+                    format!("Expected annotation name, found {other:?}"),
+                    self.previous_span(),
+                ));
             }
         };
         let mut args = Vec::new();
@@ -2029,11 +1971,10 @@ impl Parser {
         loop {
             if self.matches(&TokenKind::Star) {
                 if keyword_only {
-                    return Err(ParseError {
-                        hint: None,
-                        message: "duplicate keyword-only marker".to_string(),
-                        span: self.previous_span(),
-                    });
+                    return Err(self.error(
+                        "duplicate keyword-only marker".to_string(),
+                        self.previous_span(),
+                    ));
                 }
                 keyword_only = true;
                 if self.matches(&TokenKind::Comma) {
@@ -2045,11 +1986,10 @@ impl Parser {
             }
             let is_variadic = if self.matches(&TokenKind::Ellipsis) {
                 if seen_variadic {
-                    return Err(ParseError {
-                        hint: None,
-                        message: "variadic parameter already defined".to_string(),
-                        span: self.previous_span(),
-                    });
+                    return Err(self.error(
+                        "variadic parameter already defined".to_string(),
+                        self.previous_span(),
+                    ));
                 }
                 seen_variadic = true;
                 true
@@ -2072,11 +2012,10 @@ impl Parser {
                 TokenKind::Ident(name) => name,
                 TokenKind::Underscore => "_".to_string(),
                 other => {
-                    return Err(ParseError {
-                        hint: None,
-                        message: format!("Expected parameter name, found {other:?}"),
-                        span: self.previous_span(),
-                    });
+                    return Err(self.error(
+                        format!("Expected parameter name, found {other:?}"),
+                        self.previous_span(),
+                    ));
                 }
             };
             let ty = if self.matches(&TokenKind::Colon) {
@@ -2090,11 +2029,10 @@ impl Parser {
                 None
             };
             if is_variadic && default.is_some() {
-                return Err(ParseError {
-                    hint: None,
-                    message: "variadic parameter cannot have default".to_string(),
-                    span: self.previous_span(),
-                });
+                return Err(self.error(
+                    "variadic parameter cannot have default".to_string(),
+                    self.previous_span(),
+                ));
             }
             params.push(pleno_ast::Param {
                 name,
@@ -2105,11 +2043,10 @@ impl Parser {
                 ownership,
             });
             if is_variadic && !matches!(self.peek_kind(), TokenKind::RParen) {
-                return Err(ParseError {
-                    hint: None,
-                    message: "variadic parameter must be last".to_string(),
-                    span: self.peek().span,
-                });
+                return Err(self.error(
+                    "variadic parameter must be last".to_string(),
+                    self.peek().span,
+                ));
             }
             if !self.matches(&TokenKind::Comma) {
                 break;
@@ -2128,11 +2065,10 @@ impl Parser {
                 TokenKind::Ident(name) => name,
                 TokenKind::Underscore => "_".to_string(),
                 other => {
-                    return Err(ParseError {
-                        hint: None,
-                        message: format!("Expected parameter name in lambda, found {other:?}"),
-                        span: self.previous_span(),
-                    });
+                    return Err(self.error(
+                        format!("Expected parameter name in lambda, found {other:?}"),
+                        self.previous_span(),
+                    ));
                 }
             };
             params.push(pleno_ast::Param {
@@ -2500,11 +2436,10 @@ impl Parser {
                 TokenKind::Ident(name) => name,
                 TokenKind::Underscore => "_".to_string(),
                 other => {
-                    return Err(ParseError {
-                        hint: None,
-                        message: format!("Expected parameter name in lambda, found {other:?}"),
-                        span: self.previous_span(),
-                    });
+                    return Err(self.error(
+                        format!("Expected parameter name in lambda, found {other:?}"),
+                        self.previous_span(),
+                    ));
                 }
             };
             params.push(pleno_ast::Param {
@@ -2555,26 +2490,18 @@ impl Parser {
                 }
 
                 if brace_count > 0 {
-                    return Err(ParseError {
-                        hint: None,
-                        message: "Unterminated interpolation".to_string(),
-                        span,
-                    });
+                    return Err(self.error("Unterminated interpolation".to_string(), span));
                 }
 
                 let expr_str = String::from_utf8_lossy(&bytes[start_expr..j - 1]).to_string();
 
                 // Parse the expression
-                let tokens = pleno_lexer::lex(&expr_str).map_err(|e| ParseError {
-                    message: format!("Lex error in interpolation: {}", e.message),
-                    span,
-                    hint: None,
+                let tokens = pleno_lexer::lex(&expr_str).map_err(|e| {
+                    self.error(format!("Lex error in interpolation: {}", e.message), span)
                 })?;
                 let mut sub_parser = Parser::new(tokens, &expr_str);
-                let expr = sub_parser.parse_expr().map_err(|e| ParseError {
-                    message: format!("Parse error in interpolation: {}", e.message),
-                    span,
-                    hint: None,
+                let expr = sub_parser.parse_expr().map_err(|e| {
+                    self.error(format!("Parse error in interpolation: {}", e.message), span)
                 })?;
                 segments.push(expr);
 
@@ -2594,7 +2521,7 @@ impl Parser {
     }
 
     fn parse_atom(&mut self) -> Result<Expr, ParseError> {
-        let token = self.advance();
+        let token = self.advance().clone();
         let start_span = token.span;
         match token.kind.clone() {
             TokenKind::Int(value) => {
@@ -2671,12 +2598,11 @@ impl Parser {
                 match start_token.kind {
                     TokenKind::Pipe => self.parse_lambda_expr(annotations, start_span),
                     TokenKind::KeywordFn => self.parse_fn_expr(annotations, start_span),
-                    _ => Err(ParseError {
-                        hint: None,
-                        message: "Annotations only allowed before lambda functions in expressions"
+                    _ => Err(self.error(
+                        "Annotations only allowed before lambda functions in expressions"
                             .to_string(),
-                        span: start_span,
-                    }),
+                        start_span,
+                    )),
                 }
             }
             TokenKind::LBrace => {
@@ -2792,21 +2718,19 @@ impl Parser {
             TokenKind::Dollar => {
                 let dollar_span = token.span;
                 if !self.matches(&TokenKind::LBrace) {
-                    return Err(ParseError {
-                        hint: None,
-                        message: "Expected '{' after '$' for macro splice".to_string(),
-                        span: dollar_span,
-                    });
+                    return Err(self.error(
+                        "Expected '{' after '$' for macro splice".to_string(),
+                        dollar_span,
+                    ));
                 }
                 let expr = self.parse_expr()?;
                 self.expect(TokenKind::RBrace, "Expected '}' after macro splice")?;
                 Ok(self.wrap_expr(ExprKind::MacroSplice(Box::new(expr)), start_span))
             }
-            other => Err(ParseError {
-                hint: None,
-                message: format!("Unexpected token in expression: {other:?}"),
-                span: token.span,
-            }),
+            other => Err(self.error(
+                format!("Unexpected token in expression: {other:?}"),
+                token.span,
+            )),
         }
     }
 
@@ -2819,11 +2743,10 @@ impl Parser {
                     let name = match self.advance().kind.clone() {
                         TokenKind::Ident(name) => name,
                         other => {
-                            return Err(ParseError {
-                                hint: None,
-                                message: format!("Expected identifier after '.#', found {other:?}"),
-                                span: self.previous_span(),
-                            });
+                            return Err(self.error(
+                                format!("Expected identifier after '.#', found {other:?}"),
+                                self.previous_span(),
+                            ));
                         }
                     };
                     expr = self.wrap_expr(
@@ -2843,13 +2766,10 @@ impl Parser {
                     TokenKind::KeywordSet => "set".to_string(),
                     TokenKind::Int(val) => val.to_string(),
                     other => {
-                        return Err(ParseError {
-                            hint: None,
-                            message: format!(
-                                "Expected identifier or index after '.', found {other:?}"
-                            ),
-                            span: self.previous_span(),
-                        });
+                        return Err(self.error(
+                            format!("Expected identifier or index after '.', found {other:?}"),
+                            self.previous_span(),
+                        ));
                     }
                 };
                 expr = self.wrap_expr(
@@ -2877,13 +2797,10 @@ impl Parser {
                     TokenKind::Ident(name) => name,
                     TokenKind::Int(val) => val.to_string(),
                     other => {
-                        return Err(ParseError {
-                            hint: None,
-                            message: format!(
-                                "Expected identifier or index after '?.', found {other:?}"
-                            ),
-                            span: self.previous_span(),
-                        });
+                        return Err(self.error(
+                            format!("Expected identifier or index after '?.', found {other:?}"),
+                            self.previous_span(),
+                        ));
                     }
                 };
                 expr = self.wrap_expr(
@@ -3092,13 +3009,12 @@ impl Parser {
                         TokenKind::String(value) => value,
                         TokenKind::Ident(value) => value,
                         other => {
-                            return Err(ParseError {
-                                hint: None,
-                                message: format!(
+                            return Err(self.error(
+                                format!(
                                     "Expected string literal or identifier key in map, found {other:?}"
                                 ),
-                                span: self.previous_span(),
-                            });
+                                self.previous_span(),
+                            ));
                         }
                     };
                     self.expect(TokenKind::Colon, "Expected ':' after map key")?;
@@ -3247,11 +3163,10 @@ impl Parser {
                     if let TokenKind::Ident(subname) = self.advance().kind.clone() {
                         name = subname;
                     } else {
-                        return Err(ParseError {
-                            hint: None,
-                            message: "Expected variant name after '.'".to_string(),
-                            span: self.previous_span(),
-                        });
+                        return Err(self.error(
+                            "Expected variant name after '.'".to_string(),
+                            self.previous_span(),
+                        ));
                     }
                 }
 
@@ -3309,25 +3224,24 @@ impl Parser {
                             if self.matches(&TokenKind::Comma)
                                 && !matches!(self.peek_kind(), TokenKind::RBrace)
                             {
-                                return Err(ParseError {
-                                    hint: None,
-                                    message: "Rest pattern must be the last element".to_string(),
-                                    span: self.previous_span(),
-                                });
+                                return Err(self.error(
+                                    "Rest pattern must be the last element".to_string(),
+                                    self.previous_span(),
+                                ));
                             }
                             break;
                         }
 
-                        let field_name = match &self.advance().kind {
+                        let kind = self.advance().kind.clone();
+                        let field_name = match &kind {
                             TokenKind::Ident(name) => name.clone(),
                             other => {
-                                return Err(ParseError {
-                                    hint: None,
-                                    message: format!(
+                                return Err(self.error(
+                                    format!(
                                         "Expected field name in object pattern, found {other:?}"
                                     ),
-                                    span: self.previous_span(),
-                                });
+                                    self.previous_span(),
+                                ));
                             }
                         };
 
@@ -3401,11 +3315,10 @@ impl Parser {
                 };
                 Ok(pleno_ast::Pattern::Rest(name))
             }
-            other => Err(ParseError {
-                hint: None,
-                message: format!("Expected pattern, found {other:?}"),
-                span: self.previous_span(),
-            }),
+            other => Err(self.error(
+                format!("Expected pattern, found {other:?}"),
+                self.previous_span(),
+            )),
         }
     }
 
@@ -3434,11 +3347,7 @@ impl Parser {
             self.advance();
             Ok(())
         } else {
-            Err(ParseError {
-                hint: None,
-                message: message.to_string(),
-                span: self.peek().span,
-            })
+            Err(self.error_at_current(message.to_string()))
         }
     }
 
@@ -3452,11 +3361,7 @@ impl Parser {
             self.advance();
             Ok(())
         } else {
-            Err(ParseError {
-                message: message.to_string(),
-                span: self.peek().span,
-                hint: Some(hint.to_string()),
-            })
+            Err(self.error_with_hint(message.to_string(), self.peek().span, hint.to_string()))
         }
     }
 
@@ -3531,11 +3436,10 @@ impl Parser {
         let name = match self.advance().kind.clone() {
             TokenKind::Ident(value) => value,
             other => {
-                return Err(ParseError {
-                    hint: None,
-                    message: format!("Expected type name after 'type', found {other:?}"),
-                    span: self.previous_span(),
-                });
+                return Err(self.error(
+                    format!("Expected type name after 'type', found {other:?}"),
+                    self.previous_span(),
+                ));
             }
         };
         self.expect(TokenKind::Equal, "Expected '=' after type alias name")?;
@@ -3593,11 +3497,10 @@ impl Parser {
                 TokenKind::Ident(name) => name,
                 TokenKind::Null => "Null".to_string(),
                 other => {
-                    return Err(ParseError {
-                        hint: None,
-                        message: format!("Expected type name after '&', found {other:?}"),
-                        span: start_span,
-                    });
+                    return Err(self.error(
+                        format!("Expected type name after '&', found {other:?}"),
+                        start_span,
+                    ));
                 }
             };
             type_str.push_str(&base_name);
@@ -3646,11 +3549,7 @@ impl Parser {
             } else {
                 // Grouping: (Int | String)
                 if params.len() != 1 {
-                    return Err(ParseError {
-                        hint: None,
-                        message: "Invalid type grouping".to_string(),
-                        span: start,
-                    });
+                    return Err(self.error("Invalid type grouping".to_string(), start));
                 }
                 let type_str = params.into_iter().next().unwrap();
                 return self.parse_type_postfix(type_str);
@@ -3666,13 +3565,10 @@ impl Parser {
                         TokenKind::String(name) => format!("\"{}\"", name),
                         TokenKind::Ident(name) => name,
                         other => {
-                            return Err(ParseError {
-                                hint: None,
-                                message: format!(
-                                    "Expected field name in object type, found {other:?}"
-                                ),
-                                span: self.previous_span(),
-                            });
+                            return Err(self.error(
+                                format!("Expected field name in object type, found {other:?}"),
+                                self.previous_span(),
+                            ));
                         }
                     };
                     self.expect(TokenKind::Colon, "Expected ':' after field name")?;
@@ -3695,11 +3591,10 @@ impl Parser {
             TokenKind::Ident(name) => name,
             TokenKind::Null => "Null".to_string(),
             other => {
-                return Err(ParseError {
-                    hint: None,
-                    message: format!("Expected type name, found {other:?}"),
-                    span: self.previous_span(),
-                });
+                return Err(self.error(
+                    format!("Expected type name, found {other:?}"),
+                    self.previous_span(),
+                ));
             }
         };
 

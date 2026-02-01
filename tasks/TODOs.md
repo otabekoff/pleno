@@ -2,7 +2,7 @@
 
 http://localhost:5173/pleno/specs/ is showing next page to introduction which is itself, and causing loop on docs.
 
-Now, these tasks of the stage are partially done. Nork on it and make it complete. add/edit/update/upgrade/fix/bugfix/implement/make changes/review/test/document
+Now, these tasks of the stage are partially done. Nork on it and make it complete. add/edit/update/upgrade/fix/bugfix/implement/make changes/review/test/document.
 
 csv, sqlite3 or latest
 
@@ -12,7 +12,7 @@ Add info and instructions to release. Add x64, x86...
 
 Unicode, emojis, gradients, pleno ascii text.
 
-Let's do bench. Make bench folder benchmark project reporting about benchmarking of Pleno. Reports. Not only speed tests. Also, we need to compare with other languages like Python, Rust, Go, Kotlin, C, C++, Java, JavaScript, TypeScript, etc.
+Let's do bench. Make bench folder benchmark project reporting about benchmarking of Pleno. Reports. Not only speed tests. Also, we need to compare with other languages like Python, Rust, Go, Kotlin, C, C++, Java, JavaScript, TypeScript, etc. Make sure the benchmarking is done solely and based on truth. It should show the truth. It is not just making for Pleno to win. We've to be trustworthy. We've to show the truth. We've to be transparent. We've to be fair.
 
 Optimizations and error management in Pleno in a structured way, aslo fix the showing line numbers like Rust or other thing?
 
@@ -192,9 +192,6 @@ VS Code provides language support through extensions. The language support you c
     Publish to Marketplace: Once your extension is working, you can publish it to the Visual Studio Code Marketplace for users to install. 
 
 By following these separate processes for both highlight.js and VS Code, you can ensure your new language receives broad support.
-
-Work on #[test]
-#[ignore] s and make them work and fix. what's needed? make them work.
 
 ---
 

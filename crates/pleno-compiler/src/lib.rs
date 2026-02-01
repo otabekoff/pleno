@@ -526,7 +526,7 @@ impl Compiler {
             }
             StmtKind::Export(stmt) => {
                 if !self.module_mode {
-                    return Err(CompileError::new("export is only allowed in modules"));
+                    return Err(self.error("export is only allowed in modules", stmt.span));
                 }
                 let export_name = match &stmt.kind {
                     StmtKind::Let { name, .. } => name.clone(),
@@ -543,7 +543,7 @@ impl Compiler {
             }
             StmtKind::ExportList(items) => {
                 if !self.module_mode {
-                    return Err(CompileError::new("export is only allowed in modules"));
+                    return Err(self.error("export is only allowed in modules", self.current_span));
                 }
                 for item in items {
                     self.module_exports.push(ExportItem {
@@ -1332,8 +1332,9 @@ impl Compiler {
                 Ok(dest)
             }
             ExprKind::Paren(inner) => self.compile_expr(inner),
-            ExprKind::Spread(_) => Err(CompileError::new(
+            ExprKind::Spread(_) => Err(self.error(
                 "spread operator only allowed in collection literals",
+                expr.span,
             )),
             ExprKind::Call { callee, args } => {
                 if let ExprKind::Ident(name) = &callee.kind
@@ -1378,8 +1379,9 @@ impl Compiler {
                                 self.free_temp(spread_reg);
                             }
                             _ => {
-                                return Err(CompileError::new(
+                                return Err(self.error(
                                     "super() does not support named/placeholder args",
+                                    expr.span,
                                 ));
                             }
                         }
@@ -2755,7 +2757,7 @@ impl Compiler {
                     self.emit(Opcode::LoadCapture, temp, *capture_idx as u8, 0);
                     temp
                 } else {
-                    return Err(CompileError::new("unknown capture"));
+                    return Err(self.error("unknown capture", self.current_span));
                 };
                 self.emit(Opcode::Capture, dest, reg, idx as u8);
                 if !self.is_local_reg(reg) {
@@ -2961,7 +2963,7 @@ impl Compiler {
                 self.emit(Opcode::LoadCapture, temp, *capture_idx as u8, 0);
                 temp
             } else {
-                return Err(CompileError::new("unknown capture"));
+                return Err(self.error("unknown capture", self.current_span));
             };
             self.emit(Opcode::Capture, dest, reg, idx as u8);
             if !self.is_local_reg(reg) {
@@ -3097,7 +3099,7 @@ impl Compiler {
                 implements.clone(),
                 annotations,
             ),
-            _ => return Err(CompileError::new("expected class statement")),
+            _ => return Err(self.error("expected class statement", self.current_span)),
         };
 
         let methods_reg = self.registers.allocate()?;

@@ -44,6 +44,7 @@ pub struct LintRulesConfig {
     pub warn_semi_spacing: bool,
     pub prefer_const: bool,
     pub no_undef: bool,
+    pub warn_shadowed_vars: bool,
 }
 
 impl Default for LintRulesConfig {
@@ -55,6 +56,7 @@ impl Default for LintRulesConfig {
             warn_semi_spacing: true,
             prefer_const: false,
             no_undef: true,
+            warn_shadowed_vars: true,
         }
     }
 }
@@ -146,6 +148,20 @@ impl ScopeTracker {
             return true;
         }
         for scope in self.scopes.iter().rev() {
+            if scope.declarations.contains_key(name) {
+                return true;
+            }
+        }
+        false
+    }
+
+    fn is_shadowed(&self, name: &str) -> bool {
+        // Check if name exists in any outer scope (not current)
+        if self.globals.contains(name) {
+            return true;
+        }
+        // Skip current scope, check outer ones
+        for scope in self.scopes.iter().rev().skip(1) {
             if scope.declarations.contains_key(name) {
                 return true;
             }
@@ -378,6 +394,19 @@ impl<'a> LintVisitor<'a> {
                     self.visit_expr(v);
                 }
                 let (line, col) = position_from_offset(self.source, stmt.span.start);
+                // Check for shadowing before declaring
+                if self.config.warn_shadowed_vars && self.scope_tracker.is_shadowed(name) {
+                    self.diagnostics.push(LintDiagnostic {
+                        rule_name: "no-shadow".to_string(),
+                        message: format!(
+                            "Variable '{}' shadows a variable from an outer scope",
+                            name
+                        ),
+                        severity: Severity::Warning,
+                        line,
+                        column: col,
+                    });
+                }
                 self.scope_tracker.declare(name.clone(), line, col);
             }
             StmtKind::Assign { name, value } => {
@@ -493,6 +522,24 @@ impl<'a> LintVisitor<'a> {
                 }
 
                 self.scope_tracker.exit_scope();
+            }
+            StmtKind::Try {
+                try_branch,
+                catch_branches,
+                finally_branch,
+            } => {
+                self.visit_stmt(try_branch);
+                for catch in catch_branches {
+                    self.scope_tracker.enter_scope();
+                    let (line, col) = position_from_offset(self.source, stmt.span.start);
+                    self.scope_tracker.declare(catch.name.clone(), line, col);
+                    self.visit_stmt(&catch.body);
+                    self.check_unused_in_current_scope();
+                    self.scope_tracker.exit_scope();
+                }
+                if let Some(finally) = finally_branch {
+                    self.visit_stmt(finally);
+                }
             }
             _ => {}
         }
