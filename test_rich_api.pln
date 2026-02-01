@@ -1,0 +1,51 @@
+
+
+println("Testing Rich API...");
+
+let arr = [1, 2, 3];
+
+// Existing
+println("Testing map...");
+let mapped = arr.map(fn(x) => x * 2);
+println(mapped);
+
+// Potential Missing
+println("Testing flatMap...");
+try {
+  let flat = [[1], [2]].flatMap(fn(x) => x);
+  println(flat);
+} catch (e) {
+  println("FlatMap missing: " + e.message);
+}
+
+println("Testing every...");
+try {
+  let all = [1, 2, 3].every(fn(x) => x > 0);
+  println(all);
+} catch (e) {
+  println("Every missing: " + e.message);
+}
+
+println("Testing some...");
+try {
+  let any = [1, 2, 3].some(fn(x) => x > 4);
+  println(any);
+} catch (e) {
+  println("Some missing: " + e.message);
+}
+
+println("Testing reverse...");
+try {
+    let rev = [1, 2, 3].reverse();
+    println(rev);
+} catch (e) {
+    println("Reverse missing: " + e.message);
+}
+
+println("Testing sort...");
+try {
+    let s = [3, 1, 2].sort();
+    println(s);
+} catch (e) {
+    println("Sort missing: " + e.message);
+}
