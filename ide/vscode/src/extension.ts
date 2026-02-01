@@ -8,12 +8,115 @@ import {
 } from 'vscode-languageclient/node';
 import { injectPlenoIcons } from './iconInjector';
 
+
+class PlmTaskProvider implements vscode.TaskProvider {
+    static PlmType = 'plm';
+
+    provideTasks(): vscode.ProviderResult<vscode.Task[]> {
+        const workspaceFolders = vscode.workspace.workspaceFolders;
+        if (!workspaceFolders || workspaceFolders.length === 0) {
+            return [];
+        }
+
+        const tasks: vscode.Task[] = [];
+        for (const folder of workspaceFolders) {
+            const manifestPath = path.join(folder.uri.fsPath, 'package.pln');
+            if (require('fs').existsSync(manifestPath)) {
+                tasks.push(this.createTask('build', folder));
+                tasks.push(this.createTask('test', folder));
+                tasks.push(this.createTask('install', folder));
+                tasks.push(this.createTask('run', folder));
+            }
+        }
+        return tasks;
+    }
+
+    resolveTask(task: vscode.Task): vscode.Task | undefined {
+        const command = task.definition.command;
+        if (command) {
+            return new vscode.Task(
+                task.definition,
+                task.scope ?? vscode.TaskScope.Workspace,
+                command,
+                'plm',
+                new vscode.ShellExecution(`plm ${command}`)
+            );
+        }
+        return undefined;
+    }
+
+    private createTask(command: string, folder: vscode.WorkspaceFolder): vscode.Task {
+        const definition = { type: PlmTaskProvider.PlmType, command };
+        const task = new vscode.Task(
+            definition,
+            folder,
+            `plm ${command}`,
+            'plm',
+            new vscode.ShellExecution(`plm ${command}`)
+        );
+        if (command === 'build') {
+            task.group = vscode.TaskGroup.Build;
+        } else if (command === 'test') {
+            task.group = vscode.TaskGroup.Test;
+        }
+        return task;
+    }
+}
+
+class PlenoTaskProvider implements vscode.TaskProvider {
+    static PlenoType = 'pleno';
+
+    provideTasks(): vscode.ProviderResult<vscode.Task[]> {
+        const editor = vscode.window.activeTextEditor;
+        if (!editor || editor.document.languageId !== 'pleno') {
+            return [];
+        }
+
+        const tasks: vscode.Task[] = [];
+        const file = editor.document.fileName;
+        tasks.push(new vscode.Task(
+            { type: PlenoTaskProvider.PlenoType, command: 'run', file },
+            vscode.TaskScope.Workspace,
+            'pleno run',
+            'pleno',
+            new vscode.ShellExecution(`pleno run "${file}"`)
+        ));
+        tasks.push(new vscode.Task(
+            { type: PlenoTaskProvider.PlenoType, command: 'check', file },
+            vscode.TaskScope.Workspace,
+            'pleno check',
+            'pleno',
+            new vscode.ShellExecution(`pleno check "${file}"`)
+        ));
+        return tasks;
+    }
+
+    resolveTask(task: vscode.Task): vscode.Task | undefined {
+        const command = task.definition.command;
+        const file = task.definition.file || '${file}';
+        if (command) {
+            return new vscode.Task(
+                task.definition,
+                task.scope ?? vscode.TaskScope.Workspace,
+                command,
+                'pleno',
+                new vscode.ShellExecution(`pleno ${command} "${file}"`)
+            );
+        }
+        return undefined;
+    }
+}
+
 let client: LanguageClient;
 let myStatusBarItem: vscode.StatusBarItem;
 
 export function activate(context: vscode.ExtensionContext) {
     // Try to inject icon theme patches
     injectPlenoIcons(context);
+
+    // Register task providers
+    context.subscriptions.push(vscode.tasks.registerTaskProvider(PlmTaskProvider.PlmType, new PlmTaskProvider()));
+    context.subscriptions.push(vscode.tasks.registerTaskProvider(PlenoTaskProvider.PlenoType, new PlenoTaskProvider()));
 
     const config = vscode.workspace.getConfiguration('pleno');
     const customLspPath = config.get<string>('lsp.path');

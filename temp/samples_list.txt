@@ -1,0 +1,23 @@
+# VSCode Extension Samples Research Tracking
+
+- [x] semantic-tokens-sample: High precision syntax highlighting (Done)
+- [x] code-actions-sample: Quick fixes (Done)
+- [x] test-provider-sample: Test Explorer integration (Done)
+- [x] codelens-sample: Run actions above functions (Done)
+- [x] call-hierarchy-sample: Peek call hierarchy (Done)
+- [x] diagnostic-related-information-sample: Multi-location errors (Done)
+- [x] completions-sample: Auto-completion logic (Done - Implemented property completion)
+- [x] configuration-sample: Managing extension settings (Done - Implemented more settings)
+- [x] progress-sample: Progress reporting for long tasks (Done - Learned about window.withProgress)
+- [x] statusbar-sample: Status bar integration (Done - Improved status bar)
+- [x] lsp-sample: General LSP architecture and patterns (Done - Verified our server architecture)
+- [x] terminal-sample: Integrated terminal interactions (Done - Implemented openRepl)
+- [ ] tree-view-sample: Custom sidebar views (Skipped for now, complexity high)
+- [ ] snippet-sample: Native snippet support (Done - We already have good snippets)
+- [ ] theme-sample: Custom color themes for Pleno (Skipped, semantic tokens are enough)
+- [ ] welcome-view-content-sample: Onboarding experience (Skipped, low priority)
+- [ ] quickinput-sample: Interaction patterns (Done - Used in restart logic)
+- [x] task-provider-sample: Custom build tasks (Done - Implemented Plm and Pleno task providers)
+- [ ] tree-view-sample: Custom sidebar views (e.g., for modules)
+- [ ] lsp-multi-server-sample: Handling multi-root or complex projects
+- [ ] webview-sample: Complex UIs (e.g., for debuggers or visualizers)
