@@ -1093,13 +1093,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "pleno-gc"
-version = "0.1.0"
-dependencies = [
- "pleno-value",
-]
-
-[[package]]
 name = "pleno-lexer"
 version = "0.1.0"
 dependencies = [

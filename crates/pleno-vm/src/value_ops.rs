@@ -30,6 +30,24 @@ pub fn add_values(
             vm.get_gc().track_allocation(res.len())?;
             Ok(Value::String(Rc::new(res)))
         }
+        (Value::String(a_str), Value::Char(b_char)) => {
+            let mut res = a_str.as_str().to_string();
+            res.push(*b_char);
+            vm.get_gc().track_allocation(res.len())?;
+            Ok(Value::String(Rc::new(res)))
+        }
+        (Value::Char(a_char), Value::String(b_str)) => {
+            let mut res = a_char.to_string();
+            res.push_str(b_str.as_str());
+            vm.get_gc().track_allocation(res.len())?;
+            Ok(Value::String(Rc::new(res)))
+        }
+        (Value::Char(a_char), Value::Char(b_char)) => {
+            let mut res = a_char.to_string();
+            res.push(*b_char);
+            vm.get_gc().track_allocation(res.len())?;
+            Ok(Value::String(Rc::new(res)))
+        }
         // No implicit type coercion - require explicit .toString() conversion
         _ => Err(RuntimeError::new(
             "invalid operands for + (use .toString() for string concatenation)",
