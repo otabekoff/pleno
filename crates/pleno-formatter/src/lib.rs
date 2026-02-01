@@ -105,6 +105,26 @@ impl Formatter {
         result
     }
 
+    fn format_annotations(&mut self, annotations: &[Annotation], indent_level: usize) -> String {
+        let mut result = String::new();
+        let indent = self.indent(indent_level);
+        for annotation in annotations {
+            result.push_str(&format!("{}@{}", indent, annotation.name));
+            if !annotation.args.is_empty() {
+                result.push('(');
+                let args: Vec<String> = annotation
+                    .args
+                    .iter()
+                    .map(|arg| self.format_expression(arg, indent_level))
+                    .collect();
+                result.push_str(&args.join(", "));
+                result.push(')');
+            }
+            result.push('\n');
+        }
+        result
+    }
+
     pub fn format_program(&mut self, program: &Program, indent_level: usize) -> String {
         self.comments = program.comments.clone();
         self.comment_index = 0;
@@ -137,9 +157,10 @@ impl Formatter {
 
         let current_indent = self.indent(indent_level);
         let mut stmt_str = match &stmt.kind {
-            StmtKind::Module { name, body, .. } => {
+            StmtKind::Module { name, body, doc: _ } => {
+                let mut result = self.format_annotations(&[], indent_level); // Modules don't have annotations yet
                 if let Some(stmts) = body {
-                    let mut result = format!("{}module {} {{\n", current_indent, name);
+                    result.push_str(&format!("{}module {} {{\n", current_indent, name));
                     for stmt in stmts {
                         result.push_str(&self.format_statement(stmt, indent_level + 1));
                     }
@@ -512,11 +533,11 @@ impl Formatter {
                 superclass,
                 implements,
                 is_abstract,
-                annotations: _,
+                annotations,
                 nested_classes,
-                ..
+                doc: _,
             } => {
-                let mut result = String::new();
+                let mut result = self.format_annotations(annotations, indent_level);
                 let mut prefix = current_indent.clone();
                 if *is_abstract {
                     prefix.push_str("abstract ");
@@ -537,19 +558,31 @@ impl Formatter {
                 let next_indent = indent_level + 1;
 
                 for field in fields {
+                    result.push_str(&self.format_annotations(&field.annotations, next_indent));
                     let visibility = match &field.visibility {
                         Some(vis) => format!("{} ", format_visibility(vis)),
                         None => "".to_string(),
                     };
                     let static_keyword = if field.is_static { "static " } else { "" };
+                    let const_keyword = if field.is_const { "const " } else { "" };
+
+                    result.push_str(&self.indent(next_indent));
                     result.push_str(&format!(
-                        "{}{}{}{}{};\n",
-                        self.indent(next_indent),
-                        current_indent,
-                        visibility,
-                        static_keyword,
-                        field.name
+                        "{}{}{}{}",
+                        visibility, static_keyword, const_keyword, field.name
                     ));
+
+                    if let Some(ty) = &field.ty {
+                        result.push_str(": ");
+                        result.push_str(ty);
+                    }
+
+                    if let Some(val) = &field.default {
+                        result.push_str(" = ");
+                        result.push_str(&self.format_expression(val, next_indent));
+                    }
+
+                    result.push_str(";\n");
                 }
 
                 for method in methods {
@@ -579,10 +612,11 @@ impl Formatter {
                 generics,
                 methods,
                 extends,
-                annotations: _,
-                ..
+                annotations,
+                doc: _,
             } => {
-                let mut result = format!("{}interface {} ", current_indent, name);
+                let mut result = self.format_annotations(annotations, indent_level);
+                result.push_str(&format!("{}interface {} ", current_indent, name));
                 result.push_str(&self.format_generics(generics));
                 if !extends.is_empty() {
                     result.push_str(&format!("extends {} ", extends.join(", ")));
@@ -600,11 +634,12 @@ impl Formatter {
                 generics,
                 params,
                 body,
-                annotations: _,
+                annotations,
                 is_async,
-                ..
+                doc: _,
             } => {
-                let mut result = current_indent.clone();
+                let mut result = self.format_annotations(annotations, indent_level);
+                result.push_str(&current_indent);
                 if *is_async {
                     result.push_str("async ");
                 }
@@ -719,10 +754,31 @@ impl Formatter {
                 )
             }
             StmtKind::Enum(decl) => {
-                let mut result = format!("{}enum {} {{\n", current_indent, decl.name);
-                for variant in &decl.variants {
-                    result.push_str(&format!("{}    {},\n", current_indent, variant.name));
+                let mut result = self.format_annotations(&decl.annotations, indent_level);
+                result.push_str(&format!("{}enum {} {{\n", current_indent, decl.name));
+                for (i, variant) in decl.variants.iter().enumerate() {
+                    result.push_str(&format!("{}    {}", current_indent, variant.name));
+                    if let Some(params) = &variant.params {
+                        result.push('(');
+                        let param_strs: Vec<String> =
+                            params.iter().map(|p| self.format_param(p)).collect();
+                        result.push_str(&param_strs.join(", "));
+                        result.push(')');
+                    }
+                    if i < decl.variants.len() - 1 {
+                        result.push_str(",\n");
+                    } else {
+                        result.push('\n');
+                    }
                 }
+
+                if !decl.methods.is_empty() {
+                    result.push('\n');
+                    for method in &decl.methods {
+                        result.push_str(&self.format_function(method, indent_level + 1));
+                    }
+                }
+
                 result.push_str(&format!("{}}}\n", current_indent));
                 result
             }
@@ -1081,7 +1137,14 @@ impl Formatter {
             Literal::Int(i) => i.to_string(),
             Literal::Float(f) => f.to_string(),
             Literal::String(s) => format!("\"{}\"", s),
-            Literal::Char(c) => format!("'{}'", c),
+            Literal::Char(c) => match c {
+                '\n' => "'\\n'".to_string(),
+                '\r' => "'\\r'".to_string(),
+                '\t' => "'\\t'".to_string(),
+                '\\' => "'\\\\'".to_string(),
+                '\'' => "'\\''".to_string(),
+                _ => format!("'{}'", c),
+            },
             Literal::Bool(b) => b.to_string(),
             Literal::Null => "null".to_string(),
         }
@@ -1205,7 +1268,14 @@ impl Formatter {
             .collect();
         result.push_str(&param_strs.join(", "));
 
-        result.push_str(") ");
+        result.push(')');
+
+        if let Some(ret_ty) = &func.return_ty {
+            result.push_str(": ");
+            result.push_str(ret_ty);
+        }
+
+        result.push(' ');
 
         // Add body - format as block
         match &func.body.kind {
