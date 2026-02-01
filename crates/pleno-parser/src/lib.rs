@@ -887,20 +887,132 @@ impl Parser {
 
         self.expect(TokenKind::LBrace, "Expected '{' before interface body")?;
         let mut methods = Vec::new();
+        let mut properties = Vec::new();
         while !self.check(&TokenKind::RBrace) && !self.is_at_end() {
             let member_doc = self.token_docs.get(&self.index).cloned();
-            let method_annotations = self.parse_annotations()?;
-            let method = self.parse_function_decl(FunctionDeclarationConfig {
-                kind: pleno_ast::FunctionKind::Method,
-                allow_modifiers: true,
-                visibility: None,
-                is_static: None,
-                annotations: method_annotations,
-                is_async: false,
-                is_abstract: true,
-                doc: member_doc,
-            })?;
-            methods.push(method);
+            let member_annotations = self.parse_annotations()?;
+
+            let mut visibility = None;
+            let mut is_static = false;
+            let mut _is_abstract_member = false;
+            loop {
+                match self.peek_kind() {
+                    TokenKind::KeywordPublic => {
+                        self.advance();
+                        visibility = Some(pleno_ast::Visibility::Public);
+                    }
+                    TokenKind::KeywordPrivate => {
+                        self.advance();
+                        visibility = Some(pleno_ast::Visibility::Private);
+                    }
+                    TokenKind::KeywordProtected => {
+                        self.advance();
+                        visibility = Some(pleno_ast::Visibility::Protected);
+                    }
+                    TokenKind::KeywordInternal => {
+                        self.advance();
+                        visibility = Some(pleno_ast::Visibility::Internal);
+                    }
+                    TokenKind::KeywordStatic => {
+                        self.advance();
+                        is_static = true;
+                    }
+                    TokenKind::KeywordAbstract => {
+                        self.advance();
+                        _is_abstract_member = true;
+                    }
+                    _ => break,
+                }
+            }
+
+            if is_accessor(
+                self.peek_kind(),
+                self.peek_n_kind(1),
+                self.peek_n_kind(2),
+                "get",
+            ) {
+                methods.push(self.parse_accessor_decl(
+                    pleno_ast::FunctionKind::Getter,
+                    visibility,
+                    is_static,
+                    true, // is_abstract (always true for interfaces)
+                    member_annotations,
+                    member_doc,
+                )?);
+                continue;
+            }
+            if is_accessor(
+                self.peek_kind(),
+                self.peek_n_kind(1),
+                self.peek_n_kind(2),
+                "set",
+            ) {
+                methods.push(self.parse_accessor_decl(
+                    pleno_ast::FunctionKind::Setter,
+                    visibility,
+                    is_static,
+                    true, // is_abstract
+                    member_annotations,
+                    member_doc,
+                )?);
+                continue;
+            }
+            if matches!(self.peek_kind(), TokenKind::KeywordProperty) {
+                properties.push(self.parse_property_decl(
+                    visibility,
+                    is_static,
+                    true, // is_abstract
+                    member_annotations,
+                    member_doc,
+                )?);
+                continue;
+            }
+
+            let is_async = self.matches(&TokenKind::KeywordAsync);
+
+            if self.matches(&TokenKind::KeywordFn) {
+                methods.push(self.parse_function_decl_internal(
+                    FunctionDeclarationConfig {
+                        kind: pleno_ast::FunctionKind::Method,
+                        allow_modifiers: true,
+                        visibility,
+                        is_static: Some(is_static),
+                        annotations: member_annotations,
+                        is_async,
+                        is_abstract: true, // Always abstract in interface
+                        doc: member_doc,
+                    },
+                    false, // Already consumed fn
+                )?);
+                continue;
+            }
+
+            if matches!(self.peek_kind(), TokenKind::Ident(_)) {
+                match self.peek_n_kind(1) {
+                    Some(&TokenKind::LParen) | Some(&TokenKind::Less) => {
+                        methods.push(self.parse_function_decl_internal(
+                            FunctionDeclarationConfig {
+                                kind: pleno_ast::FunctionKind::Method,
+                                allow_modifiers: true,
+                                visibility,
+                                is_static: Some(is_static),
+                                annotations: member_annotations,
+                                is_async,
+                                is_abstract: true,
+                                doc: member_doc,
+                            },
+                            false,
+                        )?);
+                        continue;
+                    }
+                    _ => {}
+                }
+            }
+
+            return Err(self.error(
+                format!("Unexpected token in interface: {:?}", self.peek_kind()),
+                self.peek_span(),
+            ));
         }
         self.expect(TokenKind::RBrace, "Expected '}' after interface body")?;
 
@@ -909,6 +1021,7 @@ impl Parser {
                 name,
                 generics,
                 methods,
+                properties,
                 extends,
                 annotations,
                 doc,
@@ -1488,17 +1601,20 @@ impl Parser {
                 || matches!(self.peek_kind(), TokenKind::KeywordAsync)
             {
                 let is_async = self.matches(&TokenKind::KeywordAsync);
-                if matches!(self.peek_kind(), TokenKind::KeywordFn) {
-                    methods.push(self.parse_function_decl(FunctionDeclarationConfig {
-                        kind: pleno_ast::FunctionKind::Method,
-                        allow_modifiers: true,
-                        visibility,
-                        is_static: Some(is_static),
-                        annotations: member_annotations,
-                        is_async,
-                        is_abstract: is_abstract_member,
-                        doc: member_doc,
-                    })?);
+                if self.matches(&TokenKind::KeywordFn) {
+                    methods.push(self.parse_function_decl_internal(
+                        FunctionDeclarationConfig {
+                            kind: pleno_ast::FunctionKind::Method,
+                            allow_modifiers: true,
+                            visibility,
+                            is_static: Some(is_static),
+                            annotations: member_annotations,
+                            is_async,
+                            is_abstract: is_abstract_member,
+                            doc: member_doc,
+                        },
+                        false,
+                    )?);
                     continue;
                 }
 
@@ -1536,6 +1652,7 @@ impl Parser {
                     pleno_ast::FunctionKind::Getter,
                     visibility,
                     is_static,
+                    is_abstract_member,
                     member_annotations,
                     member_doc,
                 )?);
@@ -1551,6 +1668,7 @@ impl Parser {
                     pleno_ast::FunctionKind::Setter,
                     visibility,
                     is_static,
+                    is_abstract_member,
                     member_annotations,
                     member_doc,
                 )?);
@@ -1560,6 +1678,7 @@ impl Parser {
                 properties.push(self.parse_property_decl(
                     visibility,
                     is_static,
+                    is_abstract_member,
                     member_annotations,
                     member_doc,
                 )?);
@@ -1666,6 +1785,7 @@ impl Parser {
         &mut self,
         visibility: Option<pleno_ast::Visibility>,
         is_static: bool,
+        is_abstract: bool,
         annotations: Vec<pleno_ast::Annotation>,
         doc: Option<String>,
     ) -> Result<pleno_ast::PropertyDecl, ParseError> {
@@ -1701,7 +1821,12 @@ impl Parser {
                         self.previous_span(),
                     ));
                 }
-                let body = Box::new(self.parse_block_stmt()?);
+                let body = if is_abstract && !self.check(&TokenKind::LBrace) {
+                    self.expect(TokenKind::Semicolon, "Expected ';' after abstract getter")?;
+                    Box::new(self.wrap_stmt(StmtKind::Block(Vec::new()), self.previous_span()))
+                } else {
+                    Box::new(self.parse_block_stmt()?)
+                };
                 getter = Some(pleno_ast::FunctionDecl {
                     name: format!("get_{}", name),
                     generics: Vec::new(),
@@ -1709,7 +1834,7 @@ impl Parser {
                     return_ty: ty.clone(),
                     body,
                     is_static,
-                    is_abstract: false,
+                    is_abstract,
                     is_async: false,
                     visibility: visibility.clone(),
                     kind: pleno_ast::FunctionKind::Getter,
@@ -1734,7 +1859,12 @@ impl Parser {
                     }
                 };
                 self.expect(TokenKind::RParen, "Expected ')' after parameter name")?;
-                let body = Box::new(self.parse_block_stmt()?);
+                let body = if is_abstract && !self.check(&TokenKind::LBrace) {
+                    self.expect(TokenKind::Semicolon, "Expected ';' after abstract setter")?;
+                    Box::new(self.wrap_stmt(StmtKind::Block(Vec::new()), self.previous_span()))
+                } else {
+                    Box::new(self.parse_block_stmt()?)
+                };
                 setter = Some(pleno_ast::FunctionDecl {
                     name: format!("set_{}", name),
                     generics: Vec::new(),
@@ -1749,7 +1879,7 @@ impl Parser {
                     return_ty: Some("Void".to_string()),
                     body,
                     is_static,
-                    is_abstract: false,
+                    is_abstract,
                     is_async: false,
                     visibility: visibility.clone(),
                     kind: pleno_ast::FunctionKind::Setter,
@@ -1908,6 +2038,7 @@ impl Parser {
         kind: pleno_ast::FunctionKind,
         visibility: Option<pleno_ast::Visibility>,
         is_static: bool,
+        is_abstract: bool,
         annotations: Vec<pleno_ast::Annotation>,
         doc: Option<String>,
     ) -> Result<pleno_ast::FunctionDecl, ParseError> {
@@ -1939,15 +2070,20 @@ impl Parser {
             }
             _ => {}
         }
-        let body = self.parse_block_stmt()?;
+        let body = if is_abstract && !self.check(&TokenKind::LBrace) {
+            self.expect(TokenKind::Semicolon, "Expected ';' after abstract accessor")?;
+            Box::new(self.wrap_stmt(StmtKind::Block(Vec::new()), self.previous_span()))
+        } else {
+            Box::new(self.parse_block_stmt()?)
+        };
         Ok(pleno_ast::FunctionDecl {
             name,
             generics: Vec::new(),
             params,
             return_ty: None,
-            body: Box::new(body),
+            body,
             is_static,
-            is_abstract: false,
+            is_abstract,
             is_async: false,
             visibility,
             kind,

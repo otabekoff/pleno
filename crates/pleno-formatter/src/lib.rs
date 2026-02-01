@@ -611,6 +611,7 @@ impl Formatter {
                 name,
                 generics,
                 methods,
+                properties,
                 extends,
                 annotations,
                 doc: _,
@@ -625,6 +626,9 @@ impl Formatter {
                 let next_indent = indent_level + 1;
                 for method in methods {
                     result.push_str(&self.format_function(method, next_indent));
+                }
+                for property in properties {
+                    result.push_str(&self.format_property(property, next_indent));
                 }
                 result.push_str(&format!("{}}}\n", self.indent(indent_level)));
                 result

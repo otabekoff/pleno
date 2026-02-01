@@ -247,6 +247,7 @@ impl DocGenerator {
                 name,
                 generics,
                 methods,
+                properties,
                 extends,
                 doc,
                 ..
@@ -258,6 +259,12 @@ impl DocGenerator {
                 item.returns = returns;
                 item.generics = generics.iter().map(format_generic).collect();
                 item.signature = self.format_interface_signature(name, generics, extends);
+
+                // Extract properties
+                for prop in properties {
+                    item.children.push(self.extract_property(prop));
+                }
+
                 for method in methods {
                     let mut method_item = self.extract_function(method);
                     method_item.kind = DocItemKind::Method;
