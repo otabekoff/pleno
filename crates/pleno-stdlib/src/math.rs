@@ -92,6 +92,56 @@ pub fn math_ceil(
     }
 }
 
+pub fn math_trunc(
+    _vm: &mut dyn pleno_value::VMProvider,
+    args: &[Value],
+) -> Result<Value, pleno_value::RuntimeError> {
+    if args.is_empty() {
+        return Err(pleno_value::RuntimeError::new(
+            "Math.trunc requires 1 argument",
+        ));
+    }
+    match args[0] {
+        Value::Int(i) => Ok(Value::Int(i)),
+        Value::Float(f) => Ok(Value::Int(f.trunc() as i64)),
+        _ => Err(pleno_value::RuntimeError::new("Expected number")),
+    }
+}
+
+pub fn math_sign(
+    _vm: &mut dyn pleno_value::VMProvider,
+    args: &[Value],
+) -> Result<Value, pleno_value::RuntimeError> {
+    if args.is_empty() {
+        return Err(pleno_value::RuntimeError::new(
+            "Math.sign requires 1 argument",
+        ));
+    }
+    match args[0] {
+        Value::Int(i) => {
+            if i > 0 {
+                Ok(Value::Int(1))
+            } else if i < 0 {
+                Ok(Value::Int(-1))
+            } else {
+                Ok(Value::Int(0))
+            }
+        }
+        Value::Float(f) => {
+            if f > 0.0 {
+                Ok(Value::Int(1))
+            } else if f < 0.0 {
+                Ok(Value::Int(-1))
+            } else if f == 0.0 {
+                Ok(Value::Int(0))
+            } else {
+                Ok(Value::Float(f64::NAN))
+            }
+        }
+        _ => Err(pleno_value::RuntimeError::new("Expected number")),
+    }
+}
+
 pub fn math_round(
     _vm: &mut dyn pleno_value::VMProvider,
     args: &[Value],
@@ -144,6 +194,28 @@ pub fn math_pow(
         _ => return Err(pleno_value::RuntimeError::new("Expected number exponent")),
     };
     Ok(Value::Float(base.powf(exp)))
+}
+
+pub fn math_atan2(
+    _vm: &mut dyn pleno_value::VMProvider,
+    args: &[Value],
+) -> Result<Value, pleno_value::RuntimeError> {
+    if args.len() < 2 {
+        return Err(pleno_value::RuntimeError::new(
+            "Math.atan2 requires 2 arguments (y, x)",
+        ));
+    }
+    let y = match args[0] {
+        Value::Int(i) => i as f64,
+        Value::Float(f) => f,
+        _ => return Err(pleno_value::RuntimeError::new("Expected number for y")),
+    };
+    let x = match args[1] {
+        Value::Int(i) => i as f64,
+        Value::Float(f) => f,
+        _ => return Err(pleno_value::RuntimeError::new("Expected number for x")),
+    };
+    Ok(Value::Float(y.atan2(x)))
 }
 
 pub fn math_sin(
@@ -206,6 +278,22 @@ pub fn math_log(
     match args[0] {
         Value::Int(i) => Ok(Value::Float((i as f64).ln())),
         Value::Float(f) => Ok(Value::Float(f.ln())),
+        _ => Err(pleno_value::RuntimeError::new("Expected number")),
+    }
+}
+
+pub fn math_log10(
+    _vm: &mut dyn pleno_value::VMProvider,
+    args: &[Value],
+) -> Result<Value, pleno_value::RuntimeError> {
+    if args.is_empty() {
+        return Err(pleno_value::RuntimeError::new(
+            "Math.log10 requires 1 argument",
+        ));
+    }
+    match args[0] {
+        Value::Int(i) => Ok(Value::Float((i as f64).log10())),
+        Value::Float(f) => Ok(Value::Float(f.log10())),
         _ => Err(pleno_value::RuntimeError::new("Expected number")),
     }
 }

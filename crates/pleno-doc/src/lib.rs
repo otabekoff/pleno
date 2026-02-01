@@ -47,6 +47,19 @@ impl std::fmt::Display for DocItemKind {
     }
 }
 
+/// A parameter documented in a doc comment
+#[derive(Debug, Clone)]
+pub struct DocParam {
+    pub name: String,
+    pub description: String,
+}
+
+/// Return value documentation extracted from a doc comment
+#[derive(Debug, Clone)]
+pub struct DocReturns {
+    pub description: String,
+}
+
 /// A documented item extracted from the AST
 #[derive(Debug, Clone)]
 pub struct DocItem {
@@ -56,12 +69,16 @@ pub struct DocItem {
     pub kind: DocItemKind,
     /// Human-readable signature
     pub signature: String,
-    /// Documentation comment content
+    /// Documentation comment content (cleaned of tags)
     pub doc: Option<String>,
     /// Visibility (public, private, protected)
     pub visibility: Option<Visibility>,
     /// Generic parameters
     pub generics: Vec<String>,
+    /// Parameters from tags
+    pub params: Vec<DocParam>,
+    /// Return info from tags
+    pub returns: Option<DocReturns>,
     /// Child items (methods, fields, etc.)
     pub children: Vec<DocItem>,
     /// Additional metadata (e.g., "abstract", "static", "async")
@@ -77,6 +94,8 @@ impl DocItem {
             doc: None,
             visibility: None,
             generics: Vec::new(),
+            params: Vec::new(),
+            returns: None,
             children: Vec::new(),
             modifiers: Vec::new(),
         }
@@ -102,11 +121,75 @@ impl DocGenerator {
         items
     }
 
+    fn process_doc(
+        &self,
+        doc: Option<String>,
+    ) -> (Option<String>, Vec<DocParam>, Option<DocReturns>) {
+        let Some(doc_str) = doc else {
+            return (None, Vec::new(), None);
+        };
+
+        let mut main_doc = String::new();
+        let mut params = Vec::new();
+        let mut returns = None;
+
+        for line in doc_str.lines() {
+            let line = line.trim();
+            if line.starts_with("@param") {
+                let content = line[6..].trim();
+                let parts: Vec<&str> = content.splitn(2, ' ').collect();
+                if !parts.is_empty() && !parts[0].is_empty() {
+                    params.push(DocParam {
+                        name: parts[0].to_string(),
+                        description: parts.get(1).map(|s| s.to_string()).unwrap_or_default(),
+                    });
+                }
+            } else if line.starts_with("@returns") || line.starts_with("@return") {
+                let desc = if line.starts_with("@returns") {
+                    line[8..].trim().to_string()
+                } else {
+                    line[7..].trim().to_string()
+                };
+                if !desc.is_empty() {
+                    returns = Some(DocReturns { description: desc });
+                }
+            } else {
+                let cleaned_line = if line.starts_with("///") {
+                    line[3..].trim()
+                } else if line.starts_with("//") {
+                    line[2..].trim()
+                } else {
+                    line
+                };
+
+                if !cleaned_line.is_empty() || !main_doc.is_empty() {
+                    if !main_doc.is_empty() {
+                        main_doc.push('\n');
+                    }
+                    main_doc.push_str(cleaned_line);
+                }
+            }
+        }
+
+        (
+            if main_doc.trim().is_empty() {
+                None
+            } else {
+                Some(main_doc.trim().to_string())
+            },
+            params,
+            returns,
+        )
+    }
+
     fn extract_stmt(&self, stmt: &Stmt) -> Option<DocItem> {
         match &stmt.kind {
             StmtKind::Module { name, body, doc } => {
                 let mut item = DocItem::new(name.clone(), DocItemKind::Module);
-                item.doc = doc.clone();
+                let (main_doc, params, returns) = self.process_doc(doc.clone());
+                item.doc = main_doc;
+                item.params = params;
+                item.returns = returns;
                 item.signature = format!("module {}", name);
                 if let Some(body) = body {
                     for stmt in body {
@@ -130,7 +213,10 @@ impl DocGenerator {
                 ..
             } => {
                 let mut item = DocItem::new(name.clone(), DocItemKind::Class);
-                item.doc = doc.clone();
+                let (main_doc, params, returns) = self.process_doc(doc.clone());
+                item.doc = main_doc;
+                item.params = params;
+                item.returns = returns;
                 item.generics = generics.iter().map(format_generic).collect();
                 item.signature = self.format_class_signature(
                     name,
@@ -167,7 +253,10 @@ impl DocGenerator {
                 ..
             } => {
                 let mut item = DocItem::new(name.clone(), DocItemKind::Interface);
-                item.doc = doc.clone();
+                let (main_doc, params, returns) = self.process_doc(doc.clone());
+                item.doc = main_doc;
+                item.params = params;
+                item.returns = returns;
                 item.generics = generics.iter().map(format_generic).collect();
                 item.signature = self.format_interface_signature(name, generics, extends);
                 for method in methods {
@@ -187,7 +276,10 @@ impl DocGenerator {
                 ..
             } => {
                 let mut item = DocItem::new(name.clone(), DocItemKind::Function);
-                item.doc = doc.clone();
+                let (main_doc, doc_params, doc_returns) = self.process_doc(doc.clone());
+                item.doc = main_doc;
+                item.params = doc_params;
+                item.returns = doc_returns;
                 item.generics = generics.iter().map(format_generic).collect();
                 item.signature = self.format_function_signature(name, generics, params, None);
                 if *is_async {
@@ -197,7 +289,10 @@ impl DocGenerator {
             }
             StmtKind::TypeAlias { name, ty, doc } => {
                 let mut item = DocItem::new(name.clone(), DocItemKind::TypeAlias);
-                item.doc = doc.clone();
+                let (main_doc, doc_params, doc_returns) = self.process_doc(doc.clone());
+                item.doc = main_doc;
+                item.params = doc_params;
+                item.returns = doc_returns;
                 item.signature = format!("type {} = {}", name, ty);
                 Some(item)
             }
@@ -208,7 +303,10 @@ impl DocGenerator {
                 doc,
             } => {
                 let mut item = DocItem::new(target.clone(), DocItemKind::Extension);
-                item.doc = doc.clone();
+                let (main_doc, doc_params, doc_returns) = self.process_doc(doc.clone());
+                item.doc = main_doc;
+                item.params = doc_params;
+                item.returns = doc_returns;
                 item.generics = generics.iter().map(format_generic).collect();
                 item.signature = format!("extend {}", target);
                 for method in methods {
@@ -247,11 +345,17 @@ impl DocGenerator {
                 }
             }
             StmtKind::MacroDecl {
-                name, params, doc, ..
+                name,
+                params: ast_params,
+                doc,
+                ..
             } => {
                 let mut item = DocItem::new(name.clone(), DocItemKind::Macro);
-                item.doc = doc.clone();
-                item.signature = format!("macro {}({})", name, params.join(", "));
+                let (main_doc, doc_params, doc_returns) = self.process_doc(doc.clone());
+                item.doc = main_doc;
+                item.params = doc_params;
+                item.returns = doc_returns;
+                item.signature = format!("macro {}({})", name, ast_params.join(", "));
                 Some(item)
             }
             StmtKind::Export(inner) => self.extract_stmt(inner),
@@ -261,7 +365,10 @@ impl DocGenerator {
 
     fn extract_function(&self, func: &FunctionDecl) -> DocItem {
         let mut item = DocItem::new(func.name.clone(), DocItemKind::Function);
-        item.doc = func.doc.clone();
+        let (main_doc, doc_params, doc_returns) = self.process_doc(func.doc.clone());
+        item.doc = main_doc;
+        item.params = doc_params;
+        item.returns = doc_returns;
         item.visibility = func.visibility.clone();
         item.generics = func.generics.iter().map(format_generic).collect();
         item.signature = self.format_function_signature(
@@ -284,7 +391,10 @@ impl DocGenerator {
 
     fn extract_field(&self, field: &FieldDecl) -> DocItem {
         let mut item = DocItem::new(field.name.clone(), DocItemKind::Field);
-        item.doc = field.doc.clone();
+        let (main_doc, doc_params, doc_returns) = self.process_doc(field.doc.clone());
+        item.doc = main_doc;
+        item.params = doc_params;
+        item.returns = doc_returns;
         item.visibility = field.visibility.clone();
         item.signature = if let Some(ty) = &field.ty {
             format!("{}: {}", field.name, ty)
@@ -302,7 +412,10 @@ impl DocGenerator {
 
     fn extract_property(&self, prop: &PropertyDecl) -> DocItem {
         let mut item = DocItem::new(prop.name.clone(), DocItemKind::Property);
-        item.doc = prop.doc.clone();
+        let (main_doc, doc_params, doc_returns) = self.process_doc(prop.doc.clone());
+        item.doc = main_doc;
+        item.params = doc_params;
+        item.returns = doc_returns;
         item.visibility = prop.visibility.clone();
         item.signature = if let Some(ty) = &prop.ty {
             format!("{}: {}", prop.name, ty)
@@ -323,11 +436,17 @@ impl DocGenerator {
 
     fn extract_enum(&self, enum_decl: &EnumDecl) -> DocItem {
         let mut item = DocItem::new(enum_decl.name.clone(), DocItemKind::Enum);
-        item.doc = enum_decl.doc.clone();
+        let (main_doc, doc_params, doc_returns) = self.process_doc(enum_decl.doc.clone());
+        item.doc = main_doc;
+        item.params = doc_params;
+        item.returns = doc_returns;
         item.signature = format!("enum {}", enum_decl.name);
         for variant in &enum_decl.variants {
             let mut variant_item = DocItem::new(variant.name.clone(), DocItemKind::Field);
-            variant_item.doc = variant.doc.clone();
+            let (v_doc, v_params, v_returns) = self.process_doc(variant.doc.clone());
+            variant_item.doc = v_doc;
+            variant_item.params = v_params;
+            variant_item.returns = v_returns;
             if let Some(params) = &variant.params {
                 let params_str: Vec<String> = params
                     .iter()
@@ -524,6 +643,20 @@ impl MarkdownRenderer {
             writeln!(output, "{}\n", doc.trim()).unwrap();
         }
 
+        // Parameters
+        if !item.params.is_empty() {
+            writeln!(output, "#### Parameters\n").unwrap();
+            for param in &item.params {
+                writeln!(output, "- `{}`: {}\n", param.name, param.description).unwrap();
+            }
+        }
+
+        // Returns
+        if let Some(ret) = &item.returns {
+            writeln!(output, "#### Returns\n").unwrap();
+            writeln!(output, "{}\n", ret.description).unwrap();
+        }
+
         // Children (methods, fields, etc.)
         if !item.children.is_empty() {
             // Group children by kind
@@ -587,6 +720,23 @@ impl MarkdownRenderer {
 
         if let Some(doc) = &item.doc {
             writeln!(output, "{}\n", doc.trim()).unwrap();
+        }
+
+        // Parameters
+        if !item.params.is_empty() {
+            for param in &item.params {
+                writeln!(
+                    output,
+                    "- **param** `{}`: {}\n",
+                    param.name, param.description
+                )
+                .unwrap();
+            }
+        }
+
+        // Returns
+        if let Some(ret) = &item.returns {
+            writeln!(output, "- **returns** {}\n", ret.description).unwrap();
         }
     }
 
@@ -666,5 +816,26 @@ class Point {
         assert_eq!(item.kind, DocItemKind::Function);
         assert!(item.doc.is_none());
         assert!(item.children.is_empty());
+    }
+
+    #[test]
+    fn test_generate_docs_with_tags() {
+        let source = r#"
+/// Adds two numbers together.
+/// @param a The first number.
+/// @param b The second number.
+/// @returns The sum.
+fn add(a, b) {
+    return a + b;
+}
+"#;
+        let result = generate_docs(source, "math.pln").unwrap();
+        assert!(result.contains("add"));
+        assert!(result.contains("Adds two numbers together"));
+        assert!(result.contains("#### Parameters"));
+        assert!(result.contains("- `a`: The first number."));
+        assert!(result.contains("- `b`: The second number."));
+        assert!(result.contains("#### Returns"));
+        assert!(result.contains("The sum."));
     }
 }

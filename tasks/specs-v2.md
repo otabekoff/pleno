@@ -19,6 +19,11 @@
 - Optional manual memory hints
 - Object pooling support
 
+
+### Stage 12 - Runtime + VM (Done)
+
+- **Performance optimizations**: **Missing**.
+
 ### 19.3 Optimization Hints
 
 ```pleno
