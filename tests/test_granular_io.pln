@@ -2,37 +2,37 @@ import IO from "std:io";
 const File = IO.File;
 
 fn main() {
-    println("Starting Granular IO test...");
-    println("IO is: " + IO.toString());
-    println("File is: " + File.toString());
+    print("Starting Granular IO test...");
+    print("IO is: " + IO.toString());
+    print("File is: " + File.toString());
     
     // Scenario 1: Access allowed file
     try {
         File.write("allowed.txt", "This is allowed");
-        println("Success: Wrote to allowed.txt");
+        print("Success: Wrote to allowed.txt");
         let content = File.read("allowed.txt");
-        println("Read: " + content);
+        print("Read: " + content);
     } catch (e) {
-        println("Unexpected Error: " + e.message);
+        print("Unexpected Error: " + e.message);
     }
 
     // Scenario 2: Access blocked file (read)
     try {
-        println("Attempting to read blocked.txt...");
+        print("Attempting to read blocked.txt...");
         File.read("blocked.txt");
-        println("Failure: Read blocked.txt should have been denied.");
+        print("Failure: Read blocked.txt should have been denied.");
     } catch (e) {
-        println("Caught (Read): " + e.message);
+        print("Caught (Read): " + e.message);
     }
 
     // Scenario 3: Access blocked file (write)
     // Scenario 4: Directory prefix test
     try {
-        println("Attempting to write to /tmp/pleno_test.txt...");
+        print("Attempting to write to /tmp/pleno_test.txt...");
         File.write("/tmp/pleno_test.txt", "granular test");
-        println("Success: Wrote to /tmp/pleno_test.txt");
+        print("Success: Wrote to /tmp/pleno_test.txt");
     } catch (e) {
-        println("Caught (Dir): " + e.message);
+        print("Caught (Dir): " + e.message);
     }
 }
 

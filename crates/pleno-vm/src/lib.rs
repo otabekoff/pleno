@@ -2848,37 +2848,37 @@ impl VM {
                         }
 
                         // Check class type parameters
-                        if value.is_none() {
-                            if let Some(MethodOwner::Class(cls)) = &frame.current_owner {
-                                let cls = cls.borrow();
-                                for (i, param) in cls.type_params.iter().enumerate() {
-                                    if param == &name {
-                                        // First try to get from receiver (this)
-                                        let receiver_val = &self.registers[frame.base];
-                                        if let Value::Object(obj) = receiver_val {
-                                            if let Some(type_args) = &obj.borrow().type_args {
-                                                if i < type_args.len() {
-                                                    value = Some(type_args[i].clone());
-                                                }
-                                            }
-                                        }
-
-                                        // Fallback to frame type args if receiver didn't work
-                                        // (e.g. constructor call where frame args are class args)
-                                        if value.is_none() && function.type_params.is_empty() {
-                                            if i < frame.type_args.len() {
-                                                value = Some(frame.type_args[i].clone());
-                                            }
-                                        }
-                                        break;
+                        if value.is_none()
+                            && let Some(MethodOwner::Class(cls)) = &frame.current_owner
+                        {
+                            let cls = cls.borrow();
+                            for (i, param) in cls.type_params.iter().enumerate() {
+                                if param == &name {
+                                    // First try to get from receiver (this)
+                                    let receiver_val = &self.registers[frame.base];
+                                    if let Value::Object(obj) = receiver_val
+                                        && let Some(type_args) = &obj.borrow().type_args
+                                        && i < type_args.len()
+                                    {
+                                        value = Some(type_args[i].clone());
                                     }
+
+                                    // Fallback to frame type args if receiver didn't work
+                                    // (e.g. constructor call where frame args are class args)
+                                    if value.is_none()
+                                        && function.type_params.is_empty()
+                                        && i < frame.type_args.len()
+                                    {
+                                        value = Some(frame.type_args[i].clone());
+                                    }
+                                    break;
                                 }
                             }
                         }
                     }
 
                     let value = value.unwrap_or(Value::Null);
-                    println!("VM: GetGlobal '{}' => {:?}", name, value);
+                    // println!("VM: GetGlobal '{}' => {:?}", name, value);
                     self.registers[base + a] = value;
                 }
                 Opcode::SetGlobal => {
@@ -2892,7 +2892,7 @@ impl VM {
                         _ => return Err(RuntimeError::new("global name must be string")),
                     };
                     let value = self.registers[base + a].clone();
-                    println!("VM: SetGlobal '{}' => {:?}", name, value);
+                    // println!("VM: SetGlobal '{}' => {:?}", name, value);
                     self.globals.insert(name, value);
                 }
                 Opcode::DefineClass => {
@@ -4161,21 +4161,18 @@ impl VM {
                     // First try to get from receiver (this)
                     if frame.base < self.registers.len() {
                         let receiver_val = &self.registers[frame.base];
-                        if let Value::Object(obj) = receiver_val {
-                            if let Some(type_args) = &obj.borrow().type_args {
-                                if i < type_args.len() {
-                                    return Some(type_args[i].clone());
-                                }
-                            }
+                        if let Value::Object(obj) = receiver_val
+                            && let Some(type_args) = &obj.borrow().type_args
+                            && i < type_args.len()
+                        {
+                            return Some(type_args[i].clone());
                         }
                     }
 
                     // Fallback to frame type args if receiver didn't work
                     // (e.g. constructor call where frame args are class args)
-                    if function.type_params.is_empty() {
-                        if i < frame.type_args.len() {
-                            return Some(frame.type_args[i].clone());
-                        }
+                    if function.type_params.is_empty() && i < frame.type_args.len() {
+                        return Some(frame.type_args[i].clone());
                     }
                     break;
                 }
@@ -4429,21 +4426,16 @@ impl VM {
                     // First check function's own type_params
                     let function = &self.functions[frame.function_index];
                     for (i, tp_name) in function.type_params.iter().enumerate() {
-                        if tp_name == s.as_str() {
-                            if i < frame.type_args.len() {
-                                return self.check_type_compatible(val_type, &frame.type_args[i]);
-                            }
+                        if tp_name == s.as_str() && i < frame.type_args.len() {
+                            return self.check_type_compatible(val_type, &frame.type_args[i]);
                         }
                     }
                     // Then check owner class's type_params
                     if let Some(MethodOwner::Class(cls)) = &frame.current_owner {
                         let cls_ref = cls.borrow();
                         for (i, tp_name) in cls_ref.type_params.iter().enumerate() {
-                            if tp_name == s.as_str() {
-                                if i < frame.type_args.len() {
-                                    return self
-                                        .check_type_compatible(val_type, &frame.type_args[i]);
-                                }
+                            if tp_name == s.as_str() && i < frame.type_args.len() {
+                                return self.check_type_compatible(val_type, &frame.type_args[i]);
                             }
                         }
                     }

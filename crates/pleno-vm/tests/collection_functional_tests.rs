@@ -45,7 +45,7 @@ fn test_map_foreach_method() {
         r#"
         let ages = { "Alice": 30, "Bob": 25 };
         ages.forEach(|k, v| => {
-            println(k);
+            print(k);
         });
     "#,
     );
@@ -98,7 +98,7 @@ fn test_set_foreach_method() {
         r#"
         let nums = {10, 20, 30};
         nums.forEach(|x| => {
-            println(x);
+            print(x);
         });
     "#,
     );

@@ -1,0 +1,26 @@
+// Test print with end parameter for no-newline
+print("Hello ", end: "");  // No newline
+print("World");  // Should output "Hello World\n"
+
+// Test multiple args with sep
+print("a", "b", "c", sep: "-");  // a-b-c
+
+// Test assert (success)
+assert(true);
+assert(1 == 1, "Math works!");
+
+// Test assert (failure - should be caught)
+try {
+    assert(false, "This should fail");
+} catch (e) {
+    print("Caught expected assertion: " + e.message);
+}
+
+// Test assert with no message
+try {
+    assert(null);  // null is falsy
+} catch (e) {
+    print("Caught assertion with default message: " + e.message);
+}
+
+print("All tests passed!");

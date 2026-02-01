@@ -4,10 +4,10 @@ enum Color {
     Blue
 }
 
-println("Color.Red:", Color.Red);
-println("Color.Green:", Color.Green);
-println("Color.Blue:", Color.Blue);
+print("Color.Red:", Color.Red);
+print("Color.Green:", Color.Green);
+print("Color.Blue:", Color.Blue);
 
 if (Color.Red == 0) {
-    println("SUCCESS: Color.Red is 0");
+    print("SUCCESS: Color.Red is 0");
 }

@@ -9,25 +9,25 @@ class AnnotatedClass {
 }
 
 fn checkAnnotations() {
-    println("Checking Class Annotations...");
+    print("Checking Class Annotations...");
     let classAnnos = Reflect.getAnnotations(AnnotatedClass);
-    println("Class Annotation count: " + classAnnos.length);
+    print("Class Annotation count: " + classAnnos.length);
     
     // Print first annotation if exists
     if (classAnnos.length > 0) {
         let anno = classAnnos[0];
-        println("First Annotation name: " + anno["name"]);
+        print("First Annotation name: " + anno["name"]);
         if (anno["args"].length > 0) {
-            println("  First arg: " + anno["args"][0]);
+            print("  First arg: " + anno["args"][0]);
         }
     }
     
     // Test instance annotations (should return class annotations)
     let instance = new AnnotatedClass();
     let instanceAnnos = Reflect.getAnnotations(instance);
-    println("\nInstance Annotation count: " + instanceAnnos.length);
+    print("\nInstance Annotation count: " + instanceAnnos.length);
     
-    println("\nAnnotation test complete!");
+    print("\nAnnotation test complete!");
 }
 
 checkAnnotations();

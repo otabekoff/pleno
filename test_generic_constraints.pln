@@ -16,18 +16,18 @@ class Person {
     }
 }
 
-println("Testing generic constraints...");
+print("Testing generic constraints...");
 
 try {
     let b1 = Box<Int>(10);
-    println("Box<Int> created successfully");
+    print("Box<Int> created successfully");
 } catch (e) {
-    println("Error creating Box<Int>: " + e.toString());
+    print("Error creating Box<Int>: " + e.toString());
 }
 
 try {
     let b2 = Box<Person>(Person("Alice"));
-    println("Box<Person> created successfully (SHOULD HAVE FAILED)");
+    print("Box<Person> created successfully (SHOULD HAVE FAILED)");
 } catch (e) {
-    println("Caught expected error for Box<Person>: " + e.toString());
+    print("Caught expected error for Box<Person>: " + e.toString());
 }

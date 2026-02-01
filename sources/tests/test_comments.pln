@@ -4,5 +4,5 @@ let x = 1; // Another comment
 /* Multi-line
    comment */
 fn main() {
-    println("Comments should be preserved in AST");
+    print("Comments should be preserved in AST");
 }

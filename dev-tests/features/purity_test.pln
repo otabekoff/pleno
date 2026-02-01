@@ -12,5 +12,5 @@ fn mutate_global() {
 try {
     mutate_global();
 } catch (e) {
-    println("Caught expected purity error: " + e.message);
+    print("Caught expected purity error: " + e.message);
 }

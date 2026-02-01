@@ -2,13 +2,13 @@ import IO from "std:io";
 
 fn main() {
     try {
-        println("Starting IO test...");
-        println("Entering try block");
+        print("Starting IO test...");
+        print("Entering try block");
         // Attempt to read this file
         let content = IO.File.read("tests/test_io_limit.pln");
-        println("Success? IO should have been denied.");
+        print("Success? IO should have been denied.");
     } catch (e) {
-        println("Caught: " + e.message);
+        print("Caught: " + e.message);
     }
 }
 main();

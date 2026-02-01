@@ -1,39 +1,39 @@
 
 fn test_array_with() {
-    println("Testing Array.with...");
+    print("Testing Array.with...");
     let arr = [1, 2, 3];
     let arr2 = arr.with(1, 42);
     
-    println("Original: " + arr);
-    println("New: " + arr2);
+    print("Original: " + arr);
+    print("New: " + arr2);
 
     if (arr[1] != 2) {
-        println("FAILED: Original array modified!");
+        print("FAILED: Original array modified!");
     } else {
-        println("PASSED: Original array preserved.");
+        print("PASSED: Original array preserved.");
     }
 
     if (arr2[1] != 42) {
-        println("FAILED: New array incorrect!");
+        print("FAILED: New array incorrect!");
     } else {
-        println("PASSED: New array updated.");
+        print("PASSED: New array updated.");
     }
 
     // Negative index
     let arr3 = arr.with(-1, 99);
-    println("Negative index (-1): " + arr3);
+    print("Negative index (-1): " + arr3);
     if (arr3[2] != 99) {
-        println("FAILED: Negative index failed!");
+        print("FAILED: Negative index failed!");
     } else {
-        println("PASSED: Negative index works.");
+        print("PASSED: Negative index works.");
     }
 
     // OOB
     try {
         arr.with(5, 500);
-        println("FAILED: OOB did not throw!");
+        print("FAILED: OOB did not throw!");
     } catch (e) {
-        println("PASSED: Caught expected error: " + e.message);
+        print("PASSED: Caught expected error: " + e.message);
     }
 }
 

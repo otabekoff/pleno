@@ -1,12 +1,12 @@
 import Net from "std:net";
 
 fn main() {
-    println("Starting Low-Level Network test...");
+    print("Starting Low-Level Network test...");
     try {
         let listener = Net.listen("127.0.0.1:9999");
-        println("Success? Net.listen should have been denied.");
+        print("Success? Net.listen should have been denied.");
     } catch (e) {
-        println("Caught: " + e.message);
+        print("Caught: " + e.message);
     }
 }
 main();

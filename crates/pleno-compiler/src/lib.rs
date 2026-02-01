@@ -2841,43 +2841,43 @@ impl Compiler {
             }
 
             // Type Enforcement
-            if let Some(ty_name) = &param.ty {
-                if ty_name != "Any" {
-                    let param_reg = compiler
-                        .resolve_local(&param.name)
-                        .ok_or_else(|| CompileError::new("unknown parameter"))?
-                        .reg;
-                    let type_reg = compiler.registers.allocate()?;
-                    let ty_idx = compiler.add_constant(Value::String(Rc::new(ty_name.clone())));
-                    compiler.emit(Opcode::GetGlobal, type_reg, ty_idx as u8, 0);
+            if let Some(ty_name) = &param.ty
+                && ty_name != "Any"
+            {
+                let param_reg = compiler
+                    .resolve_local(&param.name)
+                    .ok_or_else(|| CompileError::new("unknown parameter"))?
+                    .reg;
+                let type_reg = compiler.registers.allocate()?;
+                let ty_idx = compiler.add_constant(Value::String(Rc::new(ty_name.clone())));
+                compiler.emit(Opcode::GetGlobal, type_reg, ty_idx, 0);
 
-                    let result_reg = compiler.registers.allocate()?;
-                    compiler.emit(Opcode::Is, result_reg, param_reg, type_reg);
+                let result_reg = compiler.registers.allocate()?;
+                compiler.emit(Opcode::Is, result_reg, param_reg, type_reg);
 
-                    let skip_jump = compiler.emit_jump(Opcode::JumpIf, result_reg);
+                let skip_jump = compiler.emit_jump(Opcode::JumpIf, result_reg);
 
-                    let msg = format!(
-                        "Type error: parameter '{}' expected {}, got ",
-                        param.name, ty_name
-                    );
-                    let msg_reg = compiler.registers.allocate()?;
-                    let msg_const = compiler.add_constant(Value::String(Rc::new(msg)));
-                    compiler.emit(Opcode::LoadConst, msg_reg, msg_const as u8, 0);
+                let msg = format!(
+                    "Type error: parameter '{}' expected {}, got ",
+                    param.name, ty_name
+                );
+                let msg_reg = compiler.registers.allocate()?;
+                let msg_const = compiler.add_constant(Value::String(Rc::new(msg)));
+                compiler.emit(Opcode::LoadConst, msg_reg, msg_const as u8, 0);
 
-                    // Add current value's type to the message for better debugging
-                    let type_name_reg = compiler.registers.allocate()?;
-                    compiler.emit(Opcode::TypeOf, type_name_reg, param_reg, 0);
-                    compiler.emit(Opcode::Add, msg_reg, msg_reg, type_name_reg);
+                // Add current value's type to the message for better debugging
+                let type_name_reg = compiler.registers.allocate()?;
+                compiler.emit(Opcode::TypeOf, type_name_reg, param_reg, 0);
+                compiler.emit(Opcode::Add, msg_reg, msg_reg, type_name_reg);
 
-                    compiler.emit(Opcode::Throw, msg_reg, 0, 0);
+                compiler.emit(Opcode::Throw, msg_reg, 0, 0);
 
-                    compiler.patch_jump(skip_jump)?;
+                compiler.patch_jump(skip_jump)?;
 
-                    compiler.free_temp(type_reg);
-                    compiler.free_temp(result_reg);
-                    compiler.free_temp(msg_reg);
-                    compiler.free_temp(type_name_reg);
-                }
+                compiler.free_temp(type_reg);
+                compiler.free_temp(result_reg);
+                compiler.free_temp(msg_reg);
+                compiler.free_temp(type_name_reg);
             }
         }
 
@@ -3613,14 +3613,9 @@ impl Compiler {
             if let Some(ty_name) = &field.ty {
                 let ty_idx = self.add_constant(Value::String(Rc::new(ty_name.clone())));
                 if field.is_static {
-                    self.emit(
-                        Opcode::SetStaticFieldType,
-                        class_reg,
-                        field_idx,
-                        ty_idx as u8,
-                    );
+                    self.emit(Opcode::SetStaticFieldType, class_reg, field_idx, ty_idx);
                 } else {
-                    self.emit(Opcode::SetFieldType, class_reg, field_idx, ty_idx as u8);
+                    self.emit(Opcode::SetFieldType, class_reg, field_idx, ty_idx);
                 }
             }
         }
