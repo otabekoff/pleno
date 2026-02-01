@@ -9,7 +9,7 @@ Our goal is not just to show where Pleno is fast, but to honestly measure its pe
 **Principles:**
 
 1.  **Direct Comparison**: Equivalent algorithms implemented idiomatically in each language.
-2.  **Transparency**: Start times and end times are measured internally or via system tools.
+2.  **Transparency**: Start times and end times are measured internally or via system tools. (`hyperfine` could be used)
 3.  **Correctness**: Output is verified to ensure all implementations compute the same result.
 4.  **Isolation**: Tests are run in a controlled environment (Release builds for compiled languages).
 

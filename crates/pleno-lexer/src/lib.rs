@@ -607,6 +607,7 @@ fn lex_char(
     }
 }
 
+#[allow(clippy::collapsible_if)]
 fn lex_number(
     source: &str,
     start: usize,
@@ -615,36 +616,148 @@ fn lex_number(
 ) -> Result<(TokenKind, usize), LexError> {
     let mut end = start + first.len_utf8();
     let mut has_dot = false;
+    let mut has_exponent = false;
+    let mut is_hex = false;
+    let mut is_bin = false;
+    let mut is_oct = false;
+
+    // Check for base prefixes (0x, 0b, 0o)
+    if first == '0' {
+        if let Some((_, ch)) = chars.peek() {
+            match ch {
+                'x' | 'X' => {
+                    is_hex = true;
+                    chars.next(); // consume x
+                    end += 1;
+                }
+                'b' | 'B' => {
+                    is_bin = true;
+                    chars.next(); // consume b
+                    end += 1;
+                }
+                'o' | 'O' => {
+                    is_oct = true;
+                    chars.next(); // consume o
+                    end += 1;
+                }
+                _ => {}
+            }
+        }
+    }
 
     while let Some((idx, ch)) = chars.peek().copied() {
-        if ch == '.' && !has_dot {
+        if is_hex {
+            if ch.is_ascii_hexdigit() {
+                chars.next();
+                end = idx + 1;
+                continue;
+            }
+            break;
+        } else if is_bin {
+            if ch == '0' || ch == '1' {
+                chars.next();
+                end = idx + 1;
+                continue;
+            }
+            break;
+        } else if is_oct {
+            if ('0'..='7').contains(&ch) {
+                chars.next();
+                end = idx + 1;
+                continue;
+            }
+            break;
+        }
+
+        if ch == '.' && !has_dot && !has_exponent {
             let mut lookahead = chars.clone();
             lookahead.next();
             if matches!(lookahead.peek(), Some((_, '.'))) {
-                break;
+                break; // Range operator .. or ...
             }
-            has_dot = true;
-            chars.next();
+            // Ensure next char is digit if it's a dot
+            // Actually many langs allow `1.` as float 1.0. Let's allow it but check if it's not method call or property access?
+            // For simple lexer, if followed by digit is safe. If followed by ident, it's property access usually handled by parser
+            // But here we need to greedily consume if valid float.
+            // Pleno: `1.string()` should be `1` then `.string`. `1.2` is float.
+            // If dot is followed by digit, it is definitely a float part.
+            if let Some((_, next)) = lookahead.peek() {
+                if next.is_ascii_digit() {
+                    has_dot = true;
+                    chars.next(); // consume .
+                    end = idx + 1;
+                    continue;
+                }
+            }
+            // If not followed by digit, treat as end of number (e.g. `1.toString()`)
+            break;
+        }
+
+        if (ch == 'e' || ch == 'E') && !has_exponent && !is_hex && !is_bin && !is_oct {
+            has_exponent = true;
+            chars.next(); // consume e
             end = idx + 1;
+
+            // Optional +/- after e
+            if let Some((_, next)) = chars.peek() {
+                if *next == '+' || *next == '-' {
+                    chars.next();
+                    end += 1;
+                }
+            }
+            // Must define at least one digit after e
             continue;
         }
+
         if ch.is_ascii_digit() {
             chars.next();
             end = idx + 1;
             continue;
         }
+
+        // Underscores in numbers (e.g. 1_000)
+        if ch == '_' {
+            chars.next();
+            end = idx + 1;
+            continue;
+        }
+
         break;
     }
 
     let slice = &source[start..end];
-    if has_dot {
-        let value = slice.parse::<f64>().map_err(|_| LexError {
+    let clean_slice = slice.replace('_', ""); // Remove underscores for parsing
+
+    if is_hex {
+        let value = i64::from_str_radix(&clean_slice[2..], 16).map_err(|_| LexError {
+            message: format!("Invalid hex literal: {slice}"),
+            span: Span::new(start, end),
+        })?;
+        return Ok((TokenKind::Int(value), end));
+    }
+    if is_bin {
+        let value = i64::from_str_radix(&clean_slice[2..], 2).map_err(|_| LexError {
+            message: format!("Invalid binary literal: {slice}"),
+            span: Span::new(start, end),
+        })?;
+        return Ok((TokenKind::Int(value), end));
+    }
+    if is_oct {
+        let value = i64::from_str_radix(&clean_slice[2..], 8).map_err(|_| LexError {
+            message: format!("Invalid octal literal: {slice}"),
+            span: Span::new(start, end),
+        })?;
+        return Ok((TokenKind::Int(value), end));
+    }
+
+    if has_dot || has_exponent {
+        let value = clean_slice.parse::<f64>().map_err(|_| LexError {
             message: format!("Invalid float literal: {slice}"),
             span: Span::new(start, end),
         })?;
         Ok((TokenKind::Float(value), end))
     } else {
-        let value = slice.parse::<i64>().map_err(|_| LexError {
+        let value = clean_slice.parse::<i64>().map_err(|_| LexError {
             message: format!("Invalid integer literal: {slice}"),
             span: Span::new(start, end),
         })?;
@@ -671,9 +784,9 @@ fn lex_ident(
 }
 
 fn is_ident_start(ch: char) -> bool {
-    ch.is_ascii_alphabetic() || ch == '_'
+    ch.is_alphabetic() || ch == '_'
 }
 
 fn is_ident_continue(ch: char) -> bool {
-    ch.is_ascii_alphanumeric() || ch == '_'
+    ch.is_alphanumeric() || ch == '_'
 }
