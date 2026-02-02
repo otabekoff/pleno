@@ -1154,6 +1154,7 @@ dependencies = [
  "env_logger",
  "log",
  "notify",
+ "pleno-common",
  "pleno-compiler",
  "pleno-diagnostics",
  "pleno-doc",
@@ -1174,6 +1175,8 @@ dependencies = [
 name = "pleno-common"
 version = "0.1.0"
 dependencies = [
+ "chrono",
+ "env_logger",
  "log",
  "serde",
 ]
