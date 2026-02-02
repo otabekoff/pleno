@@ -885,7 +885,7 @@ fn handle_init(args: &mut std::iter::Peekable<std::iter::Skip<std::env::Args>>) 
             .unwrap_or_else(|| "my-app".to_string())
     });
 
-    let mut manifest = Manifest::new(&name, "0.1.0");
+    let mut manifest = Manifest::new(&name, env!("CARGO_PKG_VERSION"));
 
     // Add standard scripts
     manifest

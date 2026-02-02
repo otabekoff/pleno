@@ -104,7 +104,7 @@ pub fn start() -> Result<()> {
         // println!("Warning: Could not load history: {}", e);
     }
 
-    println!("Pleno REPL v0.1.0");
+    println!("Pleno REPL v{}", env!("CARGO_PKG_VERSION"));
     println!("Type :help for commands, :quit to exit");
     println!();
 
