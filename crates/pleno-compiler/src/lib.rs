@@ -2876,8 +2876,16 @@ impl Compiler {
                     .ok_or_else(|| compiler.error("unknown parameter", decl.span))?
                     .reg;
                 let type_reg = compiler.registers.allocate()?;
-                let ty_idx = compiler.add_constant(Value::String(Rc::new(ty_name.clone())));
-                compiler.emit(Opcode::GetGlobal, type_reg, ty_idx, 0);
+
+                // Resolve type identifier (it could be a local, capture or global)
+                if let Some(local) = compiler.resolve_local(ty_name) {
+                    compiler.emit(Opcode::Move, type_reg, local.reg, 0);
+                } else if let Some((idx, _)) = compiler.captures.get(ty_name) {
+                    compiler.emit(Opcode::LoadCapture, type_reg, *idx as u8, 0);
+                } else {
+                    let ty_idx = compiler.add_constant(Value::String(Rc::new(ty_name.clone())));
+                    compiler.emit(Opcode::GetGlobal, type_reg, ty_idx, 0);
+                }
 
                 let result_reg = compiler.registers.allocate()?;
                 compiler.emit(Opcode::Is, result_reg, param_reg, type_reg);
@@ -3010,6 +3018,11 @@ impl Compiler {
             self.emit(Opcode::FunctionRef, dest, func_index as u8, 0);
         } else {
             let capture_count = captures.len() as u8;
+            log::trace!(
+                "Emitting Closure for function {} with {} captures",
+                func_index,
+                capture_count
+            );
             self.emit(Opcode::Closure, dest, func_index as u8, capture_count);
             for (idx, info) in captures.iter().enumerate() {
                 let reg = if let Some(local) = self.resolve_local(&info.name) {
@@ -3021,6 +3034,7 @@ impl Compiler {
                 } else {
                     return Err(self.error("unknown capture", self.current_span));
                 };
+                log::trace!("Emitting Capture: dest={}, reg={}, idx={}", dest, reg, idx);
                 self.emit(Opcode::Capture, dest, reg, idx as u8);
                 if !self.is_local_reg(reg) {
                     self.free_temp(reg);
@@ -3218,6 +3232,11 @@ impl Compiler {
 
         let dest = self.registers.allocate()?;
         let capture_count = captures.len() as u8;
+        log::trace!(
+            "Emitting Closure for function {} with {} captures",
+            func_index,
+            capture_count
+        );
         self.emit(Opcode::Closure, dest, func_index as u8, capture_count);
         for (idx, info) in captures.iter().enumerate() {
             let reg = if let Some(local) = self.resolve_local(&info.name) {
@@ -3229,6 +3248,7 @@ impl Compiler {
             } else {
                 return Err(self.error("unknown capture", self.current_span));
             };
+            log::trace!("Emitting Capture: dest={}, reg={}, idx={}", dest, reg, idx);
             self.emit(Opcode::Capture, dest, reg, idx as u8);
             if !self.is_local_reg(reg) {
                 self.free_temp(reg);
@@ -3261,8 +3281,30 @@ impl Compiler {
             if let Some(default) = &param.default {
                 self.collect_idents_expr(default, &mut used, &mut scope_stack);
             }
+            if let Some(ty) = &param.ty
+                && !ty.is_empty()
+                && ty.chars().next().unwrap().is_alphabetic()
+                && ty != "Any"
+                && ty != "Int"
+                && ty != "Float"
+                && ty != "Bool"
+                && ty != "String"
+            {
+                used.insert(ty.clone(), true);
+            }
         }
         self.collect_idents(&decl.body, &mut used, &mut scope_stack);
+        if let Some(ret_ty) = &decl.return_ty
+            && !ret_ty.is_empty()
+            && ret_ty.chars().next().unwrap().is_alphabetic()
+            && ret_ty != "Any"
+            && ret_ty != "Int"
+            && ret_ty != "Float"
+            && ret_ty != "Bool"
+            && ret_ty != "String"
+        {
+            used.insert(ret_ty.clone(), true);
+        }
 
         let mut captures = Vec::new();
         for name in used.keys() {

@@ -240,7 +240,7 @@ fn allows_protected_method_in_subclass() {
 #[test]
 fn evaluates_import_module() {
     let path = format!(
-        "{}/../../sources/module_simple.pln",
+        "{}/../../examples/dev/module_simple.pln",
         env!("CARGO_MANIFEST_DIR")
     )
     .replace("\\", "\\\\");
@@ -252,7 +252,7 @@ fn evaluates_import_module() {
 #[test]
 fn evaluates_structured_imports() {
     let path = format!(
-        "{}/../../sources/module_structured.pln",
+        "{}/../../examples/dev/module_structured.pln",
         env!("CARGO_MANIFEST_DIR")
     )
     .replace("\\", "\\\\");
@@ -267,7 +267,7 @@ fn evaluates_structured_imports() {
 #[test]
 fn evaluates_module_namespace_import() {
     let path = format!(
-        "{}/../../sources/module_structured.pln",
+        "{}/../../examples/dev/module_structured.pln",
         env!("CARGO_MANIFEST_DIR")
     )
     .replace("\\", "\\\\");
@@ -279,7 +279,7 @@ fn evaluates_module_namespace_import() {
 #[test]
 fn denies_internal_field_outside_module() {
     let path = format!(
-        "{}/../../sources/module_internal.pln",
+        "{}/../../examples/dev/module_internal.pln",
         env!("CARGO_MANIFEST_DIR")
     )
     .replace("\\", "\\\\");
@@ -291,7 +291,7 @@ fn denies_internal_field_outside_module() {
 #[test]
 fn allows_internal_field_in_module_method() {
     let path = format!(
-        "{}/../../sources/module_internal.pln",
+        "{}/../../examples/dev/module_internal.pln",
         env!("CARGO_MANIFEST_DIR")
     )
     .replace("\\", "\\\\");

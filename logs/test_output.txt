@@ -1,8 +1,0 @@
-Starting IO test using global IO
-Printing to stdout object
-Content of log:
-Line 1
-Line 2
-Line 3
-
-File test complete

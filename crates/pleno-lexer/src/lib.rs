@@ -607,7 +607,6 @@ fn lex_char(
     }
 }
 
-#[allow(clippy::collapsible_if)]
 fn lex_number(
     source: &str,
     start: usize,
@@ -622,26 +621,26 @@ fn lex_number(
     let mut is_oct = false;
 
     // Check for base prefixes (0x, 0b, 0o)
-    if first == '0' {
-        if let Some((_, ch)) = chars.peek() {
-            match ch {
-                'x' | 'X' => {
-                    is_hex = true;
-                    chars.next(); // consume x
-                    end += 1;
-                }
-                'b' | 'B' => {
-                    is_bin = true;
-                    chars.next(); // consume b
-                    end += 1;
-                }
-                'o' | 'O' => {
-                    is_oct = true;
-                    chars.next(); // consume o
-                    end += 1;
-                }
-                _ => {}
+    if first == '0'
+        && let Some((_, ch)) = chars.peek()
+    {
+        match ch {
+            'x' | 'X' => {
+                is_hex = true;
+                chars.next(); // consume x
+                end += 1;
             }
+            'b' | 'B' => {
+                is_bin = true;
+                chars.next(); // consume b
+                end += 1;
+            }
+            'o' | 'O' => {
+                is_oct = true;
+                chars.next(); // consume o
+                end += 1;
+            }
+            _ => {}
         }
     }
 
@@ -681,13 +680,11 @@ fn lex_number(
             // But here we need to greedily consume if valid float.
             // Pleno: `1.string()` should be `1` then `.string`. `1.2` is float.
             // If dot is followed by digit, it is definitely a float part.
-            if let Some((_, next)) = lookahead.peek() {
-                if next.is_ascii_digit() {
-                    has_dot = true;
-                    chars.next(); // consume .
-                    end = idx + 1;
-                    continue;
-                }
+            if matches!(lookahead.peek(), Some((_, next)) if next.is_ascii_digit()) {
+                has_dot = true;
+                chars.next(); // consume .
+                end = idx + 1;
+                continue;
             }
             // If not followed by digit, treat as end of number (e.g. `1.toString()`)
             break;
@@ -699,11 +696,9 @@ fn lex_number(
             end = idx + 1;
 
             // Optional +/- after e
-            if let Some((_, next)) = chars.peek() {
-                if *next == '+' || *next == '-' {
-                    chars.next();
-                    end += 1;
-                }
+            if matches!(chars.peek(), Some((_, next)) if *next == '+' || *next == '-') {
+                chars.next();
+                end += 1;
             }
             // Must define at least one digit after e
             continue;

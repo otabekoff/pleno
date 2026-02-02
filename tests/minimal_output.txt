@@ -1,9 +1,0 @@
-    Finished `dev` profile [unoptimized + debuginfo] target(s) in 4.29s
-     Running `D:\project\rust\rust\zed\target\debug\pleno-cli.exe tests/test_class_minimal.pln`
-Error: Expected ';' after field declaration
-  --> per line 2:24
-   |
- 2   |     private static var list: Array<Int> = []
-                              ^^^^
-
-error: process didn't exit successfully: `D:\project\rust\rust\zed\target\debug\pleno-cli.exe tests/test_class_minimal.pln` (exit code: 1)

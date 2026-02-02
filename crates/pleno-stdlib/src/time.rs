@@ -234,6 +234,16 @@ pub fn time_datetime_now(
     Ok(map_val)
 }
 
+pub fn native_resolve_timer(
+    vm: &mut dyn pleno_value::VMProvider,
+    args: &[Value],
+) -> Result<Value, RuntimeError> {
+    if let Some(Value::Int(id)) = args.first() {
+        vm.resolve_promise(*id as u64, Value::Null);
+    }
+    Ok(Value::Null)
+}
+
 pub fn set_timeout(
     vm: &mut dyn pleno_value::VMProvider,
     args: &[Value],
@@ -256,7 +266,7 @@ pub fn set_timeout(
 }
 
 pub fn time_sleep(
-    _vm: &mut dyn pleno_value::VMProvider,
+    vm: &mut dyn pleno_value::VMProvider,
     args: &[Value],
 ) -> Result<Value, RuntimeError> {
     if args.is_empty() {
@@ -270,6 +280,12 @@ pub fn time_sleep(
         _ => return Err(RuntimeError::new("delay must be an integer")),
     };
 
-    std::thread::sleep(std::time::Duration::from_millis(ms));
-    Ok(Value::Null)
+    let (id, promise) = vm.create_promise()?;
+    vm.add_timer(
+        ms,
+        Value::NativeFunction(native_resolve_timer),
+        vec![Value::Int(id as i64)],
+    );
+
+    Ok(promise)
 }

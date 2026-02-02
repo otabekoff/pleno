@@ -1183,6 +1183,7 @@ name = "pleno-compiler"
 version = "0.1.0"
 dependencies = [
  "indexmap",
+ "log",
  "pleno-ast",
  "pleno-bytecode",
  "pleno-diagnostics",

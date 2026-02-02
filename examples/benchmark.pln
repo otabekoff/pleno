@@ -1,0 +1,23 @@
+import { Benchmark } from "std:benchmark";
+import { JSON } from "std:json";
+
+// Fibonacci function for benchmarking CPU performance
+fn fib(n) {
+    if (n < 2) return n;
+    return fib(n - 1) + fib(n - 2);
+}
+
+// JSON parsing benchmark
+let jsonStr = "{\"name\": \"Pleno\", \"version\": \"1.0.0\", \"active\": true, \"tags\": [\"fast\", \"safe\"]}";
+
+Benchmark.run("Recursive Fibonacci (n=20)", fn() {
+    fib(20);
+});
+
+Benchmark.run("JSON.parse 1000 times", fn() {
+    for (i in 0..1000) {
+        JSON.parse(jsonStr);
+    }
+});
+
+print("\nBenchmark complete.");
