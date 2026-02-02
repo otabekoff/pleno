@@ -399,9 +399,22 @@ impl Parser {
 
     fn parse_const_stmt(&mut self, doc: Option<String>) -> Result<Stmt, ParseError> {
         let start_span = self.peek_span();
+        let stmt = self.parse_const_decl_internal(doc)?;
+        self.expect_with_hint(
+            TokenKind::Semicolon,
+            "Expected ';' after 'const' statement",
+            "Constant declarations must end with a semicolon",
+        )?;
+        Ok(self.wrap_stmt(stmt, start_span))
+    }
+
+    fn parse_const_decl_internal(&mut self, doc: Option<String>) -> Result<StmtKind, ParseError> {
         self.advance(); // consume const
         if self.matches(&TokenKind::KeywordMut) {
-            return Err(self.error("const cannot be mutable".to_string(), self.previous_span()));
+            return Err(self.error(
+                "'const' cannot be mutable".to_string(),
+                self.previous_span(),
+            ));
         }
 
         let is_deep = self.matches(&TokenKind::KeywordDeep);
@@ -425,24 +438,16 @@ impl Parser {
         } else {
             None
         };
-        self.expect_with_hint(
-            TokenKind::Semicolon,
-            "Expected ';' after const statement",
-            "Constant declarations must end with a semicolon",
-        )?;
-        Ok(self.wrap_stmt(
-            StmtKind::Let {
-                name,
-                mutable: false,
-                ty,
-                value,
-                is_const: true,
-                is_deep,
-                is_lazy: false,
-                doc,
-            },
-            start_span,
-        ))
+        Ok(StmtKind::Let {
+            name,
+            mutable: false,
+            ty,
+            value,
+            is_const: true,
+            is_deep,
+            is_lazy: false,
+            doc,
+        })
     }
 
     fn parse_if_stmt(&mut self) -> Result<Stmt, ParseError> {
@@ -689,51 +694,59 @@ impl Parser {
 
         let has_paren = self.matches(&TokenKind::LParen);
 
-        // Try to parse C-style for or range for
-        // If we see ';' immediately, it's C-style: for (; ...; ...)
-        if self.check(&TokenKind::Semicolon) {
-            let res = self.parse_c_for_remainder(None, has_paren, start_span)?;
-            return Ok(res);
-        }
-        // If we see 'let', 'mut', or 'const', it might be C-style declaration
-        // for (let i = 0; i < 10; i++)
-        if self.check(&TokenKind::KeywordLet) {
-            let init_stmt = self.parse_let_declaration(true, None)?;
-            let res =
-                self.parse_c_for_remainder(Some(Box::new(init_stmt)), has_paren, start_span)?;
-            return Ok(res);
-        }
-
-        // Otherwise, it could be range or C-style expression init
-        // We peek ahead to see if 'in' exists before ';'
+        // Peek ahead to distinguish range loop from C-style loop
         let mut is_range = false;
-        let mut i = 0;
-        while !self.is_at_end()
-            && self.peek_n_kind(i).is_some()
-            && (if has_paren {
-                self.peek_n_kind(i) != Some(&TokenKind::RParen)
+        let mut lookahead = 0;
+        let mut paren_depth = 0;
+
+        while !self.is_at_end() {
+            if let Some(kind) = self.peek_n_kind(lookahead) {
+                if has_paren {
+                    if kind == &TokenKind::LParen {
+                        paren_depth += 1;
+                    } else if kind == &TokenKind::RParen {
+                        if paren_depth == 0 {
+                            break;
+                        }
+                        paren_depth -= 1;
+                    }
+                } else if kind == &TokenKind::LBrace {
+                    break;
+                }
+
+                if paren_depth == 0 {
+                    if kind == &TokenKind::KeywordIn {
+                        is_range = true;
+                        break;
+                    }
+                    if kind == &TokenKind::Semicolon {
+                        is_range = false;
+                        break;
+                    }
+                }
             } else {
-                self.peek_n_kind(i) != Some(&TokenKind::LBrace)
-            })
-        {
-            if self.peek_n_kind(i) == Some(&TokenKind::KeywordIn) {
-                is_range = true;
                 break;
             }
-            if self.peek_n_kind(i) == Some(&TokenKind::Semicolon) {
-                break;
-            }
-            i += 1;
+            lookahead += 1;
         }
 
         if is_range {
             let mut names = Vec::new();
+
+            // Optional 'let', 'mut', or 'const' in range loops
+            if self.check(&TokenKind::KeywordLet)
+                || self.check(&TokenKind::KeywordMut)
+                || self.check(&TokenKind::KeywordConst)
+            {
+                self.advance();
+            }
+
             loop {
                 let name = match self.advance().kind.clone() {
                     TokenKind::Ident(name) => name,
                     _ => {
                         return Err(self.error(
-                            "Expected identifier in for loop".to_string(),
+                            "Expected identifier in 'for' loop".to_string(),
                             self.previous_span(),
                         ));
                     }
@@ -745,10 +758,10 @@ impl Parser {
                 break;
             }
 
-            self.expect(TokenKind::KeywordIn, "Expected 'in' in for loop")?;
+            self.expect(TokenKind::KeywordIn, "Expected 'in' in 'for' loop")?;
             let iterable = self.parse_expr()?;
             if has_paren {
-                self.expect(TokenKind::RParen, "Expected ')' after for loop")?;
+                self.expect(TokenKind::RParen, "Expected ')' after 'for' loop")?;
             }
             let body = Box::new(self.parse_stmt()?);
             Ok(self.wrap_stmt(
@@ -761,11 +774,18 @@ impl Parser {
                 start_span,
             ))
         } else {
+            // C-style for loop: for (init; condition; step)
             let init = if self.check(&TokenKind::Semicolon) {
                 None
+            } else if self.check(&TokenKind::KeywordLet) {
+                Some(Box::new(self.parse_let_declaration(true, None)?))
+            } else if self.check(&TokenKind::KeywordConst) {
+                let decl = self.parse_const_decl_internal(None)?;
+                Some(Box::new(self.wrap_stmt(decl, self.peek_span())))
             } else {
                 Some(Box::new(self.parse_expr_or_assign()?))
             };
+
             self.parse_c_for_remainder(init, has_paren, start_span)
         }
     }
@@ -795,7 +815,7 @@ impl Parser {
         };
 
         if has_paren {
-            self.expect(TokenKind::RParen, "Expected ')' after for clause")?;
+            self.expect(TokenKind::RParen, "Expected ')' after 'for' clause")?;
         }
 
         let body = Box::new(self.parse_stmt()?);
