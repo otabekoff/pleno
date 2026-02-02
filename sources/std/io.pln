@@ -11,18 +11,22 @@ export class File {
     public static fn write(path: String, content: String): Void {
         return _io.File.write(path, content);
     }
-
-    public static fn exists(path: String): Bool {
-        return _io.File.exists(path);
-    }
 }
 
 export class Directory {
-    public static fn create(path: String): Void {
-        return _io.Directory.create(path);
+    public static fn list_files(path: String): Array {
+        return _io.Directory.list_files(path);
     }
 
-    public static fn exists(path: String): Bool {
-        return _io.Directory.exists(path);
+    public static fn list_directories(path: String): Array {
+        return _io.Directory.list_directories(path);
+    }
+
+    public static fn createRecursive(path: String): Void {
+        return _io.Directory.createRecursive(path);
+    }
+
+    public static fn deleteRecursive(path: String): Void {
+        return _io.Directory.deleteRecursive(path);
     }
 }

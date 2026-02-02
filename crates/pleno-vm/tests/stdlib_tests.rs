@@ -57,8 +57,8 @@ fn test_math_refinements() {
 fn test_json_robust_stringify() {
     // Test nested structure
     let code = r#"
-        import JSON from "std:json";
-        JSON.stringify({
+        import _json from "std:json";
+        _json.JSON.stringify({
             "name": "Pleno",
             "version": 1,
             "features": ["async", "concurrency"],
@@ -79,13 +79,13 @@ fn test_json_robust_stringify() {
 
 #[test]
 fn test_os_module() {
-    let platform = run_source("import OS from \"std:os\"; OS.platform()");
+    let platform = run_source("import _os from \"std:os\"; _os.platform()");
     assert!(matches!(platform, Value::String(_)));
 
-    let arch = run_source("import OS from \"std:os\"; OS.arch()");
+    let arch = run_source("import _os from \"std:os\"; _os.arch()");
     assert!(matches!(arch, Value::String(_)));
 
-    let tmpdir = run_source("import OS from \"std:os\"; OS.tmpdir()");
+    let tmpdir = run_source("import _os from \"std:os\"; _os.tmpdir()");
     assert!(matches!(tmpdir, Value::String(_)));
 }
 

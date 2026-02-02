@@ -9,17 +9,11 @@ Remove debug logs.
 
 ---
 
-Now, as we have finished v1 of the Pleno programming langguage, I want you to fully think and write, plan the next v2 of Pleno programming language. We need V2 roadmap, v2-specs.md. Here we'll add better features, make the old and inconsistent things enhanced, better, implement new features and support many things, more stdlibs. and many more. Think more and write detailed, Things will be added, upgraded, updated, fixed, supported.
-
----
+More examples. Benchmark. IDE Features.
 
 Scripts, management tools, makefile better vesrion. Organize the project.
 
-
-More examples. Benchmark. IDE Features.
-
 We've to think about better github management, better actions, better commits, better tools of github, better branch management.
-
 
 Clean the project sources folder.
 make the project clean and organized. Of course mainly project root. And review README.md and make it a programming language README for open source.
@@ -51,4 +45,8 @@ Also update README.dev.md.
 
 Let's have new roadmap for V2. 
 
+Now, as we have finished v1 of the Pleno programming langguage, I want you to fully think and write, plan the next v2 of Pleno programming language. We need V2 roadmap, v2-specs.md. Here we'll add better features, make the old and inconsistent things enhanced, better, implement new features and support many things, more stdlibs. and many more. Think more and write detailed, Things will be added, upgraded, updated, fixed, supported.
+
 Via Claude AI generate V2 specs. Upgrades/updates/news/critical and breakign changes, new features, inclrementals, bugfixing, avoiding inconsistencies and more. Instead of fixing the real problems, or being lazy to implement and refactor, AI just might wanted to lie or be lazy or be tricky and just satisfied error and warning linters and compiler. So, let's find them and actually fix those parts.
+
+---

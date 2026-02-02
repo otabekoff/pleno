@@ -20,7 +20,6 @@ pub mod time;
 
 use indexmap::IndexMap;
 use pleno_value::{MapState, VMProvider, Value};
-// use std::collections::HashMap;
 use std::rc::Rc;
 
 pub fn register(vm: &mut dyn VMProvider) {
@@ -105,48 +104,14 @@ pub fn register(vm: &mut dyn VMProvider) {
         "write".to_string(),
         Value::NativeFunction(io::io_file_write),
     );
-    file_obj.insert(
-        "exists".to_string(),
-        Value::NativeFunction(io::io_file_exists),
-    );
-    file_obj.insert(
-        "append".to_string(),
-        Value::NativeFunction(io::io_file_append),
-    );
-    file_obj.insert(
-        "delete".to_string(),
-        Value::NativeFunction(io::io_file_delete),
-    );
-    file_obj.insert("copy".to_string(), Value::NativeFunction(io::io_file_copy));
-    file_obj.insert("move".to_string(), Value::NativeFunction(io::io_file_move));
-    file_obj.insert(
-        "readLines".to_string(),
-        Value::NativeFunction(io::io_file_read_lines),
-    );
 
     let mut dir_obj = IndexMap::new();
     dir_obj.insert(
-        "create".to_string(),
-        Value::NativeFunction(io::io_directory_create),
-    );
-    dir_obj.insert(
-        "exists".to_string(),
-        Value::NativeFunction(io::io_directory_exists),
-    );
-    dir_obj.insert(
-        "delete".to_string(),
-        Value::NativeFunction(io::io_directory_delete),
-    );
-    dir_obj.insert(
-        "list".to_string(),
-        Value::NativeFunction(io::io_directory_list),
-    );
-    dir_obj.insert(
-        "listFiles".to_string(),
+        "list_files".to_string(),
         Value::NativeFunction(io::io_directory_list_files),
     );
     dir_obj.insert(
-        "listDirectories".to_string(),
+        "list_directories".to_string(),
         Value::NativeFunction(io::io_directory_list_directories),
     );
     dir_obj.insert(
@@ -176,14 +141,13 @@ pub fn register(vm: &mut dyn VMProvider) {
     );
 
     // std:json
+    let mut json_module = IndexMap::new();
     let mut json_obj = IndexMap::new();
     json_obj.insert("parse".to_string(), Value::NativeFunction(json::json_parse));
     json_obj.insert(
         "stringify".to_string(),
         Value::NativeFunction(json::json_stringify),
     );
-
-    let mut json_module = IndexMap::new();
     json_module.insert(
         "JSON".to_string(),
         Value::Map(gc.allocate(MapState::new(json_obj)).unwrap()),
@@ -217,11 +181,11 @@ pub fn register(vm: &mut dyn VMProvider) {
         "now".to_string(),
         Value::NativeFunction(time::time_datetime_now),
     );
-
     time_module.insert(
         "DateTime".to_string(),
         Value::Map(gc.allocate(MapState::new(datetime_obj)).unwrap()),
     );
+
     modules.insert(
         "std:time".to_string(),
         Value::Map(gc.allocate(MapState::new(time_module)).unwrap()),
@@ -254,7 +218,6 @@ pub fn register(vm: &mut dyn VMProvider) {
     math_module.insert("log10".to_string(), Value::NativeFunction(math::math_log10));
     math_module.insert("trunc".to_string(), Value::NativeFunction(math::math_trunc));
     math_module.insert("sign".to_string(), Value::NativeFunction(math::math_sign));
-
     math_module.insert("PI".to_string(), Value::Float(std::f64::consts::PI));
     math_module.insert("E".to_string(), Value::Float(std::f64::consts::E));
     math_module.insert("LN2".to_string(), Value::Float(std::f64::consts::LN_2));
@@ -275,44 +238,37 @@ pub fn register(vm: &mut dyn VMProvider) {
         Value::Map(gc.allocate(MapState::new(math_module)).unwrap()),
     );
 
-    // std:json
-    let mut json_module = IndexMap::new();
-    json_module.insert("parse".to_string(), Value::NativeFunction(json::json_parse));
-    json_module.insert(
-        "stringify".to_string(),
-        Value::NativeFunction(json::json_stringify),
-    );
-    modules.insert(
-        "std:json".to_string(),
-        Value::Map(gc.allocate(MapState::new(json_module)).unwrap()),
-    );
-
     // std:http
     let mut http_module = IndexMap::new();
-    http_module.insert("get".to_string(), Value::NativeFunction(http::http_get));
-    http_module.insert("post".to_string(), Value::NativeFunction(http::http_post));
-    http_module.insert("put".to_string(), Value::NativeFunction(http::http_put));
-    http_module.insert("patch".to_string(), Value::NativeFunction(http::http_patch));
-    http_module.insert(
+    let mut http_obj = IndexMap::new();
+    http_obj.insert("get".to_string(), Value::NativeFunction(http::http_get));
+    http_obj.insert("post".to_string(), Value::NativeFunction(http::http_post));
+    http_obj.insert("put".to_string(), Value::NativeFunction(http::http_put));
+    http_obj.insert("patch".to_string(), Value::NativeFunction(http::http_patch));
+    http_obj.insert(
         "delete".to_string(),
         Value::NativeFunction(http::http_delete),
     );
-    http_module.insert("head".to_string(), Value::NativeFunction(http::http_head));
-    http_module.insert(
+    http_obj.insert("head".to_string(), Value::NativeFunction(http::http_head));
+    http_obj.insert(
         "options".to_string(),
         Value::NativeFunction(http::http_options),
     );
-    http_module.insert(
+    http_obj.insert(
         "request".to_string(),
         Value::NativeFunction(http::http_request),
     );
-    http_module.insert(
+    http_obj.insert(
         "Router".to_string(),
         Value::NativeFunction(http::http_router),
     );
-    http_module.insert(
+    http_obj.insert(
         "Server".to_string(),
         Value::NativeFunction(http::http_server),
+    );
+    http_module.insert(
+        "HTTP".to_string(),
+        Value::Map(gc.allocate(MapState::new(http_obj)).unwrap()),
     );
     modules.insert(
         "std:http".to_string(),
@@ -364,8 +320,10 @@ pub fn register(vm: &mut dyn VMProvider) {
         "getAnnotations".to_string(),
         Value::NativeFunction(reflect::reflect_get_annotations),
     );
-    let reflect_val = Value::Map(gc.allocate(MapState::new(reflect_module)).unwrap());
-    modules.insert("std:reflect".to_string(), reflect_val.clone());
+    modules.insert(
+        "std:reflect".to_string(),
+        Value::Map(gc.allocate(MapState::new(reflect_module)).unwrap()),
+    );
 
     // std:test
     let mut assert_obj = IndexMap::new();
@@ -429,7 +387,7 @@ pub fn register(vm: &mut dyn VMProvider) {
         Value::Map(gc.allocate(MapState::new(test_module)).unwrap()),
     );
 
-    // std:gc - Garbage Collection control
+    // std:gc
     let mut gc_module = IndexMap::new();
     gc_module.insert("collect".to_string(), Value::NativeFunction(gc::gc_collect));
     gc_module.insert(
@@ -440,19 +398,23 @@ pub fn register(vm: &mut dyn VMProvider) {
         "isEnabled".to_string(),
         Value::NativeFunction(gc::gc_is_enabled),
     );
-    let gc_val = Value::Map(gc.allocate(MapState::new(gc_module)).unwrap());
-    modules.insert("std:gc".to_string(), gc_val.clone());
+    modules.insert(
+        "std:gc".to_string(),
+        Value::Map(gc.allocate(MapState::new(gc_module)).unwrap()),
+    );
 
-    // std:security - Sandboxing
+    // std:security
     let mut security_module = IndexMap::new();
     security_module.insert(
         "Sandbox".to_string(),
         Value::NativeFunction(security::sandbox_new),
     );
-    let security_val = Value::Map(gc.allocate(MapState::new(security_module)).unwrap());
-    modules.insert("std:security".to_string(), security_val.clone());
+    modules.insert(
+        "std:security".to_string(),
+        Value::Map(gc.allocate(MapState::new(security_module)).unwrap()),
+    );
 
-    // std:net - Low-Level Networking
+    // std:net
     let mut net_module = IndexMap::new();
     net_module.insert(
         "listen".to_string(),
@@ -481,7 +443,6 @@ pub fn register(vm: &mut dyn VMProvider) {
         Value::NativeFunction(os::os_hostname),
     );
     os_module.insert("uptime".to_string(), Value::NativeFunction(os::os_uptime));
-    // Include some from process/path for ergonomics if desired, but let's keep it clean first.
     modules.insert(
         "std:os".to_string(),
         Value::Map(gc.allocate(MapState::new(os_module)).unwrap()),
@@ -497,11 +458,6 @@ pub fn register(vm: &mut dyn VMProvider) {
         "Channel".to_string(),
         Value::NativeFunction(concurrency::native_channel_new),
     );
-    // Explicitly add lock/unlock for Mutex if needed, but they are likely bound methods or static
-    // Let's assume them for now as standalone natives if not using Classes yet.
-    // However, MutexState likely expects them to be called on it.
-    // Let's also add them as top level functions if we want for now?
-    // Better to have a Class-like structure.
 
     let mut mutex_proto = IndexMap::new();
     mutex_proto.insert(
@@ -549,8 +505,6 @@ pub fn register(vm: &mut dyn VMProvider) {
     );
 
     // std:dotenv
-
-    // std:dotenv
     let mut dotenv_module = IndexMap::new();
     dotenv_module.insert(
         "config".to_string(),
@@ -561,7 +515,7 @@ pub fn register(vm: &mut dyn VMProvider) {
         Value::Map(gc.allocate(MapState::new(dotenv_module)).unwrap()),
     );
 
-    // std:log - Logging
+    // std:log
     let mut log_module = IndexMap::new();
     log_module.insert("trace".to_string(), Value::NativeFunction(log::log_trace));
     log_module.insert("debug".to_string(), Value::NativeFunction(log::log_debug));
@@ -583,19 +537,8 @@ pub fn register(vm: &mut dyn VMProvider) {
         Value::Map(gc.allocate(MapState::new(log_module)).unwrap()),
     );
 
-    // Register each module in the VM
+    // Register all in VM
     for (name, value) in modules {
-        // if name == "std:reflect" {
-        //     vm.register_global("Reflect".to_string(), value.clone());
-        // }
-        // if name == "std:io" {
-        //     vm.register_global("IO".to_string(), value.clone());
-        // }
-        // if name == "std:gc" {
-        //     vm.register_global("GC".to_string(), value.clone());
-        // }
-        // Strict imports: No modules are registered as globals by default.
-        // Users must use `import IO from "std:io"` etc.
         vm.register_module(name, value);
     }
 }

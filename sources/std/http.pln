@@ -5,18 +5,18 @@ import _http from "std:http";
 
 export class Http {
     public static fn get(url) {
-        return _http.get(url);
+        return _http.HTTP.get(url);
     }
 
     public static fn post(url, body) {
-        return _http.post(url, body);
+        return _http.HTTP.post(url, body);
     }
 
     public static fn put(url, body) {
-        return _http.put(url, body);
+        return _http.HTTP.put(url, body);
     }
 
     public static fn delete(url) {
-        return _http.delete(url);
+        return _http.HTTP.delete(url);
     }
 }
