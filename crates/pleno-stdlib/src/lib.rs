@@ -1,6 +1,7 @@
 pub mod base64;
 pub mod builtins;
 pub mod concurrency;
+pub mod crypto;
 pub mod csv;
 pub mod dotenv;
 pub mod gc;
@@ -639,6 +640,31 @@ pub fn register(vm: &mut dyn VMProvider) {
     modules.insert(
         "std:log".to_string(),
         Value::Map(gc.allocate(MapState::new(log_module)).unwrap()),
+    );
+
+    // std:crypto
+    let mut crypto_module = IndexMap::new();
+    crypto_module.insert("hash".to_string(), Value::NativeFunction(crypto::hash));
+    crypto_module.insert("hmac".to_string(), Value::NativeFunction(crypto::hmac));
+    crypto_module.insert(
+        "encrypt".to_string(),
+        Value::NativeFunction(crypto::encrypt),
+    );
+    crypto_module.insert(
+        "decrypt".to_string(),
+        Value::NativeFunction(crypto::decrypt),
+    );
+    crypto_module.insert(
+        "jwtSign".to_string(),
+        Value::NativeFunction(crypto::jwt_sign),
+    );
+    crypto_module.insert(
+        "jwtVerify".to_string(),
+        Value::NativeFunction(crypto::jwt_verify),
+    );
+    modules.insert(
+        "std:crypto".to_string(),
+        Value::Map(gc.allocate(MapState::new(crypto_module)).unwrap()),
     );
 
     // Register all in VM

@@ -1838,7 +1838,8 @@ impl VM {
                                 }
                             }
                             // Check for Map built-in methods if not found as a key
-                            let val = map_ref.get(&name).cloned();
+                            // Check for Map built-in methods if not found as a key
+                            let val = map_ref.entries.get(&name).cloned();
                             drop(map_ref);
 
                             if let Some(val) = val {
