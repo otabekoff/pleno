@@ -1,4 +1,4 @@
-# log
+# std:log
 
 ## Contents
 
@@ -14,19 +14,20 @@ Structured logging module with configurable log levels and colorized output.
 
 ### Log Levels
 
-| Level | Value | Color | Description |
-|-------|-------|-------|-------------|
-| TRACE | 0 | Gray | Very detailed debugging |
-| DEBUG | 1 | Cyan | Debug information |
-| INFO | 2 | Green | General information (default) |
-| WARN | 3 | Yellow | Warnings |
-| ERROR | 4 | Red | Errors |
-| FATAL | 5 | Magenta | Fatal errors |
-| OFF | 6 | - | Disable all logging |
+| Level | Value | Color   | Description                   |
+| ----- | ----- | ------- | ----------------------------- |
+| TRACE | 0     | Gray    | Very detailed debugging       |
+| DEBUG | 1     | Cyan    | Debug information             |
+| INFO  | 2     | Green   | General information (default) |
+| WARN  | 3     | Yellow  | Warnings                      |
+| ERROR | 4     | Red     | Errors                        |
+| FATAL | 5     | Magenta | Fatal errors                  |
+| OFF   | 6     | -       | Disable all logging           |
 
 ### Methods
 
 #### `fn trace(...args)`
+
 Log a trace-level message.
 
 ```pleno
@@ -34,6 +35,7 @@ Log.trace("Entering function", functionName);
 ```
 
 #### `fn debug(...args)`
+
 Log a debug-level message.
 
 ```pleno
@@ -41,6 +43,7 @@ Log.debug("Variable value:", x);
 ```
 
 #### `fn info(...args)`
+
 Log an info-level message.
 
 ```pleno
@@ -48,6 +51,7 @@ Log.info("Server started on port", 8080);
 ```
 
 #### `fn warn(...args)`
+
 Log a warning-level message.
 
 ```pleno
@@ -55,6 +59,7 @@ Log.warn("Deprecated API used");
 ```
 
 #### `fn error(...args)`
+
 Log an error-level message.
 
 ```pleno
@@ -62,6 +67,7 @@ Log.error("Failed to connect:", error);
 ```
 
 #### `fn fatal(...args)`
+
 Log a fatal-level message.
 
 ```pleno
@@ -69,6 +75,7 @@ Log.fatal("Unrecoverable error, shutting down");
 ```
 
 #### `fn setLevel(level: string | int)`
+
 Set the minimum log level. Messages below this level are suppressed.
 
 ```pleno
@@ -78,6 +85,7 @@ Log.setLevel("off");    // Disable all logging
 ```
 
 #### `fn getLevel(): string`
+
 Get the current log level as a lowercase string.
 
 ```pleno
@@ -85,6 +93,7 @@ let level = Log.getLevel();  // "info"
 ```
 
 #### `fn create(prefix: string): object`
+
 Create a child logger with a prefix.
 
 ```pleno

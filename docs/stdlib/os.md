@@ -1,4 +1,4 @@
-# os
+# std:os
 
 ## Contents
 
@@ -23,4 +23,3 @@ class OS
 #### `static` `fn platform() -> String`
 
 ---
-

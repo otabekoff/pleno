@@ -79,3 +79,18 @@ json-parser = "^1.5.0"
 import { HttpClient } from "http-client";
 import { parse } from "json-parser";
 ```
+### 8.4 Standard Library Imports
+
+Pleno's standard library modules are accessed via the `std:` namespace prefix.
+
+```pleno
+import { JSON } from "std:json";
+import { HTTP } from "std:http";
+import { File, Directory } from "std:io";
+
+// Native modules are often prefixed with _ in internal code
+import _math from "std:math";
+let res = _math.sin(_math.PI / 2);
+```
+
+For more details on available modules, see the [Standard Library Reference](../stdlib-ref.md).

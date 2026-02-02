@@ -1,4 +1,4 @@
-# io
+# std:io
 
 ## Contents
 
@@ -34,4 +34,3 @@ class Directory
 #### `static` `fn exists(path: String) -> Bool`
 
 ---
-

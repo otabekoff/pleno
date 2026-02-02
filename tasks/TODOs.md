@@ -9,16 +9,6 @@ Remove debug logs.
 
 ---
 
-More examples. Benchmark. IDE Features.
-
-Scripts, management tools, makefile better vesrion. Organize the project.
-
-We've to think about better github management, better actions, better commits, better tools of github, better branch management.
-
-Clean the project sources folder.
-make the project clean and organized. Of course mainly project root. And review README.md and make it a programming language README for open source.
-
-
 Let's review whole the docs and make it great.
 We have to deploy v1 fully. Now we need to update the docs.
 

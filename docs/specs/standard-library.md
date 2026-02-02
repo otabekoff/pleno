@@ -129,12 +129,12 @@ let prettyJson = JSON.stringify(obj, indent: 2);
 ### 13.6 HTTP Client
 
 ```pleno
-import { Http } from "std:http";
+import { HTTP } from "std:http";
 
 // GET request
 async fn fetchData() {
-    let response = await Http.get("https://api.example.com/data");
-    
+    let response = await HTTP.get("https://api.example.com/data");
+
     if (response.status == 200) {
         let data = JSON.parse(response.body);
         return data;
@@ -145,21 +145,21 @@ async fn fetchData() {
 
 // POST request
 async fn createUser(user: User) {
-    let response = await Http.post(
+    let response = await HTTP.post(
         "https://api.example.com/users",
         body: JSON.stringify(user),
         headers: {
             "Content-Type": "application/json"
         }
     );
-    
+
     return JSON.parse(response.body);
 }
 
 // Other methods
-await Http.put(url, body: data);
-await Http.delete(url);
-await Http.patch(url, body: data);
+await HTTP.put(url, body: data);
+await HTTP.delete(url);
+await HTTP.patch(url, body: data);
 ```
 
 ### 13.7 Date & Time
@@ -217,6 +217,7 @@ if (match) {
 ```
 
 ### 13.9 Low-level Networking
+
 ```pleno
 import { Net } from "std:net";
 
