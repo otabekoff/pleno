@@ -107,8 +107,8 @@ pub fn can_access_method(
             MethodOwner::Class(owner_class) => {
                 current_class.map(|c| c == owner_class).unwrap_or(false)
             }
-            MethodOwner::Enum(_) => {
-                // For enums, we check module parity for private access
+            MethodOwner::Enum(_) | MethodOwner::Interface(_) => {
+                // For enums/interfaces, we check module parity for private access
                 method
                     .module
                     .as_ref()
@@ -120,8 +120,8 @@ pub fn can_access_method(
             MethodOwner::Class(owner_class) => current_class
                 .map(|c| is_subclass_of(c, owner_class))
                 .unwrap_or(false),
-            MethodOwner::Enum(_) => {
-                // Enums don't have inheritance, so protected behaves like internal/private
+            MethodOwner::Enum(_) | MethodOwner::Interface(_) => {
+                // Enums/interfaces don't have subclassing for methods, so protected behaves like internal/private
                 method
                     .module
                     .as_ref()

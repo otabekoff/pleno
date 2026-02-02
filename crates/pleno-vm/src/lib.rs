@@ -3,7 +3,7 @@ use pleno_bytecode::{Chunk, Opcode, ParamSpec};
 use pleno_value::{
     ArrayState, CallOptions, Class, ClosureState, EnumType, EnumVariantDef, MapState, MethodOwner,
     MultiWaiter, MultiWaiterMode, NativeFunction, Object, Range, RuntimeError, SetState,
-    ThunkState, TupleState, VMProvider, Value, ValueKey, gc::GcObject,
+    ThunkState, TupleState, VMProvider, Value, ValueKey, gc::GcObject, nan_value::NanValue,
 };
 // use std::collections::HashSet;
 use std::fs;
@@ -28,7 +28,7 @@ pub use value_ops::*;
 pub struct VM {
     pub sandbox_config: Option<pleno_value::SandboxConfig>,
     pub gc: pleno_value::gc::GCManager,
-    pub registers: Vec<Value>,
+    pub registers: Vec<NanValue>,
     pub frames: Vec<CallFrame>,
     pub globals: IndexMap<String, Value>,
     pub modules: IndexMap<String, Value>,
@@ -149,13 +149,14 @@ impl VMProvider for VM {
         if let Some(p) = maybe_promise
             && sync_result == Value::Null
         {
-            let is_promise = if let Value::Map(m) = &p {
-                m.borrow().get("variant").is_some()
+            let p_val = p.to_value();
+            let is_promise = if let Value::Map(m) = &p_val {
+                m.borrow().entries.contains_key("variant")
             } else {
                 false
             };
             if is_promise {
-                return Ok(p);
+                return Ok(p_val);
             }
         }
 
@@ -395,7 +396,7 @@ impl VM {
         Self {
             sandbox_config: None,
             gc,
-            registers: vec![Value::Null; 256],
+            registers: vec![NanValue::null(); 256],
             frames: Vec::new(),
             globals,
             modules,
@@ -441,7 +442,7 @@ impl VM {
         self.registers.clear();
 
         self.registers
-            .extend(std::iter::repeat_n(Value::Null, register_count));
+            .extend(std::iter::repeat_n(NanValue::null(), register_count));
 
         self.frames.push(CallFrame {
             function_index: func_index,
@@ -668,7 +669,8 @@ impl VM {
 
             if let Some(suspended) = self.suspended_frames.swap_remove(&task.promise_id) {
                 let frame = suspended.frame;
-                self.registers[frame.base + suspended.await_reg] = task.value.clone();
+                self.registers[frame.base + suspended.await_reg] =
+                    NanValue::from_value(&task.value);
                 self.frames.push(frame);
             }
 
@@ -809,7 +811,8 @@ impl VM {
 
             match opcode {
                 Opcode::GetIterator => {
-                    let source = self.registers[base + b].clone();
+                    let source_nan = self.registers[base + b];
+                    let source = source_nan.to_value();
                     let name = if c == 1 {
                         "entries".to_string()
                     } else {
@@ -824,7 +827,7 @@ impl VM {
                     {
                         match native(self, &[source]) {
                             Ok(iter) => {
-                                self.registers[base + a] = iter;
+                                self.registers[base + a] = NanValue::from_value(&iter);
                             }
                             Err(err) => {
                                 return Err(self.throw_runtime_error(&err.message));
@@ -859,7 +862,8 @@ impl VM {
                     }
                 }
                 Opcode::IterNext => {
-                    let iter = self.registers[base + b].clone();
+                    let iter_nan = self.registers[base + b];
+                    let iter = iter_nan.to_value();
                     let name = "next".to_string();
                     let func_reg = base + a;
 
@@ -870,7 +874,7 @@ impl VM {
                     {
                         match native(self, &[iter]) {
                             Ok(val) => {
-                                self.registers[base + a] = val;
+                                self.registers[base + a] = NanValue::from_value(&val);
                             }
                             Err(err) => {
                                 return Err(self.throw_runtime_error(&err.message));
@@ -905,27 +909,27 @@ impl VM {
                     }
                 }
                 Opcode::Move => {
-                    self.registers[base + a] = self.registers[base + b].clone();
+                    self.registers[base + a] = self.registers[base + b];
                 }
                 Opcode::LoadConst => {
-                    let value = function.chunk.constants[b].clone();
-                    self.registers[base + a] = value;
+                    let value = &function.chunk.constants[b];
+                    self.registers[base + a] = NanValue::from_value(value);
                 }
                 Opcode::LoadMissing => {
-                    self.registers[base + a] = Value::Missing;
+                    self.registers[base + a] = NanValue::missing();
                 }
                 Opcode::LoadNull => {
-                    self.registers[base + a] = Value::Null;
+                    self.registers[base + a] = NanValue::null();
                 }
                 Opcode::LoadTrue => {
-                    self.registers[base + a] = Value::Bool(true);
+                    self.registers[base + a] = NanValue::from_bool(true);
                 }
                 Opcode::LoadFalse => {
-                    self.registers[base + a] = Value::Bool(false);
+                    self.registers[base + a] = NanValue::from_bool(false);
                 }
                 Opcode::LoadInt => {
                     let value = (b as i8) as i64;
-                    self.registers[base + a] = Value::Int(value);
+                    self.registers[base + a] = NanValue::from_int(value);
                 }
                 Opcode::Closure => {
                     let proto = function
@@ -953,7 +957,7 @@ impl VM {
                     });
                     let captures = vec![Value::Null; c];
                     let state = self.gc.allocate(ClosureState::new(func_index, captures))?;
-                    self.registers[base + a] = Value::Closure(state);
+                    self.registers[base + a] = NanValue::from_value(&Value::Closure(state));
                 }
                 Opcode::AsyncFunction => {
                     let proto = function
@@ -979,7 +983,7 @@ impl VM {
                         type_constraints: proto.type_constraints.clone(),
                         annotations: proto.annotations.clone(),
                     });
-                    self.registers[base + a] = Value::Function(func_index);
+                    self.registers[base + a] = NanValue::from_value(&Value::Function(func_index));
                 }
                 Opcode::FunctionRef => {
                     let proto = function
@@ -1005,11 +1009,11 @@ impl VM {
                         type_constraints: proto.type_constraints.clone(),
                         annotations: proto.annotations.clone(),
                     });
-                    self.registers[base + a] = Value::Function(func_index);
+                    self.registers[base + a] = NanValue::from_value(&Value::Function(func_index));
                 }
                 Opcode::Capture => {
-                    let value = self.registers[base + b].clone();
-                    if let Value::Closure(state) = &self.registers[base + a] {
+                    let value = self.registers[base + b].to_value();
+                    if let Value::Closure(state) = &self.registers[base + a].to_value() {
                         state.borrow_mut().captures[c] = value;
                     } else {
                         return Err(RuntimeError::new("capture on non-closure"));
@@ -1024,7 +1028,7 @@ impl VM {
                         }
                         let val = state.captures[idx].clone();
                         log::trace!("LoadCapture: index={} value={:?}", idx, val);
-                        self.registers[base + a] = val;
+                        self.registers[base + a] = NanValue::from_value(&val);
                     } else {
                         return Err(RuntimeError::new("not in a closure"));
                     }
@@ -1036,7 +1040,7 @@ impl VM {
                         ));
                     }
                     let idx = b;
-                    let value = self.registers[base + a].clone();
+                    let value = self.registers[base + a].to_value();
                     if let Some(state) = frame.closure_state.as_ref().cloned() {
                         let mut state = state.borrow_mut();
                         if idx >= state.captures.len() {
@@ -1048,67 +1052,68 @@ impl VM {
                     }
                 }
                 Opcode::MakeCell => {
-                    let value = self.registers[base + b].clone();
-                    let cell = self
-                        .gc
-                        .allocate(pleno_value::CellState::new(value.clone()))?;
-                    self.registers[base + a] = Value::Cell(cell);
+                    let value = self.registers[base + b].to_value();
+                    let cell = self.gc.allocate(pleno_value::CellState::new(value))?;
+                    self.registers[base + a] = NanValue::from_value(&Value::Cell(cell));
                 }
                 Opcode::LoadCell => {
-                    let val = if let Value::Cell(cell) = &self.registers[base + b] {
+                    let val = if let Value::Cell(cell) = &self.registers[base + b].to_value() {
                         cell.borrow().value.clone()
                     } else {
                         return Err(RuntimeError::new("LoadCell from non-cell value"));
                     };
-                    self.registers[base + a] = val;
+                    self.registers[base + a] = NanValue::from_value(&val);
                 }
                 Opcode::SetCell => {
-                    let value = self.registers[base + b].clone();
-                    if let Value::Cell(cell) = &self.registers[base + a] {
+                    let value = self.registers[base + b].to_value();
+                    if let Value::Cell(cell) = &self.registers[base + a].to_value() {
                         cell.borrow_mut().value = value;
                     } else {
                         return Err(RuntimeError::new("SetCell on non-cell value"));
                     }
                 }
                 Opcode::MakeThunk => {
-                    let callable = self.registers[base + b].clone();
+                    let callable = self.registers[base + b].to_value();
                     let thunk = self.gc.allocate(ThunkState::new(callable))?;
-                    self.registers[base + a] = Value::Thunk(thunk);
+                    self.registers[base + a] = NanValue::from_value(&Value::Thunk(thunk));
                 }
                 Opcode::ForceThunk => {
-                    let value = self.registers[base + b].clone();
+                    let value = self.registers[base + b].to_value();
                     let forced = self.force_thunk(value)?;
-                    self.registers[base + a] = forced;
+                    self.registers[base + a] = NanValue::from_value(&forced);
                 }
                 Opcode::BuildRange => {
-                    let start = expect_int_or_null(&self.registers[base + b])?;
-                    let end = expect_int_or_null(&self.registers[base + c])?;
-                    self.registers[base + a] = Value::Range(Range {
+                    let start = expect_int_or_null(&self.registers[base + b].to_value())?;
+                    let end = expect_int_or_null(&self.registers[base + c].to_value())?;
+                    self.registers[base + a] = NanValue::from_value(&Value::Range(Range {
                         start,
                         end,
                         inclusive: false,
-                    });
+                    }));
                 }
                 Opcode::BuildRangeInclusive => {
-                    let start = expect_int_or_null(&self.registers[base + b])?;
-                    let end = expect_int_or_null(&self.registers[base + c])?;
-                    self.registers[base + a] = Value::Range(Range {
+                    let start = expect_int_or_null(&self.registers[base + b].to_value())?;
+                    let end = expect_int_or_null(&self.registers[base + c].to_value())?;
+                    self.registers[base + a] = NanValue::from_value(&Value::Range(Range {
                         start,
                         end,
                         inclusive: true,
-                    });
+                    }));
                 }
                 Opcode::NewMap => {
-                    self.registers[base + a] =
-                        Value::Map(self.gc.allocate(MapState::new(IndexMap::new()))?);
+                    self.registers[base + a] = NanValue::from_value(&Value::Map(
+                        self.gc.allocate(MapState::new(IndexMap::new()))?,
+                    ));
                 }
                 Opcode::NewArray => {
-                    self.registers[base + a] =
-                        Value::Array(self.gc.allocate(ArrayState::new(Vec::new()))?);
+                    self.registers[base + a] = NanValue::from_value(&Value::Array(
+                        self.gc.allocate(ArrayState::new(Vec::new()))?,
+                    ));
                 }
                 Opcode::NewSet => {
-                    self.registers[base + a] =
-                        Value::Set(self.gc.allocate(SetState::new(IndexSet::new()))?);
+                    self.registers[base + a] = NanValue::from_value(&Value::Set(
+                        self.gc.allocate(SetState::new(IndexSet::new()))?,
+                    ));
                 }
                 Opcode::SetAdd => {
                     if self.functions[frame.function_index].is_pure {
@@ -1116,8 +1121,8 @@ impl VM {
                             self.throw_runtime_error("pure function cannot have side effects")
                         );
                     }
-                    let value = self.registers[base + b].clone();
-                    match &self.registers[base + a] {
+                    let value = self.registers[base + b].to_value();
+                    match self.registers[base + a].to_value() {
                         Value::Set(set) => {
                             if set.borrow().is_immutable {
                                 return Err(self.throw_runtime_error("cannot modify immutable set"));
@@ -1129,28 +1134,29 @@ impl VM {
                     }
                 }
                 Opcode::SetHas => {
-                    let value = self.registers[base + b].clone();
-                    match &self.registers[base + a] {
+                    let value = self.registers[base + b].to_value();
+                    match self.registers[base + a].to_value() {
                         Value::Set(set) => {
                             let key = value_to_key(&value)?;
                             let has = set.borrow().contains(&key);
-                            self.registers[base + a] = Value::Bool(has);
+                            self.registers[base + a] = NanValue::from_bool(has);
                         }
                         _ => return Err(RuntimeError::new("set has on non-set value")),
                     }
                 }
-                Opcode::SetLen => match &self.registers[base + b] {
+                Opcode::SetLen => match self.registers[base + b].to_value() {
                     Value::Set(set) => {
                         let len = set.borrow().len() as i64;
-                        self.registers[base + a] = Value::Int(len);
+                        self.registers[base + a] = NanValue::from_int(len);
                     }
                     _ => return Err(RuntimeError::new("set len on non-set value")),
                 },
-                Opcode::SetValues => match &self.registers[base + b] {
+                Opcode::SetValues => match self.registers[base + b].to_value() {
                     Value::Set(set) => {
                         let values: Vec<Value> = set.borrow().iter().map(key_to_value).collect();
-                        self.registers[base + a] =
-                            Value::Array(self.gc.allocate(ArrayState::new(values))?);
+                        self.registers[base + a] = NanValue::from_value(&Value::Array(
+                            self.gc.allocate(ArrayState::new(values))?,
+                        ));
                     }
                     _ => return Err(RuntimeError::new("set values on non-set value")),
                 },
@@ -1160,8 +1166,8 @@ impl VM {
                             self.throw_runtime_error("pure function cannot have side effects")
                         );
                     }
-                    let value = self.registers[base + b].clone();
-                    match &self.registers[base + a] {
+                    let value = self.registers[base + b].to_value();
+                    match self.registers[base + a].to_value() {
                         Value::Array(array) => {
                             if array.borrow().is_immutable {
                                 return Err(
@@ -1176,11 +1182,12 @@ impl VM {
                 }
                 Opcode::NewTuple => {
                     let tuple = TupleState::new(Vec::new(), None);
-                    self.registers[base + a] = Value::Tuple(self.gc.allocate(tuple)?);
+                    self.registers[base + a] =
+                        NanValue::from_value(&Value::Tuple(self.gc.allocate(tuple)?));
                 }
                 Opcode::TupleAppend => {
-                    let val = self.registers[base + b].clone();
-                    match &self.registers[base + a] {
+                    let val = self.registers[base + b].to_value();
+                    match self.registers[base + a].to_value() {
                         Value::Tuple(t) => {
                             t.borrow_mut().elements.push(val);
                         }
@@ -1192,8 +1199,8 @@ impl VM {
                         Value::String(s) => s.as_str().to_string(),
                         _ => return Err(RuntimeError::new("tuple property name must be string")),
                     };
-                    let value = self.registers[base + b].clone();
-                    match &self.registers[base + a] {
+                    let value = self.registers[base + b].to_value();
+                    match self.registers[base + a].to_value() {
                         Value::Tuple(t) => {
                             let mut t = t.borrow_mut();
                             let idx = t.elements.len();
@@ -1212,8 +1219,8 @@ impl VM {
                             self.throw_runtime_error("pure function cannot have side effects")
                         );
                     }
-                    let value = self.registers[base + b].clone();
-                    match (&self.registers[base + a], value) {
+                    let value = self.registers[base + b].to_value();
+                    match (self.registers[base + a].to_value(), value) {
                         (Value::Array(target), Value::Array(source)) => {
                             if target.borrow().is_immutable {
                                 return Err(
@@ -1234,8 +1241,8 @@ impl VM {
                             self.throw_runtime_error("pure function cannot have side effects")
                         );
                     }
-                    let value = self.registers[base + b].clone();
-                    match (&self.registers[base + a], value) {
+                    let value = self.registers[base + b].to_value();
+                    match (self.registers[base + a].to_value(), value) {
                         (Value::Map(target), Value::Map(source)) => {
                             if target.borrow().is_immutable {
                                 return Err(self.throw_runtime_error("cannot modify immutable map"));
@@ -1252,12 +1259,12 @@ impl VM {
                     }
                 }
                 Opcode::MapRemove => {
-                    let key_val = self.registers[base + b].clone();
+                    let key_val = self.registers[base + b].to_value();
                     let name = match key_val {
                         Value::String(s) => s.as_str().to_string(),
                         _ => return Err(RuntimeError::new("map remove key must be string")),
                     };
-                    match &self.registers[base + a] {
+                    match self.registers[base + a].to_value() {
                         Value::Map(map) => {
                             if map.borrow().is_immutable {
                                 return Err(self.throw_runtime_error("cannot modify immutable map"));
@@ -1273,8 +1280,8 @@ impl VM {
                             self.throw_runtime_error("pure function cannot have side effects")
                         );
                     }
-                    let value = self.registers[base + b].clone();
-                    match (&self.registers[base + a], value) {
+                    let value = self.registers[base + b].to_value();
+                    match (self.registers[base + a].to_value(), value) {
                         (Value::Set(target), Value::Set(source)) => {
                             for k in source.borrow().iter() {
                                 target.borrow_mut().insert(k.clone());
@@ -1289,8 +1296,8 @@ impl VM {
                             self.throw_runtime_error("pure function cannot have side effects")
                         );
                     }
-                    let value = self.registers[base + b].clone();
-                    match (&self.registers[base + a], value) {
+                    let value = self.registers[base + b].to_value();
+                    match (self.registers[base + a].to_value(), value) {
                         (Value::Array(target), Value::Array(source)) => {
                             let source_len = source.borrow().elements.len();
                             self.gc
@@ -1304,8 +1311,9 @@ impl VM {
                     }
                 }
                 Opcode::NewObject => {
-                    self.registers[base + a] =
-                        Value::Object(self.gc.allocate(Object::new(None, None))?);
+                    self.registers[base + a] = NanValue::from_value(&Value::Object(
+                        self.gc.allocate(Object::new(None, None))?,
+                    ));
                 }
                 Opcode::SetField => {
                     if self.functions[frame.function_index].is_pure {
@@ -1317,8 +1325,8 @@ impl VM {
                         Value::String(value) => value.as_str().to_string(),
                         _ => return Err(RuntimeError::new("field name must be string")),
                     };
-                    let value = self.registers[base + a].clone();
-                    match &self.registers[base + b] {
+                    let value = self.registers[base + a].to_value();
+                    match self.registers[base + b].to_value() {
                         Value::Object(object) => {
                             if object.borrow().is_immutable {
                                 return Err(
@@ -1330,17 +1338,14 @@ impl VM {
                             if let Some(class) = class {
                                 let ty_name = class.borrow().field_types.get(&name).cloned();
                                 if let Some(Some(ty_name)) = ty_name {
-                                    let type_val = if let Some(val) = self.globals.get(&ty_name) {
-                                        val.clone()
-                                    } else {
-                                        Value::String(Rc::new(ty_name.clone()))
-                                    };
-
-                                    if !self.is_instance(&value, &type_val) {
-                                        let actual_type_name = value.type_name().to_string();
+                                    let ty_val = Value::String(Rc::new(ty_name));
+                                    if !self.is_instance(&value, &ty_val) {
+                                        let actual_type_name = value.type_name();
                                         let msg = format!(
                                             "Type error: field '{}' expected {}, got {}",
-                                            name, ty_name, actual_type_name
+                                            name,
+                                            ty_val.type_name(),
+                                            actual_type_name
                                         );
                                         return Err(self.throw_runtime_error(&msg));
                                     }
@@ -1359,7 +1364,7 @@ impl VM {
                         Value::String(value) => value.as_str().to_string(),
                         _ => return Err(RuntimeError::new("field name must be string")),
                     };
-                    let value = match &self.registers[base + b] {
+                    let value = match self.registers[base + b].to_value() {
                         Value::Object(object) => object
                             .borrow()
                             .fields
@@ -1368,7 +1373,7 @@ impl VM {
                             .unwrap_or(Value::Null),
                         Value::Array(array) => {
                             if name == "length" {
-                                Value::Int(array.borrow().len() as i64)
+                                Value::Int(array.borrow().elements.len() as i64)
                             } else {
                                 return Err(RuntimeError::new("unknown array field"));
                             }
@@ -1382,12 +1387,13 @@ impl VM {
                         }
                         _ => return Err(RuntimeError::new("field access on non-object value")),
                     };
-                    self.registers[base + a] = value;
+                    self.registers[base + a] = NanValue::from_value(&value);
                 }
                 Opcode::MapKeys => {
-                    let keys = match &self.registers[base + b] {
+                    let keys = match self.registers[base + b].to_value() {
                         Value::Map(map) => map
                             .borrow()
+                            .entries
                             .keys()
                             .cloned()
                             .map(|key| Value::String(Rc::new(key)))
@@ -1399,17 +1405,19 @@ impl VM {
                             .cloned()
                             .map(|key| Value::String(Rc::new(key)))
                             .collect::<Vec<_>>(),
-                        _ => return Err(RuntimeError::new("map keys on non-map value")),
+                        _ => return Err(RuntimeError::new("MapKeys expects map or object")),
                     };
-                    self.registers[base + a] =
-                        Value::Array(self.gc.allocate(ArrayState::new(keys))?);
+                    self.registers[base + a] = NanValue::from_value(&Value::Array(
+                        self.gc.allocate(ArrayState::new(keys))?,
+                    ));
                 }
                 Opcode::IterValues => {
-                    let value = match &self.registers[base + b] {
+                    let value = match self.registers[base + b].to_value() {
                         Value::Array(array) => Ok(Value::Array(array.clone())),
                         Value::Map(map) => {
                             let values = map
                                 .borrow()
+                                .entries
                                 .keys()
                                 .cloned()
                                 .map(|key| Value::String(Rc::new(key)))
@@ -1417,23 +1425,19 @@ impl VM {
                             Ok(Value::Array(self.gc.allocate(ArrayState::new(values))?))
                         }
                         Value::Set(set) => {
-                            let values = set
-                                .borrow()
-                                .elements
-                                .iter()
-                                .map(|key| key.to_value())
-                                .collect::<Vec<_>>();
+                            let values = set.borrow().iter().map(key_to_value).collect::<Vec<_>>();
                             Ok(Value::Array(self.gc.allocate(ArrayState::new(values))?))
                         }
                         _ => return Err(RuntimeError::new("iter over non-collection value")),
                     }?;
-                    self.registers[base + a] = value;
+                    self.registers[base + a] = NanValue::from_value(&value);
                 }
                 Opcode::IterEntries => {
-                    let value = match &self.registers[base + b] {
+                    let value = match self.registers[base + b].to_value() {
                         Value::Array(array) => {
                             let entries = array
                                 .borrow()
+                                .elements
                                 .iter()
                                 .enumerate()
                                 .map(|(idx, val)| {
@@ -1448,6 +1452,7 @@ impl VM {
                         Value::Map(map) => {
                             let entries =
                                 map.borrow()
+                                    .entries
                                     .iter()
                                     .map(|(key, val)| {
                                         Ok(Value::Array(self.gc.allocate(ArrayState::new(
@@ -1463,7 +1468,7 @@ impl VM {
                                     .iter()
                                     .enumerate()
                                     .map(|(idx, val)| {
-                                        let val = val.to_value();
+                                        let val = key_to_value(val);
                                         Ok(Value::Array(self.gc.allocate(ArrayState::new(
                                             vec![Value::Int(idx as i64), val],
                                         ))?))
@@ -1473,28 +1478,29 @@ impl VM {
                         }
                         _ => return Err(RuntimeError::new("iter over non-collection value")),
                     }?;
-                    self.registers[base + a] = value;
+                    self.registers[base + a] = NanValue::from_value(&value);
                 }
                 Opcode::ArrayLen => {
-                    let len = match &self.registers[base + b] {
+                    let len = match self.registers[base + b].to_value() {
                         Value::Array(array) => array.borrow().elements.len() as i64,
                         Value::Tuple(tuple) => tuple.borrow().elements.len() as i64,
                         _ => {
                             return Err(RuntimeError::new("array length on non-array/tuple value"));
                         }
                     };
-                    self.registers[base + a] = Value::Int(len);
+                    self.registers[base + a] = NanValue::from_int(len);
                 }
                 Opcode::Await => {
-                    let value = self.registers[base + b].clone();
+                    let value = self.registers[base + b].to_value();
                     log::trace!("Opcode::Await on value: {:?}", value);
                     match value {
                         Value::Map(map) => {
-                            let variant = map.borrow().get("variant").cloned();
+                            let variant = map.borrow().entries.get("variant").cloned();
                             match variant {
                                 Some(Value::String(s)) if s.as_str() == "Pending" => {
                                     let id = map
                                         .borrow()
+                                        .entries
                                         .get("id")
                                         .and_then(|v| match v {
                                             Value::Int(i) => Some(*i as u64),
@@ -1516,89 +1522,77 @@ impl VM {
                                     return Ok(Some(Value::Null)); // Suspend
                                 }
                                 Some(Value::String(s)) if s.as_str() == "Resolved" => {
-                                    let val =
-                                        map.borrow().get("value").cloned().unwrap_or(Value::Null);
-                                    self.registers[base + a] = val;
+                                    let val = map
+                                        .borrow()
+                                        .entries
+                                        .get("value")
+                                        .cloned()
+                                        .unwrap_or(Value::Null);
+                                    self.registers[base + a] = NanValue::from_value(&val);
                                 }
                                 _ => {
-                                    self.registers[base + a] = Value::Map(map);
+                                    self.registers[base + a] =
+                                        NanValue::from_value(&Value::Map(map));
                                 }
                             }
                         }
                         _ => {
-                            self.registers[base + a] = value;
+                            self.registers[base + a] = NanValue::from_value(&value);
                         }
                     }
                 }
                 Opcode::Is => {
-                    let value = &self.registers[base + b];
-                    let type_val = &self.registers[base + c];
-                    let result = self.is_instance(value, type_val);
-                    self.registers[base + a] = Value::Bool(result);
+                    let value = self.registers[base + b];
+                    let type_val = self.registers[base + c];
+                    let result = self.is_instance_nan(&value, &type_val);
+                    self.registers[base + a] = NanValue::from_bool(result);
                 }
                 Opcode::TypeOf => {
-                    let value = &self.registers[base + b];
-                    let type_name = match value {
-                        Value::Int(_) => "Int",
-                        Value::Float(_) => "Float",
-                        Value::Bool(_) => "Bool",
-                        Value::String(_) => "String",
-                        Value::Array(_) => "Array",
-                        Value::Map(_) => "Map",
-                        Value::Set(_) => "Set",
-                        Value::Object(_) => "Object",
-                        Value::Null => "Null",
-                        Value::ArrayOp { .. } => "Array",
-                        Value::Tuple(_) => "Tuple",
-                        Value::Mutex(_) => "Mutex",
-                        Value::Channel(_) => "Channel",
-                        Value::File(_) => "File",
-                        Value::Enum(_) => "Enum",
-                        Value::Variant { .. } => "Variant",
-                        _ => "Unknown",
-                    };
-                    self.registers[base + a] = Value::String(Rc::new(type_name.to_string()));
+                    let value = self.registers[base + b];
+                    let type_name = value.type_name();
+                    self.registers[base + a] =
+                        NanValue::from_value(&Value::String(Rc::new(type_name.to_string())));
                 }
                 Opcode::AddInt => {
-                    let val = match &self.registers[base + b] {
-                        Value::Int(i) => *i,
+                    let val = match self.registers[base + b].as_int() {
+                        Some(i) => i,
                         _ => return Err(RuntimeError::new("AddInt expects integer")),
                     };
-                    self.registers[base + a] = Value::Int(val + c as i64);
+                    self.registers[base + a] = NanValue::from_int(val + c as i64);
                 }
                 Opcode::SubInt => {
-                    let val = match &self.registers[base + b] {
-                        Value::Int(i) => *i,
+                    let val = match self.registers[base + b].as_int() {
+                        Some(i) => i,
                         _ => return Err(RuntimeError::new("SubInt expects integer")),
                     };
-                    self.registers[base + a] = Value::Int(val - c as i64);
+                    self.registers[base + a] = NanValue::from_int(val - c as i64);
                 }
                 Opcode::MulInt => {
-                    let val = match &self.registers[base + b] {
-                        Value::Int(i) => *i,
+                    let val = match self.registers[base + b].as_int() {
+                        Some(i) => i,
                         _ => return Err(RuntimeError::new("MulInt expects integer")),
                     };
-                    self.registers[base + a] = Value::Int(val * c as i64);
+                    self.registers[base + a] = NanValue::from_int(val * c as i64);
                 }
                 Opcode::DivInt => {
-                    let val = match &self.registers[base + b] {
-                        Value::Int(i) => *i,
+                    let val = match self.registers[base + b].as_int() {
+                        Some(i) => i,
                         _ => return Err(RuntimeError::new("DivInt expects integer")),
                     };
                     if c == 0 {
                         return Err(RuntimeError::new("division by zero"));
                     }
-                    self.registers[base + a] = Value::Int(val / c as i64);
+                    self.registers[base + a] = NanValue::from_int(val / c as i64);
                 }
                 Opcode::ModInt => {
-                    let val = match &self.registers[base + b] {
-                        Value::Int(i) => *i,
+                    let val = match self.registers[base + b].as_int() {
+                        Some(i) => i,
                         _ => return Err(RuntimeError::new("ModInt expects integer")),
                     };
                     if c == 0 {
                         return Err(RuntimeError::new("division by zero"));
                     }
-                    self.registers[base + a] = Value::Int(val % c as i64);
+                    self.registers[base + a] = NanValue::from_int(val % c as i64);
                 }
 
                 Opcode::SetProperty => {
@@ -1611,14 +1605,14 @@ impl VM {
                         Value::String(value) => value.as_str().to_string(),
                         _ => return Err(RuntimeError::new("property name must be string")),
                     };
-                    let value = self.registers[base + a].clone();
+                    let value = self.registers[base + a];
                     let current_owner = frame.current_owner.clone();
                     let current_class = match &current_owner {
                         Some(MethodOwner::Class(c)) => Some(c.clone()),
                         _ => None,
                     };
                     let current_module = frame.current_module.as_ref().cloned();
-                    let target = self.registers[base + b].clone();
+                    let target = self.registers[base + b].to_value();
                     match target {
                         Value::Map(map) => {
                             if map.borrow().is_immutable {
@@ -1626,7 +1620,7 @@ impl VM {
                             }
                             self.gc
                                 .track_allocation(std::mem::size_of::<Value>() + name.len())?;
-                            map.borrow_mut().insert(name, value);
+                            map.borrow_mut().insert(name, value.to_value());
                         }
                         Value::Object(object) => {
                             if object.borrow().is_immutable {
@@ -1649,7 +1643,7 @@ impl VM {
                                     self.call_function(
                                         info.function.clone(),
                                         Some(Value::Object(object.clone())),
-                                        &[value],
+                                        &[value.to_value()],
                                         base + a,
                                         false,
                                         CallOptions {
@@ -1674,23 +1668,20 @@ impl VM {
 
                                 let ty_name = class.borrow().field_types.get(&name).cloned();
                                 if let Some(Some(ty_name)) = ty_name {
-                                    let type_val = if let Some(val) = self.globals.get(&ty_name) {
-                                        val.clone()
-                                    } else {
-                                        Value::String(Rc::new(ty_name.clone()))
-                                    };
-
-                                    if !self.is_instance(&value, &type_val) {
-                                        let actual_type_name = value.type_name().to_string();
+                                    let ty_val = Value::String(Rc::new(ty_name));
+                                    if !self.is_instance(&value.to_value(), &ty_val) {
+                                        let actual_type_name = value.type_name();
                                         let msg = format!(
                                             "Type error: field '{}' expected {}, got {}",
-                                            name, ty_name, actual_type_name
+                                            name,
+                                            ty_val.type_name(),
+                                            actual_type_name
                                         );
                                         return Err(self.throw_runtime_error(&msg));
                                     }
                                 }
                             }
-                            object.borrow_mut().fields.insert(name, value);
+                            object.borrow_mut().fields.insert(name, value.to_value());
                         }
                         Value::Class(class) => {
                             if let Some(info) = resolve_static_setter(&class, &name) {
@@ -1706,7 +1697,7 @@ impl VM {
                                 self.call_function(
                                     info.function.clone(),
                                     None,
-                                    &[value],
+                                    &[value.to_value()],
                                     base + a,
                                     false,
                                     CallOptions {
@@ -1735,23 +1726,23 @@ impl VM {
 
                             let ty_name = class.borrow().static_field_types.get(&name).cloned();
                             if let Some(Some(ty_name)) = ty_name {
-                                let type_val = if let Some(val) = self.globals.get(&ty_name) {
-                                    val.clone()
-                                } else {
-                                    Value::String(Rc::new(ty_name.clone()))
-                                };
-
-                                if !self.is_instance(&value, &type_val) {
-                                    let actual_type_name = value.type_name().to_string();
+                                let ty_val = Value::String(Rc::new(ty_name));
+                                if !self.is_instance(&value.to_value(), &ty_val) {
+                                    let actual_type_name = value.type_name();
                                     let msg = format!(
                                         "Type error: static field '{}' expected {}, got {}",
-                                        name, ty_name, actual_type_name
+                                        name,
+                                        ty_val.type_name(),
+                                        actual_type_name
                                     );
                                     return Err(self.throw_runtime_error(&msg));
                                 }
                             }
 
-                            class.borrow_mut().static_fields.insert(name, value);
+                            class
+                                .borrow_mut()
+                                .static_fields
+                                .insert(name, value.to_value());
                         }
                         _ => return Err(RuntimeError::new("field set on non-object")),
                     }
@@ -1766,9 +1757,11 @@ impl VM {
                         Some(MethodOwner::Class(c)) => Some(c.clone()),
                         _ => None,
                     };
-                    let value = self.registers[base + b].clone();
+                    let value_nan = self.registers[base + b];
+                    let value = value_nan.to_value();
                     log::trace!("GetProperty: object={:?} name={}", value, name);
-                    let value = match value {
+
+                    let result_val = match value {
                         Value::Map(map) => {
                             let map_ref = map.borrow();
                             if let Some(Value::String(variant)) = map_ref.get("variant") {
@@ -1778,17 +1771,16 @@ impl VM {
                                         .and_then(|r| r("Result", &name))
                                         .is_some()
                                 {
-                                    // Result type with method
                                     drop(map_ref);
-                                    self.registers[base + a] = Value::BoundNativeMethod {
-                                        receiver: Box::new(Value::Map(map.clone())),
-                                        function: self
-                                            .builtin_resolver
-                                            .and_then(|r| r("Result", &name))
-                                            .ok_or_else(|| {
-                                                RuntimeError::new("Builtin method not found")
-                                            })?,
-                                    };
+                                    let func = self
+                                        .builtin_resolver
+                                        .and_then(|r| r("Result", &name))
+                                        .unwrap();
+                                    self.registers[base + a] =
+                                        NanValue::from_value(&Value::BoundNativeMethod {
+                                            receiver: Box::new(Value::Map(map.clone())),
+                                            function: func,
+                                        });
                                     continue;
                                 } else if (variant.as_str() == "Some" || variant.as_str() == "None")
                                     && self
@@ -1796,59 +1788,19 @@ impl VM {
                                         .and_then(|r| r("Option", &name))
                                         .is_some()
                                 {
-                                    // Option type with method
                                     drop(map_ref);
-                                    self.registers[base + a] = Value::BoundNativeMethod {
-                                        receiver: Box::new(Value::Map(map.clone())),
-                                        function: self
-                                            .builtin_resolver
-                                            .and_then(|r| r("Option", &name))
-                                            .ok_or_else(|| {
-                                                RuntimeError::new("Builtin method not found")
-                                            })?,
-                                    };
-                                    continue;
-                                } else if (variant.as_str() == "Pending"
-                                    || variant.as_str() == "Resolved")
-                                    && self
+                                    let func = self
                                         .builtin_resolver
-                                        .and_then(|r| r("Promise", &name))
-                                        .is_some()
-                                {
-                                    // Promise type with method
-                                    drop(map_ref);
-                                    self.registers[base + a] = Value::BoundNativeMethod {
-                                        receiver: Box::new(Value::Map(map.clone())),
-                                        function: self
-                                            .builtin_resolver
-                                            .and_then(|r| r("Promise", &name))
-                                            .ok_or_else(|| {
-                                                RuntimeError::new("Builtin method not found")
-                                            })?,
-                                    };
-                                    continue;
-                                } else if variant.as_str() == "Regex"
-                                    && self
-                                        .builtin_resolver
-                                        .and_then(|r| r("Regex", &name))
-                                        .is_some()
-                                {
-                                    // Regex type with method
-                                    drop(map_ref);
-                                    self.registers[base + a] = Value::BoundNativeMethod {
-                                        receiver: Box::new(Value::Map(map.clone())),
-                                        function: self
-                                            .builtin_resolver
-                                            .and_then(|r| r("Regex", &name))
-                                            .ok_or_else(|| {
-                                                RuntimeError::new("Builtin method not found")
-                                            })?,
-                                    };
+                                        .and_then(|r| r("Option", &name))
+                                        .unwrap();
+                                    self.registers[base + a] =
+                                        NanValue::from_value(&Value::BoundNativeMethod {
+                                            receiver: Box::new(Value::Map(map.clone())),
+                                            function: func,
+                                        });
                                     continue;
                                 }
                             }
-                            // Check for Map built-in methods if not found as a key
-                            // Check for Map built-in methods if not found as a key
                             let val = map_ref.entries.get(&name).cloned();
                             drop(map_ref);
 
@@ -1861,28 +1813,6 @@ impl VM {
                                     receiver: Box::new(Value::Map(map.clone())),
                                     function: func,
                                 }
-                            } else if let Some(Value::Class(cls)) =
-                                self.globals.get("__Extension_Map")
-                            {
-                                if let Some(info) = resolve_method(cls, &name) {
-                                    if !can_access_method(
-                                        &info,
-                                        current_class.as_ref(),
-                                        frame.current_module.as_ref(),
-                                    ) {
-                                        return Err(
-                                            self.throw_runtime_error("method access denied")
-                                        );
-                                    }
-                                    Value::BoundMethod {
-                                        receiver: Box::new(Value::Map(map.clone())),
-                                        function: Box::new(info.function.clone()),
-                                        owner: info.owner.clone(),
-                                        visibility: info.visibility,
-                                    }
-                                } else {
-                                    return Err(self.handle_property_error(&name));
-                                }
                             } else {
                                 return Err(self.handle_property_error(&name));
                             }
@@ -1890,18 +1820,19 @@ impl VM {
                         Value::Enum(enum_type) => {
                             let et = enum_type.borrow();
                             if let Some(def) = et.variants.get(&name) {
-                                if def.param_count == 0 {
-                                    self.registers[base + a] = Value::Variant {
+                                let val = if def.param_count == 0 {
+                                    Value::Variant {
                                         enum_type: enum_type.clone(),
                                         variant_name: Rc::new(name),
                                         data: Vec::new(),
-                                    };
+                                    }
                                 } else {
-                                    self.registers[base + a] = Value::VariantConstructor {
+                                    Value::VariantConstructor {
                                         enum_type: enum_type.clone(),
                                         variant_name: Rc::new(name),
-                                    };
-                                }
+                                    }
+                                };
+                                self.registers[base + a] = NanValue::from_value(&val);
                                 continue;
                             } else if let Some(info) = resolve_enum_static_method(&enum_type, &name)
                             {
@@ -1914,11 +1845,12 @@ impl VM {
                                         self.throw_runtime_error("static method access denied")
                                     );
                                 }
-                                self.registers[base + a] = Value::StaticMethod {
-                                    function: Box::new(info.function.clone()),
-                                    owner: info.owner.clone(),
-                                    visibility: info.visibility,
-                                };
+                                self.registers[base + a] =
+                                    NanValue::from_value(&Value::StaticMethod {
+                                        function: Box::new(info.function.clone()),
+                                        owner: info.owner.clone(),
+                                        visibility: info.visibility,
+                                    });
                                 continue;
                             } else {
                                 return Err(RuntimeError::new(format!(
@@ -1954,20 +1886,19 @@ impl VM {
                                     )?;
                                     continue;
                                 }
-                                if let Some(visibility) = class.borrow().fields.get(&name) {
-                                    let class_borrowed = class.borrow();
+                                if let Some(v) = class.borrow().fields.get(&name) {
                                     if !can_access_field(
-                                        visibility,
-                                        &class_borrowed.name,
-                                        class_borrowed.module.as_ref(),
+                                        v,
+                                        &class.borrow().name,
+                                        class.borrow().module.as_ref(),
                                         current_class.as_ref(),
                                         frame.current_module.as_ref(),
                                     ) {
                                         return Err(self.throw_runtime_error("field access denied"));
                                     }
                                     field_value.unwrap_or(Value::Null)
-                                } else if let Some(value) = field_value {
-                                    value
+                                } else if let Some(v) = field_value {
+                                    v
                                 } else if let Some(info) = resolve_method(class, &name) {
                                     if !can_access_method(
                                         &info,
@@ -2015,14 +1946,11 @@ impl VM {
                                 )?;
                                 continue;
                             }
-                            if let Some(visibility) =
-                                class.borrow().static_field_visibility.get(&name)
-                            {
-                                let class_borrowed = class.borrow();
+                            if let Some(v) = class.borrow().static_field_visibility.get(&name) {
                                 if !can_access_field(
-                                    visibility,
-                                    &class_borrowed.name,
-                                    class_borrowed.module.as_ref(),
+                                    v,
+                                    &class.borrow().name,
+                                    class.borrow().module.as_ref(),
                                     current_class.as_ref(),
                                     frame.current_module.as_ref(),
                                 ) {
@@ -2036,14 +1964,10 @@ impl VM {
                                     .get(&name)
                                     .cloned()
                                     .unwrap_or(Value::Null)
-                            } else if let Some(value) =
-                                class.borrow().static_fields.get(&name).cloned()
+                            } else if let Some(v) = class.borrow().static_fields.get(&name).cloned()
                             {
-                                value
-                            } else if let Some(info) = {
-                                let class_ref = &class;
-                                resolve_static_method(class_ref, &name)
-                            } {
+                                v
+                            } else if let Some(info) = resolve_static_method(&class, &name) {
                                 if !can_access_method(
                                     &info,
                                     current_class.as_ref(),
@@ -2062,361 +1986,42 @@ impl VM {
                                 return Err(self.handle_property_error(&name));
                             }
                         }
-                        Value::Set(set) => {
-                            if name == "len" {
-                                Value::Int(set.borrow().len() as i64)
-                            } else if let Some(func) =
-                                self.builtin_resolver.and_then(|r| r("Set", &name))
+                        other => {
+                            if let Some(func) = self
+                                .builtin_resolver
+                                .and_then(|r| r(other.type_name(), &name))
                             {
                                 Value::BoundNativeMethod {
-                                    receiver: Box::new(Value::Set(set.clone())),
-                                    function: func,
-                                }
-                            } else if let Some(Value::Class(cls)) =
-                                self.globals.get("__Extension_Set")
-                            {
-                                if let Some(info) = resolve_method(cls, &name) {
-                                    if !can_access_method(
-                                        &info,
-                                        current_class.as_ref(),
-                                        frame.current_module.as_ref(),
-                                    ) {
-                                        return Err(
-                                            self.throw_runtime_error("method access denied")
-                                        );
-                                    }
-                                    Value::BoundMethod {
-                                        receiver: Box::new(Value::Set(set.clone())),
-                                        function: Box::new(info.function.clone()),
-                                        owner: info.owner.clone(),
-                                        visibility: info.visibility,
-                                    }
-                                } else {
-                                    return Err(self.handle_property_error(&name));
-                                }
-                            } else {
-                                return Err(self.handle_property_error(&name));
-                            }
-                        }
-                        Value::Array(array) => {
-                            if name == "len" || name == "length" {
-                                Value::Int(array.borrow().len() as i64)
-                            } else if let Some(func) =
-                                self.builtin_resolver.and_then(|r| r("Array", &name))
-                            {
-                                Value::BoundNativeMethod {
-                                    receiver: Box::new(Value::Array(array.clone())),
-                                    function: func,
-                                }
-                            } else if let Some(Value::Class(cls)) =
-                                self.globals.get("__Extension_Array")
-                            {
-                                if let Some(info) = resolve_method(cls, &name) {
-                                    if !can_access_method(
-                                        &info,
-                                        current_class.as_ref(),
-                                        frame.current_module.as_ref(),
-                                    ) {
-                                        return Err(
-                                            self.throw_runtime_error("method access denied")
-                                        );
-                                    }
-                                    Value::BoundMethod {
-                                        receiver: Box::new(Value::Array(array.clone())),
-                                        function: Box::new(info.function.clone()),
-                                        owner: info.owner.clone(),
-                                        visibility: info.visibility,
-                                    }
-                                } else {
-                                    return Err(self.handle_property_error(&name));
-                                }
-                            } else {
-                                return Err(self.handle_property_error(&name));
-                            }
-                        }
-                        Value::String(s) => {
-                            if name == "len" || name == "length" {
-                                Value::Int(s.len() as i64)
-                            } else if let Some(func) =
-                                self.builtin_resolver.and_then(|r| r("String", &name))
-                            {
-                                Value::BoundNativeMethod {
-                                    receiver: Box::new(Value::String(s.clone())),
-                                    function: func,
-                                }
-                            } else if let Some(Value::Class(cls)) =
-                                self.globals.get("__Extension_String")
-                            {
-                                if let Some(info) = resolve_method(cls, &name) {
-                                    if !can_access_method(
-                                        &info,
-                                        current_class.as_ref(),
-                                        frame.current_module.as_ref(),
-                                    ) {
-                                        return Err(RuntimeError::new("method access denied"));
-                                    }
-                                    Value::BoundMethod {
-                                        receiver: Box::new(Value::String(s.clone())),
-                                        function: Box::new(info.function.clone()),
-                                        owner: info.owner.clone(),
-                                        visibility: info.visibility,
-                                    }
-                                } else {
-                                    return Err(self.handle_property_error(&name));
-                                }
-                            } else {
-                                return Err(self.handle_property_error(&name));
-                            }
-                        }
-                        Value::ArrayOp { kind: _, array } => {
-                            if name == "len" || name == "length" {
-                                Value::Int(array.borrow().len() as i64)
-                            } else if let Some(func) =
-                                self.builtin_resolver.and_then(|r| r("Array", &name))
-                            {
-                                Value::BoundNativeMethod {
-                                    receiver: Box::new(Value::Array(array.clone())),
+                                    receiver: Box::new(other),
                                     function: func,
                                 }
                             } else {
-                                return Err(self.handle_property_error(&name));
-                            }
-                        }
-                        Value::Mutex(m) => {
-                            if let Some(func) =
-                                self.builtin_resolver.and_then(|r| r("Mutex", &name))
-                            {
-                                Value::BoundNativeMethod {
-                                    receiver: Box::new(Value::Mutex(m.clone())),
-                                    function: func,
-                                }
-                            } else {
-                                return Err(self.handle_property_error(&name));
-                            }
-                        }
-                        Value::Channel(c) => {
-                            if let Some(func) =
-                                self.builtin_resolver.and_then(|r| r("Channel", &name))
-                            {
-                                Value::BoundNativeMethod {
-                                    receiver: Box::new(Value::Channel(c.clone())),
-                                    function: func,
-                                }
-                            } else {
-                                return Err(self.handle_property_error(&name));
-                            }
-                        }
-                        Value::Range(r) => match name.as_str() {
-                            "start" => r.start.map(Value::Int).unwrap_or(Value::Null),
-                            "end" => r.end.map(Value::Int).unwrap_or(Value::Null),
-                            "inclusive" => Value::Bool(r.inclusive),
-                            _ => {
-                                if let Some(func) =
-                                    self.builtin_resolver.and_then(|r| r("Range", &name))
-                                {
-                                    Value::BoundNativeMethod {
-                                        receiver: Box::new(Value::Range(r.clone())),
-                                        function: func,
+                                // Specialized len/length checks for common types
+                                match &other {
+                                    Value::String(s) if name == "len" || name == "length" => {
+                                        Value::Int(s.len() as i64)
                                     }
-                                } else {
-                                    return Err(self.handle_property_error(&name));
-                                }
-                            }
-                        },
-                        Value::Char(c) => {
-                            if let Some(func) = self.builtin_resolver.and_then(|r| r("Char", &name))
-                            {
-                                Value::BoundNativeMethod {
-                                    receiver: Box::new(Value::Char(c)),
-                                    function: func,
-                                }
-                            } else {
-                                return Err(self.handle_property_error(&name));
-                            }
-                        }
-                        Value::Tuple(tuple) => {
-                            let t = tuple.borrow();
-                            if let Ok(idx) = name.parse::<usize>() {
-                                t.elements
-                                    .get(idx)
-                                    .cloned()
-                                    .ok_or_else(|| self.handle_property_error(&name))?
-                            } else if let Some(names) = &t.names {
-                                if let Some(&idx) = names.get(&name) {
-                                    t.elements
-                                        .get(idx)
-                                        .cloned()
-                                        .ok_or_else(|| self.handle_property_error(&name))?
-                                } else {
-                                    return Err(self.handle_property_error(&name));
-                                }
-                            } else {
-                                return Err(self.handle_property_error(&name));
-                            }
-                        }
-                        Value::File(f) => {
-                            if let Some(func) = self.builtin_resolver.and_then(|r| r("File", &name))
-                            {
-                                Value::BoundNativeMethod {
-                                    receiver: Box::new(Value::File(f.clone())),
-                                    function: func,
-                                }
-                            } else {
-                                return Err(self.handle_property_error(&name));
-                            }
-                        }
-                        Value::Variant {
-                            enum_type,
-                            variant_name,
-                            data,
-                        } => {
-                            if let Some(info) = resolve_enum_method(&enum_type, &name) {
-                                if !can_access_method(
-                                    &info,
-                                    current_class.as_ref(),
-                                    frame.current_module.as_ref(),
-                                ) {
-                                    return Err(self.throw_runtime_error("method access denied"));
-                                }
-                                self.registers[base + a] = Value::BoundMethod {
-                                    receiver: Box::new(Value::Variant {
-                                        enum_type: enum_type.clone(),
-                                        variant_name: variant_name.clone(),
-                                        data: data.clone(),
-                                    }),
-                                    function: Box::new(info.function.clone()),
-                                    owner: info.owner.clone(),
-                                    visibility: info.visibility,
-                                };
-                                continue;
-                            } else if let Some(func) =
-                                self.builtin_resolver.and_then(|r| r("Variant", &name))
-                            {
-                                Value::BoundNativeMethod {
-                                    receiver: Box::new(Value::Variant {
-                                        enum_type: enum_type.clone(),
-                                        variant_name: variant_name.clone(),
-                                        data: data.clone(),
-                                    }),
-                                    function: func,
-                                }
-                            } else {
-                                return Err(self.handle_property_error(&name));
-                            }
-                        }
-                        Value::Int(i) => {
-                            if let Some(func) = self.builtin_resolver.and_then(|r| r("Int", &name))
-                            {
-                                Value::BoundNativeMethod {
-                                    receiver: Box::new(Value::Int(i)),
-                                    function: func,
-                                }
-                            } else if let Some(Value::Class(cls)) =
-                                self.globals.get("__Extension_Int")
-                            {
-                                if let Some(info) = resolve_method(cls, &name) {
-                                    if !can_access_method(
-                                        &info,
-                                        current_class.as_ref(),
-                                        frame.current_module.as_ref(),
-                                    ) {
-                                        return Err(
-                                            self.throw_runtime_error("method access denied")
-                                        );
+                                    Value::Array(a) if name == "len" || name == "length" => {
+                                        Value::Int(a.borrow().len() as i64)
                                     }
-                                    Value::BoundMethod {
-                                        receiver: Box::new(Value::Int(i)),
-                                        function: Box::new(info.function.clone()),
-                                        owner: info.owner.clone(),
-                                        visibility: info.visibility,
+                                    Value::Set(s) if name == "len" => {
+                                        Value::Int(s.borrow().len() as i64)
                                     }
-                                } else {
-                                    return Err(self.handle_property_error(&name));
+                                    _ => return Err(self.handle_property_error(&name)),
                                 }
-                            } else {
-                                return Err(self.handle_property_error(&name));
                             }
-                        }
-                        Value::Float(f) => {
-                            if let Some(func) =
-                                self.builtin_resolver.and_then(|r| r("Float", &name))
-                            {
-                                Value::BoundNativeMethod {
-                                    receiver: Box::new(Value::Float(f)),
-                                    function: func,
-                                }
-                            } else if let Some(Value::Class(cls)) =
-                                self.globals.get("__Extension_Float")
-                            {
-                                if let Some(info) = resolve_method(cls, &name) {
-                                    if !can_access_method(
-                                        &info,
-                                        current_class.as_ref(),
-                                        frame.current_module.as_ref(),
-                                    ) {
-                                        return Err(
-                                            self.throw_runtime_error("method access denied")
-                                        );
-                                    }
-                                    Value::BoundMethod {
-                                        receiver: Box::new(Value::Float(f)),
-                                        function: Box::new(info.function.clone()),
-                                        owner: info.owner.clone(),
-                                        visibility: info.visibility,
-                                    }
-                                } else {
-                                    return Err(self.handle_property_error(&name));
-                                }
-                            } else {
-                                return Err(self.handle_property_error(&name));
-                            }
-                        }
-                        Value::Bool(b) => {
-                            if let Some(func) = self.builtin_resolver.and_then(|r| r("Bool", &name))
-                            {
-                                Value::BoundNativeMethod {
-                                    receiver: Box::new(Value::Bool(b)),
-                                    function: func,
-                                }
-                            } else if let Some(Value::Class(cls)) =
-                                self.globals.get("__Extension_Bool")
-                            {
-                                if let Some(info) = resolve_method(cls, &name) {
-                                    if !can_access_method(
-                                        &info,
-                                        current_class.as_ref(),
-                                        frame.current_module.as_ref(),
-                                    ) {
-                                        return Err(
-                                            self.throw_runtime_error("method access denied")
-                                        );
-                                    }
-                                    Value::BoundMethod {
-                                        receiver: Box::new(Value::Bool(b)),
-                                        function: Box::new(info.function.clone()),
-                                        owner: info.owner.clone(),
-                                        visibility: info.visibility,
-                                    }
-                                } else {
-                                    return Err(self.handle_property_error(&name));
-                                }
-                            } else {
-                                return Err(self.handle_property_error(&name));
-                            }
-                        }
-                        _ => {
-                            return Err(self.handle_property_error(&name));
                         }
                     };
-                    self.registers[base + a] = value;
+                    self.registers[base + a] = NanValue::from_value(&result_val);
                 }
                 Opcode::GetSuper => {
                     let name = match &function.chunk.constants[c] {
                         Value::String(value) => value.as_str().to_string(),
                         _ => return Err(RuntimeError::new("super property must be string")),
                     };
-                    let receiver = match &self.registers[base + b] {
-                        Value::Object(object) => object.clone(),
+                    let receiver_nan = self.registers[base + b];
+                    let receiver = match receiver_nan.to_value() {
+                        Value::Object(object) => object,
                         _ => return Err(RuntimeError::new("super used on non-object value")),
                     };
                     let superclass = {
@@ -2429,17 +2034,18 @@ impl VM {
                     };
                     let info = resolve_method(&superclass, &name)
                         .ok_or_else(|| RuntimeError::new("unknown super method"))?;
-                    self.registers[base + a] = Value::BoundMethod {
+                    self.registers[base + a] = NanValue::from_value(&Value::BoundMethod {
                         receiver: Box::new(Value::Object(receiver)),
                         function: Box::new(info.function.clone()),
                         owner: info.owner.clone(),
                         visibility: info.visibility,
-                    };
+                    });
                 }
                 Opcode::CallSuper => {
                     // a = dest, b = this register, c = args register
-                    let this_obj = match &self.registers[base + b] {
-                        Value::Object(obj) => obj.clone(),
+                    let this_nan = self.registers[base + b];
+                    let this_obj = match this_nan.to_value() {
+                        Value::Object(obj) => obj,
                         _ => return Err(RuntimeError::new("super() called on non-object")),
                     };
                     let superclass = {
@@ -2450,7 +2056,7 @@ impl VM {
                             .and_then(|class| class.borrow().superclass.clone())
                             .ok_or_else(|| RuntimeError::new("superclass missing for super()"))?
                     };
-                    let args = match &self.registers[base + c] {
+                    let args = match self.registers[base + c].to_value() {
                         Value::Array(arr) => arr.borrow().elements.clone(),
                         _ => return Err(RuntimeError::new("super() args must be array")),
                     };
@@ -2477,12 +2083,14 @@ impl VM {
                         )?;
                     } else {
                         // No constructor, just return null
-                        self.registers[base + a] = Value::Null;
+                        self.registers[base + a] = NanValue::null();
                     }
                 }
                 Opcode::GetIndex => {
-                    let collection = self.registers[base + b].clone();
-                    let index = self.registers[base + c].clone();
+                    let collection_nan = self.registers[base + b];
+                    let collection = collection_nan.to_value();
+                    let index_nan = self.registers[base + c];
+                    let index = index_nan.to_value();
                     if self.try_dispatch_operator(
                         base + a,
                         "[]",
@@ -2493,9 +2101,9 @@ impl VM {
                     }
                     let col_type = collection.type_name();
                     let idx_type = index.type_name();
-                    let result = match (collection, index) {
+                    let result = match (&collection, &index) {
                         (Value::Array(array), Value::Int(idx)) => {
-                            let idx = idx as usize;
+                            let idx = *idx as usize;
                             let array_borrow = array.borrow();
                             if idx >= array_borrow.elements.len() {
                                 return Err(self.throw_runtime_error("array index out of bounds"));
@@ -2519,7 +2127,7 @@ impl VM {
                             ))
                         }
                         (Value::String(s), Value::Int(idx)) => {
-                            let idx = idx as usize;
+                            let idx = *idx as usize;
                             if idx >= s.len() {
                                 return Err(self.throw_runtime_error("string index out of bounds"));
                             }
@@ -2541,7 +2149,7 @@ impl VM {
                             Ok(Value::String(Rc::new(sub_s.to_string())))
                         }
                         (Value::Tuple(tuple), Value::Int(idx)) => {
-                            let idx = idx as usize;
+                            let idx = *idx as usize;
                             let t = tuple.borrow();
                             if idx >= t.elements.len() {
                                 return Err(self.throw_runtime_error("tuple index out of bounds"));
@@ -2555,7 +2163,7 @@ impl VM {
                             .cloned()
                             .unwrap_or(Value::Null)),
                         (Value::Set(set), value) => {
-                            let key = ValueKey::try_from_value(&value)
+                            let key = ValueKey::try_from_value(value)
                                 .ok_or_else(|| RuntimeError::new("unsupported set element type"))?;
                             Ok(Value::Bool(set.borrow().contains(&key)))
                         }
@@ -2566,7 +2174,7 @@ impl VM {
                             )));
                         }
                     }?;
-                    self.registers[base + a] = result;
+                    self.registers[base + a] = NanValue::from_value(&result);
                 }
                 Opcode::SetIndex => {
                     if self.functions[frame.function_index].is_pure {
@@ -2574,9 +2182,9 @@ impl VM {
                             self.throw_runtime_error("pure function cannot have side effects")
                         );
                     }
-                    let value = self.registers[base + a].clone();
-                    let collection = self.registers[base + b].clone();
-                    let index = self.registers[base + c].clone();
+                    let value = self.registers[base + a].to_value();
+                    let collection = self.registers[base + b].to_value();
+                    let index = self.registers[base + c].to_value();
 
                     if self.try_dispatch_operator(
                         base + a,
@@ -2615,8 +2223,8 @@ impl VM {
                     }
                 }
                 Opcode::Add => {
-                    let left = self.registers[base + b].clone();
-                    let right = self.registers[base + c].clone();
+                    let left = self.registers[base + b].to_value();
+                    let right = self.registers[base + c].to_value();
                     if self.try_dispatch_operator(
                         base + a,
                         "+",
@@ -2625,11 +2233,12 @@ impl VM {
                     )? {
                         continue;
                     }
-                    self.registers[base + a] = add_values(self, left, right)?;
+                    let res = add_values(self, left, right)?;
+                    self.registers[base + a] = NanValue::from_value(&res);
                 }
                 Opcode::Sub => {
-                    let left = self.registers[base + b].clone();
-                    let right = self.registers[base + c].clone();
+                    let left = self.registers[base + b].to_value();
+                    let right = self.registers[base + c].to_value();
                     if self.try_dispatch_operator(
                         base + a,
                         "-",
@@ -2638,11 +2247,12 @@ impl VM {
                     )? {
                         continue;
                     }
-                    self.registers[base + a] = sub_values(left, right)?;
+                    let res = sub_values(left, right)?;
+                    self.registers[base + a] = NanValue::from_value(&res);
                 }
                 Opcode::Mul => {
-                    let left = self.registers[base + b].clone();
-                    let right = self.registers[base + c].clone();
+                    let left = self.registers[base + b].to_value();
+                    let right = self.registers[base + c].to_value();
                     if self.try_dispatch_operator(
                         base + a,
                         "*",
@@ -2651,11 +2261,12 @@ impl VM {
                     )? {
                         continue;
                     }
-                    self.registers[base + a] = mul_values(left, right)?;
+                    let res = mul_values(left, right)?;
+                    self.registers[base + a] = NanValue::from_value(&res);
                 }
                 Opcode::Div => {
-                    let left = self.registers[base + b].clone();
-                    let right = self.registers[base + c].clone();
+                    let left = self.registers[base + b].to_value();
+                    let right = self.registers[base + c].to_value();
                     if self.try_dispatch_operator(
                         base + a,
                         "/",
@@ -2664,11 +2275,12 @@ impl VM {
                     )? {
                         continue;
                     }
-                    self.registers[base + a] = div_values(left, right)?;
+                    let res = div_values(left, right)?;
+                    self.registers[base + a] = NanValue::from_value(&res);
                 }
                 Opcode::Mod => {
-                    let left = self.registers[base + b].clone();
-                    let right = self.registers[base + c].clone();
+                    let left = self.registers[base + b].to_value();
+                    let right = self.registers[base + c].to_value();
                     if self.try_dispatch_operator(
                         base + a,
                         "%",
@@ -2677,35 +2289,40 @@ impl VM {
                     )? {
                         continue;
                     }
-                    self.registers[base + a] = mod_values(left, right)?;
+                    let res = mod_values(left, right)?;
+                    self.registers[base + a] = NanValue::from_value(&res);
                 }
                 Opcode::Neg => {
-                    let value = self.registers[base + b].clone();
+                    let value = self.registers[base + b].to_value();
                     if self.try_dispatch_operator(base + a, "-", &value, &[])? {
                         continue;
                     }
-                    self.registers[base + a] = neg_value(value)?;
+                    let res = neg_value(value)?;
+                    self.registers[base + a] = NanValue::from_value(&res);
                 }
                 Opcode::Not => {
-                    let value = self.registers[base + b].clone();
+                    let value = self.registers[base + b].to_value();
                     if self.try_dispatch_operator(base + a, "!", &value, &[])? {
                         continue;
                     }
-                    self.registers[base + a] = Value::Bool(!is_truthy(&value));
+                    self.registers[base + a] =
+                        NanValue::from_value(&Value::Bool(!is_truthy(&value)));
                 }
                 Opcode::And => {
-                    let left = self.registers[base + b].clone();
-                    let right = self.registers[base + c].clone();
-                    self.registers[base + a] = Value::Bool(is_truthy(&left) && is_truthy(&right));
+                    let left = self.registers[base + b].to_value();
+                    let right = self.registers[base + c].to_value();
+                    self.registers[base + a] =
+                        NanValue::from_value(&Value::Bool(is_truthy(&left) && is_truthy(&right)));
                 }
                 Opcode::Or => {
-                    let left = self.registers[base + b].clone();
-                    let right = self.registers[base + c].clone();
-                    self.registers[base + a] = Value::Bool(is_truthy(&left) || is_truthy(&right));
+                    let left = self.registers[base + b].to_value();
+                    let right = self.registers[base + c].to_value();
+                    self.registers[base + a] =
+                        NanValue::from_value(&Value::Bool(is_truthy(&left) || is_truthy(&right)));
                 }
                 Opcode::Eq => {
-                    let left = self.registers[base + b].clone();
-                    let right = self.registers[base + c].clone();
+                    let left = self.registers[base + b].to_value();
+                    let right = self.registers[base + c].to_value();
                     if self.try_dispatch_operator(
                         base + a,
                         "==",
@@ -2714,11 +2331,11 @@ impl VM {
                     )? {
                         continue;
                     }
-                    self.registers[base + a] = Value::Bool(left == right);
+                    self.registers[base + a] = NanValue::from_value(&Value::Bool(left == right));
                 }
                 Opcode::Ne => {
-                    let left = self.registers[base + b].clone();
-                    let right = self.registers[base + c].clone();
+                    let left = self.registers[base + b].to_value();
+                    let right = self.registers[base + c].to_value();
                     if self.try_dispatch_operator(
                         base + a,
                         "!=",
@@ -2727,11 +2344,11 @@ impl VM {
                     )? {
                         continue;
                     }
-                    self.registers[base + a] = Value::Bool(left != right);
+                    self.registers[base + a] = NanValue::from_value(&Value::Bool(left != right));
                 }
                 Opcode::Lt | Opcode::Le | Opcode::Gt | Opcode::Ge => {
-                    let left = self.registers[base + b].clone();
-                    let right = self.registers[base + c].clone();
+                    let left = self.registers[base + b].to_value();
+                    let right = self.registers[base + c].to_value();
                     let op_str = match opcode {
                         Opcode::Lt => "<",
                         Opcode::Le => "<=",
@@ -2748,7 +2365,7 @@ impl VM {
                         continue;
                     }
                     let result = compare_values(opcode, left, right)?;
-                    self.registers[base + a] = Value::Bool(result);
+                    self.registers[base + a] = NanValue::from_value(&Value::Bool(result));
                 }
                 Opcode::Jump => {
                     let offset = decode_offset(instruction.b(), instruction.c());
@@ -2756,14 +2373,14 @@ impl VM {
                 }
                 Opcode::JumpIf => {
                     let offset = decode_offset(instruction.b(), instruction.c());
-                    let value = self.registers[base + a].clone();
+                    let value = self.registers[base + a].to_value();
                     if is_truthy(&value) {
                         frame.ip = apply_offset(frame.ip, offset)?;
                     }
                 }
                 Opcode::JumpIfNot => {
                     let offset = decode_offset(instruction.b(), instruction.c());
-                    let value = self.registers[base + a].clone();
+                    let value = self.registers[base + a].to_value();
                     if !is_truthy(&value) {
                         frame.ip = apply_offset(frame.ip, offset)?;
                     }
@@ -2781,14 +2398,15 @@ impl VM {
                     let result = frame
                         .return_override
                         .clone()
-                        .unwrap_or_else(|| self.registers[base + a].clone());
+                        .unwrap_or_else(|| self.registers[base + a].to_value());
 
                     if function_is_async {
                         // Promise ID is the last argument
                         if function_arity > 0 {
                             let promise_id_idx = frame.base + function_arity - 1;
-                            if let Some(Value::Int(id)) = self.registers.get(promise_id_idx)
-                                && let Ok(id) = (*id).try_into()
+                            if let Some(val_nan) = self.registers.get(promise_id_idx)
+                                && let Value::Int(id) = val_nan.to_value()
+                                && let Ok(id) = id.try_into()
                             {
                                 self.pending_tasks.push(AsyncTask {
                                     promise_id: id,
@@ -2814,7 +2432,7 @@ impl VM {
                     }
 
                     if !function_is_async {
-                        self.registers[frame.return_reg] = result;
+                        self.registers[frame.return_reg] = NanValue::from_value(&result);
                     }
                 }
                 Opcode::GetGlobal => {
@@ -2851,8 +2469,8 @@ impl VM {
                             for (i, param) in cls.type_params.iter().enumerate() {
                                 if param == &name {
                                     // First try to get from receiver (this)
-                                    let receiver_val = &self.registers[frame.base];
-                                    if let Value::Object(obj) = receiver_val
+                                    if let Value::Object(obj) =
+                                        self.registers[frame.base].to_value()
                                         && let Some(type_args) = &obj.borrow().type_args
                                         && i < type_args.len()
                                     {
@@ -2875,7 +2493,7 @@ impl VM {
 
                     let value = value.unwrap_or(Value::Null);
                     log::trace!("VM: GetGlobal '{}' => {:?}", name, value);
-                    self.registers[base + a] = value;
+                    self.registers[base + a] = NanValue::from_value(&value);
                 }
                 Opcode::SetGlobal => {
                     if self.functions[frame.function_index].is_pure {
@@ -2887,9 +2505,9 @@ impl VM {
                         Value::String(value) => value.as_str().to_string(),
                         _ => return Err(RuntimeError::new("global name must be string")),
                     };
-                    let value = self.registers[base + a].clone();
+                    let value = self.registers[base + a];
                     log::trace!("VM: SetGlobal '{}' => {:?}", name, value);
-                    self.globals.insert(name, value);
+                    self.globals.insert(name, value.to_value());
                 }
                 Opcode::DefineClass => {
                     let name = match &function.chunk.constants[b] {
@@ -2897,7 +2515,7 @@ impl VM {
                         _ => return Err(RuntimeError::new("class name must be string")),
                     };
                     let module = frame.current_module.as_ref().map(Rc::clone);
-                    let methods_map = match &self.registers[base + c] {
+                    let methods_map = match &self.registers[base + c].to_value() {
                         Value::Map(map) => map.borrow().entries.clone(),
                         _ => return Err(RuntimeError::new("class methods must be map")),
                     };
@@ -2950,7 +2568,7 @@ impl VM {
                     class.borrow_mut().methods = methods;
                     class.borrow_mut().constructor = constructor;
 
-                    self.registers[base + a] = Value::Class(class);
+                    self.registers[base + a] = NanValue::from_value(&Value::Class(class));
                 }
                 Opcode::DefineInterface => {
                     let name = match &function.chunk.constants[b] {
@@ -2961,7 +2579,7 @@ impl VM {
                             ));
                         }
                     };
-                    let methods_val = self.registers[base + c].clone();
+                    let methods_val = self.registers[base + c].to_value();
                     let (methods, getters, setters) = match methods_val {
                         Value::Map(map) => {
                             let mut methods = IndexMap::new();
@@ -3005,18 +2623,22 @@ impl VM {
                         _ => return Err(RuntimeError::new("DefineInterface expects methods map")),
                     };
 
-                    self.registers[base + a] =
-                        Value::Interface(self.gc.allocate(pleno_value::Interface {
+                    let module = frame.current_module.as_ref().map(Rc::clone);
+                    self.registers[base + a] = NanValue::from_value(&Value::Interface(
+                        self.gc.allocate(pleno_value::Interface {
                             name,
                             methods,
                             getters,
                             setters,
                             type_params: Vec::new(),
                             type_constraints: IndexMap::new(),
-                        })?);
+                            annotations: Vec::new(),
+                            module,
+                        })?,
+                    ));
                 }
                 Opcode::SetImplements => {
-                    let interfaces_val = self.registers[base + b].clone();
+                    let interfaces_val = self.registers[base + b].to_value();
                     let interfaces = match interfaces_val {
                         Value::Array(arr) => arr.borrow().elements.clone(),
                         _ => {
@@ -3026,7 +2648,7 @@ impl VM {
                         }
                     };
 
-                    let class_val = self.registers[base + a].clone();
+                    let class_val = self.registers[base + a].to_value();
                     match class_val {
                         Value::Class(class) => {
                             let mut validation_error = None;
@@ -3153,124 +2775,141 @@ impl VM {
                     }
                 }
                 Opcode::SetFieldType => {
-                    let class_val = self.registers[base + a].clone();
-                    let field_name = match &function.chunk.constants[b] {
-                        Value::String(value) => value.as_str().to_string(),
-                        _ => return Err(RuntimeError::new("field name must be string")),
-                    };
-                    let type_name = match &function.chunk.constants[c] {
-                        Value::String(value) => Some(value.as_str().to_string()),
-                        Value::Null => None,
-                        _ => return Err(RuntimeError::new("type name must be string or null")),
-                    };
-
-                    if let Value::Class(class) = class_val {
-                        class.borrow_mut().field_types.insert(field_name, type_name);
-                    } else {
-                        return Err(RuntimeError::new("SetFieldType on non-class value"));
-                    }
-                }
-                Opcode::SetStaticFieldType => {
-                    let class_val = self.registers[base + a].clone();
-                    let field_name = match &function.chunk.constants[b] {
-                        Value::String(value) => value.as_str().to_string(),
-                        _ => return Err(RuntimeError::new("field name must be string")),
-                    };
-                    let type_name = match &function.chunk.constants[c] {
-                        Value::String(value) => Some(value.as_str().to_string()),
-                        Value::Null => None,
-                        _ => return Err(RuntimeError::new("type name must be string or null")),
-                    };
-
-                    if let Value::Class(class) = class_val {
-                        class
-                            .borrow_mut()
-                            .static_field_types
-                            .insert(field_name, type_name);
-                    } else {
-                        return Err(RuntimeError::new("SetStaticFieldType on non-class value"));
-                    }
-                }
-                Opcode::SetTypeParams => {
-                    let class_val = self.registers[base + a].clone();
-                    let params_val = match &self.registers[base + b] {
-                        Value::Array(arr) => arr.borrow().elements.clone(),
+                    let name = match &function.chunk.constants[b] {
+                        Value::String(s) => s.as_str().to_string(),
                         _ => {
                             return Err(RuntimeError::new(
-                                "SetTypeParams expects array of parameter names",
+                                "SetFieldType expects string constant for field name",
                             ));
                         }
                     };
-                    let params = params_val
-                        .into_iter()
-                        .filter_map(|v| v.as_str().map(|s| s.to_string()))
-                        .collect::<Vec<_>>();
-
-                    let constraints_map = match &self.registers[base + c] {
-                        Value::Map(map) => map.borrow().entries.clone(),
-                        _ => IndexMap::new(), // If reg c is not map (old bytecode?), or valid empty map
-                    };
-
-                    let mut type_constraints = IndexMap::new();
-                    for (param, constraints_val) in constraints_map {
-                        if let Value::Array(arr) = constraints_val {
-                            let constraints = arr
-                                .borrow()
-                                .elements
-                                .iter()
-                                .filter_map(|v| v.as_str().map(|s| s.to_string()))
-                                .collect::<Vec<_>>();
-                            type_constraints.insert(param, constraints);
-                        }
-                    }
-
+                    let class_val = self.registers[base + a].to_value();
                     match class_val {
                         Value::Class(class) => {
-                            class.borrow_mut().type_params = params;
-                            class.borrow_mut().type_constraints = type_constraints;
+                            let type_val = self.registers[base + c].to_value();
+                            let type_name = match type_val {
+                                Value::String(s) => Some(s.as_str().to_string()),
+                                _ => None,
+                            };
+                            class.borrow_mut().field_types.insert(name, type_name);
                         }
-                        Value::Interface(interface) => {
-                            interface.borrow_mut().type_params = params;
-                            interface.borrow_mut().type_constraints = type_constraints;
+                        _ => return Err(RuntimeError::new("SetFieldType expects class")),
+                    }
+                }
+                Opcode::SetStaticFieldType => {
+                    let name = match &function.chunk.constants[b] {
+                        Value::String(s) => s.as_str().to_string(),
+                        _ => {
+                            return Err(RuntimeError::new(
+                                "SetStaticFieldType expects string constant for field name",
+                            ));
+                        }
+                    };
+                    let class_val = self.registers[base + a].to_value();
+                    match class_val {
+                        Value::Class(class) => {
+                            let type_val = self.registers[base + c].to_value();
+                            let type_name = match type_val {
+                                Value::String(s) => Some(s.as_str().to_string()),
+                                _ => None,
+                            };
+                            class
+                                .borrow_mut()
+                                .static_field_types
+                                .insert(name, type_name);
+                        }
+                        _ => return Err(RuntimeError::new("SetStaticFieldType expects class")),
+                    }
+                }
+                Opcode::SetTypeParams => {
+                    let class_val = self.registers[base + a].to_value();
+                    let params_val = match &self.registers[base + b].to_value() {
+                        Value::Array(arr) => arr
+                            .borrow()
+                            .elements
+                            .iter()
+                            .map(|v| match v {
+                                Value::String(s) => s.as_str().to_string(),
+                                _ => "unknown".to_string(),
+                            })
+                            .collect::<Vec<_>>(),
+                        _ => {
+                            return Err(RuntimeError::new(
+                                "SetTypeParams expects array of strings",
+                            ));
+                        }
+                    };
+                    let constraints_map = match &self.registers[base + c].to_value() {
+                        Value::Map(map) => {
+                            let mut constraints = IndexMap::new();
+                            for (k, v) in &map.borrow().entries {
+                                let constraint = match v {
+                                    Value::Array(arr) => arr
+                                        .borrow()
+                                        .elements
+                                        .iter()
+                                        .filter_map(|ev| match ev {
+                                            Value::String(s) => Some(s.as_str().to_string()),
+                                            _ => None,
+                                        })
+                                        .collect(),
+                                    _ => Vec::new(),
+                                };
+                                constraints.insert(k.clone(), constraint);
+                            }
+                            constraints
                         }
                         _ => {
                             return Err(RuntimeError::new(
-                                "SetTypeParams on non-class/interface value",
+                                "SetTypeParams expects map of constraints",
+                            ));
+                        }
+                    };
+
+                    match class_val {
+                        Value::Class(class) => {
+                            class.borrow_mut().type_params = params_val;
+                            class.borrow_mut().type_constraints = constraints_map;
+                        }
+                        Value::Interface(interface) => {
+                            interface.borrow_mut().type_params = params_val;
+                            interface.borrow_mut().type_constraints = constraints_map;
+                        }
+                        _ => {
+                            return Err(RuntimeError::new(
+                                "SetTypeParams expects class or interface",
                             ));
                         }
                     }
                 }
                 Opcode::SetOperators => {
-                    let class_val = self.registers[base + a].clone();
-                    let ops_map = match &self.registers[base + b] {
+                    let class_val = self.registers[base + a].to_value();
+                    let ops_map = match &self.registers[base + b].to_value() {
                         Value::Map(map) => map.borrow().entries.clone(),
-                        _ => return Err(RuntimeError::new("SetOperators expects map")),
+                        _ => {
+                            return Err(RuntimeError::new("SetOperators expects map of operators"));
+                        }
                     };
 
-                    match class_val {
-                        Value::Class(class) => {
-                            let module = class.borrow().module.clone();
-                            let mut operators = IndexMap::new();
-                            for (op_name, value) in ops_map {
-                                let info = parse_method_info(
-                                    value,
-                                    MethodOwner::Class(class.clone()),
-                                    module.as_ref(),
-                                )?;
-                                operators.insert(op_name, info);
-                            }
-                            class.borrow_mut().operators = operators;
+                    if let Value::Class(class) = class_val {
+                        let module = class.borrow().module.clone();
+                        let mut operators = IndexMap::new();
+                        for (op_name, value) in ops_map {
+                            let info = parse_method_info(
+                                value,
+                                MethodOwner::Class(class.clone()),
+                                module.as_ref(),
+                            )?;
+                            operators.insert(op_name, info);
                         }
-                        _ => {
-                            return Err(RuntimeError::new(
-                                "SetOperators expects class in target register",
-                            ));
-                        }
+                        class.borrow_mut().operators = operators;
+                    } else {
+                        return Err(RuntimeError::new("SetOperators expects class"));
                     }
                 }
                 Opcode::Specialize => {
-                    let class_val = self.registers[base + b].clone();
-                    let args = match &self.registers[base + c] {
+                    let class_val = self.registers[base + b].to_value();
+                    let args = match &self.registers[base + c].to_value() {
                         Value::Array(arr) => arr.borrow().elements.clone(),
                         _ => {
                             return Err(RuntimeError::new(
@@ -3330,10 +2969,10 @@ impl VM {
                                 }
                             }
 
-                            self.registers[base + a] = Value::BoundClass {
+                            self.registers[base + a] = NanValue::from_value(&Value::BoundClass {
                                 class,
                                 type_args: args,
-                            };
+                            });
                         }
                         Value::Interface(interface) => {
                             // Verify constraints
@@ -3387,29 +3026,26 @@ impl VM {
                                 }
                             }
 
-                            self.registers[base + a] = Value::BoundInterface {
-                                interface,
-                                type_args: args,
-                            };
+                            self.registers[base + a] =
+                                NanValue::from_value(&Value::BoundInterface {
+                                    interface,
+                                    type_args: args,
+                                });
                         }
                         Value::BoundClass { class, .. } => {
-                            self.registers[base + a] = Value::BoundClass {
+                            self.registers[base + a] = NanValue::from_value(&Value::BoundClass {
                                 class,
                                 type_args: args,
-                            };
+                            });
                         }
                         Value::Function(handle) => {
                             let handle_idx = handle;
                             let func_proto =
                                 self.functions.get(handle_idx).cloned().ok_or_else(|| {
-                                    self.throw_runtime_error("Invalid function handle")
+                                    RuntimeError::new("unknown function in Specialize")
                                 })?;
-                            if args.len() != func_proto.type_params.len() {
-                                return Err(self.throw_runtime_error(&format!(
-                                    "Generic function type mismatch: expected {} args, found {}",
-                                    func_proto.type_params.len(),
-                                    args.len()
-                                )));
+                            if func_proto.type_params.is_empty() {
+                                return Err(RuntimeError::new("function is not generic"));
                             }
 
                             // Verify constraints
@@ -3440,53 +3076,37 @@ impl VM {
                                 }
                             }
 
-                            self.registers[base + a] = Value::BoundFunction {
-                                function: Box::new(Value::Function(handle)),
-                                type_args: args,
-                            };
+                            self.registers[base + a] =
+                                NanValue::from_value(&Value::BoundFunction {
+                                    function: Box::new(Value::Function(handle)),
+                                    type_args: args,
+                                });
                         }
 
                         _ => return Err(RuntimeError::new("Specialize on non-class value")),
                     }
                 }
                 Opcode::Freeze => {
-                    if self.functions[frame.function_index].is_pure {
-                        return Err(self.throw_runtime_error(
-                            "pure function cannot have side effects (freeze)",
-                        ));
-                    }
-                    let recursive = b != 0;
-                    let value = self.registers[base + a].clone();
+                    let recursive = b == 1;
+                    let value = self.registers[base + a].to_value();
                     self.freeze_value(&value, recursive);
                 }
                 Opcode::SetSuper => {
-                    if self.functions[frame.function_index].is_pure {
-                        return Err(self.throw_runtime_error(
-                            "pure function cannot have side effects (class mutation)",
-                        ));
-                    }
-                    let superclass = match &self.registers[base + b] {
+                    let superclass = match &self.registers[base + b].to_value() {
                         Value::Class(class) => class.clone(),
                         _ => return Err(RuntimeError::new("superclass must be class")),
                     };
-                    match &mut self.registers[base + a] {
-                        Value::Class(class) => {
-                            class.borrow_mut().superclass = Some(superclass);
-                        }
-                        _ => return Err(RuntimeError::new("set super on non-class value")),
+                    if let Value::Class(class) = self.registers[base + a].to_value() {
+                        class.borrow_mut().superclass = Some(superclass);
+                    } else {
+                        return Err(RuntimeError::new("SetSuper on non-class value"));
                     }
                 }
                 Opcode::SetAbstract => {
-                    if self.functions[frame.function_index].is_pure {
-                        return Err(self.throw_runtime_error(
-                            "pure function cannot have side effects (class mutation)",
-                        ));
-                    }
-                    match &mut self.registers[base + a] {
-                        Value::Class(class) => {
-                            class.borrow_mut().is_abstract = true;
-                        }
-                        _ => return Err(RuntimeError::new("set abstract on non-class value")),
+                    if let Value::Class(class) = self.registers[base + a].to_value() {
+                        class.borrow_mut().is_abstract = true;
+                    } else {
+                        return Err(RuntimeError::new("SetAbstract on non-class value"));
                     }
                 }
                 Opcode::SetStatic => {
@@ -3495,12 +3115,12 @@ impl VM {
                             "pure function cannot have side effects (class mutation)",
                         ));
                     }
-                    let static_map = match &self.registers[base + b] {
+                    let static_map = match &self.registers[base + b].to_value() {
                         Value::Map(map) => map.borrow().entries.clone(),
                         _ => return Err(RuntimeError::new("static methods must be map")),
                     };
                     let mut static_methods = IndexMap::new();
-                    let (class_ref, module) = match &self.registers[base + a] {
+                    let (class_ref, module) = match self.registers[base + a].to_value() {
                         Value::Class(class) => {
                             let borrowed = class.borrow();
                             (class.clone(), borrowed.module.clone())
@@ -3515,25 +3135,19 @@ impl VM {
                         )?;
                         static_methods.insert(method_name, info);
                     }
-                    match &mut self.registers[base + a] {
-                        Value::Class(class) => {
-                            class.borrow_mut().static_methods = static_methods;
-                        }
-                        _ => return Err(RuntimeError::new("set static on non-class value")),
+                    if let Value::Class(class) = self.registers[base + a].to_value() {
+                        class.borrow_mut().static_methods = static_methods;
+                    } else {
+                        return Err(RuntimeError::new("set static on non-class value"));
                     }
                 }
                 Opcode::SetGetters => {
-                    if self.functions[frame.function_index].is_pure {
-                        return Err(self.throw_runtime_error(
-                            "pure function cannot have side effects (class mutation)",
-                        ));
-                    }
-                    let getters_map = match &self.registers[base + b] {
+                    let getters_map = match &self.registers[base + b].to_value() {
                         Value::Map(map) => map.borrow().entries.clone(),
                         _ => return Err(RuntimeError::new("getters must be map")),
                     };
                     let mut getters = IndexMap::new();
-                    let (class_ref, module) = match &self.registers[base + a] {
+                    let (class_ref, module) = match self.registers[base + a].to_value() {
                         Value::Class(class) => {
                             let borrowed = class.borrow();
                             (class.clone(), borrowed.module.clone())
@@ -3548,11 +3162,10 @@ impl VM {
                         )?;
                         getters.insert(prop_name, info);
                     }
-                    match &mut self.registers[base + a] {
-                        Value::Class(class) => {
-                            class.borrow_mut().getters = getters;
-                        }
-                        _ => return Err(RuntimeError::new("set getters on non-class value")),
+                    if let Value::Class(class) = self.registers[base + a].to_value() {
+                        class.borrow_mut().getters = getters;
+                    } else {
+                        return Err(RuntimeError::new("set getters on non-class value"));
                     }
                 }
                 Opcode::SetSetters => {
@@ -3561,12 +3174,12 @@ impl VM {
                             "pure function cannot have side effects (class mutation)",
                         ));
                     }
-                    let setters_map = match &self.registers[base + b] {
+                    let setters_map = match &self.registers[base + b].to_value() {
                         Value::Map(map) => map.borrow().entries.clone(),
                         _ => return Err(RuntimeError::new("setters must be map")),
                     };
                     let mut setters = IndexMap::new();
-                    let (class_ref, module) = match &self.registers[base + a] {
+                    let (class_ref, module) = match self.registers[base + a].to_value() {
                         Value::Class(class) => {
                             let borrowed = class.borrow();
                             (class.clone(), borrowed.module.clone())
@@ -3581,11 +3194,10 @@ impl VM {
                         )?;
                         setters.insert(prop_name, info);
                     }
-                    match &mut self.registers[base + a] {
-                        Value::Class(class) => {
-                            class.borrow_mut().setters = setters;
-                        }
-                        _ => return Err(RuntimeError::new("set setters on non-class value")),
+                    if let Value::Class(class) = self.registers[base + a].to_value() {
+                        class.borrow_mut().setters = setters;
+                    } else {
+                        return Err(RuntimeError::new("set setters on non-class value"));
                     }
                 }
                 Opcode::SetStaticGetters => {
@@ -3594,12 +3206,12 @@ impl VM {
                             "pure function cannot have side effects (class mutation)",
                         ));
                     }
-                    let getters_map = match &self.registers[base + b] {
+                    let getters_map = match &self.registers[base + b].to_value() {
                         Value::Map(map) => map.borrow().entries.clone(),
                         _ => return Err(RuntimeError::new("static getters must be map")),
                     };
                     let mut static_getters = IndexMap::new();
-                    let (class_ref, module) = match &self.registers[base + a] {
+                    let (class_ref, module) = match self.registers[base + a].to_value() {
                         Value::Class(class) => {
                             let borrowed = class.borrow();
                             (class.clone(), borrowed.module.clone())
@@ -3616,13 +3228,10 @@ impl VM {
                         )?;
                         static_getters.insert(prop_name, info);
                     }
-                    match &mut self.registers[base + a] {
-                        Value::Class(class) => {
-                            class.borrow_mut().static_getters = static_getters;
-                        }
-                        _ => {
-                            return Err(RuntimeError::new("set static getters on non-class value"));
-                        }
+                    if let Value::Class(class) = self.registers[base + a].to_value() {
+                        class.borrow_mut().static_getters = static_getters;
+                    } else {
+                        return Err(RuntimeError::new("set static getters on non-class value"));
                     }
                 }
                 Opcode::SetStaticSetters => {
@@ -3631,12 +3240,12 @@ impl VM {
                             "pure function cannot have side effects (class mutation)",
                         ));
                     }
-                    let setters_map = match &self.registers[base + b] {
+                    let setters_map = match &self.registers[base + b].to_value() {
                         Value::Map(map) => map.borrow().entries.clone(),
                         _ => return Err(RuntimeError::new("static setters must be map")),
                     };
                     let mut static_setters = IndexMap::new();
-                    let (class_ref, module) = match &self.registers[base + a] {
+                    let (class_ref, module) = match self.registers[base + a].to_value() {
                         Value::Class(class) => {
                             let borrowed = class.borrow();
                             (class.clone(), borrowed.module.clone())
@@ -3653,30 +3262,27 @@ impl VM {
                         )?;
                         static_setters.insert(prop_name, info);
                     }
-                    match &mut self.registers[base + a] {
-                        Value::Class(class) => {
-                            class.borrow_mut().static_setters = static_setters;
-                        }
-                        _ => {
-                            return Err(RuntimeError::new("set static setters on non-class value"));
-                        }
+                    if let Value::Class(class) = self.registers[base + a].to_value() {
+                        class.borrow_mut().static_setters = static_setters;
+                    } else {
+                        return Err(RuntimeError::new("set static setters on non-class value"));
                     }
                 }
                 Opcode::DefineEnum => {
                     let name = match &function.chunk.constants[b] {
-                        Value::String(s) => s.clone(),
-                        _ => return Err(RuntimeError::new("DefineEnum expects string constant")),
+                        Value::String(s) => s.as_str().to_string(),
+                        _ => return Err(RuntimeError::new("enum name must be string")),
                     };
                     let module = frame.current_module.as_ref().map(Rc::clone);
                     let enum_type = self.gc.allocate(EnumType {
-                        name,
+                        name: Rc::new(name),
                         variants: IndexMap::new(),
                         methods: IndexMap::new(),
                         static_methods: IndexMap::new(),
                         module,
                         annotations: Vec::new(),
                     })?;
-                    self.registers[base + a] = Value::Enum(enum_type);
+                    self.registers[base + a] = NanValue::from_value(&Value::Enum(enum_type));
                 }
                 Opcode::AddVariant => {
                     if self.functions[frame.function_index].is_pure {
@@ -3684,7 +3290,7 @@ impl VM {
                             "pure function cannot have side effects (class mutation)",
                         ));
                     }
-                    let enum_val = self.registers[base + a].clone();
+                    let enum_val = self.registers[base + a].to_value();
                     let variant_name = match &function.chunk.constants[b] {
                         Value::String(s) => s.clone(),
                         _ => return Err(RuntimeError::new("AddVariant expects string constant")),
@@ -3708,57 +3314,52 @@ impl VM {
                     }
                 }
                 Opcode::ConstructVariant => {
-                    let enum_val = self.registers[base + b].clone();
                     let variant_name = match &function.chunk.constants[c] {
-                        Value::String(s) => s.clone(),
-                        _ => {
-                            return Err(RuntimeError::new(
-                                "ConstructVariant expects variant name string",
-                            ));
-                        }
+                        Value::String(s) => s.as_str().to_string(),
+                        _ => return Err(RuntimeError::new("variant name must be string")),
                     };
-
+                    let enum_val = self.registers[base + b].to_value();
                     match enum_val {
                         Value::Enum(enum_type) => {
-                            self.registers[base + a] = Value::Variant {
+                            self.registers[base + a] = NanValue::from_value(&Value::Variant {
                                 enum_type: enum_type.clone(),
-                                variant_name: variant_name.clone(),
+                                variant_name: Rc::new(variant_name),
                                 data: Vec::new(),
-                            };
+                            });
                         }
                         _ => return Err(RuntimeError::new("ConstructVariant on non-enum value")),
                     }
                 }
                 Opcode::MatchVariant => {
-                    let val = self.registers[base + b].clone();
-                    let name = match &function.chunk.constants[c] {
-                        Value::String(s) => s.as_str(),
-                        _ => return Err(RuntimeError::new("MatchVariant expects string constant")),
+                    let variant_name = match &function.chunk.constants[c] {
+                        Value::String(s) => s.as_str().to_string(),
+                        _ => return Err(RuntimeError::new("variant name must be string")),
                     };
-
+                    let val = self.registers[base + b].to_value();
                     let is_match = match val {
-                        Value::Variant { variant_name, .. } => variant_name.as_str() == name,
+                        Value::Variant {
+                            variant_name: v, ..
+                        } => v.as_str() == variant_name,
                         _ => false,
                     };
-                    self.registers[base + a] = Value::Bool(is_match);
+                    self.registers[base + a] = NanValue::from_bool(is_match);
                 }
                 Opcode::AssertNotNull => {
-                    let value = self.registers[base + b].clone();
+                    let value = self.registers[base + b].to_value();
                     if matches!(value, Value::Null) {
                         return Err(self.throw_runtime_error("unexpected null value"));
                     }
-                    self.registers[base + a] = value;
+                    self.registers[base + a] = NanValue::from_value(&value);
                 }
                 Opcode::GetVariantField => {
-                    let val = self.registers[base + b].clone();
-                    let index = instruction.c() as usize;
-
+                    let index = c;
+                    let val = self.registers[base + b].to_value();
                     match val {
                         Value::Variant { data, .. } => {
                             if index < data.len() {
-                                self.registers[base + a] = data[index].clone();
+                                self.registers[base + a] = NanValue::from_value(&data[index]);
                             } else {
-                                return Err(RuntimeError::new("Variant index out of bounds"));
+                                return Err(RuntimeError::new("variant field index out of bounds"));
                             }
                         }
                         _ => return Err(RuntimeError::new("GetVariantField on non-variant value")),
@@ -3770,12 +3371,12 @@ impl VM {
                             "pure function cannot have side effects (class mutation)",
                         ));
                     }
-                    let func_val = self.registers[base + a].clone();
-                    let target_val = self.registers[base + b].clone();
                     let name = match &function.chunk.constants[c] {
-                        Value::String(value) => value.as_str().to_string(),
+                        Value::String(s) => s.as_str().to_string(),
                         _ => return Err(RuntimeError::new("method name must be string")),
                     };
+                    let func_val = self.registers[base + a].to_value();
+                    let target_val = self.registers[base + b].to_value();
 
                     match target_val {
                         Value::Class(class) => {
@@ -3796,50 +3397,36 @@ impl VM {
                             )?;
                             enum_type.borrow_mut().methods.insert(name, info);
                         }
-                        Value::String(s) => {
-                            // Primitive extension via shadow class
-                            let shadow_name = format!("__Extension_{}", s.as_str());
-                            let class =
-                                if let Some(Value::Class(cls)) = self.globals.get(&shadow_name) {
-                                    cls.clone()
-                                } else {
-                                    let cls = self.gc.allocate(Class {
-                                        name: Rc::new(shadow_name.clone()),
-                                        methods: IndexMap::new(),
-                                        static_methods: IndexMap::new(),
-                                        operators: IndexMap::new(),
-                                        constructor: None,
-                                        native_constructor: None,
-                                        superclass: None,
-                                        static_fields: IndexMap::new(),
-                                        static_field_types: IndexMap::new(),
-                                        fields: IndexMap::new(),
-                                        field_types: IndexMap::new(),
-                                        static_field_visibility: IndexMap::new(),
-                                        getters: IndexMap::new(),
-                                        setters: IndexMap::new(),
-                                        static_getters: IndexMap::new(),
-                                        static_setters: IndexMap::new(),
-                                        module: None,
-                                        is_abstract: false,
-                                        is_pooled: false,
-                                        implements: Vec::new(),
-                                        type_params: Vec::new(),
-                                        type_constraints: IndexMap::new(),
-                                        annotations: Vec::new(),
-                                    })?;
-                                    self.globals.insert(shadow_name, Value::Class(cls.clone()));
-                                    cls
-                                };
-                            let module = class.borrow().module.clone();
+                        Value::Interface(interface) => {
+                            let module = interface.borrow().module.clone();
                             let info = parse_method_info(
                                 func_val,
-                                MethodOwner::Class(class.clone()),
+                                MethodOwner::Interface(interface.clone()),
                                 module.as_ref(),
                             )?;
-                            class.borrow_mut().methods.insert(name, info);
+                            let sig = match &info.function {
+                                Value::Function(idx) => {
+                                    let func = &self.functions[*idx];
+                                    pleno_value::MethodSignature {
+                                        name: name.clone(),
+                                        arity: func.arity,
+                                        is_static: false,
+                                        is_async: func.is_async,
+                                    }
+                                }
+                                _ => {
+                                    return Err(RuntimeError::new(
+                                        "interface method must be function",
+                                    ));
+                                }
+                            };
+                            interface.borrow_mut().methods.insert(name, sig);
                         }
-                        _ => return Err(RuntimeError::new("AddMethod on invalid target")),
+                        _ => {
+                            return Err(RuntimeError::new(
+                                "AddMethod expects class, enum or interface",
+                            ));
+                        }
                     }
                 }
                 Opcode::AddStaticMethod => {
@@ -3848,8 +3435,8 @@ impl VM {
                             "pure function cannot have side effects (class mutation)",
                         ));
                     }
-                    let func_val = self.registers[base + a].clone();
-                    let target_val = self.registers[base + b].clone();
+                    let func_val = self.registers[base + a].to_value();
+                    let target_val = self.registers[base + b].to_value();
                     let name = match &function.chunk.constants[c] {
                         Value::String(value) => value.as_str().to_string(),
                         _ => return Err(RuntimeError::new("method name must be string")),
@@ -3888,7 +3475,7 @@ impl VM {
                         _ => return Err(RuntimeError::new("field name must be string")),
                     };
                     let visibility = visibility_from_code(instruction.c())?;
-                    match &mut self.registers[base + a] {
+                    match self.registers[base + a].to_value() {
                         Value::Class(class) => {
                             class.borrow_mut().fields.insert(name, visibility);
                         }
@@ -3910,154 +3497,110 @@ impl VM {
                         _ => return Err(RuntimeError::new("field name must be string")),
                     };
                     let visibility = visibility_from_code(instruction.c())?;
-                    match &mut self.registers[base + a] {
+                    if let Value::Class(class) = self.registers[base + a].to_value() {
+                        class
+                            .borrow_mut()
+                            .static_field_visibility
+                            .insert(name, visibility);
+                    } else {
+                        return Err(RuntimeError::new(
+                            "set static field visibility on non-class value",
+                        ));
+                    }
+                }
+                Opcode::SetAnnotations => {
+                    let annotations = self.registers[base + b].to_value();
+                    match self.registers[base + a].to_value() {
                         Value::Class(class) => {
-                            class
-                                .borrow_mut()
-                                .static_field_visibility
-                                .insert(name, visibility);
+                            class.borrow_mut().annotations = match annotations {
+                                Value::Array(arr) => arr
+                                    .borrow()
+                                    .elements
+                                    .iter()
+                                    .filter_map(pleno_value::RuntimeAnnotation::from_value)
+                                    .collect(),
+                                _ => Vec::new(),
+                            };
+                        }
+                        Value::Interface(interface) => {
+                            interface.borrow_mut().annotations = match annotations {
+                                Value::Array(arr) => arr
+                                    .borrow()
+                                    .elements
+                                    .iter()
+                                    .filter_map(pleno_value::RuntimeAnnotation::from_value)
+                                    .collect(),
+                                _ => Vec::new(),
+                            };
+                        }
+                        Value::Enum(enum_type) => {
+                            enum_type.borrow_mut().annotations = match annotations {
+                                Value::Array(arr) => arr
+                                    .borrow()
+                                    .elements
+                                    .iter()
+                                    .filter_map(pleno_value::RuntimeAnnotation::from_value)
+                                    .collect(),
+                                _ => Vec::new(),
+                            };
                         }
                         _ => {
                             return Err(RuntimeError::new(
-                                "set static field visibility on non-class value",
+                                "SetAnnotations expects class, interface or enum",
                             ));
                         }
                     }
                 }
-                Opcode::SetAnnotations => {
-                    let annotations = self.registers[base + b].clone();
-                    match &mut self.registers[base + a] {
-                        Value::Class(class) => {
-                            if let Value::Array(arr) = annotations {
-                                let mut annos = Vec::new();
-                                for val in &arr.borrow().elements {
-                                    if let Value::Object(obj) = val {
-                                        let b = obj.borrow();
-                                        if let Some(Value::String(name)) = b.fields.get("name")
-                                            && let Some(Value::Array(args)) = b.fields.get("args")
-                                        {
-                                            annos.push(pleno_value::RuntimeAnnotation {
-                                                name: name.to_string(),
-                                                args: args.borrow().elements.clone(),
-                                            });
-                                        }
-                                    } else if let Value::Map(map) = val {
-                                        let b = map.borrow();
-                                        if let Some(Value::String(name)) = b.entries.get("name")
-                                            && let Some(Value::Array(args)) = b.entries.get("args")
-                                        {
-                                            annos.push(pleno_value::RuntimeAnnotation {
-                                                name: name.to_string(),
-                                                args: args.borrow().elements.clone(),
-                                            });
-                                        }
-                                    }
-                                }
-                                class.borrow_mut().annotations = annos;
-                            }
-                        }
-                        Value::Enum(enum_type) => {
-                            if let Value::Array(arr) = annotations {
-                                let mut annos = Vec::new();
-                                for val in &arr.borrow().elements {
-                                    if let Value::Object(obj) = val {
-                                        let b = obj.borrow();
-                                        if let Some(Value::String(name)) = b.fields.get("name")
-                                            && let Some(Value::Array(args)) = b.fields.get("args")
-                                        {
-                                            annos.push(pleno_value::RuntimeAnnotation {
-                                                name: name.to_string(),
-                                                args: args.borrow().elements.clone(),
-                                            });
-                                        }
-                                    } else if let Value::Map(map) = val {
-                                        let b = map.borrow();
-                                        if let Some(Value::String(name)) = b.entries.get("name")
-                                            && let Some(Value::Array(args)) = b.entries.get("args")
-                                        {
-                                            annos.push(pleno_value::RuntimeAnnotation {
-                                                name: name.to_string(),
-                                                args: args.borrow().elements.clone(),
-                                            });
-                                        }
-                                    }
-                                }
-                                enum_type.borrow_mut().annotations = annos;
-                            }
-                        }
-                        value => {
-                            return Err(RuntimeError::new(format!(
-                                "SetAnnotations expects Class or Enum, got {}",
-                                value.type_name()
-                            )));
-                        }
-                    }
-                }
                 Opcode::Call => {
-                    let callee = self.registers[base + b].clone();
-                    let args = match &self.registers[base + c] {
-                        Value::Array(array) => array.borrow().elements.clone(),
-                        _ => return Err(RuntimeError::new("call expects args array")),
+                    let callee = self.registers[base + b].to_value();
+                    let args = match &self.registers[base + c].to_value() {
+                        Value::Array(arr) => arr.borrow().elements.clone(),
+                        _ => return Err(RuntimeError::new("Call expects array of arguments")),
                     };
                     self.call_any_value(callee, args, base + a)?;
                 }
 
                 Opcode::CallNamed => {
-                    let callee = self.registers[base + b].clone();
-                    let wrapper = match &self.registers[base + c] {
-                        Value::Array(array) => array.borrow().clone(),
-                        _ => return Err(RuntimeError::new("call named expects args array")),
+                    let callee = self.registers[base + b].to_value();
+                    let wrapper = match &self.registers[base + c].to_value() {
+                        Value::Map(m) => m.borrow().entries.to_owned(),
+                        _ => return Err(RuntimeError::new("CallNamed expects map of arguments")),
                     };
-                    if wrapper.len() != 2 {
-                        return Err(RuntimeError::new("call named expects [positional, named]"));
-                    }
-                    let positional = match &wrapper[0] {
-                        Value::Array(array) => array.borrow().elements.clone(),
-                        _ => return Err(RuntimeError::new("call named positional must be array")),
+
+                    let positional = match wrapper.get("positional") {
+                        Some(Value::Array(arr)) => arr.borrow().elements.clone(),
+                        _ => Vec::new(),
                     };
-                    let named = match &wrapper[1] {
-                        Value::Map(map) => map.borrow().entries.clone(),
-                        _ => return Err(RuntimeError::new("call named named must be map")),
+
+                    let named = match wrapper.get("named") {
+                        Some(Value::Map(m)) => m.borrow().entries.clone(),
+                        _ => IndexMap::new(),
                     };
-                    match callee {
-                        Value::Partial { .. } => {
-                            return Err(RuntimeError::new("partial named calls not supported yet"));
-                        }
-                        _ => {
-                            self.call_with_named(callee, positional, named, base + a)?;
-                        }
-                    }
+
+                    self.call_with_named(callee, positional, named, base + a)?;
                 }
                 Opcode::Partial => {
-                    let callee = self.registers[base + b].clone();
+                    let callee = self.registers[base + b].to_value();
                     if !self.is_callable(&callee) {
-                        return Err(RuntimeError::new("partial callee must be a function"));
+                        return Err(RuntimeError::new("Partial on non-callable"));
                     }
-                    let args_meta = match &self.registers[base + c] {
-                        Value::Array(arr) => arr.borrow().clone(),
-                        _ => return Err(RuntimeError::new("partial metadata must be an array")),
+                    let args_meta = match &self.registers[base + c].to_value() {
+                        Value::Array(arr) => arr.borrow().elements.clone(),
+                        _ => return Err(RuntimeError::new("Partial expects array of arguments")),
                     };
-                    let mut args = Vec::new();
-                    let mut placeholders = Vec::new();
-                    for (idx, val) in args_meta.into_iter().enumerate() {
-                        if val == Value::Missing {
-                            placeholders.push(idx);
-                        }
-                        args.push(val);
-                    }
-                    self.registers[base + a] = Value::Partial {
+                    self.registers[base + a] = NanValue::from_value(&Value::Partial {
                         callee: Box::new(callee),
-                        args,
-                        placeholders,
-                    };
+                        args: args_meta,
+                        placeholders: Vec::new(),
+                    });
                 }
                 Opcode::Import => {
-                    let path = match &function.chunk.constants[b] {
-                        Value::String(value) => value.as_str().to_string(),
+                    let module_name = match &function.chunk.constants[b] {
+                        Value::String(s) => s.as_str().to_string(),
                         _ => return Err(RuntimeError::new("import path must be string")),
                     };
-                    let module_value = self.execute_module(&path)?;
-                    self.registers[base + a] = module_value;
+                    let module_value = self.execute_module(&module_name)?;
+                    self.registers[base + a] = NanValue::from_value(&module_value);
                 }
                 Opcode::PushHandler => {
                     let offset = decode_offset(instruction.b(), instruction.c());
@@ -4075,62 +3618,49 @@ impl VM {
                         .ok_or_else(|| RuntimeError::new("pop handler underflow"))?;
                 }
                 Opcode::Throw => {
-                    let error_value = self.registers[base + a].clone();
-                    self.unwind_to_handler(error_value)?;
-                    continue;
+                    let error_value = self.registers[base + a].to_value();
+                    match self.unwind_to_handler(error_value) {
+                        Ok(_) => unreachable!(),
+                        Err(err) => return Err(err),
+                    }
                 }
                 Opcode::SetPooled => {
-                    let is_pooled = b != 0;
-                    match &self.registers[base + a] {
-                        Value::Class(class) => {
-                            class.borrow_mut().is_pooled = is_pooled;
-                        }
-                        _ => return Err(RuntimeError::new("SetPooled expects class")),
+                    let is_pooled = b == 1;
+                    if let Value::Class(class) = self.registers[base + a].to_value() {
+                        class.borrow_mut().is_pooled = is_pooled;
+                    } else {
+                        return Err(RuntimeError::new("SetPooled on non-class value"));
                     }
                 }
                 Opcode::Slice => {
-                    let collection = self.registers[base + b].clone();
-                    // According to Opcode::Slice emission in compiler:
-                    // self.emit(Opcode::Slice, dest, val_reg, wrapper_reg);
-                    // wrapper_reg has [start, end]
-                    let wrapper = match &self.registers[base + c] {
-                        Value::Array(arr) => arr.borrow().clone(),
-                        _ => return Err(RuntimeError::new("slice expects wrapper array")),
+                    let collection = self.registers[base + b].to_value();
+                    let wrapper = match &self.registers[base + c].to_value() {
+                        Value::Map(m) => m.borrow().entries.to_owned(),
+                        _ => return Err(RuntimeError::new("Slice expects map of ranges")),
                     };
-
-                    if wrapper.len() != 2 {
-                        return Err(RuntimeError::new("slice wrapper must have 2 elements"));
-                    }
-                    let start = expect_int_or_null(&wrapper[0])?;
-                    let end = expect_int_or_null(&wrapper[1])?;
+                    let start = wrapper.get("start").cloned();
+                    let end = wrapper.get("end").cloned();
+                    let step = wrapper.get("step").cloned();
 
                     match collection {
                         Value::Array(array) => {
-                            let array = array.borrow();
-                            let len = array.elements.len() as i64;
-                            let start = resolve_index(start, len, 0);
-                            let end = resolve_index(end, len, len);
-                            let slice = array.elements[start..end].to_vec();
-                            self.registers[base + a] =
-                                Value::Array(self.gc.allocate(ArrayState::new(slice))?);
+                            let slice = array_slice(&array.borrow().elements, start, end, step)?;
+                            self.registers[base + a] = NanValue::from_value(&Value::Array(
+                                self.gc.allocate(ArrayState::new(slice))?,
+                            ));
                         }
                         Value::Tuple(tuple) => {
-                            let t = tuple.borrow();
-                            let len = t.elements.len() as i64;
-                            let start = resolve_index(start, len, 0);
-                            let end = resolve_index(end, len, len);
-                            let slice = t.elements[start..end].to_vec();
+                            let slice = array_slice(&tuple.borrow().elements, start, end, step)?;
                             let new_tuple = TupleState::new(slice, None);
-                            self.registers[base + a] = Value::Tuple(self.gc.allocate(new_tuple)?);
+                            self.registers[base + a] =
+                                NanValue::from_value(&Value::Tuple(self.gc.allocate(new_tuple)?));
                         }
                         Value::String(s) => {
-                            let len = s.len() as i64;
-                            let start = resolve_index(start, len, 0);
-                            let end = resolve_index(end, len, len);
-                            let slice = s[start..end].to_string();
-                            self.registers[base + a] = Value::String(Rc::new(slice));
+                            let slice = string_slice(s.as_str(), start, end, step)?;
+                            self.registers[base + a] =
+                                NanValue::from_value(&Value::String(Rc::new(slice)));
                         }
-                        _ => return Err(RuntimeError::new("slice expects array or string")),
+                        _ => return Err(RuntimeError::new("Slice on non-collection")),
                     }
                 }
             }
@@ -4158,14 +3688,12 @@ impl VM {
             for (i, param) in cls.type_params.iter().enumerate() {
                 if param == name {
                     // First try to get from receiver (this)
-                    if frame.base < self.registers.len() {
-                        let receiver_val = &self.registers[frame.base];
-                        if let Value::Object(obj) = receiver_val
-                            && let Some(type_args) = &obj.borrow().type_args
-                            && i < type_args.len()
-                        {
-                            return Some(type_args[i].clone());
-                        }
+                    if frame.base < self.registers.len()
+                        && let Value::Object(obj) = self.registers[frame.base].to_value()
+                        && let Some(type_args) = &obj.borrow().type_args
+                        && i < type_args.len()
+                    {
+                        return Some(type_args[i].clone());
                     }
 
                     // Fallback to frame type args if receiver didn't work
@@ -4178,6 +3706,10 @@ impl VM {
             }
         }
         None
+    }
+
+    fn is_instance_nan(&self, value: &NanValue, type_val: &NanValue) -> bool {
+        self.is_instance(&value.to_value(), &type_val.to_value())
     }
 
     pub fn is_instance(&self, value: &Value, type_val: &Value) -> bool {
@@ -4718,9 +4250,9 @@ impl VM {
                     p
                 };
                 if return_reg_idx >= self.registers.len() {
-                    self.registers.resize(return_reg_idx + 1, Value::Null);
+                    self.registers.resize(return_reg_idx + 1, NanValue::null());
                 }
-                self.registers[return_reg_idx] = promise;
+                self.registers[return_reg_idx] = NanValue::from_value(&promise);
             }
 
             for param in function.params.iter() {
@@ -4771,16 +4303,16 @@ impl VM {
         let base = self.registers.len();
         let register_count = function.chunk.max_registers.max(function.arity);
         self.registers
-            .extend(std::iter::repeat_n(Value::Null, register_count));
+            .extend(std::iter::repeat_n(NanValue::null(), register_count));
 
         for (idx, arg) in processed_args.iter().enumerate() {
             if idx < register_count {
-                self.registers[base + idx] = arg.clone();
+                self.registers[base + idx] = NanValue::from_value(arg);
             }
         }
 
         self.frames.push(CallFrame {
-            function_index, // Use function_index directly
+            function_index,
             ip: 0,
             base,
             return_reg: return_reg_idx,
@@ -4808,7 +4340,7 @@ impl VM {
                 let result = func(self, &positional);
                 self.current_named_args = prev_named;
                 let result = result?;
-                self.registers[return_reg] = result;
+                self.registers[return_reg] = NanValue::from_value(&result);
                 Ok(())
             }
             Value::BoundNativeMethod { receiver, function } => {
@@ -4818,7 +4350,7 @@ impl VM {
                 let result = function(self, &merged_args);
                 self.current_named_args = prev_named;
                 let result = result?;
-                self.registers[return_reg] = result;
+                self.registers[return_reg] = NanValue::from_value(&result);
                 Ok(())
             }
             Value::Class(class) => {
@@ -4850,7 +4382,7 @@ impl VM {
                         },
                     )
                 } else if positional.is_empty() && named.is_empty() {
-                    self.registers[return_reg] = Value::Object(object);
+                    self.registers[return_reg] = NanValue::from_value(&Value::Object(object));
                     Ok(())
                 } else {
                     Err(RuntimeError::new("constructor not defined for named args"))
@@ -4887,7 +4419,7 @@ impl VM {
                         },
                     )
                 } else if positional.is_empty() && named.is_empty() {
-                    self.registers[return_reg] = Value::Object(object);
+                    self.registers[return_reg] = NanValue::from_value(&Value::Object(object));
                     Ok(())
                 } else {
                     Err(RuntimeError::new("constructor not defined for named args"))
@@ -5048,7 +4580,8 @@ impl VM {
             let mut frame = self.frames.pop().unwrap();
             if let Some(handler) = frame.exception_handlers.pop() {
                 frame.ip = handler.catch_ip;
-                self.registers[handler.base + handler.error_reg] = error_value;
+                self.registers[handler.base + handler.error_reg] =
+                    NanValue::from_value(&error_value);
                 self.frames.push(frame);
                 return Err(RuntimeError::handled());
             }
@@ -5231,9 +4764,9 @@ impl VM {
             Value::NativeFunction(func) => match func(self, &args) {
                 Ok(result) => {
                     if return_reg >= self.registers.len() {
-                        self.registers.resize(return_reg + 1, Value::Null);
+                        self.registers.resize(return_reg + 1, NanValue::null());
                     }
-                    self.registers[return_reg] = result;
+                    self.registers[return_reg] = NanValue::from_value(&result);
                 }
                 Err(err) => {
                     return Err(self.throw_runtime_error(&err.message));
@@ -5245,9 +4778,9 @@ impl VM {
                 match function(self, &merged_args) {
                     Ok(result) => {
                         if return_reg >= self.registers.len() {
-                            self.registers.resize(return_reg + 1, Value::Null);
+                            self.registers.resize(return_reg + 1, NanValue::null());
                         }
-                        self.registers[return_reg] = result;
+                        self.registers[return_reg] = NanValue::from_value(&result);
                     }
                     Err(err) => {
                         return Err(self.throw_runtime_error(&err.message));
@@ -5310,7 +4843,7 @@ impl VM {
                         },
                     )?;
                 } else {
-                    self.registers[return_reg] = val;
+                    self.registers[return_reg] = NanValue::from_value(&val);
                 }
             }
             Value::BoundClass { class, type_args } => {
@@ -5339,7 +4872,7 @@ impl VM {
                         },
                     )?;
                 } else {
-                    self.registers[return_reg] = val;
+                    self.registers[return_reg] = NanValue::from_value(&val);
                 }
             }
             Value::VariantConstructor {
@@ -5353,7 +4886,7 @@ impl VM {
                     variant_name: Rc::clone(&variant_name),
                     data,
                 };
-                self.registers[return_reg] = variant;
+                self.registers[return_reg] = NanValue::from_value(&variant);
             }
             Value::Partial {
                 callee,
@@ -5446,7 +4979,7 @@ impl VM {
         let base = self.registers.len();
         let register_count = self.functions[func_index].chunk.max_registers;
         self.registers
-            .extend(std::iter::repeat_n(Value::Null, register_count));
+            .extend(std::iter::repeat_n(NanValue::null(), register_count));
         let depth = self.frames.len();
         self.frames.push(CallFrame {
             function_index: func_index,

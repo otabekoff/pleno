@@ -1,4 +1,5 @@
 pub mod gc;
+pub mod nan_value;
 
 pub use gc::{GcObject, GcRc, MarkAndSweepGC};
 use indexmap::{IndexMap, IndexSet};
@@ -745,6 +746,8 @@ pub struct Interface {
     pub setters: IndexMap<String, MethodSignature>,
     pub type_params: Vec<String>,
     pub type_constraints: IndexMap<String, Vec<String>>,
+    pub annotations: Vec<RuntimeAnnotation>,
+    pub module: Option<Rc<String>>,
 }
 
 impl GcObject for Interface {
@@ -918,10 +921,37 @@ pub struct RuntimeAnnotation {
     pub args: Vec<Value>,
 }
 
+impl RuntimeAnnotation {
+    pub fn from_value(val: &Value) -> Option<Self> {
+        match val {
+            Value::Object(obj) => {
+                let borrowed = obj.borrow();
+                let name = borrowed.fields.get("name")?.as_str()?.to_string();
+                let args = match borrowed.fields.get("args")? {
+                    Value::Array(arr) => arr.borrow().elements.clone(),
+                    _ => Vec::new(),
+                };
+                Some(Self { name, args })
+            }
+            Value::Map(map) => {
+                let borrowed = map.borrow();
+                let name = borrowed.entries.get("name")?.as_str()?.to_string();
+                let args = match borrowed.entries.get("args")? {
+                    Value::Array(arr) => arr.borrow().elements.clone(),
+                    _ => Vec::new(),
+                };
+                Some(Self { name, args })
+            }
+            _ => None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum MethodOwner {
     Class(GcRc<Class>),
     Enum(GcRc<EnumType>),
+    Interface(GcRc<Interface>),
 }
 
 impl MethodOwner {
@@ -929,6 +959,7 @@ impl MethodOwner {
         match self {
             MethodOwner::Class(c) => c.borrow().name.clone(),
             MethodOwner::Enum(e) => e.borrow().name.clone(),
+            MethodOwner::Interface(i) => i.borrow().name.clone(),
         }
     }
 }
@@ -948,6 +979,7 @@ impl MethodInfo {
         match &self.owner {
             MethodOwner::Class(c) => gc.mark_object(&c.to_gc_object()),
             MethodOwner::Enum(e) => gc.mark_object(&e.to_gc_object()),
+            MethodOwner::Interface(i) => gc.mark_object(&i.to_gc_object()),
         }
     }
 }
