@@ -21,3 +21,5 @@ pleno-diagnostics = { workspace = true }
 
 [dev-dependencies]
 pleno-stdlib = { workspace = true }
+proptest = { workspace = true }
+num-traits = "0.2"
