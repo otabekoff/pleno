@@ -1316,7 +1316,7 @@ class User {
 
 ## 12. Memory Management & Performance
 
-### 12.1 Ownership Hints (Optional)
+### 12.1 Ownership Hints (Optional) [V2]
 
 ```pleno
 // Move semantics (transfer ownership)
@@ -1350,7 +1350,7 @@ let lazySeq = (0..)
     .take(10);  // Only computes 10 items
 ```
 
-### 12.3 Memory Pooling
+### 12.3 Memory Pooling [V2]
 
 ```pleno
 // Object pooling
@@ -1789,7 +1789,7 @@ repeat!(3, {
 // print("Hello");
 ```
 
-### 14.3 Operator Overloading ✅
+### 14.3 Operator Overloading [V2]
 
 ```pleno
 class Vector {
@@ -2052,7 +2052,7 @@ assert.lengthOf(collection, length);
 
 ---
 
-## 16. Package Manager (PLM - Pleno Module Manager)
+## 16. Package Manager (PLM - Pleno Module Manager) [V2]
 
 ```bash
 # Initialize new project
@@ -2249,7 +2249,7 @@ fn main(args: String[]) {
 
 _Note: Advanced performance features like JIT and advanced GC hints are planned for future releases. Phase 1 optimizations (DCE, Inlining) are implemented._
 
-### 18.1 JIT Compilation
+### 18.1 JIT Compilation [V2]
 
 - Hot path optimization
 - Automatic inlining of small functions

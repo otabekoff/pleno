@@ -15,9 +15,13 @@ Goal: Make Pleno the most stable language in its class.
 
 Goal: Implement modern syntax and type system improvements.
 
+- **[ ] Operator Overloading**: Support `operator +`, `operator ==`, `operator []` in classes.
+- **[ ] Package Manager (PLM)**: Full dependency resolution, registry support, `plm install`.
 - **[ ] Optional Chaining & Nullish Coalescing**: Syntax support for safe null handling.
 - **[ ] Generics V2**: Implementation of variance and advanced type constraints.
-- **[ ] Enhanced Metaprogramming**: Faster and more flexible compile-time macros.
+- **[ ] Enhanced Metaprogramming**: User-defined macro blocks, compile-time macro expansion.
+- **[ ] Ownership Hints**: Optional `move`, `&`, `&mut` for performance-critical code.
+- **[ ] Memory Pooling**: `@pooled` annotation for object pools.
 - **[ ] FFI Foundation**: Establish the base for calling external C/Rust libraries.
 
 ## Phase 3: Standard Library & Ecosystem (Month 6-8)
