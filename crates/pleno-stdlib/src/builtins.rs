@@ -427,8 +427,8 @@ fn native_set_iterator(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value,
 }
 
 fn native_file_write(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
-    let file = match &args[0] {
-        Value::File(f) => f,
+    let file = match args.first() {
+        Some(Value::File(f)) => f,
         _ => return Err(RuntimeError::new("Expected file")),
     };
     let content = match args.get(1) {
@@ -448,8 +448,8 @@ fn native_file_write(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, 
 }
 
 fn native_file_flush(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
-    let file = match &args[0] {
-        Value::File(f) => f,
+    let file = match args.first() {
+        Some(Value::File(f)) => f,
         _ => return Err(RuntimeError::new("Expected file")),
     };
     let file_state = file.borrow();
@@ -465,8 +465,8 @@ fn native_file_flush(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, 
 }
 
 fn native_file_close(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
-    let file = match &args[0] {
-        Value::File(f) => f,
+    let file = match args.first() {
+        Some(Value::File(f)) => f,
         _ => return Err(RuntimeError::new("Expected file")),
     };
     let file_state = file.borrow();

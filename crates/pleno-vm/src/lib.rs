@@ -1492,7 +1492,10 @@ impl VM {
                                         })
                                         .unwrap_or(self.next_promise_id);
 
-                                    let frame = self.frames.pop().unwrap();
+                                    let frame = self
+                                        .frames
+                                        .pop()
+                                        .ok_or_else(|| RuntimeError::new("VM stack underflow"))?;
                                     self.suspended_frames.insert(
                                         id,
                                         SuspendedFrame {
@@ -1772,7 +1775,9 @@ impl VM {
                                         function: self
                                             .builtin_resolver
                                             .and_then(|r| r("Result", &name))
-                                            .unwrap(),
+                                            .ok_or_else(|| {
+                                                RuntimeError::new("Builtin method not found")
+                                            })?,
                                     };
                                     continue;
                                 } else if (variant.as_str() == "Some" || variant.as_str() == "None")
@@ -1788,7 +1793,9 @@ impl VM {
                                         function: self
                                             .builtin_resolver
                                             .and_then(|r| r("Option", &name))
-                                            .unwrap(),
+                                            .ok_or_else(|| {
+                                                RuntimeError::new("Builtin method not found")
+                                            })?,
                                     };
                                     continue;
                                 } else if (variant.as_str() == "Pending"
@@ -1805,7 +1812,9 @@ impl VM {
                                         function: self
                                             .builtin_resolver
                                             .and_then(|r| r("Promise", &name))
-                                            .unwrap(),
+                                            .ok_or_else(|| {
+                                                RuntimeError::new("Builtin method not found")
+                                            })?,
                                     };
                                     continue;
                                 } else if variant.as_str() == "Regex"
@@ -1821,7 +1830,9 @@ impl VM {
                                         function: self
                                             .builtin_resolver
                                             .and_then(|r| r("Regex", &name))
-                                            .unwrap(),
+                                            .ok_or_else(|| {
+                                                RuntimeError::new("Builtin method not found")
+                                            })?,
                                     };
                                     continue;
                                 }
@@ -3451,7 +3462,10 @@ impl VM {
                         }
                         Value::Function(handle) => {
                             let handle_idx = handle;
-                            let func_proto = self.functions.get(handle_idx).cloned().unwrap();
+                            let func_proto =
+                                self.functions.get(handle_idx).cloned().ok_or_else(|| {
+                                    self.throw_runtime_error("Invalid function handle")
+                                })?;
                             if args.len() != func_proto.type_params.len() {
                                 return Err(self.throw_runtime_error(&format!(
                                     "Generic function type mismatch: expected {} args, found {}",
