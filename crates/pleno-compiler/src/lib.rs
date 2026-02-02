@@ -2637,7 +2637,25 @@ impl Compiler {
                     compiler.emit(Opcode::LoadCapture, type_reg, *idx as u8, 0);
                 } else {
                     let ty_idx = compiler.add_constant(Value::String(Rc::new(ty_name.clone())));
-                    compiler.emit(Opcode::GetGlobal, type_reg, ty_idx, 0);
+                    let is_builtin = matches!(
+                        ty_name.as_str(),
+                        "Int"
+                            | "Float"
+                            | "String"
+                            | "Bool"
+                            | "Array"
+                            | "Map"
+                            | "Set"
+                            | "Any"
+                            | "Null"
+                            | "Tuple"
+                            | "Char"
+                    );
+                    if is_builtin {
+                        compiler.emit(Opcode::LoadConst, type_reg, ty_idx, 0);
+                    } else {
+                        compiler.emit(Opcode::GetGlobal, type_reg, ty_idx, 0);
+                    }
                 }
 
                 let result_reg = compiler.registers.allocate()?;
