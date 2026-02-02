@@ -1,7 +1,8 @@
 use std::collections::{HashMap, HashSet};
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub enum DebugState {
+    #[default]
     Running,
     Paused(PauseReason),
 }
@@ -18,12 +19,6 @@ pub struct DebugContext {
     pub state: DebugState,
     pub breakpoints: HashMap<String, HashSet<usize>>, // file -> lines
     pub step_over_depth: Option<usize>,               // call stack depth
-}
-
-impl Default for DebugState {
-    fn default() -> Self {
-        Self::Running
-    }
 }
 
 impl DebugContext {
@@ -73,13 +68,13 @@ impl DebugContext {
         }
         let line = function.chunk.lines[ip] as usize;
 
-        if let Some(lines) = self.breakpoints.get(path) {
-            if lines.contains(&line) {
-                // Check if we already paused here recently?
-                // For simplified logic: yes, pause.
-                self.state = DebugState::Paused(PauseReason::Breakpoint);
-                return true;
-            }
+        if let Some(lines) = self.breakpoints.get(path)
+            && lines.contains(&line)
+        {
+            // Check if we already paused here recently?
+            // For simplified logic: yes, pause.
+            self.state = DebugState::Paused(PauseReason::Breakpoint);
+            return true;
         }
         false
     }

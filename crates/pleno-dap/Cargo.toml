@@ -10,6 +10,9 @@ serde_json = { workspace = true }
 thiserror = { workspace = true }
 log = { workspace = true }
 anyhow = "1"
-pleno-vm = { path = "../pleno-vm" }
-pleno-value = { path = "../pleno-value" }
-pleno-compiler = { path = "../pleno-compiler" }
+pleno-vm = { workspace = true }
+pleno-value = { workspace = true }
+pleno-bytecode = { workspace = true }
+pleno-compiler = { workspace = true }
+pleno-parser = { workspace = true }
+pleno-lexer = { workspace = true }

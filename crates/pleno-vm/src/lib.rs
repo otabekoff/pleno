@@ -27,6 +27,12 @@ pub use value_ops::*;
 
 // Removed local SandboxConfig, utilizing pleno_value::SandboxConfig
 
+#[derive(Debug, Clone, PartialEq)]
+pub enum ExecutionStatus {
+    Finished(Value),
+    Paused,
+}
+
 pub struct VM {
     pub sandbox_config: Option<pleno_value::SandboxConfig>,
     pub gc: pleno_value::gc::GCManager,
@@ -146,7 +152,12 @@ impl VMProvider for VM {
         // We want to capture that map before run_until might potentially truncate it (on sync return).
         let maybe_promise = self.registers.get(return_reg_idx).cloned();
 
-        let sync_result = self.run_until(depth)?;
+        let sync_result = match self.run_until(depth)? {
+            ExecutionStatus::Finished(v) => v,
+            ExecutionStatus::Paused => {
+                return Err(RuntimeError::new("Paused during call_function"));
+            }
+        };
 
         // If run_until returned Null (could be suspension), and we have a promise map, return the map.
         if let Some(p) = maybe_promise
@@ -423,44 +434,57 @@ impl VM {
         self.sandbox_config = Some(config);
     }
 
-    pub fn execute(&mut self, chunk: Chunk) -> Result<Value, RuntimeError> {
-        let register_count = chunk.max_registers;
-
+    pub fn load_script(&mut self, chunk: Chunk) {
+        let max_regs = chunk.max_registers;
         let function = Function {
             name: Rc::new("<script>".to_string()),
             chunk,
             arity: 0,
+            params: Vec::new(),
             module: None,
             module_path: None,
             is_async: false,
             is_pure: false,
             type_params: Vec::new(),
             type_constraints: IndexMap::new(),
-            params: Vec::new(),
             annotations: Vec::new(),
         };
 
-        let func_index = self.functions.len();
         self.functions.push(function);
+        let func_idx = self.functions.len() - 1;
 
-        self.registers.clear();
+        // Create main script closure
+        let closure = ClosureState {
+            function: func_idx,
+            captures: Vec::new(),
+        };
 
-        self.registers
-            .extend(std::iter::repeat_n(NanValue::null(), register_count));
+        let closure_gc = self.gc.allocate(closure).expect("GC allocation failed");
 
-        self.frames.push(CallFrame {
-            function_index: func_index,
+        // Push initial frame
+        let call_frame = CallFrame {
+            function_index: func_idx,
             ip: 0,
             base: 0,
             return_reg: 0,
             return_override: None,
-            closure_state: None,
+            closure_state: Some(closure_gc),
             current_owner: None,
             current_module: None,
             current_module_path: None,
             type_args: Vec::new(),
             exception_handlers: Vec::new(),
-        });
+        };
+
+        self.frames.push(call_frame);
+
+        if self.registers.len() < max_regs {
+            self.registers.resize(max_regs, NanValue::null());
+        }
+    }
+
+    pub fn execute(&mut self, chunk: Chunk) -> Result<Value, RuntimeError> {
+        self.load_script(chunk);
 
         let mut last_result = Value::Null;
         let mut script_finished = false;
@@ -469,7 +493,10 @@ impl VM {
             // 1. Run synchronous code until we hit a suspension point or finish
             if !self.frames.is_empty() {
                 let result = match self.run_until(0) {
-                    Ok(val) => val,
+                    Ok(ExecutionStatus::Finished(val)) => val,
+                    Ok(ExecutionStatus::Paused) => {
+                        return Err(RuntimeError::new("VM paused during execute()"));
+                    }
                     Err(mut err) => {
                         if err.handled {
                             continue;
@@ -519,6 +546,28 @@ impl VM {
             break;
         }
         Ok(last_result)
+    }
+
+    pub fn run_debug(&mut self) -> Result<ExecutionStatus, RuntimeError> {
+        self.run_until(0)
+    }
+
+    pub fn step_into(&mut self) -> Result<ExecutionStatus, RuntimeError> {
+        if self.frames.is_empty() {
+            return Ok(ExecutionStatus::Finished(Value::Null));
+        }
+        match self.run_step(0)? {
+            Some(status) => Ok(status),
+            None => Ok(ExecutionStatus::Paused),
+        }
+    }
+
+    pub fn step_over(&mut self) -> Result<ExecutionStatus, RuntimeError> {
+        self.step_into()
+    }
+
+    pub fn step_out(&mut self) -> Result<ExecutionStatus, RuntimeError> {
+        self.step_into()
     }
 
     fn enrich_error(&self, err: &mut RuntimeError) {
@@ -725,17 +774,17 @@ impl VM {
         Ok(())
     }
 
-    fn run_until(&mut self, depth: usize) -> Result<Value, RuntimeError> {
+    fn run_until(&mut self, depth: usize) -> Result<ExecutionStatus, RuntimeError> {
         self.run_depths.push(depth);
         let res = self.run_until_internal(depth);
         self.run_depths.pop();
         res
     }
 
-    fn run_until_internal(&mut self, depth: usize) -> Result<Value, RuntimeError> {
+    fn run_until_internal(&mut self, depth: usize) -> Result<ExecutionStatus, RuntimeError> {
         loop {
             match self.run_step(depth) {
-                Ok(Some(v)) => return Ok(v),
+                Ok(Some(status)) => return Ok(status),
                 Ok(None) => continue,
                 Err(err) => {
                     if err.handled {
@@ -754,8 +803,7 @@ impl VM {
             }
         }
     }
-
-    fn run_step(&mut self, depth: usize) -> Result<Option<Value>, RuntimeError> {
+    fn run_step(&mut self, depth: usize) -> Result<Option<ExecutionStatus>, RuntimeError> {
         let roots = VmRoots {
             registers: &self.registers,
             frames: &self.frames,
@@ -769,7 +817,7 @@ impl VM {
         self.gc.maybe_collect(&[&roots]);
 
         if self.frames.len() == depth {
-            return Ok(Some(Value::Null));
+            return Ok(Some(ExecutionStatus::Finished(Value::Null)));
         }
 
         loop {
@@ -793,7 +841,7 @@ impl VM {
                 .debug_context
                 .should_pause(func_index, ip, &self.functions)
             {
-                return Ok(Some(Value::Null));
+                return Ok(Some(ExecutionStatus::Paused));
             }
 
             log::trace!("VM::run_step: ip={:04} {:?}", ip, opcode);
@@ -1530,7 +1578,7 @@ impl VM {
                                             await_reg: a,
                                         },
                                     );
-                                    return Ok(Some(Value::Null)); // Suspend
+                                    return Ok(Some(ExecutionStatus::Finished(Value::Null))); // Suspend
                                 }
                                 Some(Value::String(s)) if s.as_str() == "Resolved" => {
                                     let val = map
@@ -2439,7 +2487,7 @@ impl VM {
                     }
 
                     if self.frames.len() == depth {
-                        return Ok(Some(result));
+                        return Ok(Some(ExecutionStatus::Finished(result)));
                     }
 
                     if !function_is_async {
@@ -3593,7 +3641,7 @@ impl VM {
                 Opcode::Partial => {
                     let callee = self.registers[base + b].to_value();
                     if !self.is_callable(&callee) {
-                        return Err(RuntimeError::new("Partial on non-callable"));
+                        return Err(RuntimeError::new("partial callee must be a function"));
                     }
                     let args_meta = match &self.registers[base + c].to_value() {
                         Value::Array(arr) => arr.borrow().elements.clone(),
@@ -5005,7 +5053,10 @@ impl VM {
             type_args: Vec::new(),
             exception_handlers: Vec::new(),
         });
-        let result = self.run_until(depth)?;
+        let result = match self.run_until(depth)? {
+            ExecutionStatus::Finished(v) => v,
+            ExecutionStatus::Paused => return Err(RuntimeError::new("Paused during module load")),
+        };
         self.registers.truncate(base);
         self.modules.insert(resolved_key, result.clone());
         Ok(result)
