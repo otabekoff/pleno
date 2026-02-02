@@ -61,6 +61,10 @@ make test
 5. **Push** and open a Pull Request.
 6. **Respond** to review feedback promptly.
 
+## 🔢 Versioning
+
+We adhere to the [Language Versioning Policy](README.dev.md#language-versioning-policy) described in the developer guide. Ensure your changes align with the intended version target.
+
 ## ⚖️ License
 
 By contributing to Pleno, you agree that your contributions will be licensed under the project's **MIT License**.
