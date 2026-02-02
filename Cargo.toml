@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/*", "fuzz"]
+members = ["crates/*"]
 default-members = ["crates/pleno-cli"]
 
 [workspace.package]

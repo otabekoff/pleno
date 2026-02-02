@@ -15,6 +15,7 @@ pub mod os;
 pub mod path;
 pub mod process;
 pub mod promise;
+pub mod random;
 pub mod reflect;
 pub mod regex;
 pub mod security;
@@ -665,6 +666,23 @@ pub fn register(vm: &mut dyn VMProvider) {
     modules.insert(
         "std:crypto".to_string(),
         Value::Map(gc.allocate(MapState::new(crypto_module)).unwrap()),
+    );
+
+    // std:random
+    let mut random_module = IndexMap::new();
+    random_module.insert("random".to_string(), Value::NativeFunction(random::random));
+    random_module.insert(
+        "randint".to_string(),
+        Value::NativeFunction(random::randint),
+    );
+    random_module.insert("choice".to_string(), Value::NativeFunction(random::choice));
+    random_module.insert(
+        "shuffle".to_string(),
+        Value::NativeFunction(random::shuffle),
+    );
+    modules.insert(
+        "std:random".to_string(),
+        Value::Map(gc.allocate(MapState::new(random_module)).unwrap()),
     );
 
     // Register all in VM
