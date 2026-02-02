@@ -253,7 +253,8 @@ pub fn start() -> io::Result<()> {
                                 "resolveProvider": false
                             },
                             "callHierarchyProvider": true,
-                            "referencesProvider": true
+                            "referencesProvider": true,
+                            "renameProvider": true
                         }
                     }
                 });
@@ -459,6 +460,83 @@ pub fn start() -> io::Result<()> {
                         "jsonrpc": "2.0",
                         "id": id,
                         "result": references
+                    });
+                    write_message(&mut stdout, &resp)?;
+                }
+            }
+            "textDocument/rename" => {
+                let id = value.get("id").cloned().unwrap_or(Value::Null);
+                if let Some(params) = value.get("params") {
+                    let uri_str = params
+                        .get("textDocument")
+                        .and_then(|t| t.get("uri").and_then(|v| v.as_str()))
+                        .unwrap_or_default();
+                    let pos_json = params.get("position");
+                    let new_name = params
+                        .get("newName")
+                        .and_then(|n| n.as_str())
+                        .unwrap_or_default();
+
+                    let mut changes: HashMap<String, Vec<Value>> = HashMap::new();
+
+                    let state = state_clone.lock().unwrap();
+                    if let Some(text) = state.documents.get(uri_str).cloned()
+                        && let Some(pos_val) = pos_json
+                        && !new_name.is_empty()
+                    {
+                        let line = pos_val.get("line").and_then(|l| l.as_u64()).unwrap_or(0) as u32;
+                        let char = pos_val
+                            .get("character")
+                            .and_then(|c| c.as_u64())
+                            .unwrap_or(0) as u32;
+
+                        if let Some(word) = get_word_at_position(&text, line, char) {
+                            // Search all documents for references to this symbol and replace them
+                            for (doc_uri, doc_text) in &state.documents {
+                                let mut edits = Vec::new();
+                                for (line_idx, line_content) in doc_text.lines().enumerate() {
+                                    let mut search_start = 0;
+                                    while let Some(col) = line_content[search_start..].find(&word) {
+                                        let abs_col = search_start + col;
+                                        // Check if it's a word boundary
+                                        let before_ok = abs_col == 0
+                                            || !line_content
+                                                .chars()
+                                                .nth(abs_col - 1)
+                                                .map(|c| c.is_alphanumeric() || c == '_')
+                                                .unwrap_or(false);
+                                        let after_ok = abs_col + word.len() >= line_content.len()
+                                            || !line_content
+                                                .chars()
+                                                .nth(abs_col + word.len())
+                                                .map(|c| c.is_alphanumeric() || c == '_')
+                                                .unwrap_or(false);
+
+                                        if before_ok && after_ok {
+                                            edits.push(json!({
+                                                "range": {
+                                                    "start": { "line": line_idx, "character": abs_col },
+                                                    "end": { "line": line_idx, "character": abs_col + word.len() }
+                                                },
+                                                "newText": new_name
+                                            }));
+                                        }
+                                        search_start = abs_col + 1;
+                                    }
+                                }
+                                if !edits.is_empty() {
+                                    changes.insert(doc_uri.clone(), edits);
+                                }
+                            }
+                        }
+                    }
+
+                    let resp = json!({
+                        "jsonrpc": "2.0",
+                        "id": id,
+                        "result": {
+                            "changes": changes
+                        }
                     });
                     write_message(&mut stdout, &resp)?;
                 }
