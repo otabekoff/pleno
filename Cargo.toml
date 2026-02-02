@@ -39,3 +39,5 @@ regex = "1"
 chrono = "0.4"
 serde = { version = "1", features = ["derive", "rc"] }
 indexmap = { version = "2", features = ["serde"] }
+log = "0.4"
+env_logger = "0.11"

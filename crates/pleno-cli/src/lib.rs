@@ -902,7 +902,13 @@ fn handle_init(args: &mut std::iter::Peekable<std::iter::Skip<std::env::Args>>) 
         .insert("check".to_string(), "pleno check src/main.pln".to_string());
     manifest
         .scripts
-        .insert("repl".to_string(), "pleno-repl".to_string());
+        .insert("fmt".to_string(), "pleno format .".to_string());
+    manifest
+        .scripts
+        .insert("lint".to_string(), "pleno lint .".to_string());
+    manifest
+        .scripts
+        .insert("repl".to_string(), "pleno repl".to_string());
 
     if let Err(e) = manifest.save_to_file("pleno.toml") {
         eprintln!("Failed to create pleno.toml: {}", e);
@@ -934,19 +940,63 @@ fn main() {
 
 // Run the main function
 main();
-
-// Minimal test case to verify basic functionality
-// Run tests with `plm test`
-#[test]
-fn test_addition() {
-    assert(1 + 1 == 2, "Math should work");
-}
 "#;
         fs::write(main_pln, content).expect("Failed to create src/main.pln");
     }
 
+    // Create tests directory and integration_test.pln
+    let tests_dir = Path::new("tests");
+    if !tests_dir.exists() {
+        fs::create_dir_all(tests_dir).expect("Failed to create tests directory");
+    }
+    let integration_test = tests_dir.join("integration_test.pln");
+    if !integration_test.exists() {
+        let content = r#"/// Minimal test case to verify basic functionality.
+/// Run tests with `plm test`.
+
+#[test]
+fn test_addition() {
+    assert(1 + 1 == 2, "Math should work");
+}
+
+#[test]
+fn test_template() {
+    let x = 10;
+    let y = 20;
+    assert(x + y == 30, "Complex math should also work");
+}
+"#;
+        fs::write(integration_test, content).expect("Failed to create tests/integration_test.pln");
+    }
+
     // Create README.md
     let readme = Path::new("README.md");
+    // Create .gitignore
+    let gitignore = Path::new(".gitignore");
+    if !gitignore.exists() {
+        let content = r#"# Pleno
+.pleno_cache/
+packages/
+.logs/
+target/
+
+# System
+.DS_Store
+Thumbs.db
+
+# IDEs
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+.idea/
+.project
+.settings/
+"#;
+        fs::write(gitignore, content).expect("Failed to create .gitignore");
+    }
+
     if !readme.exists() {
         let content = format!(
             r#"# {}
@@ -1201,14 +1251,25 @@ obligated to maintain confidentiality with regard to the reporter of an incident
       "problemMatcher": []
     },
     {
-      "label": "plm: plm build --test",
+      "label": "plm: plm test",
       "type": "shell",
       "command": "plm",
-      "args": ["build", "--test"],
+      "args": ["test"],
       "group": "test",
       "presentation": {
         "reveal": "always",
         "panel": "new"
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "pleno: pleno format .",
+      "type": "shell",
+      "command": "pleno",
+      "args": ["format", "."],
+      "presentation": {
+        "reveal": "silent",
+        "panel": "shared"
       },
       "problemMatcher": []
     },

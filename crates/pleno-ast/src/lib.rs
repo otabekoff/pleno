@@ -1,6 +1,8 @@
 pub use pleno_common::Span;
 use serde::{Deserialize, Serialize};
 
+pub mod visitor;
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum CommentKind {
     Line,

@@ -15,6 +15,7 @@ Rust workspace for the Pleno programming language implementation.
 ### Installation
 
 For Linux and macOS:
+
 ```bash
 curl -fsSL https://raw.githubusercontent.com/otabekoff/pleno/main/scripts/install.sh | sh
 ```
@@ -35,30 +36,59 @@ cargo run --release -- path/to/file.pln
 pleno run examples/hello.pln
 ```
 
-## Roadmap
+## CLI Usage
 
-See `ROADMAP.md` for staged milestones toward v1.
+### `pleno` - Language Runner & Tools
+
+- `pleno run <file>`: Execute a Pleno script.
+- `pleno repl`: Interactive shell.
+- `pleno format <path>`: Auto-format your code.
+- `pleno lint <path>`: Check for common issues.
+- `pleno test <path>`: Run the built-in test suite.
+- `pleno doc <path>`: Generate API documentation.
+
+### `plm` - Pleno Module Manager
+
+`plm` is the built-in package manager for handling dependencies and project lifecycle.
+
+- `plm init [name]`: Initialize a new project.
+- `plm install [url]`: Add a dependency.
+- `plm update`: Update dependencies.
+- `plm build`: Compile the project.
+- `plm run <script>`: Run custom scripts from `pleno.toml`.
+
+
 
 ## Release Process
 
 To create a new release (triggers Windows, Linux, and macOS builds):
 
 1.  **Tag the release**:
-    ```bash
-    git tag v0.1.0
-    git push origin v0.1.0
-    ```
+```bash
+git tag v0.1.0
+git push origin v0.1.0
+```
 
 2.  **Redo a release** (if something failed and you need to re-trigger for the same version):
-    ```bash
-    # Delete local tag
-    git tag -d v0.1.0
-    # Delete remote tag
-    git push origin :refs/tags/v0.1.0
+```bash
+# Delete local tag
+git tag -d v0.1.0
+# Delete remote tag
+git push origin :refs/tags/v0.1.0
 
-    # ... commit fixes ...
+# ... commit fixes ...
 
-    # Re-tag and push
-    git tag v0.1.0
-    git push origin v0.1.0
-    ```
+# Re-tag and push
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+## Documentation
+
+- [Language Specification](specs.md)
+- [Roadmap](ROADMAP.md)
+- [Contributing](CONTRIBUTING.md)
+
+## License
+
+Pleno is released under the MIT License. See [LICENSE](LICENSE) for details.
