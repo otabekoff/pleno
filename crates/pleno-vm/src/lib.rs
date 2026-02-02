@@ -166,6 +166,32 @@ impl VMProvider for VM {
         &mut self.gc
     }
 
+    fn add_timer(&mut self, delay_ms: u64, callback: Value, args: Vec<Value>) -> u64 {
+        self.event_loop.add_timer(delay_ms, callback, args)
+    }
+
+    fn register_io(
+        &mut self,
+        source: &mut dyn mio::event::Source,
+        interest: mio::Interest,
+        callback: Value,
+        persistent: bool,
+    ) -> Result<mio::Token, RuntimeError> {
+        self.event_loop
+            .register_io(source, interest, callback, persistent)
+            .map_err(|e| RuntimeError::new(format!("IO registration failed: {}", e)))
+    }
+
+    fn unregister_io(
+        &mut self,
+        source: &mut dyn mio::event::Source,
+        token: mio::Token,
+    ) -> Result<(), RuntimeError> {
+        self.event_loop
+            .unregister_io(source, token)
+            .map_err(|e| RuntimeError::new(format!("IO unregistration failed: {}", e)))
+    }
+
     fn create_promise(&mut self) -> Result<(u64, Value), RuntimeError> {
         let id = self.next_promise_id;
         self.next_promise_id += 1;
@@ -266,10 +292,6 @@ impl VMProvider for VM {
 
     fn set_builtin_resolver(&mut self, resolver: fn(&str, &str) -> Option<NativeFunction>) {
         self.builtin_resolver = Some(resolver);
-    }
-
-    fn add_timer(&mut self, delay_ms: u64, callback: Value, args: Vec<Value>) -> u64 {
-        self.event_loop.add_timer(delay_ms, callback, args)
     }
 
     fn check_is_instance(&self, value: &Value, type_val: &Value) -> bool {
@@ -472,32 +494,20 @@ impl VM {
             }
 
             // 4. Check Event Loop (Timers/IO)
-            if !self.event_loop.is_empty() {
-                // Determine wait time (for now we might spin or sleep briefly,
-                // but efficiently we should sleep until next timer)
-                if let Some(wait_time) = self.event_loop.next_timeout() {
-                    // In a real loop we'd sleep, but here we just tick if time passed?
-                    // Or sleep thread?
-                    // For testing, just sleeping is fine.
-                    if !wait_time.is_zero() {
-                        std::thread::sleep(wait_time);
-                    }
-                }
-
-                if let Some(task) = self.event_loop.tick() {
-                    // Convert EventLoop Task to VM pending task or call directly
-                    // It's safer to push to pending_tasks to run on next loop iteration
-                    self.pending_tasks.push(AsyncTask {
-                        promise_id: task.promise_id.unwrap_or(0), // 0 or ignored if not a promise
-                        value: Value::Null,                       // Or pass args?
-                        callee: Some(task.callback),
-                        args: Some(task.args),
-                        closure_state: None,
-                        is_async: true,
-                        is_resolved: false,
-                    });
-                    continue;
-                }
+            if !self.event_loop.is_empty()
+                && let Some(task) = self.event_loop.tick()
+            {
+                // Convert EventLoop Task to VM pending task
+                self.pending_tasks.push(AsyncTask {
+                    promise_id: task.promise_id.unwrap_or(0),
+                    value: Value::Null,
+                    callee: Some(task.callback),
+                    args: Some(task.args),
+                    closure_state: None,
+                    is_async: true,
+                    is_resolved: false,
+                });
+                continue;
             }
 
             // 5. If no frames, no pending tasks, and event loop empty -> Done
