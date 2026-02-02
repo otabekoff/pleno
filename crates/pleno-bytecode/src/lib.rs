@@ -161,6 +161,7 @@ pub struct Chunk {
     pub spans: Vec<Span>,
     pub max_registers: usize,
     pub module_name: Option<String>,
+    pub lines: Vec<u32>,
 }
 
 impl Default for Chunk {
@@ -178,6 +179,7 @@ impl Chunk {
             spans: Vec::new(),
             max_registers: 0,
             module_name: None,
+            lines: Vec::new(),
         }
     }
 }
