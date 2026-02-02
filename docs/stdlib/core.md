@@ -1,11 +1,13 @@
-# core
+# std:core
 
 ## Contents
 
-- [ResultOk](#resultok)
-- [ResultErr](#resulterr)
-- [OptionSome](#optionsome)
-- [OptionNone](#optionnone)
+- [std:core](#stdcore)
+  - [Contents](#contents)
+  - [ResultOk](#resultok)
+  - [ResultErr](#resulterr)
+  - [OptionSome](#optionsome)
+  - [OptionNone](#optionnone)
 
 ## ResultOk
 
@@ -38,4 +40,3 @@ fn OptionNone<T>()
 ```
 
 ---
-

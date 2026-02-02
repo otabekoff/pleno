@@ -1,4 +1,4 @@
-# benchmark
+# std:benchmark
 
 ## Contents
 
@@ -17,4 +17,3 @@ class Benchmark
 #### `static` `fn measure(func)`
 
 ---
-

@@ -1,4 +1,4 @@
-# time
+# std:time
 
 ## Contents
 
@@ -8,7 +8,7 @@
 ## DateTime
 
 ```pleno
-class DateTime
+import { DateTime, Duration } from "std:time";
 ```
 
 ### Fields
@@ -62,4 +62,3 @@ class Duration
 #### `fn getSeconds() -> Int`
 
 ---
-

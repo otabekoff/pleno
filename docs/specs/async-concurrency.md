@@ -68,8 +68,10 @@ let result2 = await task2;
 ### 9.4 Channels (Message Passing)
 
 ```pleno
+import { Channel, spawn } from "std:concurrency";
+
 // Create channel
-let channel = Channel<Int>();
+let channel = Channel(10);
 
 // Send to channel
 spawn(fn() => {

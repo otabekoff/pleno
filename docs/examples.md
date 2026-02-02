@@ -5,6 +5,7 @@ Specification implementations demonstrating common Pleno patterns.
 ## Basic
 
 ### Hello World
+
 [`examples/hello_world.pln`](https://github.com/otabekoff/pleno/blob/main/examples/hello_world.pln)
 
 ```pleno
@@ -18,14 +19,16 @@ main();
 ## Web Server
 
 ### HTTP Server
+
 [`examples/http_server.pln`](https://github.com/otabekoff/pleno/blob/main/examples/http_server.pln)
 
 A simple REST API using `std:http`.
 
 ```pleno
-import { Server, Router } from "std:http";
+import { HTTP } from "std:http";
+import { JSON } from "std:json";
 
-let router = Router();
+let router = HTTP.Router();
 
 router.get("/", fn(req, res) {
     res.send("Hello, Pleno!");
@@ -42,7 +45,7 @@ router.post("/users", fn(req, res) {
     res.status(201).json(user);
 });
 
-let server = Server(router);
+let server = HTTP.Server(router);
 server.listen(8080, fn() {
     print("Server running on port 8080");
 });
@@ -51,6 +54,7 @@ server.listen(8080, fn() {
 ## CLI Applications
 
 ### Todo Manager
+
 [`examples/todo_app.pln`](https://github.com/otabekoff/pleno/blob/main/examples/todo_app.pln)
 
 A complete command-line interface for managing tasks, demonstrating file I/O, JSON handling, and classes.
@@ -62,32 +66,32 @@ import { JSON } from "std:json";
 class TodoManager {
     private todos;
     private file;
-    
+
     fn constructor() {
         this.todos = [];
         this.file = "todos.json";
         this.load();
     }
-    
+
     fn add(title: String) {
         let todo = Todo(title);
         this.todos.push(todo);
         this.save();
         print("Added: " + title);
     }
-    
+
     fn list() {
         if (this.todos.isEmpty()) {
             print("No todos yet!");
             return;
         }
-        
+
         for (index, todo in this.todos) {
             let status = todo.completed ? "[✓]" : "[ ]";
             print((index + 1) + ". " + status + " " + todo.title);
         }
     }
-    
+
     fn complete(index: Int) {
         if (index >= 0 && index < this.todos.length) {
             this.todos[index].completed = true;
@@ -95,7 +99,7 @@ class TodoManager {
             print("Completed: " + this.todos[index].title);
         }
     }
-    
+
     fn remove(index: Int) {
         if (index >= 0 && index < this.todos.length) {
             let removed = this.todos.remove(index);
@@ -103,11 +107,11 @@ class TodoManager {
             print("Removed: " + removed.title);
         }
     }
-    
+
     private fn save() {
         File.write(this.file, JSON.stringify(this.todos));
     }
-    
+
     private fn load() {
         if (File.exists(this.file)) {
             let content = File.read(this.file);
@@ -119,7 +123,7 @@ class TodoManager {
 class Todo {
     public title: String;
     public completed: Bool = false;
-    
+
     fn constructor(title: String) {
         this.title = title;
     }
@@ -127,12 +131,12 @@ class Todo {
 
 fn main(args: String[]) {
     let manager = TodoManager();
-    
+
     if (args.length == 0) {
         print("Usage: todo [add|list|complete|remove] ...");
         return;
     }
-    
+
     match (args[0]) {
         case "add" => {
             if (args.length > 1) {
@@ -187,11 +191,11 @@ async fn fetchMultiple() {
         "https://api.example.com/posts",
         "https://api.example.com/comments"
     ];
-    
+
     // Execute all requests concurrently
     let promises = urls.map(|url| => fetch(url));
     let responses = await Promise.all(promises);
-    
+
     for (response in responses) {
         print(await response.text());
     }
@@ -225,26 +229,27 @@ consumer(ch);
 
 ```pleno
 import { Mutex, spawn } from "std:concurrency";
+import { sleep } from "std:time";
 
-let counter = Mutex(0);
+let mutex = Mutex();
+let counter = 0;
 
 async fn increment(n: Int) {
     for (i in 0..n) {
-        let value = await counter.lock();
-        counter.set(value + 1);
+        await mutex.lock();
+        counter = counter + 1;
+        mutex.unlock();
     }
 }
 
 async fn main() {
-    let tasks = [
-        spawn increment(100),
-        spawn increment(100),
-        spawn increment(100)
-    ];
-    
-    await Promise.all(tasks);
-    let final = await counter.lock();
-    print("Final count: " + final.toString());  // Should be 300
+    spawn(fn() => increment(100));
+    spawn(fn() => increment(100));
+    spawn(fn() => increment(100));
+
+    // In a real app we'd wait for these, for now we just sleep
+    await sleep(500);
+    print("Final count: " + counter.toString());  // Should be 300
 }
 ```
 
@@ -255,9 +260,9 @@ async fn fetchWithTimeout(url: String, timeoutMs: Int) {
     let timeout = new Promise(fn(resolve, reject) {
         setTimeout(fn() { reject("Request timed out"); }, timeoutMs);
     });
-    
+
     let request = fetch(url);
-    
+
     return await Promise.race([request, timeout]);
 }
 
