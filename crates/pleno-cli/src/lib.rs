@@ -997,6 +997,25 @@ Thumbs.db
         fs::write(gitignore, content).expect("Failed to create .gitignore");
     }
 
+    // Create .editorconfig
+    let editorconfig = Path::new(".editorconfig");
+    if !editorconfig.exists() {
+        let content = r#"root = true
+
+[*]
+indent_style = space
+indent_size = 4
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+[*.{js,json,yml,yaml}]
+indent_size = 2
+"#;
+        fs::write(editorconfig, content).expect("Failed to create .editorconfig");
+    }
+
     if !readme.exists() {
         let content = format!(
             r#"# {}
