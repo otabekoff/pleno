@@ -2,6 +2,7 @@ use indexmap::IndexMap;
 use pleno_value::{
     ClosureState, MethodOwner, MultiWaiter, Value,
     gc::{GcObject, GcRc, MarkAndSweepGC},
+    nan_value::NanValue,
 };
 // use std::collections::HashMap;
 use std::rc::Rc;
@@ -80,6 +81,7 @@ impl GcObject for CallFrame {
             match owner {
                 MethodOwner::Class(class) => gc.mark_object(&class.to_gc_object()),
                 MethodOwner::Enum(enum_type) => gc.mark_object(&enum_type.to_gc_object()),
+                MethodOwner::Interface(interface) => gc.mark_object(&interface.to_gc_object()),
             }
         }
         for arg in &self.type_args {
@@ -89,7 +91,7 @@ impl GcObject for CallFrame {
 }
 
 pub struct VmRoots<'a> {
-    pub registers: &'a [Value],
+    pub registers: &'a [NanValue],
     pub frames: &'a [CallFrame],
     pub globals: &'a IndexMap<String, Value>,
     pub modules: &'a IndexMap<String, Value>,

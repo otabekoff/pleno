@@ -1,0 +1,133 @@
+    Checking pleno-optimizer v0.1.0 (/home/otabek/Projects/plang/pleno/crates/pleno-optimizer)
+    Checking pleno-compiler v0.1.0 (/home/otabek/Projects/plang/pleno/crates/pleno-compiler)
+    Checking pleno-vm v0.1.0 (/home/otabek/Projects/plang/pleno/crates/pleno-vm)
+    Checking pleno-package v0.1.0 (/home/otabek/Projects/plang/pleno/crates/pleno-package)
+error: redundant closure
+    --> crates/pleno-vm/src/lib.rs:1431:38
+     |
+1431 | ...                   .map(|key| key_to_value(key))
+     |                            ^^^^^^^^^^^^^^^^^^^^^^^ help: replace the closure with the function itself: `key_to_value`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#redundant_closure
+     = note: `-D clippy::redundant-closure` implied by `-D warnings`
+     = help: to override `-D warnings` add `#[allow(clippy::redundant_closure)]`
+
+error: this `if` statement can be collapsed
+    --> crates/pleno-vm/src/lib.rs:2476:37
+     |
+2476 | / ...                   if let Value::Object(obj) =
+2477 | | ...                       self.registers[frame.base].to_value()
+2478 | | ...                   {
+2479 | | ...                       if let Some(type_args) = &obj.borrow().type_args {
+...    |
+2484 | | ...                   }
+     | |_______________________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#collapsible_if
+     = note: `-D clippy::collapsible-if` implied by `-D warnings`
+     = help: to override `-D warnings` add `#[allow(clippy::collapsible_if)]`
+help: collapse nested if block
+     |
+2477 ~                                         self.registers[frame.base].to_value()
+2478 ~                                         && let Some(type_args) = &obj.borrow().type_args {
+2479 |                                             if i < type_args.len() {
+2480 |                                                 value = Some(type_args[i].clone());
+2481 |                                             }
+2482 ~                                         }
+     |
+
+error: this `if` statement can be collapsed
+    --> crates/pleno-vm/src/lib.rs:2479:41
+     |
+2479 | / ...                   if let Some(type_args) = &obj.borrow().type_args {
+2480 | | ...                       if i < type_args.len() {
+2481 | | ...                           value = Some(type_args[i].clone());
+2482 | | ...                       }
+2483 | | ...                   }
+     | |_______________________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#collapsible_if
+help: collapse nested if block
+     |
+2479 ~                                         if let Some(type_args) = &obj.borrow().type_args
+2480 ~                                             && i < type_args.len() {
+2481 |                                                 value = Some(type_args[i].clone());
+2482 ~                                             }
+     |
+
+error: casting to the same type is unnecessary (`usize` -> `usize`)
+    --> crates/pleno-vm/src/lib.rs:3361:33
+     |
+3361 |                     let index = c as usize;
+     |                                 ^^^^^^^^^^ help: try: `c`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#unnecessary_cast
+     = note: `-D clippy::unnecessary-cast` implied by `-D warnings`
+     = help: to override `-D warnings` add `#[allow(clippy::unnecessary_cast)]`
+
+error: this `if` statement can be collapsed
+    --> crates/pleno-vm/src/lib.rs:3697:21
+     |
+3697 | /                     if frame.base < self.registers.len() {
+3698 | |                         if let Value::Object(obj) = self.registers[frame.base].to_value() {
+3699 | |                             if let Some(type_args) = &obj.borrow().type_args {
+3700 | |                                 if i < type_args.len() {
+...    |
+3705 | |                     }
+     | |_____________________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#collapsible_if
+help: collapse nested if block
+     |
+3697 ~                     if frame.base < self.registers.len()
+3698 ~                         && let Value::Object(obj) = self.registers[frame.base].to_value() {
+3699 |                             if let Some(type_args) = &obj.borrow().type_args {
+ ...
+3703 |                             }
+3704 ~                         }
+     |
+
+error: this `if` statement can be collapsed
+    --> crates/pleno-vm/src/lib.rs:3698:25
+     |
+3698 | /                         if let Value::Object(obj) = self.registers[frame.base].to_value() {
+3699 | |                             if let Some(type_args) = &obj.borrow().type_args {
+3700 | |                                 if i < type_args.len() {
+3701 | |                                     return Some(type_args[i].clone());
+...    |
+3704 | |                         }
+     | |_________________________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#collapsible_if
+help: collapse nested if block
+     |
+3698 ~                         if let Value::Object(obj) = self.registers[frame.base].to_value()
+3699 ~                             && let Some(type_args) = &obj.borrow().type_args {
+3700 |                                 if i < type_args.len() {
+3701 |                                     return Some(type_args[i].clone());
+3702 |                                 }
+3703 ~                             }
+     |
+
+error: this `if` statement can be collapsed
+    --> crates/pleno-vm/src/lib.rs:3699:29
+     |
+3699 | / ...                   if let Some(type_args) = &obj.borrow().type_args {
+3700 | | ...                       if i < type_args.len() {
+3701 | | ...                           return Some(type_args[i].clone());
+3702 | | ...                       }
+3703 | | ...                   }
+     | |_______________________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#collapsible_if
+help: collapse nested if block
+     |
+3699 ~                             if let Some(type_args) = &obj.borrow().type_args
+3700 ~                                 && i < type_args.len() {
+3701 |                                     return Some(type_args[i].clone());
+3702 ~                                 }
+     |
+
+error: could not compile `pleno-vm` (lib test) due to 7 previous errors
+warning: build failed, waiting for other jobs to finish...
+error: could not compile `pleno-vm` (lib) due to 7 previous errors

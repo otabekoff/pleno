@@ -80,5 +80,8 @@
     },
     "[javascript]": {
         "editor.defaultFormatter": "esbenp.prettier-vscode"
+    },
+    "[pleno]": {
+        "editor.defaultFormatter": "pleno.pleno-language"
     }
 }
