@@ -1,0 +1,16 @@
+   Compiling pleno-stdlib v0.1.0 (/home/otabek/Projects/plang/pleno/crates/pleno-stdlib)
+   Compiling pleno-vm v0.1.0 (/home/otabek/Projects/plang/pleno/crates/pleno-vm)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 4.69s
+     Running tests/stdlib_crypto_test.rs (target/debug/deps/stdlib_crypto_test-d68b6b475a5020e3)
+
+running 4 tests
+test test_crypto_aes ... ok
+test test_crypto_hash ... ok
+test test_crypto_hmac ... ok
+test test_crypto_jwt ... Token: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjMiLCJuYW1lIjoiSm9obiBEb2UifQ.l-eCVLOhGjjjy7dy5373fzlZco53yriU_Hmyb9dKoT8
+Verified: {"name": John Doe, "sub": 123}
+Verified type: Map
+ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+

@@ -24,7 +24,7 @@ pub fn json_parse(
     convert_serde_to_value(vm, &serde_val)
 }
 
-fn convert_serde_to_value(
+pub(crate) fn convert_serde_to_value(
     vm: &mut dyn pleno_value::VMProvider,
     val: &serde_json::Value,
 ) -> Result<Value, pleno_value::RuntimeError> {
@@ -80,7 +80,7 @@ pub fn json_stringify(
     Ok(Value::String(Rc::new(s)))
 }
 
-fn value_to_json_string(val: &Value) -> Result<String, pleno_value::RuntimeError> {
+pub(crate) fn value_to_json_string(val: &Value) -> Result<String, pleno_value::RuntimeError> {
     match val {
         Value::Null => Ok("null".to_string()),
         Value::Bool(b) => Ok(b.to_string()),
