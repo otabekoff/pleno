@@ -6,6 +6,7 @@ Next actionable tasks. This is your real daily driver. Rule: If it’s in todo.m
 
 - [ ] Implement AST visitor
 - [x] Write tests for lexer
+- [ ] Fix: Enforce types on captured variable reassignment (Compiler `CaptureInfo` needs `ty`)
 
 ## Medium
 
