@@ -40,9 +40,9 @@ let neq = (v1 == v2);
 
     let tokens = lex(source).unwrap();
     let mut parser = Parser::new(tokens, source);
-    let program = parser.parse_program().unwrap();
+    let mut program = parser.parse_program().unwrap();
     let mut compiler = Compiler::new(source.to_string());
-    let chunk = compiler.compile(&program).unwrap();
+    let chunk = compiler.compile(&mut program).unwrap();
     let mut vm = VM::new();
     let result = vm.execute(chunk).unwrap();
 
@@ -83,9 +83,9 @@ val
 
     let tokens = lex(source).unwrap();
     let mut parser = Parser::new(tokens, source);
-    let program = parser.parse_program().unwrap();
+    let mut program = parser.parse_program().unwrap();
     let mut compiler = Compiler::new(source.to_string());
-    let chunk = compiler.compile(&program).unwrap();
+    let chunk = compiler.compile(&mut program).unwrap();
     let mut vm = VM::new();
     let result = vm.execute(chunk).unwrap();
 
@@ -109,9 +109,9 @@ let b2 = Box(20);
 
     let tokens = lex(source).unwrap();
     let mut parser = Parser::new(tokens, source);
-    let program = parser.parse_program().unwrap();
+    let mut program = parser.parse_program().unwrap();
     let mut compiler = Compiler::new(source.to_string());
-    let chunk = compiler.compile(&program).unwrap();
+    let chunk = compiler.compile(&mut program).unwrap();
     let mut vm = VM::new();
     let result = vm.execute(chunk).unwrap();
 

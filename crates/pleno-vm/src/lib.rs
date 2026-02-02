@@ -5416,12 +5416,12 @@ impl VM {
         })?;
         let tokens = pleno_lexer::lex(&source).map_err(|err| RuntimeError::new(err.message))?;
         let mut parser = pleno_parser::Parser::new(tokens, &source);
-        let program = parser
+        let mut program = parser
             .parse_program()
             .map_err(|err| RuntimeError::new(err.message))?;
         let mut compiler = pleno_compiler::Compiler::new(source);
         let chunk = compiler
-            .compile_module(&program)
+            .compile_module(&mut program)
             .map_err(|err| RuntimeError::new(err.diagnostic.message))?;
         let module_name = chunk
             .module_name

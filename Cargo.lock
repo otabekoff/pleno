@@ -1214,6 +1214,7 @@ dependencies = [
  "pleno-bytecode",
  "pleno-diagnostics",
  "pleno-lexer",
+ "pleno-optimizer",
  "pleno-parser",
  "pleno-value",
 ]
@@ -1270,6 +1271,19 @@ dependencies = [
  "pleno-linter",
  "pleno-parser",
  "serde_json",
+]
+
+[[package]]
+name = "pleno-optimizer"
+version = "0.1.0"
+dependencies = [
+ "indexmap",
+ "pleno-ast",
+ "pleno-common",
+ "pleno-lexer",
+ "pleno-parser",
+ "pleno-value",
+ "serde",
 ]
 
 [[package]]

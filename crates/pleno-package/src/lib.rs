@@ -858,13 +858,13 @@ impl PackageManager {
         let source = std::fs::read_to_string(&main_path)?;
         let tokens = lex(&source).map_err(|e| PackageError::LexError(format!("{:?}", e)))?;
         let mut parser = Parser::new(tokens, &source);
-        let program = parser
+        let mut program = parser
             .parse_program()
             .map_err(|e| PackageError::ParseError(format!("{:?}", e)))?;
 
         let mut compiler = Compiler::new(source);
         let chunk = compiler
-            .compile(&program)
+            .compile(&mut program)
             .map_err(|e| PackageError::CompileError(format!("{:?}", e)))?;
 
         let mut modules = HashMap::new();

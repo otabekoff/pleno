@@ -160,7 +160,8 @@ impl Compiler {
         CompileError { diagnostic }
     }
 
-    pub fn compile(&mut self, program: &Program) -> Result<Chunk, CompileError> {
+    pub fn compile(&mut self, program: &mut Program) -> Result<Chunk, CompileError> {
+        pleno_optimizer::optimize(program);
         self.module_mode = false;
         self.module_exports.clear();
         self.module_name = None;
@@ -190,7 +191,8 @@ impl Compiler {
         Ok(self.chunk.clone())
     }
 
-    pub fn compile_module(&mut self, program: &Program) -> Result<Chunk, CompileError> {
+    pub fn compile_module(&mut self, program: &mut Program) -> Result<Chunk, CompileError> {
+        pleno_optimizer::optimize(program);
         self.module_mode = true;
         self.module_exports.clear();
         self.module_name = None;

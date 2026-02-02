@@ -8,9 +8,9 @@ fn run_source(source: &str) -> Value {
     let _ = env_logger::builder().is_test(true).try_init();
     let tokens = lex(source).expect("Lexing failed");
     let mut parser = Parser::new(tokens, source);
-    let program = parser.parse_program().expect("Parsing failed");
+    let mut program = parser.parse_program().expect("Parsing failed");
     let mut compiler = Compiler::new(source.to_string());
-    let chunk = compiler.compile(&program).expect("Compilation failed");
+    let chunk = compiler.compile(&mut program).expect("Compilation failed");
     let mut vm = VM::new();
     pleno_stdlib::register(&mut vm);
     vm.execute(chunk).expect("Execution failed")

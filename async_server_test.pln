@@ -1,0 +1,31 @@
+import * as http from "std:http";
+import * as time from "std:time";
+
+print("Starting async server test...");
+
+const router = http.Router();
+
+router.get("/", (req, res) => {
+    print("Received request for /");
+    return {
+        status: 200,
+        body: "Hello Async World!"
+    };
+});
+
+const server = http.Server(router);
+
+// Start listening - this should be NON-BLOCKING now
+server.listen(8080);
+
+print("This line should print IMMEDIATELY after listen()!");
+
+for (let i = 0; i < 5; i++) {
+    print("VM is still working... counter=${i}");
+    await time.sleep(500);
+}
+
+print("Server is still running. You can try: curl http://localhost:8080");
+print("Waiting for 10 seconds...");
+await time.sleep(10000);
+print("Test finished.");

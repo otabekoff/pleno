@@ -26,6 +26,7 @@ pleno-package = { path = "crates/pleno-package" }
 pleno-stdlib = { path = "crates/pleno-stdlib" }
 pleno-linter = { path = "crates/pleno-linter" }
 pleno-doc = { path = "crates/pleno-doc" }
+pleno-optimizer = { path = "crates/pleno-optimizer" }
 thiserror = "1"
 serde_json = "1"
 rustyline = "14"
