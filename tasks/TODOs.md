@@ -18,18 +18,14 @@ AI can do the things, and make the project work finally without errors. But whil
 
 AI model's generation exceeded the maximum output token limit like error might happen and couldn't do some works, or execution tool may have failed in some cases and some changes might not have been applied.
 
+---
+
 # QUESTIONS
 - To make this programming language very stable what we need to do?
 - To make this programming language complete what we need to do?
 - To make this programming language all platforms supported and very good tooling what we need to do?
 
 Now it is time to renew/fefresh the specs.md with what our programming language has and can do.
-
----
-
-Review CODE_OF_CONDUCT, CONTRIBUTING, LICENSE, SECURITY markdown fiels too. We need ARCHITECTURE and such files too.
-
-Also update README.dev.md.
 
 ---
 
@@ -40,3 +36,5 @@ Now, as we have finished v1 of the Pleno programming langguage, I want you to fu
 Via Claude AI generate V2 specs. Upgrades/updates/news/critical and breakign changes, new features, inclrementals, bugfixing, avoiding inconsistencies and more. Instead of fixing the real problems, or being lazy to implement and refactor, AI just might wanted to lie or be lazy or be tricky and just satisfied error and warning linters and compiler. So, let's find them and actually fix those parts.
 
 ---
+
+Have `main` branch clean and working and best look. Have `dev` branch for everything for development. And make the project manageable with branches, write about this in README.dev.md file and needed files too. Use and make the best practices.

@@ -76,6 +76,7 @@ pleno run hello.pln
 ## 📖 Documentation
 
 - [Language Specification](specs.md)
+- [Architecture](ARCHITECTURE.md)
 - [Roadmap](ROADMAP.md)
 - [Contributing](CONTRIBUTING.md)
 - [Development Guide](README.dev.md)
