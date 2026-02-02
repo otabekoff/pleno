@@ -1486,7 +1486,7 @@ with (file = File.open("data.txt", FileMode.Read)) {
 }  // Automatically closed
 ```
 
-### 13.4 Directory Operations
+### 13.4 Directory Operations ✅
 
 ```pleno
 import { Directory } from "std:io";
@@ -1494,16 +1494,17 @@ import { Directory } from "std:io";
 Directory.create("new_folder");
 Directory.exists("folder");
 Directory.delete("old_folder");
-Directory.list(".");              // List files and folders
-Directory.listFiles(".");         // List only files
-Directory.listDirectories(".");   // List only directories
+Directory.list_files(".");         // List only files
+Directory.list_directories(".");   // List only directories
 
 // Recursive operations
 Directory.createRecursive("path/to/nested/folder");
 Directory.deleteRecursive("folder_with_contents");
 ```
 
-### 13.5 JSON Handling
+### 13.5 JSON Handling ✅
+
+The `std:json` module provides a standardized `JSON` object for serialization.
 
 ```pleno
 import { JSON } from "std:json";
@@ -1516,19 +1517,18 @@ print(data.name);  // "Alice"
 let obj = { name: "Bob", age: 25, active: true };
 let jsonStr = JSON.stringify(obj);
 // '{"name":"Bob","age":25,"active":true}'
-
-// Pretty print
-let prettyJson = JSON.stringify(obj, indent: 2);
 ```
 
-### 13.6 HTTP Client
+### 13.6 HTTP Client ✅
+
+The `std:http` module provides a namespaced `HTTP` object for web operations.
 
 ```pleno
-import { Http } from "std:http";
+import { HTTP } from "std:http";
 
 // GET request
 async fn fetchData() {
-    let response = await Http.get("https://api.example.com/data");
+    let response = await HTTP.get("https://api.example.com/data");
 
     if (response.status == 200) {
         let data = JSON.parse(response.body);
@@ -1540,7 +1540,7 @@ async fn fetchData() {
 
 // POST request
 async fn createUser(user: User) {
-    let response = await Http.post(
+    let response = await HTTP.post(
         "https://api.example.com/users",
         body: JSON.stringify(user),
         headers: {
@@ -1552,9 +1552,9 @@ async fn createUser(user: User) {
 }
 
 // Other methods
-await Http.put(url, body: data);
-await Http.delete(url);
-await Http.patch(url, body: data);
+await HTTP.put(url, body: data);
+await HTTP.delete(url);
+await HTTP.patch(url, body: data);
 ```
 
 ### 13.7 Date & Time ✅
@@ -1799,6 +1799,8 @@ set.iterator();           // Get iterator
 ## 14. Advanced Features ✅
 
 ### 14.1 Reflection & Metaprogramming ✅
+
+The `std:reflect` module provides metadata and dynamic access to objects.
 
 ```pleno
 import { Reflect } from "std:reflect";

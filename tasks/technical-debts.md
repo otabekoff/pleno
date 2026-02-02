@@ -6,9 +6,7 @@
   - _Decision Required_: Standardize on one approach. Preferred: `std:` modules for everything, with `.pln` wrappers only if they add value (like class-based APIs).
 - [ ] **Naming Inconsistency**: Mix of `__native_` prefixed and unprefixed names in the global scope.
 
-## Missing Documentation
-
-- [ ] **Module Specs**: `specs.md` is missing details for:
+## Missing Documentat- [ ] **Module Specs**: `specs.md` is missing details for:
   - `std:reflect`
   - `std:security` (Sandbox)
   - `std:gc`
