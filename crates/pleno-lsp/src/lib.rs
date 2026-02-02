@@ -254,7 +254,10 @@ pub fn start() -> io::Result<()> {
                             },
                             "callHierarchyProvider": true,
                             "referencesProvider": true,
-                            "renameProvider": true
+                            "renameProvider": true,
+                            "signatureHelpProvider": {
+                                "triggerCharacters": ["(", ","]
+                            }
                         }
                     }
                 });
@@ -537,6 +540,59 @@ pub fn start() -> io::Result<()> {
                         "result": {
                             "changes": changes
                         }
+                    });
+                    write_message(&mut stdout, &resp)?;
+                }
+            }
+            "textDocument/signatureHelp" => {
+                let id = value.get("id").cloned().unwrap_or(Value::Null);
+                if let Some(params) = value.get("params") {
+                    let uri_str = params
+                        .get("textDocument")
+                        .and_then(|t| t.get("uri").and_then(|v| v.as_str()))
+                        .unwrap_or_default();
+                    let pos_json = params.get("position");
+
+                    let mut result = Value::Null;
+                    let state = state_clone.lock().unwrap();
+
+                    if let Some(text) = state.documents.get(uri_str).cloned()
+                        && let Some(pos_val) = pos_json
+                    {
+                        let line = pos_val.get("line").and_then(|l| l.as_u64()).unwrap_or(0) as u32;
+                        let char = pos_val
+                            .get("character")
+                            .and_then(|c| c.as_u64())
+                            .unwrap_or(0) as u32;
+
+                        if let Some((name, active_param)) = get_signature_context(&text, line, char)
+                        {
+                            // Find definition in index to get the signature string
+                            for symbols in state.index.values() {
+                                if let Some(sym) = symbols.iter().find(|s| s.name == name)
+                                    && let Some(detail) = &sym.detail
+                                {
+                                    // Found it!
+                                    result = json!({
+                                        "signatures": [
+                                            {
+                                                "label": detail,
+                                                "parameters": [] // Optional: parse detail for parameter ranges
+                                            }
+                                        ],
+                                        "activeSignature": 0,
+                                        "activeParameter": active_param
+                                    });
+                                    break;
+                                }
+                            }
+                        }
+                    }
+
+                    let resp = json!({
+                        "jsonrpc": "2.0",
+                        "id": id,
+                        "result": result
                     });
                     write_message(&mut stdout, &resp)?;
                 }
@@ -1206,10 +1262,13 @@ fn extract_symbols(program: &Program, file_path: &Path) -> Vec<Symbol> {
 
     for stmt in &program.statements {
         match &stmt.kind {
-            StmtKind::Fn {
-                name, params: _, ..
-            } => {
-                let detail = format!("fn {}(...)", name);
+            StmtKind::Fn { name, params, .. } => {
+                let params_str = params
+                    .iter()
+                    .map(|p| format!("{}: {}", p.name, p.ty.as_deref().unwrap_or("Any")))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                let detail = format!("fn {}({})", name, params_str);
                 symbols.push(Symbol {
                     name: name.clone(),
                     kind: SymbolKind::Function,
@@ -1229,7 +1288,13 @@ fn extract_symbols(program: &Program, file_path: &Path) -> Vec<Symbol> {
 
                 // Index methods
                 for method in methods {
-                    let detail = format!("method {}(...)", method.name);
+                    let params_str = method
+                        .params
+                        .iter()
+                        .map(|p| format!("{}: {}", p.name, p.ty.as_deref().unwrap_or("Any")))
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    let detail = format!("method {}({})", method.name, params_str);
                     class_children.push(Symbol {
                         name: method.name.clone(),
                         kind: SymbolKind::Method,
@@ -1590,6 +1655,60 @@ fn get_word_at_position(source: &str, line: u32, character: u32) -> Option<Strin
     } else {
         None
     }
+}
+
+fn get_signature_context(source: &str, line: u32, character: u32) -> Option<(String, usize)> {
+    let lines: Vec<&str> = source.lines().collect();
+    if line as usize >= lines.len() {
+        return None;
+    }
+    let current_line = lines[line as usize];
+    if character as usize > current_line.len() {
+        return None;
+    }
+
+    let mut paren_count = 0;
+    let mut comma_count = 0;
+    let mut found_open_paren = false;
+    let mut paren_pos = 0;
+
+    let search_part = &current_line[..character as usize];
+    for (i, ch) in search_part.char_indices().rev() {
+        match ch {
+            ',' if paren_count == 0 => comma_count += 1,
+            ')' => paren_count += 1,
+            '(' => {
+                if paren_count == 0 {
+                    found_open_paren = true;
+                    paren_pos = i;
+                    break;
+                } else {
+                    paren_count -= 1;
+                }
+            }
+            _ => {}
+        }
+    }
+
+    if found_open_paren {
+        // Find identifier before '('
+        let before_paren = &current_line[..paren_pos];
+        let trimmed_before = before_paren.trim_end();
+        let mut id_start = trimmed_before.len();
+        for (i, ch) in trimmed_before.char_indices().rev() {
+            if ch.is_alphanumeric() || ch == '_' {
+                id_start = i;
+            } else {
+                break;
+            }
+        }
+        if id_start < trimmed_before.len() {
+            let name = trimmed_before[id_start..].to_string();
+            return Some((name, comma_count));
+        }
+    }
+
+    None
 }
 
 // Very basic URI to Path conversion (Windows/Unix support)
