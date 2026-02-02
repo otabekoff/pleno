@@ -2472,6 +2472,14 @@ impl VM {
                 Opcode::GetIndex => {
                     let collection = self.registers[base + b].clone();
                     let index = self.registers[base + c].clone();
+                    if self.try_dispatch_operator(
+                        base + a,
+                        "[]",
+                        &collection,
+                        std::slice::from_ref(&index),
+                    )? {
+                        continue;
+                    }
                     let result = match (collection, index) {
                         (Value::Array(array), Value::Int(idx)) => {
                             let idx = idx as usize;
@@ -2551,6 +2559,16 @@ impl VM {
                     let value = self.registers[base + a].clone();
                     let collection = self.registers[base + b].clone();
                     let index = self.registers[base + c].clone();
+
+                    if self.try_dispatch_operator(
+                        base + a,
+                        "[]=",
+                        &collection,
+                        &[index.clone(), value.clone()],
+                    )? {
+                        continue;
+                    }
+
                     match (collection, index) {
                         (Value::Array(array), Value::Int(idx)) => {
                             if array.borrow().is_immutable {
@@ -2581,29 +2599,12 @@ impl VM {
                 Opcode::Add => {
                     let left = self.registers[base + b].clone();
                     let right = self.registers[base + c].clone();
-                    // Check for operator overloading on Object
-                    if let Some(op_info) = match &left {
-                        Value::Object(obj) => obj
-                            .borrow()
-                            .class
-                            .as_ref()
-                            .and_then(|c| c.borrow().operators.get("+").cloned()),
-                        _ => None,
-                    } {
-                        self.call_function(
-                            op_info.function.clone(),
-                            Some(pleno_value::Value::Object(match &left {
-                                Value::Object(o) => o.clone(),
-                                _ => unreachable!(),
-                            })),
-                            &[right],
-                            base + a,
-                            false,
-                            CallOptions {
-                                current_owner: Some(op_info.owner.clone()),
-                                ..Default::default()
-                            },
-                        )?;
+                    if self.try_dispatch_operator(
+                        base + a,
+                        "+",
+                        &left,
+                        std::slice::from_ref(&right),
+                    )? {
                         continue;
                     }
                     self.registers[base + a] = add_values(self, left, right)?;
@@ -2611,29 +2612,12 @@ impl VM {
                 Opcode::Sub => {
                     let left = self.registers[base + b].clone();
                     let right = self.registers[base + c].clone();
-                    // Check for operator overloading on Object
-                    if let Some(op_info) = match &left {
-                        Value::Object(obj) => obj
-                            .borrow()
-                            .class
-                            .as_ref()
-                            .and_then(|c| c.borrow().operators.get("-").cloned()),
-                        _ => None,
-                    } {
-                        self.call_function(
-                            op_info.function.clone(),
-                            Some(Value::Object(match &left {
-                                Value::Object(o) => o.clone(),
-                                _ => unreachable!(),
-                            })),
-                            &[right],
-                            base + a,
-                            false,
-                            CallOptions {
-                                current_owner: Some(op_info.owner.clone()),
-                                ..Default::default()
-                            },
-                        )?;
+                    if self.try_dispatch_operator(
+                        base + a,
+                        "-",
+                        &left,
+                        std::slice::from_ref(&right),
+                    )? {
                         continue;
                     }
                     self.registers[base + a] = sub_values(left, right)?;
@@ -2641,29 +2625,12 @@ impl VM {
                 Opcode::Mul => {
                     let left = self.registers[base + b].clone();
                     let right = self.registers[base + c].clone();
-                    // Check for operator overloading on Object
-                    if let Some(op_info) = match &left {
-                        Value::Object(obj) => obj
-                            .borrow()
-                            .class
-                            .as_ref()
-                            .and_then(|c| c.borrow().operators.get("*").cloned()),
-                        _ => None,
-                    } {
-                        self.call_function(
-                            op_info.function.clone(),
-                            Some(Value::Object(match &left {
-                                Value::Object(o) => o.clone(),
-                                _ => unreachable!(),
-                            })),
-                            &[right],
-                            base + a,
-                            false,
-                            CallOptions {
-                                current_owner: Some(op_info.owner.clone()),
-                                ..Default::default()
-                            },
-                        )?;
+                    if self.try_dispatch_operator(
+                        base + a,
+                        "*",
+                        &left,
+                        std::slice::from_ref(&right),
+                    )? {
                         continue;
                     }
                     self.registers[base + a] = mul_values(left, right)?;
@@ -2671,29 +2638,12 @@ impl VM {
                 Opcode::Div => {
                     let left = self.registers[base + b].clone();
                     let right = self.registers[base + c].clone();
-                    // Check for operator overloading on Object
-                    if let Some(op_info) = match &left {
-                        Value::Object(obj) => obj
-                            .borrow()
-                            .class
-                            .as_ref()
-                            .and_then(|c| c.borrow().operators.get("/").cloned()),
-                        _ => None,
-                    } {
-                        self.call_function(
-                            op_info.function.clone(),
-                            Some(Value::Object(match &left {
-                                Value::Object(o) => o.clone(),
-                                _ => unreachable!(),
-                            })),
-                            &[right],
-                            base + a,
-                            false,
-                            CallOptions {
-                                current_owner: Some(op_info.owner.clone()),
-                                ..Default::default()
-                            },
-                        )?;
+                    if self.try_dispatch_operator(
+                        base + a,
+                        "/",
+                        &left,
+                        std::slice::from_ref(&right),
+                    )? {
                         continue;
                     }
                     self.registers[base + a] = div_values(left, right)?;
@@ -2701,39 +2651,28 @@ impl VM {
                 Opcode::Mod => {
                     let left = self.registers[base + b].clone();
                     let right = self.registers[base + c].clone();
-                    // Check for operator overloading on Object
-                    if let Some(op_info) = match &left {
-                        Value::Object(obj) => obj
-                            .borrow()
-                            .class
-                            .as_ref()
-                            .and_then(|c| c.borrow().operators.get("%").cloned()),
-                        _ => None,
-                    } {
-                        self.call_function(
-                            op_info.function.clone(),
-                            Some(Value::Object(match &left {
-                                Value::Object(o) => o.clone(),
-                                _ => unreachable!(),
-                            })),
-                            &[right],
-                            base + a,
-                            false,
-                            CallOptions {
-                                current_owner: Some(op_info.owner.clone()),
-                                ..Default::default()
-                            },
-                        )?;
+                    if self.try_dispatch_operator(
+                        base + a,
+                        "%",
+                        &left,
+                        std::slice::from_ref(&right),
+                    )? {
                         continue;
                     }
                     self.registers[base + a] = mod_values(left, right)?;
                 }
                 Opcode::Neg => {
                     let value = self.registers[base + b].clone();
+                    if self.try_dispatch_operator(base + a, "-", &value, &[])? {
+                        continue;
+                    }
                     self.registers[base + a] = neg_value(value)?;
                 }
                 Opcode::Not => {
                     let value = self.registers[base + b].clone();
+                    if self.try_dispatch_operator(base + a, "!", &value, &[])? {
+                        continue;
+                    }
                     self.registers[base + a] = Value::Bool(!is_truthy(&value));
                 }
                 Opcode::And => {
@@ -2749,29 +2688,12 @@ impl VM {
                 Opcode::Eq => {
                     let left = self.registers[base + b].clone();
                     let right = self.registers[base + c].clone();
-                    // Check for operator overloading on Object
-                    if let Some(op_info) = match &left {
-                        Value::Object(obj) => obj
-                            .borrow()
-                            .class
-                            .as_ref()
-                            .and_then(|c| c.borrow().operators.get("==").cloned()),
-                        _ => None,
-                    } {
-                        self.call_function(
-                            op_info.function.clone(),
-                            Some(Value::Object(match &left {
-                                Value::Object(o) => o.clone(),
-                                _ => unreachable!(),
-                            })),
-                            &[right],
-                            base + a,
-                            false,
-                            CallOptions {
-                                current_owner: Some(op_info.owner.clone()),
-                                ..Default::default()
-                            },
-                        )?;
+                    if self.try_dispatch_operator(
+                        base + a,
+                        "==",
+                        &left,
+                        std::slice::from_ref(&right),
+                    )? {
                         continue;
                     }
                     self.registers[base + a] = Value::Bool(left == right);
@@ -2779,29 +2701,12 @@ impl VM {
                 Opcode::Ne => {
                     let left = self.registers[base + b].clone();
                     let right = self.registers[base + c].clone();
-                    // Check for operator overloading on Object
-                    if let Some(op_info) = match &left {
-                        Value::Object(obj) => obj
-                            .borrow()
-                            .class
-                            .as_ref()
-                            .and_then(|c| c.borrow().operators.get("!=").cloned()),
-                        _ => None,
-                    } {
-                        self.call_function(
-                            op_info.function.clone(),
-                            Some(Value::Object(match &left {
-                                Value::Object(o) => o.clone(),
-                                _ => unreachable!(),
-                            })),
-                            &[right],
-                            base + a,
-                            false,
-                            CallOptions {
-                                current_owner: Some(op_info.owner.clone()),
-                                ..Default::default()
-                            },
-                        )?;
+                    if self.try_dispatch_operator(
+                        base + a,
+                        "!=",
+                        &left,
+                        std::slice::from_ref(&right),
+                    )? {
                         continue;
                     }
                     self.registers[base + a] = Value::Bool(left != right);
@@ -2809,6 +2714,21 @@ impl VM {
                 Opcode::Lt | Opcode::Le | Opcode::Gt | Opcode::Ge => {
                     let left = self.registers[base + b].clone();
                     let right = self.registers[base + c].clone();
+                    let op_str = match opcode {
+                        Opcode::Lt => "<",
+                        Opcode::Le => "<=",
+                        Opcode::Gt => ">",
+                        Opcode::Ge => ">=",
+                        _ => unreachable!(),
+                    };
+                    if self.try_dispatch_operator(
+                        base + a,
+                        op_str,
+                        &left,
+                        std::slice::from_ref(&right),
+                    )? {
+                        continue;
+                    }
                     let result = compare_values(opcode, left, right)?;
                     self.registers[base + a] = Value::Bool(result);
                 }
@@ -4665,6 +4585,38 @@ impl VM {
             },
             _ => false,
         }
+    }
+
+    fn try_dispatch_operator(
+        &mut self,
+        target_reg: usize,
+        op: &str,
+        left: &Value,
+        args: &[Value],
+    ) -> Result<bool, RuntimeError> {
+        if let Value::Object(obj) = left {
+            let op_info = obj
+                .borrow()
+                .class
+                .as_ref()
+                .and_then(|c| c.borrow().operators.get(op).cloned());
+
+            if let Some(op_info) = op_info {
+                self.call_function(
+                    op_info.function.clone(),
+                    Some(left.clone()),
+                    args,
+                    target_reg,
+                    false,
+                    CallOptions {
+                        current_owner: Some(op_info.owner.clone()),
+                        ..Default::default()
+                    },
+                )?;
+                return Ok(true);
+            }
+        }
+        Ok(false)
     }
 
     fn call_function(

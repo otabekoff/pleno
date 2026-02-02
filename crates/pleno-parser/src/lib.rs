@@ -1607,7 +1607,11 @@ impl Parser {
                     TokenKind::LBracket => {
                         self.advance();
                         self.expect(TokenKind::RBracket, "Expected ']' after '[' in operator")?;
-                        "[]".to_string()
+                        if self.matches(&TokenKind::Equal) {
+                            "[]=".to_string()
+                        } else {
+                            "[]".to_string()
+                        }
                     }
                     other => {
                         return Err(self.error(
