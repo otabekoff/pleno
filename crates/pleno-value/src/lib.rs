@@ -1,6 +1,6 @@
 pub mod gc;
 
-use gc::{GcObject, GcRc, MarkAndSweepGC};
+pub use gc::{GcObject, GcRc, MarkAndSweepGC};
 use indexmap::{IndexMap, IndexSet};
 use serde::ser::SerializeStruct;
 use serde::{Deserialize, Serialize};
@@ -30,6 +30,18 @@ pub trait VMProvider {
     fn register_global(&mut self, name: String, value: Value);
     fn set_builtin_resolver(&mut self, resolver: fn(&str, &str) -> Option<NativeFunction>);
     fn add_timer(&mut self, delay_ms: u64, callback: Value, args: Vec<Value>) -> u64;
+    fn register_io(
+        &mut self,
+        source: &mut dyn mio::event::Source,
+        interest: mio::Interest,
+        callback: Value,
+        persistent: bool,
+    ) -> Result<mio::Token, RuntimeError>;
+    fn unregister_io(
+        &mut self,
+        source: &mut dyn mio::event::Source,
+        token: mio::Token,
+    ) -> Result<(), RuntimeError>;
     fn check_is_instance(&self, value: &Value, type_val: &Value) -> bool;
     fn get_named_args(&self) -> &IndexMap<String, Value>;
     fn is_io_allowed(&self) -> bool {
@@ -200,6 +212,8 @@ pub enum Value {
         type_args: Vec<Value>,
     },
     File(GcRc<FileState>),
+    Database(GcRc<DatabaseState>),
+    Resource(GcRc<NativeResource>),
     Cell(GcRc<CellState>),
     Char(char),
 }
@@ -282,6 +296,8 @@ impl Value {
             Value::BoundInterface { .. } => "Interface",
             Value::BoundFunction { .. } => "Function",
             Value::File(_) => "File",
+            Value::Database(_) => "Database",
+            Value::Resource(_) => "Resource",
             Value::Char(_) => "Char",
         }
     }
@@ -360,6 +376,120 @@ impl<'de> Deserialize<'de> for FileState {
     }
 }
 
+pub struct DatabaseState {
+    pub inner: RefCell<Option<Box<dyn std::any::Any>>>, // Boxed connection (rusqlite::Connection)
+    pub connection_string: String,
+    pub driver: String,
+}
+
+impl DatabaseState {
+    pub fn new(driver: String, connection_string: String) -> Self {
+        Self {
+            inner: RefCell::new(None),
+            connection_string,
+            driver,
+        }
+    }
+}
+
+impl std::fmt::Debug for DatabaseState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "DatabaseState({{ driver: {}, connection_string: {} }})",
+            self.driver, self.connection_string
+        )
+    }
+}
+
+impl Serialize for DatabaseState {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let mut state = serializer.serialize_struct("DatabaseState", 2)?;
+        state.serialize_field("driver", &self.driver)?;
+        state.serialize_field("connection_string", &self.connection_string)?;
+        state.end()
+    }
+}
+
+impl<'de> Deserialize<'de> for DatabaseState {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        struct DatabaseStateData {
+            driver: String,
+            connection_string: String,
+        }
+        let data = DatabaseStateData::deserialize(deserializer)?;
+        Ok(DatabaseState {
+            inner: RefCell::new(None),
+            driver: data.driver,
+            connection_string: data.connection_string,
+        })
+    }
+}
+
+pub struct NativeResource {
+    pub inner: RefCell<Option<Box<dyn std::any::Any>>>,
+    pub name: String,
+}
+
+impl NativeResource {
+    pub fn new(name: String, resource: Box<dyn std::any::Any>) -> Self {
+        Self {
+            inner: RefCell::new(Some(resource)),
+            name,
+        }
+    }
+}
+
+impl std::fmt::Debug for NativeResource {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "NativeResource({{ name: {} }})", self.name)
+    }
+}
+
+impl Serialize for NativeResource {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        // We only serialize the name, internal handle is lost
+        let mut state = serializer.serialize_struct("NativeResource", 1)?;
+        state.serialize_field("name", &self.name)?;
+        state.end()
+    }
+}
+
+impl<'de> Deserialize<'de> for NativeResource {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        struct NativeResourceData {
+            name: String,
+        }
+        let data = NativeResourceData::deserialize(deserializer)?;
+        Ok(NativeResource {
+            inner: RefCell::new(None),
+            name: data.name,
+        })
+    }
+}
+
+impl GcObject for NativeResource {
+    fn mark(&self, _gc: &mut MarkAndSweepGC) {}
+}
+
+impl GcObject for DatabaseState {
+    fn mark(&self, _gc: &mut MarkAndSweepGC) {}
+}
+
 impl GcObject for FileState {
     fn mark(&self, _gc: &mut MarkAndSweepGC) {
         // No references to other values
@@ -431,6 +561,8 @@ impl GcObject for Value {
                 }
             }
             Value::File(f) => gc.mark_object(&f.to_gc_object()),
+            Value::Database(d) => gc.mark_object(&d.to_gc_object()),
+            Value::Resource(r) => gc.mark_object(&r.to_gc_object()),
             Value::Cell(c) => gc.mark_object(&c.to_gc_object()),
             Value::Char(_) => {}
             _ => {}
@@ -1134,6 +1266,13 @@ impl std::fmt::Display for Value {
                 write!(f, ">")
             }
             Value::Cell(val) => write!(f, "<cell {}>", val.borrow().value),
+            Value::Database(db) => write!(
+                f,
+                "<database {} ({})>",
+                db.borrow().driver,
+                db.borrow().connection_string
+            ),
+            Value::Resource(r) => write!(f, "<resource {}>", r.borrow().name),
         }
     }
 }

@@ -1,7 +1,6 @@
 use indexmap::IndexMap;
-use pleno_value::{MapState, NativeFunction, RuntimeError, VMProvider, Value};
-use std::io::{BufRead, BufReader, Write};
-use std::net::TcpListener;
+use pleno_value::{MapState, NativeFunction, NativeResource, RuntimeError, VMProvider, Value};
+use std::io::{BufRead, BufReader};
 use std::rc::Rc;
 
 // --- Client Methods ---
@@ -422,121 +421,172 @@ pub fn http_server_listen(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Val
         _ => return Err(RuntimeError::new("listen() expects port")),
     };
 
-    let router_ref = match this_server {
-        Value::Map(m) => m.borrow().entries.get("_router").cloned(),
-        _ => return Err(RuntimeError::new("Invalid Server object")),
-    };
-
-    let listener = TcpListener::bind(format!("0.0.0.0:{}", port))
+    let addr = format!("0.0.0.0:{}", port)
+        .parse()
+        .map_err(|e| RuntimeError::new(format!("Invalid address: {}", e)))?;
+    let listener = mio::net::TcpListener::bind(addr)
         .map_err(|e| RuntimeError::new(format!("Bind failed: {}", e)))?;
+
     println!("Server listening on http://0.0.0.0:{}", port);
 
     // Call callback if provided
     if let Some(cb) = args.get(2) {
         if let Value::Function(_) | Value::Closure(_) | Value::NativeFunction(_) = cb {
-            vm.call(cb.clone(), vec![])?; // Using generic call which is available on VMProvider
+            vm.call(cb.clone(), vec![])?;
         }
     }
 
-    // Blocking Loop
-    for stream in listener.incoming() {
-        match stream {
-            Ok(mut stream) => {
-                let mut reader = BufReader::new(
-                    stream
-                        .try_clone()
-                        .map_err(|e| RuntimeError::new(format!("{}", e)))?,
-                );
-                let mut request_line = String::new();
-                if reader.read_line(&mut request_line).is_err() || request_line.is_empty() {
-                    continue;
+    // Store listener to keep it alive
+    let gc = vm.get_gc();
+    let listener_res = Value::Resource(gc.allocate(NativeResource::new(
+        "http_listener".to_string(),
+        Box::new(listener),
+    ))?);
+
+    if let Value::Map(m) = this_server {
+        m.borrow_mut()
+            .entries
+            .insert("_listener".to_string(), listener_res);
+    }
+
+    // Register with event loop
+    // Since we need to borrow the listener to register it, we do it now.
+    // The listener_res in the map will keep it alive.
+
+    // We retrieve it back because we need a &mut reference for register_io
+    if let Value::Map(m) = this_server {
+        let listener_val = m.borrow().entries.get("_listener").cloned();
+        if let Some(Value::Resource(r)) = listener_val {
+            let mut state = r.borrow_mut();
+            if let Some(inner) = state.inner.get_mut().as_mut() {
+                if let Some(l) = inner.downcast_mut::<mio::net::TcpListener>() {
+                    vm.register_io(
+                        l,
+                        mio::Interest::READABLE,
+                        Value::BoundNativeMethod {
+                            receiver: Box::new(this_server.clone()),
+                            function: http_server_on_accept,
+                        },
+                        true,
+                    )?;
                 }
-
-                let parts: Vec<&str> = request_line.split_whitespace().collect();
-                if parts.len() < 2 {
-                    continue;
-                }
-                let method = parts[0];
-                let path = parts[1];
-
-                // Headers lookup (simplified)
-                loop {
-                    let mut line = String::new();
-                    if reader.read_line(&mut line).is_err() || line.trim().is_empty() {
-                        break;
-                    }
-                }
-
-                // Dispatch to Router
-                let mut handler = None;
-                if let Some(Value::Map(router)) = &router_ref {
-                    if let Some(Value::Map(routes_store)) = router.borrow().entries.get("_routes") {
-                        if let Some(Value::Map(method_routes)) =
-                            routes_store.borrow().entries.get(method)
-                        {
-                            handler = method_routes.borrow().entries.get(path).cloned();
-                        }
-                    }
-                }
-
-                let response = if let Some(h) = handler {
-                    // Invoke handler(req, res) -> res
-                    // Req/Res objects construction omitted for brevity, passing simple maps/strings for now or just calling handler
-                    // For V1 MVP, just call handler and expect it to return a Map { body, status } or String
-
-                    // Construct Request Map
-                    let gc = vm.get_gc();
-                    let mut req_data = IndexMap::new();
-                    req_data.insert(
-                        "method".to_string(),
-                        Value::String(Rc::new(method.to_string())),
-                    );
-                    req_data.insert("path".to_string(), Value::String(Rc::new(path.to_string())));
-                    let req = Value::Map(gc.allocate(MapState::new(req_data)).unwrap());
-
-                    // Construct Response Helper (Mock)
-                    // Ideally we pass a Response object with .json() etc.
-                    // Let's pass a generic Map for now
-                    let res_data = IndexMap::new();
-                    let res = Value::Map(gc.allocate(MapState::new(res_data)).unwrap());
-
-                    match vm.call(h, vec![req, res]) {
-                        Ok(val) => {
-                            // If returning map with "body", use it
-                            if let Value::Map(m) = val {
-                                let b = m.borrow();
-                                let body = b
-                                    .entries
-                                    .get("body")
-                                    .and_then(|v| v.as_str())
-                                    .unwrap_or("")
-                                    .to_string();
-                                let status = b
-                                    .entries
-                                    .get("status")
-                                    .and_then(|v| v.as_int())
-                                    .unwrap_or(200);
-                                format!("HTTP/1.1 {} OK\r\n\r\n{}", status, body)
-                            } else if let Value::String(s) = val {
-                                format!("HTTP/1.1 200 OK\r\n\r\n{}", s.as_str())
-                            } else {
-                                "HTTP/1.1 200 OK\r\n\r\n".to_string()
-                            }
-                        }
-                        Err(e) => format!(
-                            "HTTP/1.1 500 Internal Server Error\r\n\r\nError: {}",
-                            e.message
-                        ),
-                    }
-                } else {
-                    "HTTP/1.1 404 Not Found\r\n\r\nNot Found".to_string()
-                };
-
-                stream.write_all(response.as_bytes()).ok();
             }
-            Err(e) => eprintln!("Connection failed: {}", e),
         }
     }
 
     Ok(Value::Null)
+}
+
+pub fn http_server_on_accept(
+    vm: &mut dyn VMProvider,
+    args: &[Value],
+) -> Result<Value, RuntimeError> {
+    // args[0] = this (Server)
+    let this_server = &args[0];
+    let listener_val = match this_server {
+        Value::Map(m) => m.borrow().entries.get("_listener").cloned(),
+        _ => return Err(RuntimeError::new("on_accept: Invalid Server")),
+    };
+
+    let router_ref = match this_server {
+        Value::Map(m) => m.borrow().entries.get("_router").cloned(),
+        _ => return Err(RuntimeError::new("on_accept: Missing router")),
+    };
+
+    if let Some(Value::Resource(r)) = listener_val {
+        let mut state = r.borrow_mut();
+        if let Some(inner) = state.inner.get_mut().as_mut()
+            && let Some(listener) = inner.downcast_mut::<mio::net::TcpListener>()
+        {
+            while let Ok((mut stream, _)) = listener.accept() {
+                handle_request(vm, &mut stream, router_ref.as_ref())?;
+            }
+        }
+    }
+
+    Ok(Value::Null)
+}
+
+fn handle_request(
+    vm: &mut dyn VMProvider,
+    stream: &mut mio::net::TcpStream,
+    router_ref: Option<&Value>,
+) -> Result<(), RuntimeError> {
+    use std::io::Write;
+    let mut reader = BufReader::new(&mut *stream);
+    let mut request_line = String::new();
+    if reader.read_line(&mut request_line).is_err() || request_line.is_empty() {
+        return Ok(());
+    }
+
+    let parts: Vec<&str> = request_line.split_whitespace().collect();
+    if parts.len() < 2 {
+        return Ok(());
+    }
+    let method = parts[0];
+    let path = parts[1];
+
+    // Headers lookup (simplified)
+    loop {
+        let mut line = String::new();
+        if reader.read_line(&mut line).is_err() || line.trim().is_empty() {
+            break;
+        }
+    }
+
+    // Dispatch to Router
+    let mut handler = None;
+    if let Some(Value::Map(router)) = router_ref
+        && let Some(Value::Map(routes_store)) = router.borrow().entries.get("_routes")
+        && let Some(Value::Map(method_routes)) = routes_store.borrow().entries.get(method)
+    {
+        handler = method_routes.borrow().entries.get(path).cloned();
+    }
+
+    let response = if let Some(h) = handler {
+        let gc = vm.get_gc();
+        let mut req_data = IndexMap::new();
+        req_data.insert(
+            "method".to_string(),
+            Value::String(Rc::new(method.to_string())),
+        );
+        req_data.insert("path".to_string(), Value::String(Rc::new(path.to_string())));
+        let req = Value::Map(gc.allocate(MapState::new(req_data)).unwrap());
+
+        let res_data = IndexMap::new();
+        let res = Value::Map(gc.allocate(MapState::new(res_data)).unwrap());
+
+        match vm.call(h, vec![req, res]) {
+            Ok(val) => {
+                if let Value::Map(m) = val {
+                    let b = m.borrow();
+                    let body = b
+                        .entries
+                        .get("body")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
+                    let status = b
+                        .entries
+                        .get("status")
+                        .and_then(|v| v.as_int())
+                        .unwrap_or(200);
+                    format!("HTTP/1.1 {} OK\r\n\r\n{}", status, body)
+                } else if let Value::String(s) = val {
+                    format!("HTTP/1.1 200 OK\r\n\r\n{}", s.as_str())
+                } else {
+                    "HTTP/1.1 200 OK\r\n\r\n".to_string()
+                }
+            }
+            Err(e) => format!(
+                "HTTP/1.1 500 Internal Server Error\r\n\r\nError: {}",
+                e.message
+            ),
+        }
+    } else {
+        "HTTP/1.1 404 Not Found\r\n\r\nNot Found".to_string()
+    };
+
+    stream.write_all(response.as_bytes()).ok();
+    Ok(())
 }

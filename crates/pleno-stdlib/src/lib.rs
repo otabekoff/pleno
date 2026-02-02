@@ -3,6 +3,7 @@ pub mod builtins;
 pub mod concurrency;
 pub mod crypto;
 pub mod csv;
+pub mod db;
 pub mod dotenv;
 pub mod gc;
 pub mod http;
@@ -344,43 +345,6 @@ pub fn register(vm: &mut dyn VMProvider) {
         Value::Map(gc.allocate(MapState::new(math_module)).unwrap()),
     );
 
-    // std:http
-    let mut http_module = IndexMap::new();
-    let mut http_obj = IndexMap::new();
-    http_obj.insert("get".to_string(), Value::NativeFunction(http::http_get));
-    http_obj.insert("post".to_string(), Value::NativeFunction(http::http_post));
-    http_obj.insert("put".to_string(), Value::NativeFunction(http::http_put));
-    http_obj.insert("patch".to_string(), Value::NativeFunction(http::http_patch));
-    http_obj.insert(
-        "delete".to_string(),
-        Value::NativeFunction(http::http_delete),
-    );
-    http_obj.insert("head".to_string(), Value::NativeFunction(http::http_head));
-    http_obj.insert(
-        "options".to_string(),
-        Value::NativeFunction(http::http_options),
-    );
-    http_obj.insert(
-        "request".to_string(),
-        Value::NativeFunction(http::http_request),
-    );
-    http_obj.insert(
-        "Router".to_string(),
-        Value::NativeFunction(http::http_router),
-    );
-    http_obj.insert(
-        "Server".to_string(),
-        Value::NativeFunction(http::http_server),
-    );
-    http_module.insert(
-        "HTTP".to_string(),
-        Value::Map(gc.allocate(MapState::new(http_obj)).unwrap()),
-    );
-    modules.insert(
-        "std:http".to_string(),
-        Value::Map(gc.allocate(MapState::new(http_module)).unwrap()),
-    );
-
     // std:regex
     let mut regex_module = IndexMap::new();
     regex_module.insert(
@@ -715,6 +679,19 @@ pub fn register(vm: &mut dyn VMProvider) {
     modules.insert(
         "std:http".to_string(),
         Value::Map(gc.allocate(MapState::new(http_module)).unwrap()),
+    );
+
+    // std:db
+    let mut db_module = IndexMap::new();
+    let mut db_obj = IndexMap::new();
+    db_obj.insert("connect".to_string(), Value::NativeFunction(db::db_connect));
+    db_module.insert(
+        "Database".to_string(),
+        Value::Map(gc.allocate(MapState::new(db_obj)).unwrap()),
+    );
+    modules.insert(
+        "std:db".to_string(),
+        Value::Map(gc.allocate(MapState::new(db_module)).unwrap()),
     );
 
     // Register all in VM

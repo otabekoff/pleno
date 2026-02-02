@@ -692,28 +692,17 @@ impl Parser {
         // Try to parse C-style for or range for
         // If we see ';' immediately, it's C-style: for (; ...; ...)
         if self.check(&TokenKind::Semicolon) {
-            let res = self.parse_c_for_remainder(None, start_span)?;
-            if has_paren {
-                self.expect(TokenKind::RParen, "Expected ')' after 'for' loop")?;
-            }
+            let res = self.parse_c_for_remainder(None, has_paren, start_span)?;
             return Ok(res);
         }
-
         // If we see 'let', 'mut', or 'const', it might be C-style declaration
         // for (let i = 0; i < 10; i++)
         if self.check(&TokenKind::KeywordLet) {
-            let init_stmt = self.parse_let_declaration(true, None)?; // C-style loop variables are mutable
-            let res = self.parse_c_for_remainder(Some(Box::new(init_stmt)), start_span)?;
-            if has_paren {
-                self.expect(TokenKind::RParen, "Expected ')' after 'for' loop")?;
-            }
+            let init_stmt = self.parse_let_declaration(true, None)?;
+            let res =
+                self.parse_c_for_remainder(Some(Box::new(init_stmt)), has_paren, start_span)?;
             return Ok(res);
         }
-
-        // Handle mut i = 0 or const i = 0 if they don't use 'let' but are decls
-        // (Wait, in Pleno 'mut' and 'const' usually follow 'let' or are modifiers)
-        // Let's stick to 'let' for now as 'parse_let_declaration' handles 'let mut'
-        // If it's a raw assignment, it's an expression.
 
         // Otherwise, it could be range or C-style expression init
         // We peek ahead to see if 'in' exists before ';'
@@ -756,47 +745,35 @@ impl Parser {
                 break;
             }
 
-            self.expect(
-                TokenKind::KeywordIn,
-                "Expected 'in' after for loop variables",
-            )?;
+            self.expect(TokenKind::KeywordIn, "Expected 'in' in for loop")?;
             let iterable = self.parse_expr()?;
             if has_paren {
-                self.expect(TokenKind::RParen, "Expected ')' after 'for' loop")?;
+                self.expect(TokenKind::RParen, "Expected ')' after for loop")?;
             }
-            let body = self.parse_block_stmt()?;
-            return Ok(self.wrap_stmt(
+            let body = Box::new(self.parse_stmt()?);
+            Ok(self.wrap_stmt(
                 StmtKind::For {
                     label: None,
                     names,
                     iterable,
-                    body: Box::new(body),
+                    body,
                 },
                 start_span,
-            ));
-        }
-
-        let init = if !self.check(&TokenKind::Semicolon) {
-            Some(Box::new(Stmt {
-                kind: StmtKind::Expr(self.parse_expr()?),
-                span: self.previous_span(),
-                leading_blank_lines: 0,
-                trailing_comment: None,
-            }))
+            ))
         } else {
-            None
-        };
-
-        let res = self.parse_c_for_remainder(init, start_span)?;
-        if has_paren {
-            self.expect(TokenKind::RParen, "Expected ')' after 'for' loop")?;
+            let init = if self.check(&TokenKind::Semicolon) {
+                None
+            } else {
+                Some(Box::new(self.parse_expr_or_assign()?))
+            };
+            self.parse_c_for_remainder(init, has_paren, start_span)
         }
-        Ok(res)
     }
 
     fn parse_c_for_remainder(
         &mut self,
         init: Option<Box<Stmt>>,
+        has_paren: bool,
         start_span: Span,
     ) -> Result<Stmt, ParseError> {
         self.expect(
@@ -811,12 +788,15 @@ impl Parser {
         };
         self.expect(TokenKind::Semicolon, "Expected ';' after loop condition")?;
 
-        let step = if self.check(&TokenKind::RParen) {
+        let step = if self.check(&TokenKind::RParen) || self.check(&TokenKind::LBrace) {
             None
         } else {
             Some(Box::new(self.parse_expr_or_assign()?))
         };
-        self.expect(TokenKind::RParen, "Expected ')' after for clause")?;
+
+        if has_paren {
+            self.expect(TokenKind::RParen, "Expected ')' after for clause")?;
+        }
 
         let body = Box::new(self.parse_stmt()?);
 

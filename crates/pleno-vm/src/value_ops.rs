@@ -34,28 +34,28 @@ pub fn add_values(
             res.push_str(b_s);
             Ok(Value::String(Rc::new(res)))
         }
-        (Value::String(a_str), Value::Char(b_char)) => {
+        (Value::String(a_str), other) => {
             let a_s = a_str.as_str();
-            let len = a_s.len() + b_char.len_utf8();
+            let b_s = format!("{}", other);
+            let len = a_s.len() + b_s.len();
             vm.get_gc().track_allocation(len)?;
             let mut res = String::with_capacity(len);
             res.push_str(a_s);
-            res.push(*b_char);
+            res.push_str(&b_s);
             Ok(Value::String(Rc::new(res)))
         }
-        (Value::Char(a_char), Value::String(b_str)) => {
+        (other, Value::String(b_str)) => {
+            let a_s = format!("{}", other);
             let b_s = b_str.as_str();
-            let len = a_char.len_utf8() + b_s.len();
+            let len = a_s.len() + b_s.len();
             vm.get_gc().track_allocation(len)?;
             let mut res = String::with_capacity(len);
-            res.push(*a_char);
+            res.push_str(&a_s);
             res.push_str(b_s);
             Ok(Value::String(Rc::new(res)))
         }
         (Value::Char(a_char), Value::Char(b_char)) => {
-            let len = a_char.len_utf8() + b_char.len_utf8();
-            vm.get_gc().track_allocation(len)?;
-            let mut res = String::with_capacity(len);
+            let mut res = String::with_capacity(a_char.len_utf8() + b_char.len_utf8());
             res.push(*a_char);
             res.push(*b_char);
             Ok(Value::String(Rc::new(res)))

@@ -9,3 +9,4 @@ pleno-common = { workspace = true }
 serde = { workspace = true, features = ["derive", "rc"] }
 indexmap = { workspace = true }
 pleno-diagnostics = { workspace = true }
+mio = { workspace = true }
