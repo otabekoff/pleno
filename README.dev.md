@@ -215,7 +215,18 @@ If a release fails (e.g., CI error during build) and you need to re-trigger the 
 
 ## 📦 Release Procedure
 
-We use Semantic Versioning (SemVer).
+We use **Semantic Versioning (SemVer) 2.0.0** for both the language and its tooling.
+
+### 🔢 Version Scheme
+
+- **MAJOR** (`x.0.0`): Breaking changes to the core language syntax, removed features, or major architectural shifts in the VM that break backward compatibility.
+- **MINOR** (`1.x.0`): New language features (new keywords, decorators, stdlib modules) that are backward compatible.
+- **PATCH** (`1.0.x`): Bug fixes, internal performance optimizations, and documentation updates.
+
+### 📜 Stability Guarantee
+
+- **Pre-v1.0.0**: The language is in active development. Minor versions may contain breaking changes.
+- **Post-v1.0.0**: We guarantee backward compatibility for all minor and patch releases.
 
 1. Update version in root `Cargo.toml`.
 2. Run `make check` to ensure perfection.
