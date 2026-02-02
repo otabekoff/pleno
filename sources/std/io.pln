@@ -1,26 +1,28 @@
 // I/O standard library module
 // File and directory operations
 
+import _io from "std:io";
+
 export class File {
     public static fn read(path: String): String {
-        return __native_file_read(path);
+        return _io.File.read(path);
     }
 
     public static fn write(path: String, content: String): Void {
-        return __native_file_write(path, content);
+        return _io.File.write(path, content);
     }
 
     public static fn exists(path: String): Bool {
-        return __native_file_exists(path);
+        return _io.File.exists(path);
     }
 }
 
 export class Directory {
     public static fn create(path: String): Void {
-        return __native_directory_create(path);
+        return _io.Directory.create(path);
     }
 
     public static fn exists(path: String): Bool {
-        return __native_directory_exists(path);
+        return _io.Directory.exists(path);
     }
 }

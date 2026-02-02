@@ -1,4 +1,6 @@
-let start = __native_time_now();
+import _time from "std:time";
+
+let start = _time.now();
 
 // Collection operations benchmark
 let arr = [];
@@ -15,7 +17,7 @@ let evens = doubled.filter(|x| => x % 4 == 0);
 // Reduce
 let sum = evens.reduce(|acc, x| => acc + x, 0);
 
-let end = __native_time_now();
+let end = _time.now();
 print("Original length: " + arr.length.toString());
 print("Doubled length: " + doubled.length.toString());
 print("Evens length: " + evens.length.toString());

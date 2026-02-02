@@ -1,11 +1,13 @@
+import _time from "std:time";
+
 fn fib(n) {
     if n <= 1 { return n; }
     return fib(n - 1) + fib(n - 2);
 }
 
-let start = __native_time_now();
+let start = _time.now();
 let result = fib(30);
-let end = __native_time_now();
+let end = _time.now();
 
 print("Fibonacci(30) = " + result.toString());
 print("Time: " + ((end - start) * 1000).toString() + "ms");

@@ -206,6 +206,11 @@ pub fn register(vm: &mut dyn VMProvider) {
         "setTimeout".to_string(),
         Value::NativeFunction(time::set_timeout),
     );
+    time_module.insert(
+        "now_ns".to_string(),
+        Value::NativeFunction(time::time_now_ns),
+    );
+    time_module.insert("sleep".to_string(), Value::NativeFunction(time::time_sleep));
 
     let mut datetime_obj = IndexMap::new();
     datetime_obj.insert(

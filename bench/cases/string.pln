@@ -1,4 +1,6 @@
-let start = __native_time_now();
+import _time from "std:time";
+
+let start = _time.now();
 
 // String operations benchmark
 let mut result = "";
@@ -10,7 +12,7 @@ let upper = result.toUpperCase();
 let replaced = upper.replace("X", "Y");
 let parts = replaced.split("Y");
 
-let end = __native_time_now();
+let end = _time.now();
 print("String length: " + result.length.toString());
 print("Parts count: " + parts.length.toString());
 print("Time: " + ((end - start) * 1000).toString() + "ms");

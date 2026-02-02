@@ -1,8 +1,10 @@
+import _time from "std:time";
+
 let mut sum = 0;
-let start = __native_time_now();
+let start = _time.now();
 for (i in 0..1000000) {
     sum = sum + i;
 }
-let end = __native_time_now();
+let end = _time.now();
 print("Loop Sum = " + sum.toString());
 print("Time: " + ((end - start) * 1000).toString() + "ms");

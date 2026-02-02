@@ -1,6 +1,8 @@
 // Time standard library module
 // Date and Time manipulation
 
+import _time from "std:time";
+
 export class DateTime {
     private timestamp: Int;
 
@@ -9,23 +11,24 @@ export class DateTime {
     }
 
     public static fn now(): DateTime {
-        return DateTime(__native_datetime_now());
+        let native = _time.DateTime.now();
+        return DateTime(native._timestamp);
     }
  
     public static fn now_ns(): Int {
-        return __native_time_now_ns();
+        return _time.now_ns();
     }
  
     public static fn sleep(ms: Int) {
-        return __native_sleep(ms);
+        return _time.sleep(ms);
     }
 
     public static fn parse(dateStr: String, fmt: String): DateTime {
-        return DateTime(__native_datetime_parse(dateStr, fmt));
+        return DateTime(_time.parse(dateStr, fmt));
     }
 
     public fn format(fmt: String): String {
-        return __native_datetime_format(this.timestamp, fmt);
+        return _time.format(this.timestamp, fmt);
     }
 
     public fn add(duration: Duration): DateTime {

@@ -17,6 +17,17 @@ pub fn time_now(
     Ok(Value::Float(since_epoch.as_secs_f64()))
 }
 
+pub fn time_now_ns(
+    _vm: &mut dyn pleno_value::VMProvider,
+    _args: &[Value],
+) -> Result<Value, pleno_value::RuntimeError> {
+    let start = SystemTime::now();
+    let since_epoch = start
+        .duration_since(UNIX_EPOCH)
+        .map_err(|_| pleno_value::RuntimeError::new("Time went backwards"))?;
+    Ok(Value::Int(since_epoch.as_nanos() as i64))
+}
+
 pub fn time_format(
     _vm: &mut dyn pleno_value::VMProvider,
     args: &[Value],
@@ -244,31 +255,21 @@ pub fn set_timeout(
     Ok(Value::Int(id as i64))
 }
 
-pub fn sleep(vm: &mut dyn pleno_value::VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+pub fn time_sleep(
+    _vm: &mut dyn pleno_value::VMProvider,
+    args: &[Value],
+) -> Result<Value, RuntimeError> {
     if args.is_empty() {
         return Err(RuntimeError::new(
             "sleep expects at least 1 argument: delay",
         ));
     }
 
-    let _delay = match args[0] {
+    let ms = match args[0] {
         Value::Int(ms) => ms.max(0) as u64,
         _ => return Err(RuntimeError::new("delay must be an integer")),
     };
 
-    let (_id, _promise) = vm.create_promise()?;
-
-    // Create a callback that resolves this promise
-    // We need a way to resolve the promise.
-    // Since we don't have closures in Rust native functions easily here without extensive boilerplate,
-    // we can use a special "ResolvePromise" native function or similar.
-    // OR: we implement add_timer logic in VM to support specialized tasks.
-    // BUT: The easiest way for now is to just have setTimeout.
-    // Implementing sleep specifically might require internal VM support for "Resolve this promise after X ms".
-    // Let's defer sleep for a moment and focused on setTimeout which takes a Pleno callback.
-    // If I want to implement sleep, I can do it in Pleno code:
-    // fn sleep(ms) { return new Promise((resolve) => setTimeout(resolve, ms)); }
-    // So I only need setTimeout exposed!
-
+    std::thread::sleep(std::time::Duration::from_millis(ms));
     Ok(Value::Null)
 }

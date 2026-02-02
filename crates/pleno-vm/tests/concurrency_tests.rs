@@ -24,13 +24,16 @@ fn get_promise_result(val: Value) -> Value {
 #[test]
 fn test_mutex_concurrency() {
     let source = r#"
+        import { Mutex } from "std:concurrency";
+        import { sleep } from "std:time";
+
         let counter = 0;
         let m = Mutex();
 
         async fn increment(by, delay) {
             await m.lock();
             let current = counter;
-            await __native_sleep(delay);
+            await sleep(delay);
             counter = current + by;
             m.unlock();
         }
@@ -66,6 +69,9 @@ fn test_mutex_concurrency() {
 #[test]
 fn test_channel_buffered() {
     let source = r#"
+        import { Channel } from "std:concurrency";
+        import { sleep } from "std:time";
+
         let ch = Channel(2);
 
         async fn producer() {
@@ -77,7 +83,7 @@ fn test_channel_buffered() {
         async fn main() {
             let p = spawn(producer);
             
-            await __native_sleep(10);
+            await sleep(10);
             let v1 = await ch.recv();
             let v2 = await ch.recv();
             let v3 = await ch.recv();
@@ -118,6 +124,8 @@ fn test_channel_buffered() {
 #[test]
 fn test_channel_close() {
     let source = r#"
+        import { Channel } from "std:concurrency";
+
         let ch = Channel(1);
 
         async fn main() {
@@ -168,6 +176,8 @@ fn test_channel_close() {
 #[test]
 fn test_channel_iteration() {
     let source = r#"
+        import { Channel } from "std:concurrency";
+
         let ch = Channel(5);
 
         async fn producer() {

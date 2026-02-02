@@ -1,6 +1,8 @@
 // Regex standard library module
 // Regular expression operations
 
+import _regex from "std:regex";
+
 export class Match {
     private groups: Array;
 
@@ -21,18 +23,18 @@ export class Match {
 }
 
 export class Regex {
-    private pattern: String;
+    private native: Any;
 
     constructor(pattern: String) {
-        this.pattern = pattern;
+        this.native = _regex.Regex(pattern);
     }
 
     public fn test(text: String): Bool {
-        return __native_regex_is_match(this.pattern, text);
+        return this.native.test(text);
     }
 
     public fn match(text: String): Match {
-        let groups = __native_regex_match(this.pattern, text);
+        let groups = this.native.match(text);
         if (groups == null) {
             return null;
         }
@@ -40,11 +42,11 @@ export class Regex {
     }
 
     public fn replace(text: String, replacement: String): String {
-        return __native_regex_replace(this.pattern, text, replacement);
+        return this.native.replace(text, replacement);
     }
 
     public fn findAll(text: String): Array {
-        let rawMatches = __native_regex_find_all(this.pattern, text);
+        let rawMatches = this.native.findAll(text);
         if (rawMatches == null) {
             return [];
         }
@@ -55,12 +57,12 @@ export class Regex {
         return matches;
     }
 
-    public static fn isMatch(pattern, text): Bool {
-        return __native_regex_is_match(pattern, text);
+    public static fn isMatch(pattern: String, text: String): Bool {
+        return _regex.Regex(pattern).test(text);
     }
 
     public static fn replace(pattern: String, text: String, replacement: String): String {
-        return __native_regex_replace(pattern, text, replacement);
+        return _regex.Regex(pattern).replace(text, replacement);
     }
 }
 

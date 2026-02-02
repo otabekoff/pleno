@@ -1,12 +1,14 @@
 // Math standard library module
 // Mathematical operations and constants
 
+import _math from "std:math";
+
 export class Math {
     public static const PI: Float = 3.141592653589793;
     public static const E: Float = 2.718281828459045;
 
     public static fn abs(x): Float {
-        return __native_math_abs(x);
+        return _math.abs(x);
     }
 
     public static fn max(...values): Float {
@@ -36,50 +38,50 @@ export class Math {
     }
 
     public static fn pow(base, exponent): Float {
-        return __native_math_pow(base, exponent);
+        return _math.pow(base, exponent);
     }
 
     public static fn sqrt(x): Float {
-        return __native_math_sqrt(x);
+        return _math.sqrt(x);
     }
 
     public static fn random(): Float {
-        return __native_math_random();
+        return _math.random();
     }
 
     public static fn sin(x): Float {
-        return __native_math_sin(x);
+        return _math.sin(x);
     }
 
     public static fn cos(x): Float {
-        return __native_math_cos(x);
+        return _math.cos(x);
     }
 
     public static fn tan(x): Float {
-        return __native_math_tan(x);
+        return _math.tan(x);
     }
 
     public static fn log(x): Float {
-        return __native_math_log(x);
+        return _math.log(x);
     }
 
     public static fn exp(x): Float {
-        return __native_math_exp(x);
+        return _math.exp(x);
     }
 
     public static fn floor(x): Int {
-        return __native_math_floor(x);
+        return _math.floor(x);
     }
 
     public static fn ceil(x): Int {
-        return __native_math_ceil(x);
+        return _math.ceil(x);
     }
 
     public static fn round(x): Int {
-        return __native_math_round(x);
+        return _math.round(x);
     }
 
     public static fn randomInt(min, max): Int {
-        return __native_math_random_int(min, max);
+        return _math.randomInt(min, max);
     }
 }

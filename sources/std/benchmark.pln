@@ -1,11 +1,13 @@
 // Benchmarking standard library module
  
+import _time from "std:time";
+
 export class Benchmark {
     public static fn run(name, func) {
         print("Benchmarking " + name + "...");
-        let start = __native_time_now_ns();
+        let start = _time.now_ns();
         func();
-        let end = __native_time_now_ns();
+        let end = _time.now_ns();
         let duration_ns = end - start;
         let duration_ms = duration_ns / 1000000;
         print("Done in " + duration_ms + "ms (" + duration_ns + " ns)");
@@ -13,9 +15,9 @@ export class Benchmark {
     }
  
     public static fn measure(func) {
-        let start = __native_time_now_ns();
+        let start = _time.now_ns();
         func();
-        let end = __native_time_now_ns();
+        let end = _time.now_ns();
         return end - start;
     }
 }
