@@ -761,9 +761,20 @@ impl VM {
                 .frames
                 .last_mut()
                 .ok_or_else(|| RuntimeError::new("no frame"))?;
-            let instruction = self.functions[frame.function_index].chunk.code[frame.ip];
-            let _opcode = instruction.opcode();
-            log::trace!("VM::run_step: ip={:04} {:?}", frame.ip, _opcode);
+
+            let func_index = frame.function_index;
+            let ip = frame.ip;
+            let function = &self.functions[func_index];
+
+            if ip >= function.chunk.code.len() {
+                return Err(RuntimeError::new("instruction pointer out of bounds"));
+            }
+
+            let instruction = function.chunk.code[ip];
+            let opcode = instruction.opcode();
+
+            log::trace!("VM::run_step: ip={:04} {:?}", ip, opcode);
+            frame.ip += 1;
 
             self.instruction_count += 1;
             if self.instruction_count.is_multiple_of(100)
@@ -780,21 +791,6 @@ impl VM {
                     return Err(self.throw_runtime_error("SandboxError: memory limit exceeded"));
                 }
             }
-
-            let frame = self
-                .frames
-                .last_mut()
-                .ok_or_else(|| RuntimeError::new("no frame"))?;
-            let function = self
-                .functions
-                .get(frame.function_index)
-                .ok_or_else(|| RuntimeError::new("missing function"))?;
-            if frame.ip >= function.chunk.code.len() {
-                return Err(RuntimeError::new("instruction pointer out of bounds"));
-            }
-            let instruction = function.chunk.code[frame.ip];
-            let opcode = instruction.opcode();
-            frame.ip += 1;
 
             let a = instruction.a() as usize;
             let b = instruction.b() as usize;

@@ -10,10 +10,6 @@ We have to deploy v1 fully. Now we need to update the docs.
 
 Does each crate finished its work fully and complete? I mean, any crate may not be giving errors or even warnings and working minimalistically, but not to be complete yet supporitng everything needed for v1, not compatible with specs and not including everthing needed, so identify limitations and the blocks and make their list and begin working on them.
 
-AI can do the things, and make the project work finally without errors. But while developing, it can make so many mistakes with logic. Many beginner codes, no optimization, and very needless codes too. So, we've to avoid them and make the project code professional and written with best practices.  AI does children like coding sometimes, sometimes like professionals and sometimes like juniors or interns or someone who doesn't know coding. So, let's find those kind of unprofessional parts and enhance.
-
-AI model's generation exceeded the maximum output token limit like error might happen and couldn't do some works, or execution tool may have failed in some cases and some changes might not have been applied.
-
 ---
 
 Let's have new roadmap for V2. 

@@ -1,6 +1,6 @@
 # Pleno Programming Language
 
-## Complete Language Specification v1.0
+## Complete Language Specification v0.1.0
 
 **File Extension:** `.pln`  
 **Paradigms:** Object-Oriented, Functional, Procedural, Mixed  
@@ -498,39 +498,45 @@ circle.diameter = 20.0;  // Sets radius to 10
 ### 4.3 Inheritance
 
 ```pleno
-class Animal {
-    protected name: String;
+class Account {
+    protected balance: Float;
+    protected owner: String;
 
-    constructor(name: String) {
-        this.name = name;
+    constructor(owner: String, initialBalance: Float) {
+        this.owner = owner;
+        this.balance = initialBalance;
     }
 
-    public fn speak(): String {
-        return "Some sound";
+    public fn deposit(amount: Float): Void {
+        this.balance += amount;
+    }
+
+    public fn getSummary(): String {
+        return "Account holder: " + this.owner + ", Balance: " + this.balance;
     }
 }
 
-class Dog extends Animal {
-    private breed: String;
+class SavingsAccount extends Account {
+    private interestRate: Float;
 
-    constructor(name: String, breed: String) {
-        super(name);  // Call parent constructor
-        this.breed = breed;
+    constructor(owner: String, balance: Float, interestRate: Float) {
+        super(owner, balance);  // Call parent constructor
+        this.interestRate = interestRate;
     }
 
     // Override parent method
     @override
-    public fn speak(): String {
-        return "Woof! I'm " + this.name;
+    public fn getSummary(): String {
+        return super.getSummary() + " (Interest Rate: " + this.interestRate + ")";
     }
 
-    public fn getBreed(): String {
-        return this.breed;
+    public fn applyInterest(): Void {
+        this.balance *= (1.0 + this.interestRate);
     }
 }
 
-let dog = Dog("Buddy", "Golden Retriever");
-print(dog.speak());  // "Woof! I'm Buddy"
+let account = SavingsAccount("Alice", 1000.0, 0.05);
+print(account.getSummary());  // "Account holder: Alice, Balance: 1000.0 (Interest Rate: 0.05)"
 ```
 
 ### 4.4 Abstract Classes

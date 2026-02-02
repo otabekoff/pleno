@@ -1,0 +1,14 @@
+{
+    "project_name": "Pleno",
+    "display_name": "Pleno Programming Language",
+    "version": "0.1.0",
+    "license": "MIT",
+    "license_year": "2024-2026",
+    "authors": "Pleno Contributors",
+    "governance": {
+        "stable_branch": "main",
+        "dev_branch": "dev"
+    },
+    "website": "https://pleno.dev",
+    "repository": "https://github.com/otabekoff/pleno"
+}

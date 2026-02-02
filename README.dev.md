@@ -225,8 +225,8 @@ We use **Semantic Versioning (SemVer) 2.0.0** for both the language and its tool
 
 ### 📜 Stability Guarantee
 
-- **Pre-v1.0.0**: The language is in active development. Minor versions may contain breaking changes.
-- **Post-v1.0.0**: We guarantee backward compatibility for all minor and patch releases.
+- **Pre-v0.1.0**: The language is in active development. Minor versions may contain breaking changes.
+- **Post-v0.1.0**: We guarantee backward compatibility for all minor and patch releases.
 
 1. Update version in root `Cargo.toml`.
 2. Run `make check` to ensure perfection.

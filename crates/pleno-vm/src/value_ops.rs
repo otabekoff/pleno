@@ -25,30 +25,41 @@ pub fn add_values(
         (Value::Int(a_val), Value::Float(b_val)) => Ok(Value::Float(*a_val as f64 + b_val)),
         (Value::Float(a_val), Value::Int(b_val)) => Ok(Value::Float(a_val + *b_val as f64)),
         (Value::String(a_str), Value::String(b_str)) => {
-            let mut res = a_str.as_str().to_string();
-            res.push_str(b_str.as_str());
-            vm.get_gc().track_allocation(res.len())?;
+            let a_s = a_str.as_str();
+            let b_s = b_str.as_str();
+            let len = a_s.len() + b_s.len();
+            vm.get_gc().track_allocation(len)?;
+            let mut res = String::with_capacity(len);
+            res.push_str(a_s);
+            res.push_str(b_s);
             Ok(Value::String(Rc::new(res)))
         }
         (Value::String(a_str), Value::Char(b_char)) => {
-            let mut res = a_str.as_str().to_string();
+            let a_s = a_str.as_str();
+            let len = a_s.len() + b_char.len_utf8();
+            vm.get_gc().track_allocation(len)?;
+            let mut res = String::with_capacity(len);
+            res.push_str(a_s);
             res.push(*b_char);
-            vm.get_gc().track_allocation(res.len())?;
             Ok(Value::String(Rc::new(res)))
         }
         (Value::Char(a_char), Value::String(b_str)) => {
-            let mut res = a_char.to_string();
-            res.push_str(b_str.as_str());
-            vm.get_gc().track_allocation(res.len())?;
+            let b_s = b_str.as_str();
+            let len = a_char.len_utf8() + b_s.len();
+            vm.get_gc().track_allocation(len)?;
+            let mut res = String::with_capacity(len);
+            res.push(*a_char);
+            res.push_str(b_s);
             Ok(Value::String(Rc::new(res)))
         }
         (Value::Char(a_char), Value::Char(b_char)) => {
-            let mut res = a_char.to_string();
+            let len = a_char.len_utf8() + b_char.len_utf8();
+            vm.get_gc().track_allocation(len)?;
+            let mut res = String::with_capacity(len);
+            res.push(*a_char);
             res.push(*b_char);
-            vm.get_gc().track_allocation(res.len())?;
             Ok(Value::String(Rc::new(res)))
         }
-        // No implicit type coercion - require explicit .toString() conversion
         _ => Err(RuntimeError::new(
             "invalid operands for + (use .toString() for string concatenation)",
         )),
@@ -114,20 +125,41 @@ pub fn neg_value(value: Value) -> Result<Value, RuntimeError> {
 }
 
 pub fn compare_values(opcode: Opcode, left: Value, right: Value) -> Result<bool, RuntimeError> {
-    let (left, right) = match (left, right) {
-        (Value::Int(a), Value::Int(b)) => (a as f64, b as f64),
-        (Value::Float(a), Value::Float(b)) => (a, b),
-        (Value::Int(a), Value::Float(b)) => (a as f64, b),
-        (Value::Float(a), Value::Int(b)) => (a, b as f64),
-        _ => return Err(RuntimeError::new("invalid operands for comparison")),
-    };
-
-    let result = match opcode {
-        Opcode::Lt => left < right,
-        Opcode::Le => left <= right,
-        Opcode::Gt => left > right,
-        Opcode::Ge => left >= right,
-        _ => return Err(RuntimeError::new("invalid comparison opcode")),
-    };
-    Ok(result)
+    match (left, right) {
+        (Value::Int(a), Value::Int(b)) => Ok(match opcode {
+            Opcode::Lt => a < b,
+            Opcode::Le => a <= b,
+            Opcode::Gt => a > b,
+            Opcode::Ge => a >= b,
+            _ => return Err(RuntimeError::new("invalid comparison opcode")),
+        }),
+        (Value::Float(a), Value::Float(b)) => Ok(match opcode {
+            Opcode::Lt => a < b,
+            Opcode::Le => a <= b,
+            Opcode::Gt => a > b,
+            Opcode::Ge => a >= b,
+            _ => return Err(RuntimeError::new("invalid comparison opcode")),
+        }),
+        (Value::Int(a), Value::Float(b)) => {
+            let af = a as f64;
+            Ok(match opcode {
+                Opcode::Lt => af < b,
+                Opcode::Le => af <= b,
+                Opcode::Gt => af > b,
+                Opcode::Ge => af >= b,
+                _ => return Err(RuntimeError::new("invalid comparison opcode")),
+            })
+        }
+        (Value::Float(a), Value::Int(b)) => {
+            let bf = b as f64;
+            Ok(match opcode {
+                Opcode::Lt => a < bf,
+                Opcode::Le => a <= bf,
+                Opcode::Gt => a > bf,
+                Opcode::Ge => a >= bf,
+                _ => return Err(RuntimeError::new("invalid comparison opcode")),
+            })
+        }
+        _ => Err(RuntimeError::new("invalid operands for comparison")),
+    }
 }

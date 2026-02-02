@@ -8,7 +8,7 @@ TARGET_DIR = target/release
 # Binaries
 BINS = pleno plm pleno-lsp pleno-repl
 
-.PHONY: help setup build release install uninstall vscode test lint format check clean clean-all all
+.PHONY: help setup build release install uninstall vscode test lint format check clean clean-all all sync
 
 help:
 	@echo "Pleno Management Commands:"
@@ -21,14 +21,15 @@ help:
 	@echo "  test           Run all workspace tests"
 	@echo "  lint           Run clippy checks"
 	@echo "  format         Format Rust and VSCode source code"
-	@echo "  check          Run format, lint, and test (CI simulation)"
+	@echo "  check          Run sync, format, lint, and test (CI simulation)"
+	@echo "  sync           Synchronize project metadata from pleno.json"
 	@echo "  clean          Remove build artifacts"
 	@echo "  clean-all      Deep clean (includes node_modules and target)"
 	@echo ""
 	@echo "Variables:"
 	@echo "  PREFIX         Installation prefix (default: $(HOME)/.local)"
 
-all: check release
+all: sync check release
 
 setup:
 	@echo "Setting up development environment..."
@@ -37,7 +38,10 @@ setup:
 	cd ide/vscode && npm install
 	@echo "Setup complete."
 
-build:
+sync:
+	python3 scripts/sync_project.py
+
+build: sync
 	cargo build --workspace
 
 release:
@@ -97,7 +101,7 @@ format:
 	cargo fmt --all
 	cd ide/vscode && npm run compile && npm run lint
 
-check: format lint test
+check: sync format lint test
 	@echo "✓ All checks passed!"
 
 clean:

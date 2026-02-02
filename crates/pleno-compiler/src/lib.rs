@@ -1267,59 +1267,7 @@ impl Compiler {
 
                 Ok(result_reg)
             }
-            ExprKind::Is { left, ty } => {
-                let val_reg = self.compile_expr(left)?;
-                let (base_types, is_optional) = self.parse_type_string(ty);
-                let dest = self.registers.allocate()?;
-
-                // If optional and null, it's true
-                let mut success_jumps = Vec::new();
-                if is_optional {
-                    let is_null_reg = self.registers.allocate()?;
-                    self.emit(Opcode::LoadNull, is_null_reg, 0, 0);
-                    self.emit(Opcode::Eq, is_null_reg, val_reg, is_null_reg);
-                    let jump_success = self.emit_jump(Opcode::JumpIf, is_null_reg);
-                    success_jumps.push(jump_success);
-                    self.free_temp(is_null_reg);
-                }
-
-                // groups logic
-                for group in base_types {
-                    let mut next_group_jumps = Vec::new();
-                    for ty_name in group {
-                        let type_reg = self.emit_reified_type(&ty_name)?;
-
-                        let is_match_reg = self.registers.allocate()?;
-                        self.emit(Opcode::Is, is_match_reg, val_reg, type_reg);
-                        let jump_fail = self.emit_jump(Opcode::JumpIfNot, is_match_reg);
-                        next_group_jumps.push(jump_fail);
-                        self.free_temp(is_match_reg);
-                        self.free_temp(type_reg);
-                    }
-                    // If we get here, the entire AND group matched
-                    let jump_success = self.emit_jump(Opcode::Jump, 0);
-                    success_jumps.push(jump_success);
-
-                    // Patch fails for this group to start of next group
-                    for jump in next_group_jumps {
-                        self.patch_jump(jump)?;
-                    }
-                }
-
-                // If we get here, none matched
-                self.emit(Opcode::LoadFalse, dest, 0, 0);
-                let jump_end = self.emit_jump(Opcode::Jump, 0);
-
-                // Success case
-                for jump in success_jumps {
-                    self.patch_jump(jump)?;
-                }
-                self.emit(Opcode::LoadTrue, dest, 0, 0);
-
-                self.patch_jump(jump_end)?;
-                self.free_temp(val_reg);
-                Ok(dest)
-            }
+            ExprKind::Is { left, ty } => self.compile_is_expr(left, ty),
             ExprKind::Specialize { left, type_args } => {
                 let left_reg = self.compile_expr(left)?;
                 let args_reg = self.registers.allocate()?;
@@ -1506,43 +1454,7 @@ impl Compiler {
                 collection,
                 start,
                 end,
-            } => {
-                // Compile as: collection.slice(start, end)
-                // This will use the builtin method
-                let collection_reg = self.compile_expr(collection)?;
-                let args_reg = self.registers.allocate()?;
-                self.emit(Opcode::NewArray, args_reg, 0, 0);
-
-                // Add start argument (or null if missing)
-                if let Some(start_expr) = start {
-                    let start_reg = self.compile_expr(start_expr)?;
-                    self.emit(Opcode::ArrayAppend, args_reg, start_reg, 0);
-                    self.free_temp(start_reg);
-                } else {
-                    let null_reg = self.registers.allocate()?;
-                    self.emit(Opcode::LoadNull, null_reg, 0, 0);
-                    self.emit(Opcode::ArrayAppend, args_reg, null_reg, 0);
-                    self.free_temp(null_reg);
-                }
-
-                // Add end argument (or null if missing)
-                if let Some(end_expr) = end {
-                    let end_reg = self.compile_expr(end_expr)?;
-                    self.emit(Opcode::ArrayAppend, args_reg, end_reg, 0);
-                    self.free_temp(end_reg);
-                } else {
-                    let null_reg = self.registers.allocate()?;
-                    self.emit(Opcode::LoadNull, null_reg, 0, 0);
-                    self.emit(Opcode::ArrayAppend, args_reg, null_reg, 0);
-                    self.free_temp(null_reg);
-                }
-
-                let dest = self.registers.allocate()?;
-                self.emit(Opcode::Slice, dest, collection_reg, args_reg);
-                self.free_temp(collection_reg);
-                self.free_temp(args_reg);
-                Ok(dest)
-            }
+            } => self.compile_slice_expr(collection, start.as_deref(), end.as_deref()),
             ExprKind::Paren(inner) => self.compile_expr(inner),
             ExprKind::Spread(_) => Err(self.error(
                 "spread operator only allowed in collection literals",
@@ -5363,6 +5275,103 @@ impl Compiler {
             }
         }
         captures
+    }
+
+    fn compile_is_expr(&mut self, left: &pleno_ast::Expr, ty: &str) -> Result<u8, CompileError> {
+        let val_reg = self.compile_expr(left)?;
+        let (base_types, is_optional) = self.parse_type_string(ty);
+        let dest = self.registers.allocate()?;
+
+        // If optional and null, it's true
+        let mut success_jumps = Vec::new();
+        if is_optional {
+            let is_null_reg = self.registers.allocate()?;
+            self.emit(Opcode::LoadNull, is_null_reg, 0, 0);
+            self.emit(Opcode::Eq, is_null_reg, val_reg, is_null_reg);
+            let jump_success = self.emit_jump(Opcode::JumpIf, is_null_reg);
+            success_jumps.push(jump_success);
+            self.free_temp(is_null_reg);
+        }
+
+        // groups logic
+        for group in base_types {
+            let mut next_group_jumps = Vec::new();
+            for ty_name in group {
+                let type_reg = self.emit_reified_type(&ty_name)?;
+
+                let is_match_reg = self.registers.allocate()?;
+                self.emit(Opcode::Is, is_match_reg, val_reg, type_reg);
+                let jump_fail = self.emit_jump(Opcode::JumpIfNot, is_match_reg);
+                next_group_jumps.push(jump_fail);
+                self.free_temp(is_match_reg);
+                self.free_temp(type_reg);
+            }
+            // If we get here, the entire AND group matched
+            let jump_success = self.emit_jump(Opcode::Jump, 0);
+            success_jumps.push(jump_success);
+
+            // Patch fails for this group to start of next group
+            for jump in next_group_jumps {
+                self.patch_jump(jump)?;
+            }
+        }
+
+        // If we get here, none matched
+        self.emit(Opcode::LoadFalse, dest, 0, 0);
+        let jump_end = self.emit_jump(Opcode::Jump, 0);
+
+        // Success case
+        for jump in success_jumps {
+            self.patch_jump(jump)?;
+        }
+        self.emit(Opcode::LoadTrue, dest, 0, 0);
+
+        self.patch_jump(jump_end)?;
+        self.free_temp(val_reg);
+        Ok(dest)
+    }
+
+    fn compile_slice_expr(
+        &mut self,
+        collection: &pleno_ast::Expr,
+        start: Option<&pleno_ast::Expr>,
+        end: Option<&pleno_ast::Expr>,
+    ) -> Result<u8, CompileError> {
+        // Compile as: collection.slice(start, end)
+        // This will use the builtin method
+        let collection_reg = self.compile_expr(collection)?;
+        let args_reg = self.registers.allocate()?;
+        self.emit(Opcode::NewArray, args_reg, 0, 0);
+
+        // Add start argument (or null if missing)
+        if let Some(start_expr) = start {
+            let start_reg = self.compile_expr(start_expr)?;
+            self.emit(Opcode::ArrayAppend, args_reg, start_reg, 0);
+            self.free_temp(start_reg);
+        } else {
+            let null_reg = self.registers.allocate()?;
+            self.emit(Opcode::LoadNull, null_reg, 0, 0);
+            self.emit(Opcode::ArrayAppend, args_reg, null_reg, 0);
+            self.free_temp(null_reg);
+        }
+
+        // Add end argument (or null if missing)
+        if let Some(end_expr) = end {
+            let end_reg = self.compile_expr(end_expr)?;
+            self.emit(Opcode::ArrayAppend, args_reg, end_reg, 0);
+            self.free_temp(end_reg);
+        } else {
+            let null_reg = self.registers.allocate()?;
+            self.emit(Opcode::LoadNull, null_reg, 0, 0);
+            self.emit(Opcode::ArrayAppend, args_reg, null_reg, 0);
+            self.free_temp(null_reg);
+        }
+
+        let dest = self.registers.allocate()?;
+        self.emit(Opcode::Slice, dest, collection_reg, args_reg);
+        self.free_temp(collection_reg);
+        self.free_temp(args_reg);
+        Ok(dest)
     }
 }
 
