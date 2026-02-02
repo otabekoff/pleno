@@ -102,3 +102,26 @@ fn test_fold_null_coalesce() {
         panic!("Expected let statement with folded value");
     }
 }
+
+#[test]
+fn test_fold_string_comparisons() {
+    let program = fold_code("let x = \"a\" == \"a\";");
+    if let StmtKind::Let {
+        value: Some(expr), ..
+    } = &program.statements[0].kind
+    {
+        assert_eq!(expr.kind, ExprKind::Literal(Literal::Bool(true)));
+    } else {
+        panic!("Expected let statement with folded value");
+    }
+
+    let program2 = fold_code("let x = \"a\" != \"b\";");
+    if let StmtKind::Let {
+        value: Some(expr), ..
+    } = &program2.statements[0].kind
+    {
+        assert_eq!(expr.kind, ExprKind::Literal(Literal::Bool(true)));
+    } else {
+        panic!("Expected let statement with folded value");
+    }
+}
