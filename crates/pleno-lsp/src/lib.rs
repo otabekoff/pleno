@@ -252,7 +252,8 @@ pub fn start() -> io::Result<()> {
                             "codeLensProvider": {
                                 "resolveProvider": false
                             },
-                            "callHierarchyProvider": true
+                            "callHierarchyProvider": true,
+                            "referencesProvider": true
                         }
                     }
                 });
@@ -391,6 +392,73 @@ pub fn start() -> io::Result<()> {
                         "jsonrpc": "2.0",
                         "id": id,
                         "result": result
+                    });
+                    write_message(&mut stdout, &resp)?;
+                }
+            }
+            "textDocument/references" => {
+                let id = value.get("id").cloned().unwrap_or(Value::Null);
+                if let Some(params) = value.get("params") {
+                    let uri_str = params
+                        .get("textDocument")
+                        .and_then(|t| t.get("uri").and_then(|v| v.as_str()))
+                        .unwrap_or_default();
+                    let pos_json = params.get("position");
+
+                    let mut references: Vec<Value> = Vec::new();
+
+                    let state = state_clone.lock().unwrap();
+                    if let Some(text) = state.documents.get(uri_str).cloned()
+                        && let Some(pos_val) = pos_json
+                    {
+                        let line = pos_val.get("line").and_then(|l| l.as_u64()).unwrap_or(0) as u32;
+                        let char = pos_val
+                            .get("character")
+                            .and_then(|c| c.as_u64())
+                            .unwrap_or(0) as u32;
+
+                        if let Some(word) = get_word_at_position(&text, line, char) {
+                            // Search all documents for references to this symbol
+                            for (doc_uri, doc_text) in &state.documents {
+                                // Find all occurrences of the word in this document
+                                for (line_idx, line_content) in doc_text.lines().enumerate() {
+                                    let mut search_start = 0;
+                                    while let Some(col) = line_content[search_start..].find(&word) {
+                                        let abs_col = search_start + col;
+                                        // Check if it's a word boundary
+                                        let before_ok = abs_col == 0
+                                            || !line_content
+                                                .chars()
+                                                .nth(abs_col - 1)
+                                                .map(|c| c.is_alphanumeric() || c == '_')
+                                                .unwrap_or(false);
+                                        let after_ok = abs_col + word.len() >= line_content.len()
+                                            || !line_content
+                                                .chars()
+                                                .nth(abs_col + word.len())
+                                                .map(|c| c.is_alphanumeric() || c == '_')
+                                                .unwrap_or(false);
+
+                                        if before_ok && after_ok {
+                                            references.push(json!({
+                                                    "uri": doc_uri,
+                                                    "range": {
+                                                        "start": { "line": line_idx, "character": abs_col },
+                                                        "end": { "line": line_idx, "character": abs_col + word.len() }
+                                                    }
+                                                }));
+                                        }
+                                        search_start = abs_col + 1;
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    let resp = json!({
+                        "jsonrpc": "2.0",
+                        "id": id,
+                        "result": references
                     });
                     write_message(&mut stdout, &resp)?;
                 }
