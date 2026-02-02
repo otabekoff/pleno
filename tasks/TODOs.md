@@ -8,8 +8,6 @@ Remove debug logs.
 Let's review whole the docs and make it great.
 We have to deploy v1 fully. Now we need to update the docs.
 
-Does each crate finished its work fully and complete? I mean, any crate may not be giving errors or even warnings and working minimalistically, but not to be complete yet supporitng everything needed for v1, not compatible with specs and not including everthing needed, so identify limitations and the blocks and make their list and begin working on them.
-
 ---
 
 Let's have new roadmap for V2. 

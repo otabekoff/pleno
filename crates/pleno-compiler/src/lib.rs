@@ -1244,29 +1244,7 @@ impl Compiler {
                 condition,
                 then_branch,
                 else_branch,
-            } => {
-                let cond_reg = self.compile_expr(condition)?;
-                let else_jump = self.emit_jump(Opcode::JumpIfNot, cond_reg);
-                self.free_temp(cond_reg);
-
-                let result_reg = self.registers.allocate()?;
-
-                let then_reg = self.compile_expr(then_branch)?;
-                self.emit(Opcode::Move, result_reg, then_reg, 0);
-                self.free_temp(then_reg);
-
-                let end_jump = self.emit_jump(Opcode::Jump, 0);
-
-                self.patch_jump(else_jump)?;
-
-                let else_reg = self.compile_expr(else_branch)?;
-                self.emit(Opcode::Move, result_reg, else_reg, 0);
-                self.free_temp(else_reg);
-
-                self.patch_jump(end_jump)?;
-
-                Ok(result_reg)
-            }
+            } => self.compile_if_expr(condition, then_branch, else_branch),
             ExprKind::Is { left, ty } => self.compile_is_expr(left, ty),
             ExprKind::Specialize { left, type_args } => {
                 let left_reg = self.compile_expr(left)?;
@@ -1326,104 +1304,12 @@ impl Compiler {
                 self.free_temp(end_reg);
                 Ok(dest)
             }
-            ExprKind::MapLiteral(entries) => {
-                let dest = self.registers.allocate()?;
-                self.emit(Opcode::NewMap, dest, 0, 0);
-                for item in entries {
-                    match item {
-                        MapItem::Entry(key, value_expr) => {
-                            let value_reg = self.compile_expr(value_expr)?;
-                            let key_idx = self.add_constant(Value::String(key.clone().into()));
-                            self.emit(Opcode::SetProperty, value_reg, dest, key_idx);
-                            self.free_temp(value_reg);
-                        }
-                        MapItem::Spread(expr) => {
-                            let val_reg = self.compile_expr(expr)?;
-                            self.emit(Opcode::MapSpread, dest, val_reg, 0);
-                            self.free_temp(val_reg);
-                        }
-                    }
-                }
-                Ok(dest)
-            }
-            ExprKind::NamedTupleLiteral(entries) => {
-                let dest = self.registers.allocate()?;
-                self.emit(Opcode::NewTuple, dest, 0, 0);
-                for (name, value_expr) in entries {
-                    let value_reg = self.compile_expr(value_expr)?;
-                    let name_idx = self.add_constant(Value::String(name.clone().into()));
-                    self.emit(Opcode::TupleNamedAppend, dest, value_reg, name_idx);
-                    self.free_temp(value_reg);
-                }
-                Ok(dest)
-            }
-            ExprKind::ArrayLiteral(items) => {
-                let dest = self.registers.allocate()?;
-                self.emit(Opcode::NewArray, dest, 0, 0);
-                for item in items {
-                    match &item.kind {
-                        ExprKind::Spread(inner) => {
-                            let val_reg = self.compile_expr(inner)?;
-                            self.emit(Opcode::ArraySpread, dest, val_reg, 0);
-                            self.free_temp(val_reg);
-                        }
-                        _ => {
-                            let value_reg = self.compile_expr(item)?;
-                            self.emit(Opcode::ArrayAppend, dest, value_reg, 0);
-                            self.free_temp(value_reg);
-                        }
-                    }
-                }
-                Ok(dest)
-            }
-            ExprKind::TupleLiteral(items) => {
-                let dest = self.registers.allocate()?;
-                self.emit(Opcode::NewTuple, dest, 0, 0);
-                for item in items {
-                    let value_reg = self.compile_expr(item)?;
-                    self.emit(Opcode::TupleAppend, dest, value_reg, 0);
-                    self.free_temp(value_reg);
-                }
-                Ok(dest)
-            }
-            ExprKind::Block(stmts) => {
-                let boxed = self.find_boxed_vars(stmts);
-                self.boxed_vars.push(boxed);
-                self.push_scope();
-                for stmt in stmts {
-                    self.compile_stmt(stmt)?;
-                }
-                let reg = match self.last_expr_register {
-                    Some(reg) => reg,
-                    None => {
-                        let reg = self.registers.allocate()?;
-                        self.emit(Opcode::LoadNull, reg, 0, 0);
-                        reg
-                    }
-                };
-                self.pop_scope();
-                self.boxed_vars.pop();
-                Ok(reg)
-            }
-            ExprKind::SetLiteral(items) => {
-                let dest = self.registers.allocate()?;
-                self.emit(Opcode::NewSet, dest, 0, 0);
-                for item in items {
-                    match &item.kind {
-                        ExprKind::Spread(inner) => {
-                            let val_reg = self.compile_expr(inner)?;
-                            self.emit(Opcode::SetSpread, dest, val_reg, 0);
-                            self.free_temp(val_reg);
-                        }
-                        _ => {
-                            let value_reg = self.compile_expr(item)?;
-                            self.emit(Opcode::SetAdd, dest, value_reg, 0);
-                            self.free_temp(value_reg);
-                        }
-                    }
-                }
-                Ok(dest)
-            }
+            ExprKind::MapLiteral(entries) => self.compile_map_literal(entries),
+            ExprKind::NamedTupleLiteral(entries) => self.compile_named_tuple_literal(entries),
+            ExprKind::ArrayLiteral(items) => self.compile_array_literal(items),
+            ExprKind::TupleLiteral(items) => self.compile_tuple_literal(items),
+            ExprKind::SetLiteral(items) => self.compile_set_literal(items),
+            ExprKind::Block(stmts) => self.compile_block_expr(stmts),
             ExprKind::Pipeline { left, right } => {
                 let left_reg = self.compile_expr(left)?;
                 let right_reg = self.compile_expr(right)?;
@@ -1553,52 +1439,7 @@ impl Compiler {
                 self.free_temp(val_reg);
                 Ok(dest)
             }
-            ExprKind::Match { expr, arms } => {
-                let value_reg = self.compile_expr(expr)?;
-                let dest = self.registers.allocate()?;
-                let mut end_jumps = Vec::new();
-
-                for arm in arms {
-                    self.push_scope();
-                    let mut fail_jumps = Vec::new();
-
-                    self.compile_pattern(&arm.pattern, value_reg, &mut fail_jumps)?;
-
-                    // Check guard if present
-                    if let Some(guard) = &arm.guard {
-                        let guard_reg = self.compile_expr(guard)?;
-                        fail_jumps.push(self.emit_jump(Opcode::JumpIfNot, guard_reg));
-                        self.free_temp(guard_reg);
-                    }
-
-                    let body_reg = self.compile_expr(&arm.body)?;
-                    self.emit(Opcode::Move, dest, body_reg, 0);
-                    self.free_temp(body_reg);
-
-                    let jump = self.emit_jump(Opcode::Jump, 0);
-                    end_jumps.push(jump);
-
-                    for f_jump in fail_jumps {
-                        self.patch_jump(f_jump)?;
-                    }
-
-                    self.pop_scope();
-
-                    // If it was a wildcard or identity match without a guard, we don't need to check further arms
-                    if arm.guard.is_none()
-                        && matches!(arm.pattern, Pattern::Underscore | Pattern::Ident(_))
-                    {
-                        break;
-                    }
-                }
-
-                for jump in end_jumps {
-                    self.patch_jump(jump)?;
-                }
-
-                self.free_temp(value_reg);
-                Ok(dest)
-            }
+            ExprKind::Match { expr, arms } => self.compile_match_expr(expr, arms),
             ExprKind::Await { expr } => {
                 let expr_reg = self.compile_expr(expr)?;
                 let dest = self.registers.allocate()?;
@@ -5372,6 +5213,195 @@ impl Compiler {
         self.free_temp(collection_reg);
         self.free_temp(args_reg);
         Ok(dest)
+    }
+
+    fn compile_map_literal(&mut self, entries: &[MapItem]) -> Result<u8, CompileError> {
+        let dest = self.registers.allocate()?;
+        self.emit(Opcode::NewMap, dest, 0, 0);
+        for item in entries {
+            match item {
+                MapItem::Entry(key, value_expr) => {
+                    let value_reg = self.compile_expr(value_expr)?;
+                    let key_idx = self.add_constant(Value::String(key.clone().into()));
+                    self.emit(Opcode::SetProperty, value_reg, dest, key_idx);
+                    self.free_temp(value_reg);
+                }
+                MapItem::Spread(expr) => {
+                    let val_reg = self.compile_expr(expr)?;
+                    self.emit(Opcode::MapSpread, dest, val_reg, 0);
+                    self.free_temp(val_reg);
+                }
+            }
+        }
+        Ok(dest)
+    }
+
+    fn compile_named_tuple_literal(
+        &mut self,
+        entries: &[(String, pleno_ast::Expr)],
+    ) -> Result<u8, CompileError> {
+        let dest = self.registers.allocate()?;
+        self.emit(Opcode::NewTuple, dest, 0, 0);
+        for (name, value_expr) in entries {
+            let value_reg = self.compile_expr(value_expr)?;
+            let name_idx = self.add_constant(Value::String(name.clone().into()));
+            self.emit(Opcode::TupleNamedAppend, dest, value_reg, name_idx);
+            self.free_temp(value_reg);
+        }
+        Ok(dest)
+    }
+
+    fn compile_array_literal(&mut self, items: &[pleno_ast::Expr]) -> Result<u8, CompileError> {
+        let dest = self.registers.allocate()?;
+        self.emit(Opcode::NewArray, dest, 0, 0);
+        for item in items {
+            match &item.kind {
+                ExprKind::Spread(inner) => {
+                    let val_reg = self.compile_expr(inner)?;
+                    self.emit(Opcode::ArraySpread, dest, val_reg, 0);
+                    self.free_temp(val_reg);
+                }
+                _ => {
+                    let value_reg = self.compile_expr(item)?;
+                    self.emit(Opcode::ArrayAppend, dest, value_reg, 0);
+                    self.free_temp(value_reg);
+                }
+            }
+        }
+        Ok(dest)
+    }
+
+    fn compile_tuple_literal(&mut self, items: &[pleno_ast::Expr]) -> Result<u8, CompileError> {
+        let dest = self.registers.allocate()?;
+        self.emit(Opcode::NewTuple, dest, 0, 0);
+        for item in items {
+            let value_reg = self.compile_expr(item)?;
+            self.emit(Opcode::TupleAppend, dest, value_reg, 0);
+            self.free_temp(value_reg);
+        }
+        Ok(dest)
+    }
+
+    fn compile_set_literal(&mut self, items: &[pleno_ast::Expr]) -> Result<u8, CompileError> {
+        let dest = self.registers.allocate()?;
+        self.emit(Opcode::NewSet, dest, 0, 0);
+        for item in items {
+            match &item.kind {
+                ExprKind::Spread(inner) => {
+                    let val_reg = self.compile_expr(inner)?;
+                    self.emit(Opcode::SetSpread, dest, val_reg, 0);
+                    self.free_temp(val_reg);
+                }
+                _ => {
+                    let value_reg = self.compile_expr(item)?;
+                    self.emit(Opcode::SetAdd, dest, value_reg, 0);
+                    self.free_temp(value_reg);
+                }
+            }
+        }
+        Ok(dest)
+    }
+
+    fn compile_if_expr(
+        &mut self,
+        condition: &pleno_ast::Expr,
+        then_branch: &pleno_ast::Expr,
+        else_branch: &pleno_ast::Expr,
+    ) -> Result<u8, CompileError> {
+        let cond_reg = self.compile_expr(condition)?;
+        let else_jump = self.emit_jump(Opcode::JumpIfNot, cond_reg);
+        self.free_temp(cond_reg);
+
+        let result_reg = self.registers.allocate()?;
+
+        let then_reg = self.compile_expr(then_branch)?;
+        self.emit(Opcode::Move, result_reg, then_reg, 0);
+        self.free_temp(then_reg);
+
+        let end_jump = self.emit_jump(Opcode::Jump, 0);
+
+        self.patch_jump(else_jump)?;
+
+        let else_reg = self.compile_expr(else_branch)?;
+        self.emit(Opcode::Move, result_reg, else_reg, 0);
+        self.free_temp(else_reg);
+
+        self.patch_jump(end_jump)?;
+
+        Ok(result_reg)
+    }
+
+    fn compile_match_expr(
+        &mut self,
+        expr: &pleno_ast::Expr,
+        arms: &[pleno_ast::MatchArm],
+    ) -> Result<u8, CompileError> {
+        let value_reg = self.compile_expr(expr)?;
+        let dest = self.registers.allocate()?;
+        let mut end_jumps = Vec::new();
+
+        for arm in arms {
+            self.push_scope();
+            let mut fail_jumps = Vec::new();
+
+            self.compile_pattern(&arm.pattern, value_reg, &mut fail_jumps)?;
+
+            // Check guard if present
+            if let Some(guard) = &arm.guard {
+                let guard_reg = self.compile_expr(guard)?;
+                fail_jumps.push(self.emit_jump(Opcode::JumpIfNot, guard_reg));
+                self.free_temp(guard_reg);
+            }
+
+            let body_reg = self.compile_expr(&arm.body)?;
+            self.emit(Opcode::Move, dest, body_reg, 0);
+            self.free_temp(body_reg);
+
+            let jump = self.emit_jump(Opcode::Jump, 0);
+            end_jumps.push(jump);
+
+            for f_jump in fail_jumps {
+                self.patch_jump(f_jump)?;
+            }
+
+            self.pop_scope();
+
+            // If it was a wildcard or identity match without a guard, we don't need to check further arms
+            if arm.guard.is_none()
+                && matches!(
+                    arm.pattern,
+                    pleno_ast::Pattern::Underscore | pleno_ast::Pattern::Ident(_)
+                )
+            {
+                break;
+            }
+        }
+
+        for jump in end_jumps {
+            self.patch_jump(jump)?;
+        }
+
+        self.free_temp(value_reg);
+        Ok(dest)
+    }
+    fn compile_block_expr(&mut self, stmts: &[pleno_ast::Stmt]) -> Result<u8, CompileError> {
+        let boxed = self.find_boxed_vars(stmts);
+        self.boxed_vars.push(boxed);
+        self.push_scope();
+        for stmt in stmts {
+            self.compile_stmt(stmt)?;
+        }
+        let reg = match self.last_expr_register {
+            Some(reg) => reg,
+            None => {
+                let reg = self.registers.allocate()?;
+                self.emit(Opcode::LoadNull, reg, 0, 0);
+                reg
+            }
+        };
+        self.pop_scope();
+        self.boxed_vars.pop();
+        Ok(reg)
     }
 }
 
