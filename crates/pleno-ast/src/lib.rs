@@ -111,6 +111,10 @@ pub enum ExprKind {
         collection: Box<Expr>,
         index: Box<Expr>,
     },
+    SafeIndex {
+        collection: Box<Expr>,
+        index: Box<Expr>,
+    },
     Slice {
         collection: Box<Expr>,
         start: Option<Box<Expr>>,
@@ -142,7 +146,7 @@ pub enum ExprKind {
     If {
         condition: Box<Expr>,
         then_branch: Box<Expr>,
-        else_branch: Box<Expr>,
+        else_branch: Option<Box<Expr>>,
     },
     Is {
         left: Box<Expr>,

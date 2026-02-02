@@ -320,6 +320,10 @@ pub fn walk_expr<V: Visitor<T> + ?Sized, T: Default>(visitor: &mut V, expr: &Exp
             visitor.visit_expr(collection);
             visitor.visit_expr(index);
         }
+        ExprKind::SafeIndex { collection, index } => {
+            visitor.visit_expr(collection);
+            visitor.visit_expr(index);
+        }
         ExprKind::Slice {
             collection,
             start,
@@ -379,7 +383,9 @@ pub fn walk_expr<V: Visitor<T> + ?Sized, T: Default>(visitor: &mut V, expr: &Exp
         } => {
             visitor.visit_expr(condition);
             visitor.visit_expr(then_branch);
-            visitor.visit_expr(else_branch);
+            if let Some(eb) = else_branch {
+                visitor.visit_expr(eb);
+            }
         }
         ExprKind::Is { left, .. } => {
             visitor.visit_expr(left);

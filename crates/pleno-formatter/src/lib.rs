@@ -839,13 +839,20 @@ impl Formatter {
                 then_branch,
                 else_branch,
             } => {
-                // Format as ternary style: condition ? then : else
-                format!(
-                    "{} ? {} : {}",
-                    self.format_expression(condition, indent_level),
-                    self.format_expression(then_branch, indent_level),
-                    self.format_expression(else_branch, indent_level)
-                )
+                if let Some(eb) = else_branch {
+                    format!(
+                        "{} ? {} : {}",
+                        self.format_expression(condition, indent_level),
+                        self.format_expression(then_branch, indent_level),
+                        self.format_expression(eb, indent_level)
+                    )
+                } else {
+                    format!(
+                        "if ({}) {}",
+                        self.format_expression(condition, indent_level),
+                        self.format_expression(then_branch, indent_level)
+                    )
+                }
             }
             ExprKind::Binary { left, op, right } => {
                 let op_str = match op {
@@ -1003,6 +1010,13 @@ impl Formatter {
             ExprKind::Index { collection, index } => {
                 format!(
                     "{}[{}]",
+                    self.format_expression(collection, indent_level),
+                    self.format_expression(index, indent_level)
+                )
+            }
+            ExprKind::SafeIndex { collection, index } => {
+                format!(
+                    "{}?.[{}]",
                     self.format_expression(collection, indent_level),
                     self.format_expression(index, indent_level)
                 )
