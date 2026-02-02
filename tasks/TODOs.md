@@ -37,4 +37,4 @@ Via Claude AI generate V2 specs. Upgrades/updates/news/critical and breakign cha
 
 ---
 
-Have `main` branch clean and working and best look. Have `dev` branch for everything for development. And make the project manageable with branches, write about this in README.dev.md file and needed files too. Use and make the best practices.
+Have `main` branch clean and working and best look. Have `dev` branch for everything for development. And make the project manageable with branches, write about this in README.dev.md file and needed files too. Use and make the best practices. Write about conventional commits in README.dev.md file and needed places too.
