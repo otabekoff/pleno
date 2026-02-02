@@ -291,3 +291,7 @@ We've to think about bad practices, inconsistencies. We've to review what we hav
 
 
 ## Priority: Standard Library & GC Integration
+
+---
+
+Pleno V2 will be made withh Rust too, but not connected to Rust. Meaning we'll use Rust to make Pleno v2, but it won't be connected to Rust. Meaning it works even if there is no Rust installed on the system. Pleno needs to reach a level where we can write its compiler with itself. Will have self-hosted compiler and at the end we'll get rid of Rust. Pleno will become independent programming language.

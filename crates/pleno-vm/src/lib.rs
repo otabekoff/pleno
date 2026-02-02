@@ -2480,6 +2480,8 @@ impl VM {
                     )? {
                         continue;
                     }
+                    let col_type = collection.type_name();
+                    let idx_type = index.type_name();
                     let result = match (collection, index) {
                         (Value::Array(array), Value::Int(idx)) => {
                             let idx = idx as usize;
@@ -2546,7 +2548,12 @@ impl VM {
                                 .ok_or_else(|| RuntimeError::new("unsupported set element type"))?;
                             Ok(Value::Bool(set.borrow().contains(&key)))
                         }
-                        _ => return Err(RuntimeError::new("invalid index operation")),
+                        _ => {
+                            return Err(RuntimeError::new(format!(
+                                "invalid index operation on {} with index {}",
+                                col_type, idx_type
+                            )));
+                        }
                     }?;
                     self.registers[base + a] = result;
                 }

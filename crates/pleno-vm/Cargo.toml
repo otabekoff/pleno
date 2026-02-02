@@ -22,4 +22,5 @@ pleno-diagnostics = { workspace = true }
 [dev-dependencies]
 pleno-stdlib = { workspace = true }
 proptest = { workspace = true }
+env_logger = { workspace = true }
 num-traits = "0.2"

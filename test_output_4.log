@@ -1,0 +1,52 @@
+   Compiling pleno-vm v0.1.0 (/home/otabek/Projects/plang/pleno/crates/pleno-vm)
+error[E0382]: borrow of moved value: `collection`
+    --> crates/pleno-vm/src/lib.rs:2554:33
+     |
+2473 |                     let collection = self.registers[base + b].clone();
+     |                         ---------- move occurs because `collection` has type `pleno_value::Value`, which does not implement the `Copy` trait
+...
+2485 |                     let result = match (collection, index) {
+     |                                         ---------- value moved here
+...
+2554 |                                 collection.type_name(),
+     |                                 ^^^^^^^^^^ value borrowed here after move
+     |
+help: consider cloning the value if the performance cost is acceptable
+     |
+2485 |                     let result = match (collection.clone(), index) {
+     |                                                   ++++++++
+
+error[E0382]: borrow of moved value: `index`
+    --> crates/pleno-vm/src/lib.rs:2555:33
+     |
+2474 |                     let index = self.registers[base + c].clone();
+     |                         ----- move occurs because `index` has type `pleno_value::Value`, which does not implement the `Copy` trait
+...
+2485 |                     let result = match (collection, index) {
+     |                                                     ----- value moved here
+...
+2555 |                                 index.type_name()
+     |                                 ^^^^^ value borrowed here after move
+     |
+help: consider cloning the value if the performance cost is acceptable
+     |
+2485 |                     let result = match (collection, index.clone()) {
+     |                                                          ++++++++
+
+warning: unused variable: `col_type`
+    --> crates/pleno-vm/src/lib.rs:2483:25
+     |
+2483 |                     let col_type = collection.type_name();
+     |                         ^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_col_type`
+     |
+     = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `idx_type`
+    --> crates/pleno-vm/src/lib.rs:2484:25
+     |
+2484 |                     let idx_type = index.type_name();
+     |                         ^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_idx_type`
+
+For more information about this error, try `rustc --explain E0382`.
+warning: `pleno-vm` (lib) generated 2 warnings
+error: could not compile `pleno-vm` (lib) due to 2 previous errors; 2 warnings emitted
