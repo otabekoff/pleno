@@ -129,10 +129,10 @@ fn process(value: Int | Float | String): String {
 let optional: Int? = null;   // Can be Int or null
 let username: String? = "alice";
 
-// Safe navigation operator
+// Safe navigation operator [V2]
 let length = username?.length;  // Returns Int? (null if username is null)
 
-// Null coalescing
+// Null coalescing [V2]
 let displayName = username ?? "Guest";
 
 // Forced unwrap (runtime error if null)
