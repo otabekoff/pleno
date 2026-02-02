@@ -2125,9 +2125,24 @@ impl Compiler {
                 }
             }
             let wrapper_reg = self.registers.allocate()?;
-            self.emit(Opcode::NewArray, wrapper_reg, 0, 0);
-            self.emit(Opcode::ArrayAppend, wrapper_reg, positional_reg, 0);
-            self.emit(Opcode::ArrayAppend, wrapper_reg, named_reg, 0);
+            self.emit(Opcode::NewMap, wrapper_reg, 0, 0);
+
+            // Set "positional" key
+            let pos_key_idx =
+                self.add_constant(Value::String(std::rc::Rc::new("positional".to_string())));
+            let pos_key_reg = self.registers.allocate()?;
+            self.emit(Opcode::LoadConst, pos_key_reg, pos_key_idx, 0);
+            self.emit(Opcode::SetIndex, positional_reg, wrapper_reg, pos_key_reg);
+            self.free_temp(pos_key_reg);
+
+            // Set "named" key
+            let named_key_idx =
+                self.add_constant(Value::String(std::rc::Rc::new("named".to_string())));
+            let named_key_reg = self.registers.allocate()?;
+            self.emit(Opcode::LoadConst, named_key_reg, named_key_idx, 0);
+            self.emit(Opcode::SetIndex, named_reg, wrapper_reg, named_key_reg);
+            self.free_temp(named_key_reg);
+
             self.emit(Opcode::CallNamed, dest, callee_reg, wrapper_reg);
             self.free_temp(positional_reg);
             self.free_temp(named_reg);
@@ -2401,17 +2416,23 @@ impl Compiler {
                 for (i, p) in patterns.iter().enumerate() {
                     if let Pattern::Rest(name) = p {
                         let args_reg = self.registers.allocate()?;
-                        self.emit(Opcode::NewArray, args_reg, 0, 0);
+                        self.emit(Opcode::NewMap, args_reg, 0, 0);
+
+                        // Set "start" = i
+                        let start_key_val = Value::String(std::rc::Rc::new("start".to_string()));
+                        let start_key_idx = self.add_constant(start_key_val);
+                        let start_key_reg = self.registers.allocate()?;
+                        self.emit(Opcode::LoadConst, start_key_reg, start_key_idx, 0);
 
                         let start_val_reg = self.registers.allocate()?;
                         self.emit(Opcode::LoadInt, start_val_reg, i as u8, 0);
-                        self.emit(Opcode::ArrayAppend, args_reg, start_val_reg, 0);
-                        self.free_temp(start_val_reg);
 
-                        let end_val_reg = self.registers.allocate()?;
-                        self.emit(Opcode::LoadNull, end_val_reg, 0, 0);
-                        self.emit(Opcode::ArrayAppend, args_reg, end_val_reg, 0);
-                        self.free_temp(end_val_reg);
+                        // args[start_key] = start_val
+                        // SetIndex: a=val, b=map, c=key
+                        self.emit(Opcode::SetIndex, start_val_reg, args_reg, start_key_reg);
+
+                        self.free_temp(start_key_reg);
+                        self.free_temp(start_val_reg);
 
                         let rest_reg = self.registers.allocate()?;
                         self.emit(Opcode::Slice, rest_reg, value_reg, args_reg);
@@ -5259,31 +5280,39 @@ impl Compiler {
         // This will use the builtin method
         let collection_reg = self.compile_expr(collection)?;
         let args_reg = self.registers.allocate()?;
-        self.emit(Opcode::NewArray, args_reg, 0, 0);
+        self.emit(Opcode::NewMap, args_reg, 0, 0);
 
-        // Add start argument (or null if missing)
-        if let Some(start_expr) = start {
-            let start_reg = self.compile_expr(start_expr)?;
-            self.emit(Opcode::ArrayAppend, args_reg, start_reg, 0);
-            self.free_temp(start_reg);
-        } else {
-            let null_reg = self.registers.allocate()?;
-            self.emit(Opcode::LoadNull, null_reg, 0, 0);
-            self.emit(Opcode::ArrayAppend, args_reg, null_reg, 0);
-            self.free_temp(null_reg);
-        }
+        // Add start argument
+        let start_key_idx = self.add_constant(Value::String(std::rc::Rc::new("start".to_string())));
+        let start_key_reg = self.registers.allocate()?;
+        self.emit(Opcode::LoadConst, start_key_reg, start_key_idx, 0);
 
-        // Add end argument (or null if missing)
-        if let Some(end_expr) = end {
-            let end_reg = self.compile_expr(end_expr)?;
-            self.emit(Opcode::ArrayAppend, args_reg, end_reg, 0);
-            self.free_temp(end_reg);
+        let start_val_reg = if let Some(start_expr) = start {
+            self.compile_expr(start_expr)?
         } else {
-            let null_reg = self.registers.allocate()?;
-            self.emit(Opcode::LoadNull, null_reg, 0, 0);
-            self.emit(Opcode::ArrayAppend, args_reg, null_reg, 0);
-            self.free_temp(null_reg);
-        }
+            let r = self.registers.allocate()?;
+            self.emit(Opcode::LoadNull, r, 0, 0);
+            r
+        };
+        self.emit(Opcode::SetIndex, start_val_reg, args_reg, start_key_reg);
+        self.free_temp(start_key_reg);
+        self.free_temp(start_val_reg);
+
+        // Add end argument
+        let end_key_idx = self.add_constant(Value::String(std::rc::Rc::new("end".to_string())));
+        let end_key_reg = self.registers.allocate()?;
+        self.emit(Opcode::LoadConst, end_key_reg, end_key_idx, 0);
+
+        let end_val_reg = if let Some(end_expr) = end {
+            self.compile_expr(end_expr)?
+        } else {
+            let r = self.registers.allocate()?;
+            self.emit(Opcode::LoadNull, r, 0, 0);
+            r
+        };
+        self.emit(Opcode::SetIndex, end_val_reg, args_reg, end_key_reg);
+        self.free_temp(end_key_reg);
+        self.free_temp(end_val_reg);
 
         let dest = self.registers.allocate()?;
         self.emit(Opcode::Slice, dest, collection_reg, args_reg);
