@@ -10,7 +10,6 @@ pub fn sandbox_new(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, Run
     if let Some(Value::Map(map)) = config_val {
         let borrowed = map.borrow();
         if let Some(Value::Bool(allow)) = borrowed.entries.get("allowIO") {
-            // eprintln!("DEBUG: Sandbox config allowIO: {}", allow);
             config.allow_io = *allow;
         }
         if let Some(Value::Bool(allow)) = borrowed.entries.get("allowNetwork") {

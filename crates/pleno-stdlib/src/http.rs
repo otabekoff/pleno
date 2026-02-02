@@ -354,7 +354,7 @@ pub fn http_router_post(
     _args: &[Value],
 ) -> Result<Value, pleno_value::RuntimeError> {
     // Stub implementation
-    println!("Router: Registered POST handler");
+    log::debug!("Router: Registered POST handler");
     Ok(Value::Null)
 }
 
@@ -413,7 +413,7 @@ pub fn http_server_listen(
     // In V2, this would be an event loop with Router callback support
     match listener.accept() {
         Ok((mut stream, peer_addr)) => {
-            println!("Connection from {}", peer_addr);
+            log::debug!("Connection from {}", peer_addr);
 
             let mut reader = BufReader::new(stream.try_clone().map_err(|e| {
                 pleno_value::RuntimeError::new(format!("Stream clone failed: {}", e))
@@ -486,8 +486,7 @@ pub fn http_server_listen(
             ))
         }
         Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-            // No connection yet (non-blocking mode)
-            println!("Server ready, no connections yet");
+            log::trace!("Server ready, no connections yet");
             Ok(Value::Null)
         }
         Err(e) => Err(pleno_value::RuntimeError::new(format!(

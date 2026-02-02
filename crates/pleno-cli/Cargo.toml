@@ -14,6 +14,7 @@ pleno-parser = { workspace = true }
 pleno-compiler = { workspace = true }
 pleno-vm = { workspace = true }
 pleno-formatter = { workspace = true }
+pleno-common = { workspace = true }
 pleno-package = { workspace = true }
 pleno-diagnostics = { workspace = true }
 pleno-stdlib = { workspace = true }
