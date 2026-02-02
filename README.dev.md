@@ -93,6 +93,22 @@ pleno compile --dump-bytecode my_script.pln
 pleno debug-ast my_script.pln
 ```
 
+##### 🛠️ Troubleshooting & Fixes
+
+#### CI Failures
+
+If CI fails on a PR:
+
+1. **Check the logs**: Click on the "Details" link of the failed check.
+2. **Reproduce locally**: Run `make check` locally. Most CI failures are due to formatting or clippy warnings which `make check` catches.
+3. **Rust Version**: Ensure you are using the version specified in `rust-toolchain.toml` (1.75+).
+
+#### Common Issues
+
+- **Parser errors**: Check lexer output first using `pleno debug-ast --lexer-only`.
+- **VM errors**: Enable `RUST_BACKTRACE=1` for detailed Rust-level traces.
+- **Flaky Tests**: If a test fails intermittently (especially concurrency tests), it might be a race condition. Use `cargo test -- --worker-threads=1` to see if it stabilizes.
+
 ---
 
 ## 🧪 Advanced Testing
@@ -126,6 +142,74 @@ The compiler generated a jump to an invalid index. This is a compiler bug. Use `
 ### "Stack Overflow (Recursive Calls)"
 
 Pleno VM has a default recursion limit of 1000 frames. If you hit this legitimately, you might need to use `loop` or increase the limit in `VMConfig`.
+
+9. Open a Pull Request
+
+### 🌿 Branch Management
+
+We maintain a strict branch hierarchy:
+
+- `main`: The "Source of Truth". Only contains stable, tested, and released code. Direct commits are forbidden; always use PRs.
+- `dev`: The integration branch. New features are merged here first for testing before moving to `main`.
+- `feature/*`: Short-lived branches for new functionality.
+- `fix/*`: Branches for bug fixes.
+
+```mermaid
+gitGraph
+    commit
+    branch dev
+    checkout dev
+    commit
+    branch feature/async
+    checkout feature/async
+    commit
+    commit
+    checkout dev
+    merge feature/async
+    checkout main
+    merge dev tag: "v0.1.0"
+```
+
+### 📝 Commit Message Convention
+
+We follow [Conventional Commits](https://www.conventionalcommits.org/):
+
+```
+<type>[optional scope]: <description>
+
+[optional body]
+
+[optional footer(s)]
+```
+
+**Types:**
+
+- `feat`: A new feature
+- `fix`: A bug fix
+- `docs`: Documentation only changes
+- `style`: Changes that do not affect the meaning of the code (white-space, formatting, etc.)
+- `refactor`: A code change that neither fixes a bug nor adds a feature
+- `perf`: A code change that improves performance
+- `test`: Adding missing tests or correcting existing tests
+- `chore`: Changes to the build process or auxiliary tools and libraries
+
+We use `husky` and `lint-staged` to enforce these conventions and run formatting/linting automatically on every commit.
+
+### 🏷️ Tag Management (Re-releasing)
+
+If a release fails (e.g., CI error during build) and you need to re-trigger the same version:
+
+1. **Delete the local and remote tag:**
+   ```bash
+   git tag -d v0.1.0
+   git push origin :refs/tags/v0.1.0
+   ```
+2. **Commit your fixes** to `main`.
+3. **Re-tag and push:**
+   ```bash
+   git tag v0.1.0
+   git push origin v0.1.0
+   ```
 
 ---
 

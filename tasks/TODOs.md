@@ -1,8 +1,4 @@
-## Priority: Standard Library & GC Integration
-
----
-
-publishing with certificates not to consided the programming language as virus and installing safely on mac, windows and linux.
+Publishing with certificates not to consided the programming language as virus and installing safely on mac, windows and linux.
 
 Debug mode, production mode logs for development.
 Remove debug logs.
@@ -20,15 +16,6 @@ AI model's generation exceeded the maximum output token limit like error might h
 
 ---
 
-# QUESTIONS
-- To make this programming language very stable what we need to do?
-- To make this programming language complete what we need to do?
-- To make this programming language all platforms supported and very good tooling what we need to do?
-
-Now it is time to renew/fefresh the specs.md with what our programming language has and can do.
-
----
-
 Let's have new roadmap for V2. 
 
 Now, as we have finished v1 of the Pleno programming langguage, I want you to fully think and write, plan the next v2 of Pleno programming language. We need V2 roadmap, v2-specs.md. Here we'll add better features, make the old and inconsistent things enhanced, better, implement new features and support many things, more stdlibs. and many more. Think more and write detailed, Things will be added, upgraded, updated, fixed, supported.
@@ -37,4 +24,4 @@ Via Claude AI generate V2 specs. Upgrades/updates/news/critical and breakign cha
 
 ---
 
-Have `main` branch clean and working and best look. Have `dev` branch for everything for development. And make the project manageable with branches, write about this in README.dev.md file and needed files too. Use and make the best practices. Write about conventional commits in README.dev.md file and needed places too.
+Have `main` branch clean and working and best look. Have `dev` branch for everything for development. And make the project manageable with branches, write about this in README.dev.md file and needed files too. Use and make the best practices. Write about conventional commits in README.dev.md file and needed places too. Add section about removing local and remote tag of v0.1.0 and retagging and publishing in the place where needed. And also, write about how to fix things if something goes wrong.
