@@ -1,0 +1,52 @@
+import { Mutex, Channel } from "std:concurrency";
+import { DateTime } from "std:time";
+
+// 1. Mutex example: Protecting shared state
+let mutex = Mutex();
+let counter = 0;
+
+async fn increment(id: Int, count: Int) {
+    for (i in 0..count) {
+        await mutex.lock();
+        counter = counter + 1;
+        mutex.unlock();
+    }
+    print("Worker " + id.toString() + " finished.");
+}
+
+// 2. Channel example: Producer-Consumer pattern
+fn producer(ch: Channel) {
+    print("Producer: Starting...");
+    for (i in 1..5) {
+        print("Producer: Sending " + i.toString());
+        ch.send(i);
+        // sleep(100);
+    }
+    ch.close();
+    print("Producer: Done.");
+}
+
+async fn consumer(ch: Channel) {
+    print("Consumer: Ready.");
+    for (val in ch) {
+        print("Consumer: Received " + val.toString());
+    }
+    print("Consumer: Done.");
+}
+
+async fn main() {
+    print("--- Mutex Demo ---");
+    spawn(fn() => increment(1, 100));
+    spawn(fn() => increment(2, 100));
+    
+    // Give workers time (in a real app we'd wait for promises)
+    await DateTime.sleep(500); 
+    print("Final counter: " + counter.toString());
+
+    print("\n--- Channel Demo ---");
+    let ch = Channel(2); // Buffered channel with capacity 2
+    spawn(fn() => producer(ch));
+    await consumer(ch);
+}
+
+main();

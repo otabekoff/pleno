@@ -3,7 +3,6 @@ use std::collections::VecDeque;
 
 // Mutex
 pub fn native_mutex_new(vm: &mut dyn VMProvider, _args: &[Value]) -> Result<Value, RuntimeError> {
-    println!("native_mutex_new called");
     let state = MutexState {
         locked: false,
         waiters: Vec::new(),
@@ -12,7 +11,6 @@ pub fn native_mutex_new(vm: &mut dyn VMProvider, _args: &[Value]) -> Result<Valu
 }
 
 pub fn native_mutex_lock(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
-    println!("native_mutex_lock called with args: {:?}", args);
     let mutex_ref = match args.first() {
         Some(Value::Mutex(m)) => m.clone(),
         _ => return Err(RuntimeError::new("lock() expects Mutex")),
@@ -30,7 +28,6 @@ pub fn native_mutex_lock(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Valu
 }
 
 pub fn native_mutex_unlock(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
-    println!("native_mutex_unlock called with args: {:?}", args);
     let mutex_ref = match args.first() {
         Some(Value::Mutex(m)) => m.clone(),
         _ => return Err(RuntimeError::new("unlock() expects Mutex")),
@@ -52,7 +49,6 @@ pub fn native_mutex_unlock(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Va
 
 // Channel
 pub fn native_channel_new(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
-    println!("native_channel_new called with args: {:?}", args);
     let capacity = match args.first() {
         Some(Value::Int(n)) if *n > 0 => *n as usize,
         _ => 0, // Unbounded if 0 or missing? Or synchronous? Let's say unbounded for now or default 1
@@ -77,7 +73,6 @@ pub fn native_channel_close(
     vm: &mut dyn VMProvider,
     args: &[Value],
 ) -> Result<Value, RuntimeError> {
-    println!("native_channel_close called with args: {:?}", args);
     let chan_ref = match args.first() {
         Some(Value::Channel(c)) => c.clone(),
         _ => return Err(RuntimeError::new("close() expects Channel")),
@@ -109,7 +104,6 @@ pub fn native_channel_close(
 }
 
 pub fn native_channel_send(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
-    println!("native_channel_send called with args: {:?}", args);
     // args[0] is receiver (Channel), args[1] is value
     let chan_ref = match args.first() {
         Some(Value::Channel(c)) => c.clone(),
@@ -146,7 +140,6 @@ pub fn native_channel_send(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Va
 }
 
 pub fn native_channel_recv(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
-    println!("native_channel_recv called with args: {:?}", args);
     let chan_ref = match args.first() {
         Some(Value::Channel(c)) => c.clone(),
         _ => return Err(RuntimeError::new("recv() expects Channel")),

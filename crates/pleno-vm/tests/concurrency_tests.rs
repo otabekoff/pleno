@@ -62,7 +62,6 @@ fn test_mutex_concurrency() {
     let result = vm.execute(chunk).expect("runtime failed");
 
     let resolved = get_promise_result(result);
-    println!("Resolved Result: {:?}", resolved);
     assert_eq!(resolved, Value::Int(6));
 }
 

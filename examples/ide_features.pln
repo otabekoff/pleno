@@ -1,0 +1,30 @@
+/**
+ * This example demonstrates Pleno IDE features including:
+ * - Syntax highlighting
+ * - Hover information
+ * - Go to definition
+ * - Diagnostics
+ */
+
+class User {
+    public let name: String;
+    public let email: String;
+
+    public fn constructor(name: String, email: String) {
+        this.name = name;
+        this.email = email;
+    }
+
+    public fn display() {
+        print("User: " + this.name + " (" + this.email + ")");
+    }
+}
+
+// Try hovering over 'User', 'name', or 'display'
+let alice = User("Alice", "alice@example.com");
+
+// Try Go to Definition on 'display'
+alice.display();
+
+// Deliberate error to show diagnostics
+// let error = 10 + "string"; // Uncomment this to see type error diagnostic

@@ -10,7 +10,7 @@ export class Benchmark {
         let end = _time.now_ns();
         let duration_ns = end - start;
         let duration_ms = duration_ns / 1000000;
-        print("Done in " + duration_ms + "ms (" + duration_ns + " ns)");
+        print("Done in " + duration_ms.toString() + "ms (" + duration_ns.toString() + " ns)");
         return duration_ns;
     }
  

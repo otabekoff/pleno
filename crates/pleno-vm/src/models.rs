@@ -12,6 +12,7 @@ pub struct AsyncTask {
     pub value: Value,
     pub callee: Option<Value>,
     pub args: Option<Vec<Value>>,
+    pub closure_state: Option<GcRc<ClosureState>>,
     pub is_async: bool,
     pub is_resolved: bool,
 }
@@ -26,6 +27,9 @@ impl GcObject for AsyncTask {
             for arg in args {
                 arg.mark(gc);
             }
+        }
+        if let Some(state) = &self.closure_state {
+            gc.mark_object(&state.to_gc_object());
         }
     }
 }
@@ -62,21 +66,6 @@ pub struct CallFrame {
     pub current_module_path: Option<Rc<String>>,
     pub type_args: Vec<Value>,
     pub exception_handlers: Vec<ExceptionHandler>,
-}
-
-/// Optional parameters for function calls, reducing argument count.
-#[derive(Debug, Clone, Default)]
-pub struct CallOptions {
-    pub return_override: Option<Value>,
-    pub closure_state: Option<GcRc<ClosureState>>,
-    pub current_owner: Option<MethodOwner>,
-    pub type_args: Vec<Value>,
-}
-
-impl CallOptions {
-    pub fn new() -> Self {
-        Self::default()
-    }
 }
 
 impl GcObject for CallFrame {

@@ -181,6 +181,7 @@ pub fn register(vm: &mut dyn VMProvider) {
         "now".to_string(),
         Value::NativeFunction(time::time_datetime_now),
     );
+    datetime_obj.insert("sleep".to_string(), Value::NativeFunction(time::time_sleep));
     time_module.insert(
         "DateTime".to_string(),
         Value::Map(gc.allocate(MapState::new(datetime_obj)).unwrap()),

@@ -10,7 +10,15 @@ use std::io::Write;
 use std::rc::Rc;
 
 pub trait VMProvider {
-    fn call(&mut self, callee: Value, args: Vec<Value>) -> Result<Value, RuntimeError>;
+    fn call(&mut self, callee: Value, args: Vec<Value>) -> Result<Value, RuntimeError> {
+        self.call_ext(callee, args, CallOptions::default())
+    }
+    fn call_ext(
+        &mut self,
+        callee: Value,
+        args: Vec<Value>,
+        opts: CallOptions,
+    ) -> Result<Value, RuntimeError>;
     fn spawn(&mut self, callee: Value, args: Vec<Value>) -> Result<Value, RuntimeError>;
     fn get_gc(&mut self) -> &mut gc::GCManager;
     fn create_promise(&mut self) -> Result<(u64, Value), RuntimeError>;
@@ -194,6 +202,22 @@ pub enum Value {
     File(GcRc<FileState>),
     Cell(GcRc<CellState>),
     Char(char),
+}
+
+/// Optional parameters for function calls, reducing argument count.
+#[derive(Debug, Clone, Default)]
+pub struct CallOptions {
+    pub return_override: Option<Value>,
+    pub closure_state: Option<GcRc<ClosureState>>,
+    pub current_owner: Option<MethodOwner>,
+    pub type_args: Vec<Value>,
+    pub promise_id: Option<u64>,
+}
+
+impl CallOptions {
+    pub fn new() -> Self {
+        Self::default()
+    }
 }
 
 impl Value {

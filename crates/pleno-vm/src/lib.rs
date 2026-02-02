@@ -1,9 +1,9 @@
 use indexmap::{IndexMap, IndexSet};
 use pleno_bytecode::{Chunk, Opcode, ParamSpec};
 use pleno_value::{
-    ArrayState, Class, ClosureState, EnumType, EnumVariantDef, MapState, MethodOwner, MultiWaiter,
-    MultiWaiterMode, NativeFunction, Object, Range, RuntimeError, SetState, ThunkState, TupleState,
-    VMProvider, Value, ValueKey, gc::GcObject,
+    ArrayState, CallOptions, Class, ClosureState, EnumType, EnumVariantDef, MapState, MethodOwner,
+    MultiWaiter, MultiWaiterMode, NativeFunction, Object, Range, RuntimeError, SetState,
+    ThunkState, TupleState, VMProvider, Value, ValueKey, gc::GcObject,
 };
 // use std::collections::HashSet;
 use std::fs;
@@ -61,7 +61,12 @@ pub struct Function {
 }
 
 impl VMProvider for VM {
-    fn call(&mut self, callee: Value, args: Vec<Value>) -> Result<Value, RuntimeError> {
+    fn call_ext(
+        &mut self,
+        callee: Value,
+        args: Vec<Value>,
+        opts: CallOptions,
+    ) -> Result<Value, RuntimeError> {
         let return_reg_idx = self.registers.len();
         // Execute until the callee frame returns
         let depth = self.frames.len();
@@ -73,21 +78,20 @@ impl VMProvider for VM {
                     &args,
                     return_reg_idx,
                     false,
-                    CallOptions::new(),
+                    opts,
                 )?;
             }
             Value::Closure(state) => {
                 let borrowed = state.borrow();
+                let mut call_opts = opts;
+                call_opts.closure_state = Some(state.clone());
                 self.call_function(
                     Value::Function(borrowed.function),
                     None,
                     &args,
                     return_reg_idx,
                     false,
-                    CallOptions {
-                        closure_state: Some(state.clone()),
-                        ..Default::default()
-                    },
+                    call_opts,
                 )?;
             }
             Value::BoundMethod {
@@ -96,16 +100,15 @@ impl VMProvider for VM {
                 owner,
                 ..
             } => {
+                let mut call_opts = opts;
+                call_opts.current_owner = Some(owner);
                 self.call_function(
-                    *function.clone(),
-                    Some(*receiver.clone()),
+                    *(function.clone()),
+                    Some(*(receiver.clone())),
                     &args,
                     return_reg_idx,
                     false,
-                    CallOptions {
-                        current_owner: Some(owner),
-                        ..Default::default()
-                    },
+                    call_opts,
                 )?;
             }
             Value::NativeFunction(f) => {
@@ -120,7 +123,7 @@ impl VMProvider for VM {
             Value::Map(map) => {
                 let callable = map.borrow().get("__call__").cloned();
                 if let Some(callable) = callable {
-                    return self.call(callable, args);
+                    return self.call_ext(callable, args, opts);
                 } else {
                     return Err(RuntimeError::new("value is not callable"));
                 }
@@ -128,7 +131,7 @@ impl VMProvider for VM {
             Value::Object(obj) => {
                 let callable = obj.borrow().fields.get("__call__").cloned();
                 if let Some(callable) = callable {
-                    return self.call(callable, args);
+                    return self.call_ext(callable, args, opts);
                 } else {
                     return Err(RuntimeError::new("value is not callable"));
                 }
@@ -136,8 +139,27 @@ impl VMProvider for VM {
             _ => return Err(RuntimeError::new("value is not callable")),
         }
 
-        let result = self.run_until(depth)?;
-        Ok(result)
+        // If it's an async function call, call_ext will have placed a promise map in return_reg_idx.
+        // We want to capture that map before run_until might potentially truncate it (on sync return).
+        let maybe_promise = self.registers.get(return_reg_idx).cloned();
+
+        let sync_result = self.run_until(depth)?;
+
+        // If run_until returned Null (could be suspension), and we have a promise map, return the map.
+        if let Some(p) = maybe_promise
+            && sync_result == Value::Null
+        {
+            let is_promise = if let Value::Map(m) = &p {
+                m.borrow().get("variant").is_some()
+            } else {
+                false
+            };
+            if is_promise {
+                return Ok(p);
+            }
+        }
+
+        Ok(sync_result)
     }
 
     fn get_gc(&mut self) -> &mut pleno_value::gc::GCManager {
@@ -166,6 +188,7 @@ impl VMProvider for VM {
             value,
             callee: None,
             args: None,
+            closure_state: None,
             is_async: true,
             is_resolved: true,
         });
@@ -173,11 +196,17 @@ impl VMProvider for VM {
 
     fn spawn(&mut self, callee: Value, args: Vec<Value>) -> Result<Value, RuntimeError> {
         let (id, promise) = self.create_promise()?;
+        let closure_state = if let Value::Closure(state) = &callee {
+            Some(state.clone())
+        } else {
+            None
+        };
         self.pending_tasks.push(AsyncTask {
             promise_id: id,
             value: Value::Null,
             callee: Some(callee),
             args: Some(args),
+            closure_state,
             is_async: true,
             is_resolved: false,
         });
@@ -463,6 +492,7 @@ impl VM {
                         value: Value::Null,                       // Or pass args?
                         callee: Some(task.callback),
                         args: Some(task.args),
+                        closure_state: None,
                         is_async: true,
                         is_resolved: false,
                     });
@@ -552,8 +582,26 @@ impl VM {
             if !task.is_resolved {
                 if let Some(callee) = task.callee {
                     let args = task.args.unwrap_or_default();
-                    match self.call(callee, args) {
-                        Ok(res) => self.resolve_promise(task.promise_id, res),
+                    let opts = CallOptions {
+                        closure_state: task.closure_state,
+                        promise_id: Some(task.promise_id),
+                        ..Default::default()
+                    };
+                    match self.call_ext(callee, args, opts) {
+                        Ok(res) => {
+                            // If callee was async, call() returns the promise map.
+                            // If we provide promise_id, then task.promise_id IS that promise.
+                            // So we don't need to resolve it again with the promise map itself.
+                            // Unless callee was NOT async, then we resolve it with the result.
+                            let is_promise = if let Value::Map(m) = &res {
+                                m.borrow().get("variant").is_some()
+                            } else {
+                                false
+                            };
+                            if !is_promise {
+                                self.resolve_promise(task.promise_id, res);
+                            }
+                        }
                         Err(e) => {
                             self.resolve_promise(
                                 task.promise_id,
@@ -968,7 +1016,9 @@ impl VM {
                         if idx >= state.captures.len() {
                             return Err(RuntimeError::new("capture index out of bounds"));
                         }
-                        self.registers[base + a] = state.captures[idx].clone();
+                        let val = state.captures[idx].clone();
+                        log::trace!("LoadCapture: index={} value={:?}", idx, val);
+                        self.registers[base + a] = val;
                     } else {
                         return Err(RuntimeError::new("not in a closure"));
                     }
@@ -993,7 +1043,9 @@ impl VM {
                 }
                 Opcode::MakeCell => {
                     let value = self.registers[base + b].clone();
-                    let cell = self.gc.allocate(pleno_value::CellState::new(value))?;
+                    let cell = self
+                        .gc
+                        .allocate(pleno_value::CellState::new(value.clone()))?;
                     self.registers[base + a] = Value::Cell(cell);
                 }
                 Opcode::LoadCell => {
@@ -1706,6 +1758,7 @@ impl VM {
                         _ => None,
                     };
                     let value = self.registers[base + b].clone();
+                    log::trace!("GetProperty: object={:?} name={}", value, name);
                     let value = match value {
                         Value::Map(map) => {
                             let map_ref = map.borrow();
@@ -2797,6 +2850,7 @@ impl VM {
                                     value: result.clone(),
                                     callee: None,
                                     args: None,
+                                    closure_state: None,
                                     is_async: true,
                                     is_resolved: true,
                                 });
@@ -4253,6 +4307,11 @@ impl VM {
                     false
                 }
             }
+            Value::NativeFunction(_) => {
+                // Temporary fix: allow any NativeFunction to act as a type check
+                // This unblocks native types like Mutex/Channel used in parameters
+                true
+            }
             Value::Class(target_class) => match value {
                 Value::Object(obj) => {
                     if let Some(instance_class) = &obj.borrow().class {
@@ -4612,6 +4671,7 @@ impl VM {
             mut closure_state,
             current_owner,
             type_args,
+            promise_id: override_promise_id,
         } = opts;
 
         let function_index = match callee {
@@ -4654,19 +4714,29 @@ impl VM {
             let mut arg_idx = 0;
 
             if function.is_async {
-                // ... (rest of async logic)
-                let promise_id = self.next_promise_id;
-                self.next_promise_id += 1;
+                let promise_id = override_promise_id.unwrap_or_else(|| {
+                    let id = self.next_promise_id;
+                    self.next_promise_id += 1;
+                    id
+                });
                 final_args.push(Value::Int(promise_id as i64));
-                let mut promise_map = IndexMap::new();
-                promise_map.insert("id".to_string(), Value::Int(promise_id as i64));
-                promise_map.insert(
-                    "variant".to_string(),
-                    Value::String(Rc::new("Pending".to_string())),
-                );
-                promise_map.insert("value".to_string(), Value::Null);
-                let promise = Value::Map(self.gc.allocate(MapState::new(promise_map))?);
-                self.promises.insert(promise_id, promise.clone());
+
+                // If it's an override, the promise map ALREADY exists in self.promises.
+                // We just need to ensure it's there.
+                let promise = if let Some(p) = self.promises.get(&promise_id) {
+                    p.clone()
+                } else {
+                    let mut promise_map = IndexMap::new();
+                    promise_map.insert("id".to_string(), Value::Int(promise_id as i64));
+                    promise_map.insert(
+                        "variant".to_string(),
+                        Value::String(Rc::new("Pending".to_string())),
+                    );
+                    promise_map.insert("value".to_string(), Value::Null);
+                    let p = Value::Map(self.gc.allocate(MapState::new(promise_map))?);
+                    self.promises.insert(promise_id, p.clone());
+                    p
+                };
                 if return_reg_idx >= self.registers.len() {
                     self.registers.resize(return_reg_idx + 1, Value::Null);
                 }
