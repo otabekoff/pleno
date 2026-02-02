@@ -715,7 +715,7 @@ impl VM {
                 .ok_or_else(|| RuntimeError::new("no frame"))?;
             let instruction = self.functions[frame.function_index].chunk.code[frame.ip];
             let _opcode = instruction.opcode();
-            // println!("VM::run_step: ip={:04} {:?}", frame.ip, _opcode);
+            log::trace!("VM::run_step: ip={:04} {:?}", frame.ip, _opcode);
 
             self.instruction_count += 1;
             if self.instruction_count.is_multiple_of(100)
@@ -1429,7 +1429,7 @@ impl VM {
                 }
                 Opcode::Await => {
                     let value = self.registers[base + b].clone();
-                    // println!("Opcode::Await on value: {:?}", value);
+                    log::trace!("Opcode::Await on value: {:?}", value);
                     match value {
                         Value::Map(map) => {
                             let variant = map.borrow().get("variant").cloned();
@@ -2875,7 +2875,7 @@ impl VM {
                     }
 
                     let value = value.unwrap_or(Value::Null);
-                    // println!("VM: GetGlobal '{}' => {:?}", name, value);
+                    log::trace!("VM: GetGlobal '{}' => {:?}", name, value);
                     self.registers[base + a] = value;
                 }
                 Opcode::SetGlobal => {
@@ -2889,7 +2889,7 @@ impl VM {
                         _ => return Err(RuntimeError::new("global name must be string")),
                     };
                     let value = self.registers[base + a].clone();
-                    // println!("VM: SetGlobal '{}' => {:?}", name, value);
+                    log::trace!("VM: SetGlobal '{}' => {:?}", name, value);
                     self.globals.insert(name, value);
                 }
                 Opcode::DefineClass => {
@@ -4708,7 +4708,12 @@ impl VM {
             if arg_idx < final_args.len() {
                 return Err(self.throw_runtime_error("too many positional arguments"));
             }
-            // println!("Calling function. is_async: {}, arity: {}, params: {}", function.is_async, function.arity, function.params.len());
+            log::trace!(
+                "Calling function. is_async: {}, arity: {}, params: {}",
+                function.is_async,
+                function.arity,
+                function.params.len()
+            );
 
             processed
         };
@@ -5124,7 +5129,7 @@ impl VM {
         args: Vec<Value>,
         return_reg: usize,
     ) -> Result<(), RuntimeError> {
-        // println!("VM::call_any_value: calling {:?}", callee);
+        log::trace!("VM::call_any_value: calling {:?}", callee);
         match callee {
             Value::Thunk(_) => {
                 let forced = self.force_thunk(callee)?;
