@@ -1527,8 +1527,8 @@ let server = Server(router);
 // server.listen(8080);
 ```
 
-> [!NOTE]
-> **V1 Limitation**: `Router` and `Server` are stub implementations in V1. The HTTP Client (`HTTP.get`, `HTTP.post`, etc.) is fully functional. Full server support is planned for V2.
+> [!TIP]
+> The HTTP Server binds to a port using `TcpListener` and handles single connections with JSON responses. For full server features (event loop, Router callbacks), see V2 roadmap.
 
 ### 13.7 Date & Time ✅
 

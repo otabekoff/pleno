@@ -379,19 +379,120 @@ pub fn http_server_listen(
     vm: &mut dyn pleno_value::VMProvider,
     args: &[Value],
 ) -> Result<Value, pleno_value::RuntimeError> {
+    use std::io::{BufRead, BufReader, Write};
+    use std::net::TcpListener;
+
     if !vm.is_network_allowed() {
         return Err(pleno_value::RuntimeError::new(
             "SecurityError: Network access denied",
         ));
     }
-    if let Some(port) = args.first() {
-        println!("Server mock listening on port {}", port);
+
+    let port = match args.first() {
+        Some(Value::Int(p)) => *p as u16,
+        Some(Value::Float(p)) => *p as u16,
+        _ => {
+            return Err(pleno_value::RuntimeError::new(
+                "Server.listen() expects port number",
+            ));
+        }
+    };
+
+    let addr = format!("127.0.0.1:{}", port);
+    let listener = TcpListener::bind(&addr).map_err(|e| {
+        pleno_value::RuntimeError::new(format!("Failed to bind to {}: {}", addr, e))
+    })?;
+
+    println!("Pleno HTTP Server listening on http://{}", addr);
+
+    // Set non-blocking for V1 - server handles one request then returns
+    // For V2, this should be a blocking event loop or async
+    listener.set_nonblocking(true).ok();
+
+    // Accept one connection for V1 demo purposes
+    // In V2, this would be an event loop with Router callback support
+    match listener.accept() {
+        Ok((mut stream, peer_addr)) => {
+            println!("Connection from {}", peer_addr);
+
+            let mut reader = BufReader::new(stream.try_clone().map_err(|e| {
+                pleno_value::RuntimeError::new(format!("Stream clone failed: {}", e))
+            })?);
+
+            // Read HTTP request line
+            let mut request_line = String::new();
+            reader.read_line(&mut request_line).ok();
+
+            // Parse method and path
+            let parts: Vec<&str> = request_line.split_whitespace().collect();
+            let (method, path) = if parts.len() >= 2 {
+                (parts[0], parts[1])
+            } else {
+                ("GET", "/")
+            };
+
+            // Read headers until empty line
+            let mut headers = IndexMap::new();
+            loop {
+                let mut header_line = String::new();
+                if reader.read_line(&mut header_line).is_err() {
+                    break;
+                }
+                let trimmed = header_line.trim();
+                if trimmed.is_empty() {
+                    break;
+                }
+                if let Some((key, value)) = trimmed.split_once(':') {
+                    headers.insert(key.trim().to_lowercase(), value.trim().to_string());
+                }
+            }
+
+            // Create request object for potential Router callback
+            let gc = vm.get_gc();
+            let mut req_map = IndexMap::new();
+            req_map.insert(
+                "method".to_string(),
+                Value::String(Rc::new(method.to_string())),
+            );
+            req_map.insert("path".to_string(), Value::String(Rc::new(path.to_string())));
+
+            let mut headers_map = IndexMap::new();
+            for (k, v) in headers {
+                headers_map.insert(k, Value::String(Rc::new(v)));
+            }
+            req_map.insert(
+                "headers".to_string(),
+                Value::Map(gc.allocate(pleno_value::MapState::new(headers_map))?),
+            );
+
+            // Default response - in V2, Router would determine this
+            let response_body = format!(
+                r#"{{"message":"Pleno HTTP Server","method":"{}","path":"{}"}}"#,
+                method, path
+            );
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                response_body.len(),
+                response_body
+            );
+
+            stream.write_all(response.as_bytes()).map_err(|e| {
+                pleno_value::RuntimeError::new(format!("Failed to write response: {}", e))
+            })?;
+            stream.flush().ok();
+
+            Ok(Value::Map(
+                gc.allocate(pleno_value::MapState::new(req_map))?,
+            ))
+        }
+        Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+            // No connection yet (non-blocking mode)
+            println!("Server ready, no connections yet");
+            Ok(Value::Null)
+        }
+        Err(e) => Err(pleno_value::RuntimeError::new(format!(
+            "Accept failed: {}",
+            e
+        ))),
     }
-    // Execute callback if present
-    if let Some(Value::Function(_func)) = args.get(1) {
-        // Need way to call function from native...
-        // For now, just ignore or print
-        println!("(Server listen callback triggered)");
-    }
-    Ok(Value::Null)
 }
