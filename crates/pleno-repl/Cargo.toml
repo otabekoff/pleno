@@ -11,4 +11,6 @@ pleno-compiler = { workspace = true }
 pleno-vm = { workspace = true }
 pleno-value = { workspace = true }
 pleno-stdlib = { workspace = true }
+pleno-diagnostics = { workspace = true }
+pleno-common = { workspace = true }
 rustyline = { workspace = true }

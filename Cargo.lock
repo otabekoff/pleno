@@ -1320,7 +1320,9 @@ dependencies = [
 name = "pleno-repl"
 version = "0.1.0"
 dependencies = [
+ "pleno-common",
  "pleno-compiler",
+ "pleno-diagnostics",
  "pleno-lexer",
  "pleno-parser",
  "pleno-stdlib",
