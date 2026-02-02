@@ -86,4 +86,84 @@ A baseline JIT compiler targeting x86_64 and ARM64 to optimize hot loops.
 
 ---
 
+## 7. Features Deferred from V1
+
+These features were specified in V1 but deferred due to scope constraints:
+
+### 7.1 Operator Overloading
+
+User-defined operators for custom types.
+
+```pleno
+class Vector {
+    x: Float;
+    y: Float;
+
+    operator +(other: Vector): Vector {
+        return Vector(this.x + other.x, this.y + other.y);
+    }
+
+    operator ==(other: Vector): Bool {
+        return this.x == other.x && this.y == other.y;
+    }
+}
+```
+
+### 7.2 Package Manager (PLM)
+
+Full package management with registry support.
+
+```bash
+plm init my-project
+plm add lodash@1.0.0
+plm install
+plm publish
+```
+
+### 7.3 Ownership Hints
+
+Optional Rust-like borrow/move semantics for performance optimization.
+
+```pleno
+fn transfer(move data: Buffer) { ... }
+fn read(ref data: &Buffer) { ... }
+fn update(ref mut data: &mut Buffer) { ... }
+```
+
+### 7.4 Memory Pooling
+
+Object pooling for high-frequency allocations.
+
+```pleno
+@pooled(size: 100)
+class Particle {
+    x: Float; y: Float; velocity: Float;
+}
+```
+
+### 7.5 Custom Decorator Definitions
+
+Allow users to define custom decorators.
+
+```pleno
+@decorator
+fn logged(target: Function): Function {
+    return fn(...args) => {
+        print("Calling: " + target.name);
+        return target(...args);
+    };
+}
+```
+
+### 7.6 HTTP Server (Full Implementation)
+
+Real TCP listener for `Server.listen()`.
+
+```pleno
+let server = Server(router);
+server.listen(8080, fn() => print("Listening on :8080"));
+```
+
+---
+
 _Note: This is a living document and will be refined as development progresses._
