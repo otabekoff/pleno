@@ -1,0 +1,37 @@
+   Compiling pleno-vm v0.1.0 (/home/otabek/Projects/plang/pleno/crates/pleno-vm)
+error[E0382]: borrow of moved value: `collection`
+    --> crates/pleno-vm/src/lib.rs:2552:33
+     |
+2473 |                     let collection = self.registers[base + b].clone();
+     |                         ---------- move occurs because `collection` has type `pleno_value::Value`, which does not implement the `Copy` trait
+...
+2483 |                     let result = match (collection, index) {
+     |                                         ---------- value moved here
+...
+2552 |                                 collection.type_name(),
+     |                                 ^^^^^^^^^^ value borrowed here after move
+     |
+help: consider cloning the value if the performance cost is acceptable
+     |
+2483 |                     let result = match (collection.clone(), index) {
+     |                                                   ++++++++
+
+error[E0382]: borrow of moved value: `index`
+    --> crates/pleno-vm/src/lib.rs:2553:33
+     |
+2474 |                     let index = self.registers[base + c].clone();
+     |                         ----- move occurs because `index` has type `pleno_value::Value`, which does not implement the `Copy` trait
+...
+2483 |                     let result = match (collection, index) {
+     |                                                     ----- value moved here
+...
+2553 |                                 index.type_name()
+     |                                 ^^^^^ value borrowed here after move
+     |
+help: consider cloning the value if the performance cost is acceptable
+     |
+2483 |                     let result = match (collection, index.clone()) {
+     |                                                          ++++++++
+
+For more information about this error, try `rustc --explain E0382`.
+error: could not compile `pleno-vm` (lib) due to 2 previous errors

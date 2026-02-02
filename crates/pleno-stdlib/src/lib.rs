@@ -19,7 +19,11 @@ pub mod regex;
 pub mod security;
 pub mod test;
 pub mod time;
+pub mod toml;
 pub mod url;
+pub mod uuid;
+pub mod xml;
+pub mod yaml;
 
 use indexmap::IndexMap;
 use pleno_value::{MapState, VMProvider, Value};
@@ -147,11 +151,11 @@ pub fn register(vm: &mut dyn VMProvider) {
     let mut base64_module = IndexMap::new();
     base64_module.insert(
         "encode".to_string(),
-        Value::NativeFunction(base64::base64_encode),
+        Value::NativeFunction(self::base64::base64_encode),
     );
     base64_module.insert(
         "decode".to_string(),
-        Value::NativeFunction(base64::base64_decode),
+        Value::NativeFunction(self::base64::base64_decode),
     );
     modules.insert(
         "std:base64".to_string(),
@@ -161,7 +165,10 @@ pub fn register(vm: &mut dyn VMProvider) {
     // std:url
     let mut url_module = IndexMap::new();
     let mut url_obj = IndexMap::new();
-    url_obj.insert("parse".to_string(), Value::NativeFunction(url::url_parse));
+    url_obj.insert(
+        "parse".to_string(),
+        Value::NativeFunction(self::url::url_parse),
+    );
     url_module.insert(
         "URL".to_string(),
         Value::Map(gc.allocate(MapState::new(url_obj)).unwrap()),
@@ -173,10 +180,67 @@ pub fn register(vm: &mut dyn VMProvider) {
 
     // std:csv
     let mut csv_module = IndexMap::new();
-    csv_module.insert("parse".to_string(), Value::NativeFunction(csv::csv_parse));
+    csv_module.insert(
+        "parse".to_string(),
+        Value::NativeFunction(self::csv::csv_parse),
+    );
     modules.insert(
         "std:csv".to_string(),
         Value::Map(gc.allocate(MapState::new(csv_module)).unwrap()),
+    );
+
+    // std:uuid
+    let mut uuid_module = IndexMap::new();
+    uuid_module.insert("v4".to_string(), Value::NativeFunction(self::uuid::uuid_v4));
+    uuid_module.insert("v7".to_string(), Value::NativeFunction(self::uuid::uuid_v7));
+    uuid_module.insert(
+        "parse".to_string(),
+        Value::NativeFunction(self::uuid::uuid_parse),
+    );
+    modules.insert(
+        "std:uuid".to_string(),
+        Value::Map(gc.allocate(MapState::new(uuid_module)).unwrap()),
+    );
+
+    // std:yaml
+    let mut yaml_module = IndexMap::new();
+    yaml_module.insert(
+        "parse".to_string(),
+        Value::NativeFunction(self::yaml::yaml_parse),
+    );
+    yaml_module.insert(
+        "stringify".to_string(),
+        Value::NativeFunction(self::yaml::yaml_stringify),
+    );
+    modules.insert(
+        "std:yaml".to_string(),
+        Value::Map(gc.allocate(MapState::new(yaml_module)).unwrap()),
+    );
+
+    // std:toml
+    let mut toml_module = IndexMap::new();
+    toml_module.insert(
+        "parse".to_string(),
+        Value::NativeFunction(self::toml::toml_parse),
+    );
+    toml_module.insert(
+        "stringify".to_string(),
+        Value::NativeFunction(self::toml::toml_stringify),
+    );
+    modules.insert(
+        "std:toml".to_string(),
+        Value::Map(gc.allocate(MapState::new(toml_module)).unwrap()),
+    );
+
+    // std:xml
+    let mut xml_module = IndexMap::new();
+    xml_module.insert(
+        "parse".to_string(),
+        Value::NativeFunction(self::xml::xml_parse),
+    );
+    modules.insert(
+        "std:xml".to_string(),
+        Value::Map(gc.allocate(MapState::new(xml_module)).unwrap()),
     );
 
     // std:json
