@@ -1,4 +1,3 @@
-use crate::concurrency::*;
 use indexmap::{IndexMap, IndexSet};
 use pleno_value::{
     ArrayState, IteratorState, MapState, RuntimeError, SetState, TupleState, VMProvider, Value,
@@ -96,10 +95,6 @@ pub fn register_builtins(vm: &mut dyn VMProvider) {
     vm.register_global("assert".to_string(), Value::NativeFunction(native_assert));
     vm.register_global("id".to_string(), Value::NativeFunction(native_id));
     vm.register_global("typeof".to_string(), Value::NativeFunction(native_typeof));
-    vm.register_global(
-        "__native_sleep".to_string(),
-        Value::NativeFunction(native_sleep),
-    );
     vm.register_global("map".to_string(), Value::NativeFunction(native_global_map));
     vm.register_global(
         "filter".to_string(),
@@ -113,130 +108,6 @@ pub fn register_builtins(vm: &mut dyn VMProvider) {
     vm.register_global(
         "Error".to_string(),
         Value::NativeFunction(native_error_constructor),
-    );
-
-    // Native bindings for std lib wrappers (math.pln, http.pln)
-    vm.register_global(
-        "__native_math_sin".to_string(),
-        Value::NativeFunction(crate::math::math_sin),
-    );
-    vm.register_global(
-        "__native_math_cos".to_string(),
-        Value::NativeFunction(crate::math::math_cos),
-    );
-    vm.register_global(
-        "__native_math_tan".to_string(),
-        Value::NativeFunction(crate::math::math_tan),
-    );
-    vm.register_global(
-        "__native_math_log".to_string(),
-        Value::NativeFunction(crate::math::math_log),
-    );
-    vm.register_global(
-        "__native_math_exp".to_string(),
-        Value::NativeFunction(crate::math::math_exp),
-    );
-    vm.register_global(
-        "__native_math_abs".to_string(),
-        Value::NativeFunction(crate::math::math_abs),
-    );
-    vm.register_global(
-        "__native_math_pow".to_string(),
-        Value::NativeFunction(crate::math::math_pow),
-    );
-    vm.register_global(
-        "__native_math_sqrt".to_string(),
-        Value::NativeFunction(crate::math::math_sqrt),
-    );
-    vm.register_global(
-        "__native_math_random".to_string(),
-        Value::NativeFunction(crate::math::math_random),
-    );
-    vm.register_global(
-        "__native_math_random_int".to_string(),
-        Value::NativeFunction(crate::math::math_random_int),
-    );
-    vm.register_global(
-        "__native_math_floor".to_string(),
-        Value::NativeFunction(crate::math::math_floor),
-    );
-    vm.register_global(
-        "__native_math_ceil".to_string(),
-        Value::NativeFunction(crate::math::math_ceil),
-    );
-    vm.register_global(
-        "__native_math_round".to_string(),
-        Value::NativeFunction(crate::math::math_round),
-    );
-    vm.register_global(
-        "__native_math_atan2".to_string(),
-        Value::NativeFunction(crate::math::math_atan2),
-    );
-    vm.register_global(
-        "__native_math_log10".to_string(),
-        Value::NativeFunction(crate::math::math_log10),
-    );
-    vm.register_global(
-        "__native_math_trunc".to_string(),
-        Value::NativeFunction(crate::math::math_trunc),
-    );
-    vm.register_global(
-        "__native_math_sign".to_string(),
-        Value::NativeFunction(crate::math::math_sign),
-    );
-
-    vm.register_global(
-        "__native_http_get".to_string(),
-        Value::NativeFunction(crate::http::http_get),
-    );
-    vm.register_global(
-        "__native_http_post".to_string(),
-        Value::NativeFunction(crate::http::http_post),
-    );
-    vm.register_global(
-        "__native_http_put".to_string(),
-        Value::NativeFunction(crate::http::http_put),
-    );
-    vm.register_global(
-        "__native_http_delete".to_string(),
-        Value::NativeFunction(crate::http::http_delete),
-    );
-
-    vm.register_global(
-        "__native_dotenv_config".to_string(),
-        Value::NativeFunction(crate::dotenv::dotenv_config),
-    );
-    vm.register_global(
-        "__native_json_parse".to_string(),
-        Value::NativeFunction(crate::json::json_parse),
-    );
-    vm.register_global(
-        "__native_json_stringify".to_string(),
-        Value::NativeFunction(crate::json::json_stringify),
-    );
-    vm.register_global(
-        "__native_os_platform".to_string(),
-        Value::NativeFunction(crate::os::os_platform),
-    );
-    vm.register_global(
-        "__native_os_arch".to_string(),
-        Value::NativeFunction(crate::os::os_arch),
-    );
-    vm.register_global(
-        "__native_os_homedir".to_string(),
-        Value::NativeFunction(crate::os::os_homedir),
-    );
-    vm.register_global(
-        "__native_os_tmpdir".to_string(),
-        Value::NativeFunction(crate::os::os_tmpdir),
-    );
-    vm.register_global(
-        "__native_os_hostname".to_string(),
-        Value::NativeFunction(crate::os::os_hostname),
-    );
-    vm.register_global(
-        "__native_os_uptime".to_string(),
-        Value::NativeFunction(crate::os::os_uptime),
     );
 
     // Result type constructors
@@ -331,27 +202,9 @@ pub fn register_builtins(vm: &mut dyn VMProvider) {
         Value::NativeFunction(native_set_constructor),
     );
 
-    // Internal hook for time
-    vm.register_global(
-        "__native_time_now".to_string(),
-        Value::NativeFunction(crate::time::time_now),
-    );
-    vm.register_global(
-        "__native_gc_collect".to_string(),
-        Value::NativeFunction(native_gc_collect),
-    );
-    vm.register_global(
-        "__native_gc_stats".to_string(),
-        Value::NativeFunction(native_gc_stats),
-    );
     vm.register_global(
         "spawn".to_string(),
         Value::NativeFunction(native_async_spawn),
-    );
-    vm.register_global("Mutex".to_string(), Value::NativeFunction(native_mutex_new));
-    vm.register_global(
-        "Channel".to_string(),
-        Value::NativeFunction(native_channel_new),
     );
     vm.register_global(
         "stopIteration".to_string(),
@@ -869,15 +722,6 @@ fn native_typeof(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, Runt
     Ok(Value::String(Rc::new(val.type_name().to_string())))
 }
 
-fn native_sleep(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
-    let ms = match args.first() {
-        Some(Value::Int(m)) => *m as u64,
-        _ => return Err(RuntimeError::new("sleep() expects integer milliseconds")),
-    };
-    std::thread::sleep(std::time::Duration::from_millis(ms));
-    Ok(Value::Null)
-}
-
 fn native_async_spawn(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
     if args.is_empty() {
         return Err(RuntimeError::new("spawn() requires a function"));
@@ -885,29 +729,6 @@ fn native_async_spawn(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, 
     let callee = args[0].clone();
     let call_args = args[1..].to_vec();
     vm.spawn(callee, call_args)
-}
-
-fn native_gc_collect(vm: &mut dyn VMProvider, _args: &[Value]) -> Result<Value, RuntimeError> {
-    vm.collect();
-    Ok(Value::Null)
-}
-
-fn native_gc_stats(vm: &mut dyn VMProvider, _args: &[Value]) -> Result<Value, RuntimeError> {
-    let gc_manager = vm.get_gc();
-    let mut stats_map = IndexMap::new();
-    stats_map.insert(
-        "heap_size".to_string(),
-        Value::Int(gc_manager.gc.get_heap_size() as i64),
-    );
-    stats_map.insert(
-        "threshold".to_string(),
-        Value::Int(gc_manager.gc.allocation_threshold as i64),
-    );
-    stats_map.insert(
-        "current_allocation".to_string(),
-        Value::Int(gc_manager.current_allocation as i64),
-    );
-    Ok(Value::Map(vm.get_gc().allocate(MapState::new(stats_map))?))
 }
 
 fn native_global_map(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {

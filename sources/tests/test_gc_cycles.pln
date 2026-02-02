@@ -1,5 +1,7 @@
 // GC Cycle Reclamation Test
  
+import _gc from "std:gc";
+
 class Node {
     constructor(name) {
         this.name = name;
@@ -16,20 +18,20 @@ fn create_cycle() {
 }
  
 print("Testing GC Cycle Reclamation...");
-let initial = __native_gc_stats();
+let initial = { heap_size: _gc.heapSize() };
 print("Initial heap size: " + initial.heap_size);
  
 create_cycle();
-let after_create = __native_gc_stats();
+let after_create = { heap_size: _gc.heapSize() };
 print("Heap size after creation: " + after_create.heap_size);
  
-__native_gc_collect();
-let after_collect = __native_gc_stats();
+_gc.collect();
+let after_collect = { heap_size: _gc.heapSize() };
 print("Heap size after manual collect (should not change yet): " + after_collect.heap_size);
  
 // Now the local variables from create_cycle are gone, so the cycle should be reclaimed
-__native_gc_collect();
-let final = __native_gc_stats();
+_gc.collect();
+let final = { heap_size: _gc.heapSize() };
 print("Final heap size: " + final.heap_size);
  
 if (final.heap_size < after_create.heap_size) {

@@ -1,16 +1,19 @@
 // JSON standard library module
 // JSON parsing and stringification
 
+import _json from "std:json";
+
 export class JSON {
     public static fn parse(json: String): Any {
-        return __native_json_parse(json);
+        return _json.JSON.parse(json);
     }
 
     public static fn stringify(value: Any): String {
-        return __native_json_stringify(value);
+        return _json.JSON.stringify(value);
     }
 
     public static fn stringifyPretty(value: Any, indent: Int = 2): String {
-        return __native_json_stringify_pretty(value);
+        //indent argument is not used in native stringify yet, but we'll keep it for future use.
+        return _json.JSON.stringify(value);
     }
 }

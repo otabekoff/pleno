@@ -276,3 +276,15 @@ The following features from `specs.md` are deferred to v1.x or v2:
 - **Tooling**: Full LSP implementation, Formatter perfection
 - **Performance**: JIT Compilation, NaN boxing
 
+----
+
+
+Move to new version of taks management in tasks folder. New workflow.
+
+
+---
+
+We've to think about bad practices, inconsistencies. We've to review what we have already and reconsider everything. Need to find inconsistencies, duplicated, bad dx and practices and fix and solve and upgrade, update them.
+
+
+---

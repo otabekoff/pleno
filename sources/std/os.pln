@@ -1,24 +1,27 @@
 // OS standard library module
 // Operating system operations
 
+import _os from "std:os";
+import _process from "std:process";
+
 export class OS {
     public static fn exit(code: Int): Void {
-        return __native_os_exit(code);
+        return _process.exit(code);
     }
 
     public static fn getEnv(name: String): String? {
-        return __native_os_getenv(name);
+        return _process.env(name);
     }
 
     public static fn args(): Array<String> {
-        return __native_os_args();
+        return _process.args();
     }
 
     public static fn cwd(): String {
-        return __native_os_cwd();
+        return _process.cwd();
     }
 
     public static fn platform(): String {
-        return __native_os_platform();
+        return _os.platform();
     }
 }

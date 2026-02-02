@@ -1,20 +1,22 @@
 // HTTP standard library module
 // HTTP client operations
 
+import _http from "std:http";
+
 export class Http {
     public static fn get(url) {
-        return __native_http_get(url);
+        return _http.get(url);
     }
 
     public static fn post(url, body) {
-        return __native_http_post(url, body);
+        return _http.post(url, body);
     }
 
     public static fn put(url, body) {
-        return __native_http_put(url, body);
+        return _http.put(url, body);
     }
 
     public static fn delete(url) {
-        return __native_http_delete(url);
+        return _http.delete(url);
     }
 }
