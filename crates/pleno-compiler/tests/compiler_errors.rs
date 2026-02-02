@@ -3,10 +3,10 @@ use pleno_compiler::Compiler;
 fn compile(source: &str) -> Result<(), String> {
     let tokens = pleno_lexer::lex(source).map_err(|e| e.message)?;
     let mut parser = pleno_parser::Parser::new(tokens, source);
-    let program = parser.parse_program().map_err(|e| e.message)?;
+    let mut program = parser.parse_program().map_err(|e| e.message)?;
     let mut compiler = Compiler::new(source.to_string());
     compiler
-        .compile(&program)
+        .compile(&mut program)
         .map(|_| ())
         .map_err(|e| e.diagnostic.message)
 }

@@ -1,0 +1,15 @@
+[package]
+name = "pleno-optimizer"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+pleno-ast = { path = "../pleno-ast" }
+pleno-common = { path = "../pleno-common" }
+pleno-value = { path = "../pleno-value" }
+indexmap = "2.0"
+serde = { version = "1.0", features = ["derive"] }
+
+[dev-dependencies]
+pleno-lexer = { path = "../pleno-lexer" }
+pleno-parser = { path = "../pleno-parser" }

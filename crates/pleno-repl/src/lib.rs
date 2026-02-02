@@ -199,7 +199,7 @@ fn execute_line(vm: &mut VM, line: &str) {
 
     // Parse
     let mut parser = pleno_parser::Parser::new(tokens, line);
-    let program = match parser.parse_program() {
+    let mut program = match parser.parse_program() {
         Ok(p) => p,
         Err(err) => {
             eprintln!(
@@ -212,7 +212,7 @@ fn execute_line(vm: &mut VM, line: &str) {
 
     // Compile
     let mut compiler = Compiler::new(line.to_string());
-    let chunk = match compiler.compile(&program) {
+    let chunk = match compiler.compile(&mut program) {
         Ok(c) => c,
         Err(err) => {
             eprintln!("compile error: {}", err.diagnostic.message);

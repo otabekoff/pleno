@@ -4,9 +4,9 @@ use pleno_vm::VM;
 fn eval(source: &str) -> pleno_value::Value {
     let tokens = pleno_lexer::lex(source).expect("lex failed");
     let mut parser = pleno_parser::Parser::new(tokens, source);
-    let program = parser.parse_program().expect("parse failed");
+    let mut program = parser.parse_program().expect("parse failed");
     let mut compiler = Compiler::new(source.to_string());
-    let chunk = compiler.compile(&program).expect("compile failed");
+    let chunk = compiler.compile(&mut program).expect("compile failed");
     let mut vm = VM::new();
     pleno_stdlib::register(&mut vm);
     vm.execute(chunk).expect("runtime failed")
@@ -15,10 +15,10 @@ fn eval(source: &str) -> pleno_value::Value {
 fn eval_result(source: &str) -> Result<pleno_value::Value, String> {
     let tokens = pleno_lexer::lex(source).map_err(|e| e.message)?;
     let mut parser = pleno_parser::Parser::new(tokens, source);
-    let program = parser.parse_program().map_err(|e| e.message)?;
+    let mut program = parser.parse_program().map_err(|e| e.message)?;
     let mut compiler = Compiler::new(source.to_string());
     let chunk = compiler
-        .compile(&program)
+        .compile(&mut program)
         .map_err(|e| e.diagnostic.message)?;
     let mut vm = VM::new();
     pleno_stdlib::register(&mut vm);

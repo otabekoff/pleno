@@ -11,6 +11,7 @@ pleno-value = { workspace = true }
 pleno-diagnostics = { workspace = true }
 indexmap = { workspace = true }
 log = { workspace = true }
+pleno-optimizer = { workspace = true }
 
 [dev-dependencies]
 pleno-lexer = { workspace = true }

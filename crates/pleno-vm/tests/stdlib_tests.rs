@@ -6,9 +6,9 @@ use pleno_vm::VM;
 fn run_source(source: &str) -> Value {
     let tokens = pleno_lexer::lex(source).expect("lex failed");
     let mut parser = Parser::new(tokens, source);
-    let program = parser.parse_program().expect("parse failed");
+    let mut program = parser.parse_program().expect("parse failed");
     let mut compiler = Compiler::new(source.to_string());
-    let chunk = compiler.compile(&program).expect("compile failed");
+    let chunk = compiler.compile(&mut program).expect("compile failed");
 
     let mut vm = VM::new();
     pleno_stdlib::register(&mut vm);

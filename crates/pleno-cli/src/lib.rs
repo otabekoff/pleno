@@ -341,7 +341,7 @@ fn run_single_test(
     };
 
     let mut parser = pleno_parser::Parser::new(tokens, &source);
-    let program = match parser.parse_program() {
+    let mut program = match parser.parse_program() {
         Ok(program) => program,
         Err(err) => {
             if !json_output {
@@ -367,7 +367,7 @@ fn run_single_test(
     let is_expected_runtime_error = source.contains("// EXPECT_RUNTIME_ERROR");
 
     let compiler = pleno_compiler::Compiler::new(source);
-    let chunk = match compiler.with_profile(profile).compile(&program) {
+    let chunk = match compiler.with_profile(profile).compile(&mut program) {
         Ok(chunk) => {
             if is_expected_compile_error {
                 if !json_output {
@@ -530,7 +530,7 @@ fn run_file(path: &str, config: Option<pleno_value::SandboxConfig>, profile: Bui
     };
 
     let mut parser = pleno_parser::Parser::new(tokens, &source);
-    let program = match parser.parse_program() {
+    let mut program = match parser.parse_program() {
         Ok(program) => program,
         Err(err) => {
             eprintln!(
@@ -542,7 +542,7 @@ fn run_file(path: &str, config: Option<pleno_value::SandboxConfig>, profile: Bui
     };
 
     let compiler = pleno_compiler::Compiler::new(source.clone());
-    let chunk = match compiler.with_profile(profile).compile(&program) {
+    let chunk = match compiler.with_profile(profile).compile(&mut program) {
         Ok(chunk) => chunk,
         Err(err) => {
             eprintln!(
@@ -750,7 +750,7 @@ fn check_file(path: &str) {
     };
 
     let mut parser = pleno_parser::Parser::new(tokens, &source);
-    let program = match parser.parse_program() {
+    let mut program = match parser.parse_program() {
         Ok(program) => program,
         Err(err) => {
             eprintln!(
@@ -762,7 +762,7 @@ fn check_file(path: &str) {
     };
 
     let mut compiler = pleno_compiler::Compiler::new(source);
-    match compiler.compile(&program) {
+    match compiler.compile(&mut program) {
         Ok(_) => {
             println!("Type check passed for {}", path);
         }
@@ -843,7 +843,7 @@ fn compile_file(path: &str, profile: BuildProfile) {
     };
 
     let mut parser = pleno_parser::Parser::new(tokens, &source);
-    let program = match parser.parse_program() {
+    let mut program = match parser.parse_program() {
         Ok(program) => program,
         Err(err) => {
             eprintln!(
@@ -855,7 +855,7 @@ fn compile_file(path: &str, profile: BuildProfile) {
     };
 
     let compiler = pleno_compiler::Compiler::new(source);
-    let chunk = match compiler.with_profile(profile).compile(&program) {
+    let chunk = match compiler.with_profile(profile).compile(&mut program) {
         Ok(chunk) => chunk,
         Err(err) => {
             eprintln!("Compile error: {}", err.diagnostic.message);

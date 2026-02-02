@@ -7,9 +7,9 @@ use std::rc::Rc;
 fn run_code(code: &str) -> Value {
     let tokens = pleno_lexer::lex(code).expect("lex failed");
     let mut parser = Parser::new(tokens, code);
-    let program = parser.parse_program().expect("Failed to parse");
+    let mut program = parser.parse_program().expect("Failed to parse");
     let mut compiler = Compiler::new(code.to_string());
-    let chunk = compiler.compile(&program).expect("Failed to compile");
+    let chunk = compiler.compile(&mut program).expect("Failed to compile");
 
     let mut vm = VM::new();
     pleno_stdlib::register(&mut vm);
