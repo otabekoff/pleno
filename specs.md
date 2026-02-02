@@ -1312,6 +1312,9 @@ class User {
 }
 ```
 
+> [!NOTE]
+> **V1 Limitation**: In V1, decorators are **built-in only** (e.g., `@deprecated`, `@inline`, `@pure`). Custom decorator definitions using `@decorator fn ...` syntax are planned for V2.
+
 ---
 
 ## 12. Memory Management & Performance
