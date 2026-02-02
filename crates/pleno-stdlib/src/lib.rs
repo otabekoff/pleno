@@ -685,6 +685,38 @@ pub fn register(vm: &mut dyn VMProvider) {
         Value::Map(gc.allocate(MapState::new(random_module)).unwrap()),
     );
 
+    // std:http
+    let mut http_module = IndexMap::new();
+    http_module.insert("get".to_string(), Value::NativeFunction(http::http_get));
+    http_module.insert("post".to_string(), Value::NativeFunction(http::http_post));
+    http_module.insert("put".to_string(), Value::NativeFunction(http::http_put));
+    http_module.insert(
+        "delete".to_string(),
+        Value::NativeFunction(http::http_delete),
+    );
+    http_module.insert("patch".to_string(), Value::NativeFunction(http::http_patch));
+    http_module.insert("head".to_string(), Value::NativeFunction(http::http_head));
+    http_module.insert(
+        "options".to_string(),
+        Value::NativeFunction(http::http_options),
+    );
+    http_module.insert(
+        "request".to_string(),
+        Value::NativeFunction(http::http_request),
+    );
+    http_module.insert(
+        "Router".to_string(),
+        Value::NativeFunction(http::http_router),
+    );
+    http_module.insert(
+        "Server".to_string(),
+        Value::NativeFunction(http::http_server),
+    );
+    modules.insert(
+        "std:http".to_string(),
+        Value::Map(gc.allocate(MapState::new(http_module)).unwrap()),
+    );
+
     // Register all in VM
     for (name, value) in modules {
         vm.register_module(name, value);
