@@ -1,5 +1,7 @@
+pub mod base64;
 pub mod builtins;
 pub mod concurrency;
+pub mod csv;
 pub mod dotenv;
 pub mod gc;
 pub mod http;
@@ -17,6 +19,7 @@ pub mod regex;
 pub mod security;
 pub mod test;
 pub mod time;
+pub mod url;
 
 use indexmap::IndexMap;
 use pleno_value::{MapState, VMProvider, Value};
@@ -138,6 +141,42 @@ pub fn register(vm: &mut dyn VMProvider) {
     modules.insert(
         "std:io".to_string(),
         Value::Map(gc.allocate(MapState::new(io_module)).unwrap()),
+    );
+
+    // std:base64
+    let mut base64_module = IndexMap::new();
+    base64_module.insert(
+        "encode".to_string(),
+        Value::NativeFunction(base64::base64_encode),
+    );
+    base64_module.insert(
+        "decode".to_string(),
+        Value::NativeFunction(base64::base64_decode),
+    );
+    modules.insert(
+        "std:base64".to_string(),
+        Value::Map(gc.allocate(MapState::new(base64_module)).unwrap()),
+    );
+
+    // std:url
+    let mut url_module = IndexMap::new();
+    let mut url_obj = IndexMap::new();
+    url_obj.insert("parse".to_string(), Value::NativeFunction(url::url_parse));
+    url_module.insert(
+        "URL".to_string(),
+        Value::Map(gc.allocate(MapState::new(url_obj)).unwrap()),
+    );
+    modules.insert(
+        "std:url".to_string(),
+        Value::Map(gc.allocate(MapState::new(url_module)).unwrap()),
+    );
+
+    // std:csv
+    let mut csv_module = IndexMap::new();
+    csv_module.insert("parse".to_string(), Value::NativeFunction(csv::csv_parse));
+    modules.insert(
+        "std:csv".to_string(),
+        Value::Map(gc.allocate(MapState::new(csv_module)).unwrap()),
     );
 
     // std:json
