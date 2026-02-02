@@ -34,6 +34,8 @@ pub struct Parser {
     index: usize,
     line_starts: Vec<usize>,
     last_stmt_end_line: usize,
+    depth: usize,
+    max_depth: usize,
 }
 
 struct FunctionDeclarationConfig {
@@ -69,6 +71,20 @@ impl Parser {
             message,
             span,
             hint: Some(hint),
+        }
+    }
+
+    fn enter_recursive(&mut self) -> Result<(), ParseError> {
+        self.depth += 1;
+        if self.depth > self.max_depth {
+            return Err(self.error_at_current("Recursion limit exceeded".to_string()));
+        }
+        Ok(())
+    }
+
+    fn leave_recursive(&mut self) {
+        if self.depth > 0 {
+            self.depth -= 1;
         }
     }
 
@@ -113,6 +129,8 @@ impl Parser {
             index: 0,
             line_starts,
             last_stmt_end_line: 0,
+            depth: 0,
+            max_depth: 20,
         }
     }
 
@@ -186,6 +204,13 @@ impl Parser {
     }
 
     fn parse_stmt(&mut self) -> Result<Stmt, ParseError> {
+        self.enter_recursive()?;
+        let res = self.parse_stmt_inner();
+        self.leave_recursive();
+        res
+    }
+
+    fn parse_stmt_inner(&mut self) -> Result<Stmt, ParseError> {
         let doc = self.token_docs.get(&self.index).cloned();
         let start_span = self.peek_span();
         let annotations = self.parse_annotations()?;
@@ -2327,7 +2352,10 @@ impl Parser {
     }
 
     fn parse_expr(&mut self) -> Result<Expr, ParseError> {
-        self.parse_ternary()
+        self.enter_recursive()?;
+        let res = self.parse_ternary();
+        self.leave_recursive();
+        res
     }
 
     fn parse_ternary(&mut self) -> Result<Expr, ParseError> {
@@ -2603,6 +2631,13 @@ impl Parser {
     }
 
     fn parse_unary(&mut self) -> Result<Expr, ParseError> {
+        self.enter_recursive()?;
+        let res = self.parse_unary_inner();
+        self.leave_recursive();
+        res
+    }
+
+    fn parse_unary_inner(&mut self) -> Result<Expr, ParseError> {
         let start_span = self.peek_span();
         if self.matches(&TokenKind::Bang) {
             let expr = self.parse_unary()?;
@@ -2747,6 +2782,13 @@ impl Parser {
     }
 
     fn parse_atom(&mut self) -> Result<Expr, ParseError> {
+        self.enter_recursive()?;
+        let res = self.parse_atom_inner();
+        self.leave_recursive();
+        res
+    }
+
+    fn parse_atom_inner(&mut self) -> Result<Expr, ParseError> {
         let token = self.advance().clone();
         let start_span = token.span;
         match token.kind.clone() {
@@ -2907,9 +2949,15 @@ impl Parser {
                 {
                     let mut entries = Vec::new();
                     loop {
-                        let name = match self.advance().kind.clone() {
+                        let name_token = self.advance().clone();
+                        let name = match name_token.kind {
                             TokenKind::Ident(name) => name,
-                            _ => unreachable!(),
+                            other => {
+                                return Err(self.error(
+                                    format!("Expected identifier in named tuple, found {other:?}"),
+                                    name_token.span,
+                                ));
+                            }
                         };
                         self.expect(TokenKind::Colon, "Expected ':' after named tuple field")?;
                         let value = self.parse_expr()?;
@@ -3365,6 +3413,13 @@ impl Parser {
     }
 
     fn parse_pattern(&mut self) -> Result<pleno_ast::Pattern, ParseError> {
+        self.enter_recursive()?;
+        let res = self.parse_pattern_inner();
+        self.leave_recursive();
+        res
+    }
+
+    fn parse_pattern_inner(&mut self) -> Result<pleno_ast::Pattern, ParseError> {
         let mut patterns = vec![self.parse_primary_pattern()?];
 
         while self.matches(&TokenKind::Pipe) {
@@ -3379,6 +3434,13 @@ impl Parser {
     }
 
     fn parse_primary_pattern(&mut self) -> Result<pleno_ast::Pattern, ParseError> {
+        self.enter_recursive()?;
+        let res = self.parse_primary_pattern_inner();
+        self.leave_recursive();
+        res
+    }
+
+    fn parse_primary_pattern_inner(&mut self) -> Result<pleno_ast::Pattern, ParseError> {
         let token = self.advance();
         match token.kind.clone() {
             TokenKind::Underscore => Ok(pleno_ast::Pattern::Underscore),
@@ -3645,6 +3707,14 @@ impl Parser {
     }
 
     fn previous(&self) -> &Token {
+        if self.tokens.is_empty() {
+            // This should not happen if lexer is correct, but for robustness:
+            static EOF: Token = Token {
+                kind: TokenKind::Eof,
+                span: Span { start: 0, end: 0 },
+            };
+            return &EOF;
+        }
         &self.tokens[self.index.saturating_sub(1)]
     }
 
@@ -3675,7 +3745,10 @@ impl Parser {
     }
 
     fn parse_type(&mut self) -> Result<String, ParseError> {
-        self.parse_union_type()
+        self.enter_recursive()?;
+        let res = self.parse_union_type();
+        self.leave_recursive();
+        res
     }
 
     fn parse_union_type(&mut self) -> Result<String, ParseError> {
@@ -3703,6 +3776,13 @@ impl Parser {
     }
 
     fn parse_base_type(&mut self) -> Result<String, ParseError> {
+        self.enter_recursive()?;
+        let res = self.parse_base_type_inner();
+        self.leave_recursive();
+        res
+    }
+
+    fn parse_base_type_inner(&mut self) -> Result<String, ParseError> {
         // Ownership hints: move T
         if self.matches(&TokenKind::KeywordMove) {
             let inner = self.parse_base_type()?;

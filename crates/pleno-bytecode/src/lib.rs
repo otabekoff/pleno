@@ -3,8 +3,11 @@ use pleno_common::Span;
 use pleno_value::Value;
 use serde::{Deserialize, Serialize};
 
+use num_derive::{FromPrimitive, ToPrimitive};
+use num_traits::FromPrimitive;
+
 #[repr(u8)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, FromPrimitive, ToPrimitive)]
 pub enum Opcode {
     Move,
     LoadConst,
@@ -134,7 +137,7 @@ impl Instruction {
     }
 
     pub fn opcode(self) -> Opcode {
-        unsafe { std::mem::transmute((self.0 & 0xFF) as u8) }
+        Opcode::from_u8((self.0 & 0xFF) as u8).unwrap_or(Opcode::LoadNull)
     }
 
     pub fn a(self) -> u8 {

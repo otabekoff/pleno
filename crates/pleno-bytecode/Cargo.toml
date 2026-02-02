@@ -9,4 +9,6 @@ pleno-value = { workspace = true }
 pleno-common = { workspace = true }
 pleno-ast = { workspace = true }
 indexmap = { workspace = true, features = ["serde"] }
+num-derive = "0.4"
+num-traits = "0.2"
 serde = { workspace = true, features = ["derive"] }
