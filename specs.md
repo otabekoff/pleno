@@ -1524,6 +1524,9 @@ let server = Server(router);
 // server.listen(8080);
 ```
 
+> [!NOTE]
+> **V1 Limitation**: `Router` and `Server` are stub implementations in V1. The HTTP Client (`HTTP.get`, `HTTP.post`, etc.) is fully functional. Full server support is planned for V2.
+
 ### 13.7 Date & Time ✅
 
 The `std:time` module handles timestamps and formatting.
