@@ -34,6 +34,7 @@ struct Local {
 struct CaptureInfo {
     name: String,
     is_boxed: bool,
+    ty: Option<String>,
 }
 
 #[derive(Clone)]
@@ -80,7 +81,7 @@ pub struct Compiler {
     referenced_entities: HashSet<String>,
     loop_counter: u32,
     loop_stack: Vec<LoopContext>,
-    captures: HashMap<String, (usize, bool)>,
+    captures: HashMap<String, (usize, CaptureInfo)>,
     is_top_level: bool,
     current_super: Option<String>,
     module_mode: bool,
@@ -336,8 +337,14 @@ impl Compiler {
                     }
                     self.ownership_states
                         .insert(local.reg, OwnershipState::Available);
-                } else if let Some((index, is_boxed)) = self.captures.get(name).cloned() {
+                } else if let Some((index, info)) = self.captures.get(name).cloned() {
                     // Update capture
+                    let is_boxed = info.is_boxed;
+
+                    if let Some(ty) = &info.ty {
+                        self.emit_type_check(value_reg, ty)?;
+                    }
+
                     if is_boxed {
                         let cell_reg = self.registers.allocate()?;
                         self.emit(Opcode::LoadCapture, cell_reg, index as u8, 0);
@@ -1149,7 +1156,8 @@ impl Compiler {
                     } else {
                         Ok(reg)
                     }
-                } else if let Some((index, is_boxed)) = self.captures.get(name).cloned() {
+                } else if let Some((index, info)) = self.captures.get(name).cloned() {
+                    let is_boxed = info.is_boxed;
                     let dest = self.registers.allocate()?;
                     self.emit(Opcode::LoadCapture, dest, index as u8, 0);
                     let val_reg = if is_boxed {
@@ -1882,7 +1890,8 @@ impl Compiler {
                     if is_pre {
                         self.emit(Opcode::Move, return_reg, current_val, 0);
                     }
-                } else if let Some((index, is_boxed)) = self.captures.get(name).cloned() {
+                } else if let Some((index, info)) = self.captures.get(name).cloned() {
+                    let is_boxed = info.is_boxed;
                     let temp = self.registers.allocate()?;
                     self.emit(Opcode::LoadCapture, temp, index as u8, 0);
                     let val_in_temp = if is_boxed {
@@ -2815,7 +2824,7 @@ impl Compiler {
         compiler.captures = captures
             .iter()
             .enumerate()
-            .map(|(idx, info)| (info.name.clone(), (idx, info.is_boxed)))
+            .map(|(idx, info)| (info.name.clone(), (idx, info.clone())))
             .collect();
         compiler.current_super = current_super;
         let mut params = Vec::new();
@@ -3128,7 +3137,7 @@ impl Compiler {
         compiler.captures = captures
             .iter()
             .enumerate()
-            .map(|(idx, info)| (info.name.clone(), (idx, info.is_boxed)))
+            .map(|(idx, info)| (info.name.clone(), (idx, info.clone())))
             .collect();
 
         for param in params {
@@ -3262,11 +3271,13 @@ impl Compiler {
                     captures.push(CaptureInfo {
                         name: name.clone(),
                         is_boxed: local.is_boxed,
+                        ty: local.ty.clone(),
                     });
-                } else if let Some((_, is_boxed)) = self.captures.get(name) {
+                } else if let Some((_, info)) = self.captures.get(name) {
                     captures.push(CaptureInfo {
                         name: name.clone(),
-                        is_boxed: *is_boxed,
+                        is_boxed: info.is_boxed,
+                        ty: info.ty.clone(),
                     });
                 }
             }
