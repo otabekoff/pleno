@@ -1567,6 +1567,8 @@ impl Compiler {
             return;
         }
         self.chunk.code.push(Instruction::new(opcode, a, b, c));
+        let line = self._source_map.get_line_col(self.current_span.start).0;
+        self.chunk.lines.push(line as u32);
         self.chunk.spans.push(self.current_span);
     }
 

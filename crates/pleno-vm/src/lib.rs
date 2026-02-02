@@ -10,12 +10,14 @@ use std::fs;
 use std::rc::Rc;
 
 mod access;
+pub mod debug;
 pub mod event_loop;
 mod models;
 mod utils;
 mod value_ops;
 
 pub use access::*;
+pub use debug::*;
 pub use event_loop::*;
 pub use models::*;
 pub use utils::*;
@@ -43,6 +45,7 @@ pub struct VM {
     pub current_named_args: IndexMap<String, Value>,
     pub instruction_count: u64,
     pub event_loop: event_loop::EventLoop,
+    pub debug_context: DebugContext,
 }
 
 #[derive(Debug, Clone)]
@@ -411,6 +414,7 @@ impl VM {
             current_named_args: IndexMap::new(),
             instruction_count: 0,
             event_loop: event_loop::EventLoop::new(),
+            debug_context: DebugContext::new(),
         }
     }
 
@@ -784,6 +788,13 @@ impl VM {
 
             let instruction = function.chunk.code[ip];
             let opcode = instruction.opcode();
+
+            if self
+                .debug_context
+                .should_pause(func_index, ip, &self.functions)
+            {
+                return Ok(Some(Value::Null));
+            }
 
             log::trace!("VM::run_step: ip={:04} {:?}", ip, opcode);
             frame.ip += 1;

@@ -20,7 +20,6 @@ use std::rc::Rc;
 pub struct NanValue(u64);
 
 const QNAN: u64 = 0x7ff8_0000_0000_0000;
-const SIGN_BIT: u64 = 0x8000_0000_0000_0000;
 
 const TAG_INT: u64 = 1;
 const TAG_BOOL: u64 = 2;
@@ -42,7 +41,6 @@ const TAG_INTERFACE: u64 = 17;
 const TAG_FILE: u64 = 18;
 const TAG_MUTEX: u64 = 19;
 const TAG_CHANNEL: u64 = 20;
-const TAG_VARIANT: u64 = 21;
 const TAG_RANGE: u64 = 22;
 const TAG_BOXED: u64 = 23;
 
@@ -401,7 +399,7 @@ impl NanValue {
 
     pub fn mark(&self, gc: &mut crate::gc::MarkAndSweepGC) {
         let tag = self.tag();
-        if tag >= TAG_MAP && tag <= TAG_CHANNEL {
+        if (TAG_MAP..=TAG_CHANNEL).contains(&tag) {
             let ptr = self.as_ptr::<()>().unwrap();
             match tag {
                 TAG_MAP => {
