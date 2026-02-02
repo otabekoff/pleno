@@ -1,8 +1,5 @@
 Publishing with certificates not to consided the programming language as virus and installing safely on mac, windows and linux.
 
-Debug mode, production mode logs for development.
-Remove debug logs.
-
 ---
 
 Let's review whole the docs and make it great.
