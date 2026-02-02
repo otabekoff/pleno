@@ -11,56 +11,42 @@ use std::rc::Rc;
 /// Layout:
 /// - Any bit pattern where exponent (bits 62-52) is NOT all 1s is a standard IEEE 754 f64.
 /// - If exponent is 0x7FF, it's a tagged value.
-/// - We use the sign bit (63) and bits 50-48 as tags.
+/// - Tag bits (5 bits total): Bit 63 (sign) and bits 50-47.
+/// - Payload/Pointer (47 bits): Bits 46-0.
 ///
-/// Tags (bits 50-48):
-/// - 0x0: Float (Actually not used as tag, identified by exponent)
-/// - 0x1: Integer (Lower 48 bits)
-/// - 0x2: Boolean (Bit 0)
-/// - 0x3: Null
-/// - 0x4: Missing
-/// - 0x5: Heap Pointer (Bits 47-0)
-/// - 0x6: Function/Closure Index
-/// - 0x7: Char
+/// This layout works on 64-bit Linux because user-space pointers are always within [0, 2^47-1].
+/// Thus bit 47 is always 0, and we use bits 51-47 for tags safely. Bit 51 is kept 1 for QNAN.
 #[derive(Clone, Copy, PartialEq, PartialOrd)]
 pub struct NanValue(u64);
 
 const QNAN: u64 = 0x7ff8_0000_0000_0000;
 const SIGN_BIT: u64 = 0x8000_0000_0000_0000;
 
-const TAG_INT: u64 = 0x1;
-const TAG_BOOL: u64 = 0x2;
-const TAG_NULL: u64 = 0x3;
-const TAG_MISSING: u64 = 0x4;
-const TAG_PTR: u64 = 0x5;
-const TAG_FUNC: u64 = 0x6;
-const TAG_CHAR: u64 = 0x7;
+const TAG_INT: u64 = 1;
+const TAG_BOOL: u64 = 2;
+const TAG_NULL: u64 = 3;
+const TAG_MISSING: u64 = 4;
+const TAG_CHAR: u64 = 5;
+const TAG_FUNC: u64 = 6;
+const TAG_STRING: u64 = 7;
+const TAG_MAP: u64 = 8;
+const TAG_ARRAY: u64 = 9;
+const TAG_SET: u64 = 10;
+const TAG_OBJECT: u64 = 11;
+const TAG_CLASS: u64 = 12;
+const TAG_CLOSURE: u64 = 13;
+const TAG_THUNK: u64 = 14;
+const TAG_TUPLE: u64 = 15;
+const TAG_ENUM: u64 = 16;
+const TAG_INTERFACE: u64 = 17;
+const TAG_FILE: u64 = 18;
+const TAG_MUTEX: u64 = 19;
+const TAG_CHANNEL: u64 = 20;
+const TAG_VARIANT: u64 = 21;
+const TAG_RANGE: u64 = 22;
+const TAG_BOXED: u64 = 23;
 
-const TAG_SHIFT: u32 = 48;
-const SUB_TAG_SHIFT: u32 = 44;
-const PAYLOAD_MASK: u64 = 0x0000_FFFF_FFFF_FFFF;
-const PTR_MASK: u64 = 0x0000_FFFF_FFFF_FFFF;
-
-// Sub-tags for TAG_PTR (bits 47-44)
-pub const SUB_TAG_STRING: u64 = 0x0;
-pub const SUB_TAG_MAP: u64 = 0x1;
-pub const SUB_TAG_ARRAY: u64 = 0x2;
-pub const SUB_TAG_SET: u64 = 0x3;
-pub const SUB_TAG_OBJECT: u64 = 0x4;
-pub const SUB_TAG_CLASS: u64 = 0x5;
-pub const SUB_TAG_CLOSURE: u64 = 0x6;
-pub const SUB_TAG_THUNK: u64 = 0x7;
-pub const SUB_TAG_RANGE: u64 = 0x8;
-pub const SUB_TAG_TUPLE: u64 = 0x9;
-pub const SUB_TAG_ENUM: u64 = 0xA;
-pub const SUB_TAG_VARIANT: u64 = 0xB;
-pub const SUB_TAG_INTERFACE: u64 = 0xC;
-pub const SUB_TAG_FILE: u64 = 0xD;
-pub const SUB_TAG_MUTEX: u64 = 0xE;
-pub const SUB_TAG_CHANNEL: u64 = 0xF;
-
-// Since we ran out of bits in SUB_TAG (4 bits = 16 values), we'll need to handle more carefully if we add more.
-// For now, 16 is enough for the core types.
+const PAYLOAD_MASK: u64 = 0x0000_7FFF_FFFF_FFFF;
 
 impl NanValue {
     #[inline]
@@ -79,37 +65,21 @@ impl NanValue {
     }
 
     #[inline]
-    fn encode_typed(tag: u64, sub_tag: u64, payload: u64) -> Self {
-        Self(
-            SIGN_BIT
-                | QNAN
-                | (tag << TAG_SHIFT)
-                | (sub_tag << SUB_TAG_SHIFT)
-                | (payload & PTR_MASK),
-        )
-    }
-
-    #[inline]
-    fn encode(tag: u64, payload: u64) -> Self {
-        Self(SIGN_BIT | QNAN | (tag << TAG_SHIFT) | (payload & PAYLOAD_MASK))
-    }
-
-    #[inline]
     fn tag(self) -> u64 {
         if self.is_f64() {
             0
         } else {
-            (self.0 >> TAG_SHIFT) & 0x7
+            let low = (self.0 >> 47) & 0xF;
+            let high = (self.0 >> 63) & 0x1;
+            low | (high << 4)
         }
     }
 
     #[inline]
-    pub fn sub_tag(self) -> u64 {
-        if self.tag() == TAG_PTR {
-            (self.0 >> SUB_TAG_SHIFT) & 0xF
-        } else {
-            0
-        }
+    fn encode(tag: u64, payload: u64) -> Self {
+        let low = tag & 0xF;
+        let high = (tag >> 4) & 0x1;
+        Self((high << 63) | QNAN | (low << 47) | (payload & PAYLOAD_MASK))
     }
 
     #[inline]
@@ -121,7 +91,8 @@ impl NanValue {
     pub fn as_int(self) -> Option<i64> {
         if self.tag() == TAG_INT {
             let val = self.0 & PAYLOAD_MASK;
-            if (val & (1 << 47)) != 0 {
+            if (val & (1 << 46)) != 0 {
+                // Sign extend 47th bit (bit 46) if necessary
                 Some((val | !PAYLOAD_MASK) as i64)
             } else {
                 Some(val as i64)
@@ -180,19 +151,10 @@ impl NanValue {
     }
 
     #[inline]
-    pub fn from_ptr<T>(ptr: *const T) -> Self {
-        Self::encode_typed(TAG_PTR, 0xF, ptr as usize as u64)
-    }
-
-    #[inline]
-    pub fn from_typed_ptr<T>(ptr: *const T, sub_tag: u64) -> Self {
-        Self::encode_typed(TAG_PTR, sub_tag, ptr as usize as u64)
-    }
-
-    #[inline]
     pub fn as_ptr<T>(self) -> Option<*const T> {
-        if self.tag() == TAG_PTR {
-            Some((self.0 & PTR_MASK) as usize as *const T)
+        if self.tag() >= TAG_STRING {
+            // All tags >= TAG_STRING are pointers
+            Some((self.0 & PAYLOAD_MASK) as usize as *const T)
         } else {
             None
         }
@@ -208,151 +170,150 @@ impl NanValue {
                 TAG_NULL => Value::Null,
                 TAG_MISSING => Value::Missing,
                 TAG_CHAR => Value::Char(self.as_char().unwrap()),
-                TAG_FUNC => Value::Function(self.as_ptr::<()>().unwrap() as usize),
-                TAG_PTR => {
+                TAG_FUNC => Value::Function((self.0 & PAYLOAD_MASK) as usize),
+                TAG_STRING => {
                     let ptr = self.as_ptr::<()>().unwrap();
-                    match self.sub_tag() {
-                        SUB_TAG_STRING => {
-                            let rc =
-                                unsafe { ManuallyDrop::new(Rc::from_raw(ptr as *const String)) };
-                            Value::String(Rc::clone(&rc))
-                        }
-                        SUB_TAG_MAP => {
-                            let rc = unsafe {
-                                ManuallyDrop::new(Rc::from_raw(
-                                    ptr as *const std::cell::RefCell<MapState>,
-                                ))
-                            };
-                            Value::Map(GcRc {
-                                inner: Rc::clone(&rc),
-                            })
-                        }
-                        SUB_TAG_ARRAY => {
-                            let rc = unsafe {
-                                ManuallyDrop::new(Rc::from_raw(
-                                    ptr as *const std::cell::RefCell<ArrayState>,
-                                ))
-                            };
-                            Value::Array(GcRc {
-                                inner: Rc::clone(&rc),
-                            })
-                        }
-                        SUB_TAG_SET => {
-                            let rc = unsafe {
-                                ManuallyDrop::new(Rc::from_raw(
-                                    ptr as *const std::cell::RefCell<SetState>,
-                                ))
-                            };
-                            Value::Set(GcRc {
-                                inner: Rc::clone(&rc),
-                            })
-                        }
-                        SUB_TAG_OBJECT => {
-                            let rc = unsafe {
-                                ManuallyDrop::new(Rc::from_raw(
-                                    ptr as *const std::cell::RefCell<Object>,
-                                ))
-                            };
-                            Value::Object(GcRc {
-                                inner: Rc::clone(&rc),
-                            })
-                        }
-                        SUB_TAG_CLASS => {
-                            let rc = unsafe {
-                                ManuallyDrop::new(Rc::from_raw(
-                                    ptr as *const std::cell::RefCell<Class>,
-                                ))
-                            };
-                            Value::Class(GcRc {
-                                inner: Rc::clone(&rc),
-                            })
-                        }
-                        SUB_TAG_CLOSURE => {
-                            let rc = unsafe {
-                                ManuallyDrop::new(Rc::from_raw(
-                                    ptr as *const std::cell::RefCell<ClosureState>,
-                                ))
-                            };
-                            Value::Closure(GcRc {
-                                inner: Rc::clone(&rc),
-                            })
-                        }
-                        SUB_TAG_THUNK => {
-                            let rc = unsafe {
-                                ManuallyDrop::new(Rc::from_raw(
-                                    ptr as *const std::cell::RefCell<ThunkState>,
-                                ))
-                            };
-                            Value::Thunk(GcRc {
-                                inner: Rc::clone(&rc),
-                            })
-                        }
-                        SUB_TAG_RANGE => Value::Range(unsafe { (*(ptr as *const Range)).clone() }),
-                        SUB_TAG_TUPLE => {
-                            let rc = unsafe {
-                                ManuallyDrop::new(Rc::from_raw(
-                                    ptr as *const std::cell::RefCell<TupleState>,
-                                ))
-                            };
-                            Value::Tuple(GcRc {
-                                inner: Rc::clone(&rc),
-                            })
-                        }
-                        SUB_TAG_ENUM => {
-                            let rc = unsafe {
-                                ManuallyDrop::new(Rc::from_raw(
-                                    ptr as *const std::cell::RefCell<EnumType>,
-                                ))
-                            };
-                            Value::Enum(GcRc {
-                                inner: Rc::clone(&rc),
-                            })
-                        }
-                        SUB_TAG_INTERFACE => {
-                            let rc = unsafe {
-                                ManuallyDrop::new(Rc::from_raw(
-                                    ptr as *const std::cell::RefCell<Interface>,
-                                ))
-                            };
-                            Value::Interface(GcRc {
-                                inner: Rc::clone(&rc),
-                            })
-                        }
-                        SUB_TAG_FILE => {
-                            let rc = unsafe {
-                                ManuallyDrop::new(Rc::from_raw(
-                                    ptr as *const std::cell::RefCell<crate::FileState>,
-                                ))
-                            };
-                            Value::File(GcRc {
-                                inner: Rc::clone(&rc),
-                            })
-                        }
-                        SUB_TAG_MUTEX => {
-                            let rc = unsafe {
-                                ManuallyDrop::new(Rc::from_raw(
-                                    ptr as *const std::cell::RefCell<crate::MutexState>,
-                                ))
-                            };
-                            Value::Mutex(GcRc {
-                                inner: Rc::clone(&rc),
-                            })
-                        }
-                        SUB_TAG_CHANNEL => {
-                            let rc = unsafe {
-                                ManuallyDrop::new(Rc::from_raw(
-                                    ptr as *const std::cell::RefCell<crate::ChannelState>,
-                                ))
-                            };
-                            Value::Channel(GcRc {
-                                inner: Rc::clone(&rc),
-                            })
-                        }
-                        _ => panic!(
-                            "Reconstructing complex type {:?} from NanValue is not yet implemented",
-                            self.sub_tag()
-                        ),
-                    }
+                    let rc = unsafe { ManuallyDrop::new(Rc::from_raw(ptr as *const String)) };
+                    Value::String(Rc::clone(&rc))
+                }
+                TAG_MAP => {
+                    let ptr = self.as_ptr::<()>().unwrap();
+                    let rc = unsafe {
+                        ManuallyDrop::new(Rc::from_raw(ptr as *const std::cell::RefCell<MapState>))
+                    };
+                    Value::Map(GcRc {
+                        inner: Rc::clone(&rc),
+                    })
+                }
+                TAG_ARRAY => {
+                    let ptr = self.as_ptr::<()>().unwrap();
+                    let rc = unsafe {
+                        ManuallyDrop::new(Rc::from_raw(
+                            ptr as *const std::cell::RefCell<ArrayState>,
+                        ))
+                    };
+                    Value::Array(GcRc {
+                        inner: Rc::clone(&rc),
+                    })
+                }
+                TAG_SET => {
+                    let ptr = self.as_ptr::<()>().unwrap();
+                    let rc = unsafe {
+                        ManuallyDrop::new(Rc::from_raw(ptr as *const std::cell::RefCell<SetState>))
+                    };
+                    Value::Set(GcRc {
+                        inner: Rc::clone(&rc),
+                    })
+                }
+                TAG_OBJECT => {
+                    let ptr = self.as_ptr::<()>().unwrap();
+                    let rc = unsafe {
+                        ManuallyDrop::new(Rc::from_raw(ptr as *const std::cell::RefCell<Object>))
+                    };
+                    Value::Object(GcRc {
+                        inner: Rc::clone(&rc),
+                    })
+                }
+                TAG_CLASS => {
+                    let ptr = self.as_ptr::<()>().unwrap();
+                    let rc = unsafe {
+                        ManuallyDrop::new(Rc::from_raw(ptr as *const std::cell::RefCell<Class>))
+                    };
+                    Value::Class(GcRc {
+                        inner: Rc::clone(&rc),
+                    })
+                }
+                TAG_CLOSURE => {
+                    let ptr = self.as_ptr::<()>().unwrap();
+                    let rc = unsafe {
+                        ManuallyDrop::new(Rc::from_raw(
+                            ptr as *const std::cell::RefCell<ClosureState>,
+                        ))
+                    };
+                    Value::Closure(GcRc {
+                        inner: Rc::clone(&rc),
+                    })
+                }
+                TAG_THUNK => {
+                    let ptr = self.as_ptr::<()>().unwrap();
+                    let rc = unsafe {
+                        ManuallyDrop::new(Rc::from_raw(
+                            ptr as *const std::cell::RefCell<ThunkState>,
+                        ))
+                    };
+                    Value::Thunk(GcRc {
+                        inner: Rc::clone(&rc),
+                    })
+                }
+                TAG_TUPLE => {
+                    let ptr = self.as_ptr::<()>().unwrap();
+                    let rc = unsafe {
+                        ManuallyDrop::new(Rc::from_raw(
+                            ptr as *const std::cell::RefCell<TupleState>,
+                        ))
+                    };
+                    Value::Tuple(GcRc {
+                        inner: Rc::clone(&rc),
+                    })
+                }
+                TAG_ENUM => {
+                    let ptr = self.as_ptr::<()>().unwrap();
+                    let rc = unsafe {
+                        ManuallyDrop::new(Rc::from_raw(ptr as *const std::cell::RefCell<EnumType>))
+                    };
+                    Value::Enum(GcRc {
+                        inner: Rc::clone(&rc),
+                    })
+                }
+                TAG_INTERFACE => {
+                    let ptr = self.as_ptr::<()>().unwrap();
+                    let rc = unsafe {
+                        ManuallyDrop::new(Rc::from_raw(ptr as *const std::cell::RefCell<Interface>))
+                    };
+                    Value::Interface(GcRc {
+                        inner: Rc::clone(&rc),
+                    })
+                }
+                TAG_FILE => {
+                    let ptr = self.as_ptr::<()>().unwrap();
+                    let rc = unsafe {
+                        ManuallyDrop::new(Rc::from_raw(
+                            ptr as *const std::cell::RefCell<crate::FileState>,
+                        ))
+                    };
+                    Value::File(GcRc {
+                        inner: Rc::clone(&rc),
+                    })
+                }
+                TAG_MUTEX => {
+                    let ptr = self.as_ptr::<()>().unwrap();
+                    let rc = unsafe {
+                        ManuallyDrop::new(Rc::from_raw(
+                            ptr as *const std::cell::RefCell<crate::MutexState>,
+                        ))
+                    };
+                    Value::Mutex(GcRc {
+                        inner: Rc::clone(&rc),
+                    })
+                }
+                TAG_CHANNEL => {
+                    let ptr = self.as_ptr::<()>().unwrap();
+                    let rc = unsafe {
+                        ManuallyDrop::new(Rc::from_raw(
+                            ptr as *const std::cell::RefCell<crate::ChannelState>,
+                        ))
+                    };
+                    Value::Channel(GcRc {
+                        inner: Rc::clone(&rc),
+                    })
+                }
+                TAG_RANGE => {
+                    let ptr = self.as_ptr::<()>().unwrap();
+                    Value::Range(unsafe { (*(ptr as *const Range)).clone() })
+                }
+                TAG_BOXED => {
+                    let ptr = self.as_ptr::<()>().unwrap();
+                    unsafe { (*(ptr as *const Value)).clone() }
                 }
                 _ => Value::Null,
             }
@@ -368,26 +329,29 @@ impl NanValue {
             Value::Float(f) => Self::from_f64(*f),
             Value::Char(c) => Self::from_char(*c),
             Value::Function(idx) => Self::encode(TAG_FUNC, *idx as u64),
-            Value::String(s) => Self::from_typed_ptr(Rc::as_ptr(s), SUB_TAG_STRING),
-            Value::Array(a) => Self::from_typed_ptr(a.as_ptr(), SUB_TAG_ARRAY),
-            Value::Map(m) => Self::from_typed_ptr(m.as_ptr(), SUB_TAG_MAP),
-            Value::Object(o) => Self::from_typed_ptr(o.as_ptr(), SUB_TAG_OBJECT),
-            Value::Class(c) => Self::from_typed_ptr(c.as_ptr(), SUB_TAG_CLASS),
-            Value::Closure(c) => Self::from_typed_ptr(c.as_ptr(), SUB_TAG_CLOSURE),
-            Value::Thunk(t) => Self::from_typed_ptr(t.as_ptr(), SUB_TAG_THUNK),
-            Value::Range(r) => Self::from_typed_ptr(r as *const Range, SUB_TAG_RANGE),
-            Value::Set(s) => Self::from_typed_ptr(s.as_ptr(), SUB_TAG_SET),
-            Value::Tuple(t) => Self::from_typed_ptr(t.as_ptr(), SUB_TAG_TUPLE),
-            Value::Enum(e) => Self::from_typed_ptr(e.as_ptr(), SUB_TAG_ENUM),
-            Value::Interface(i) => Self::from_typed_ptr(i.as_ptr(), SUB_TAG_INTERFACE),
-            Value::File(f) => Self::from_typed_ptr(f.as_ptr(), SUB_TAG_FILE),
-            Value::Mutex(m) => Self::from_typed_ptr(m.as_ptr(), SUB_TAG_MUTEX),
-            Value::Channel(c) => Self::from_typed_ptr(c.as_ptr(), SUB_TAG_CHANNEL),
-            _ => {
-                // For complex types like BoundMethod, Partial, etc. that aren't heap-GCRc objects directly
-                // we currently box them as Null or we could implement more tags.
-                // However, they should ideally be allocated via GC if they need to be in registers.
-                Self::null()
+            Value::String(s) => {
+                let ptr = Rc::as_ptr(s);
+                unsafe { Rc::increment_strong_count(ptr) };
+                Self::encode(TAG_STRING, ptr as usize as u64)
+            }
+            Value::Array(a) => Self::encode(TAG_ARRAY, a.as_refcell_ptr() as usize as u64),
+            Value::Map(m) => Self::encode(TAG_MAP, m.as_refcell_ptr() as usize as u64),
+            Value::Set(s) => Self::encode(TAG_SET, s.as_refcell_ptr() as usize as u64),
+            Value::Object(o) => Self::encode(TAG_OBJECT, o.as_refcell_ptr() as usize as u64),
+            Value::Class(c) => Self::encode(TAG_CLASS, c.as_refcell_ptr() as usize as u64),
+            Value::Closure(c) => Self::encode(TAG_CLOSURE, c.as_refcell_ptr() as usize as u64),
+            Value::Thunk(t) => Self::encode(TAG_THUNK, t.as_refcell_ptr() as usize as u64),
+            Value::Tuple(t) => Self::encode(TAG_TUPLE, t.as_refcell_ptr() as usize as u64),
+            Value::Enum(e) => Self::encode(TAG_ENUM, e.as_refcell_ptr() as usize as u64),
+            Value::Interface(i) => Self::encode(TAG_INTERFACE, i.as_refcell_ptr() as usize as u64),
+            Value::File(f) => Self::encode(TAG_FILE, f.as_refcell_ptr() as usize as u64),
+            Value::Mutex(m) => Self::encode(TAG_MUTEX, m.as_refcell_ptr() as usize as u64),
+            Value::Channel(c) => Self::encode(TAG_CHANNEL, c.as_refcell_ptr() as usize as u64),
+            Value::Range(r) => Self::encode(TAG_RANGE, r as *const Range as usize as u64),
+            v => {
+                let boxed = Box::new(v.clone());
+                let ptr = Box::into_raw(boxed);
+                Self::encode(TAG_BOXED, ptr as usize as u64)
             }
         }
     }
@@ -415,75 +379,72 @@ impl NanValue {
                 TAG_MISSING => "Missing",
                 TAG_FUNC => "Function",
                 TAG_CHAR => "Char",
-                TAG_PTR => match self.sub_tag() {
-                    SUB_TAG_STRING => "String",
-                    SUB_TAG_MAP => "Map",
-                    SUB_TAG_ARRAY => "Array",
-                    SUB_TAG_SET => "Set",
-                    SUB_TAG_OBJECT => "Object",
-                    SUB_TAG_CLASS => "Class",
-                    SUB_TAG_CLOSURE => "Closure",
-                    SUB_TAG_THUNK => "Thunk",
-                    SUB_TAG_RANGE => "Range",
-                    SUB_TAG_TUPLE => "Tuple",
-                    SUB_TAG_ENUM => "Enum",
-                    SUB_TAG_VARIANT => "Variant",
-                    SUB_TAG_INTERFACE => "Interface",
-                    SUB_TAG_FILE => "File",
-                    SUB_TAG_MUTEX => "Mutex",
-                    SUB_TAG_CHANNEL => "Channel",
-                    _ => "Object",
-                },
+                TAG_STRING => "String",
+                TAG_MAP => "Map",
+                TAG_ARRAY => "Array",
+                TAG_SET => "Set",
+                TAG_OBJECT => "Object",
+                TAG_CLASS => "Class",
+                TAG_CLOSURE => "Closure",
+                TAG_THUNK => "Thunk",
+                TAG_RANGE => "Range",
+                TAG_TUPLE => "Tuple",
+                TAG_ENUM => "Enum",
+                TAG_INTERFACE => "Interface",
+                TAG_FILE => "File",
+                TAG_MUTEX => "Mutex",
+                TAG_CHANNEL => "Channel",
                 _ => "Unknown",
             }
         }
     }
 
     pub fn mark(&self, gc: &mut crate::gc::MarkAndSweepGC) {
-        if self.tag() == TAG_PTR {
+        let tag = self.tag();
+        if tag >= TAG_MAP && tag <= TAG_CHANNEL {
             let ptr = self.as_ptr::<()>().unwrap();
-            match self.sub_tag() {
-                SUB_TAG_MAP => {
+            match tag {
+                TAG_MAP => {
                     let ptr = ptr as *const std::cell::RefCell<MapState>;
                     unsafe { (*ptr).borrow().mark(gc) };
                 }
-                SUB_TAG_ARRAY => {
+                TAG_ARRAY => {
                     let ptr = ptr as *const std::cell::RefCell<ArrayState>;
                     unsafe { (*ptr).borrow().mark(gc) };
                 }
-                SUB_TAG_SET => {
+                TAG_SET => {
                     let ptr = ptr as *const std::cell::RefCell<SetState>;
                     unsafe { (*ptr).borrow().mark(gc) };
                 }
-                SUB_TAG_OBJECT => {
+                TAG_OBJECT => {
                     let ptr = ptr as *const std::cell::RefCell<Object>;
                     unsafe { (*ptr).borrow().mark(gc) };
                 }
-                SUB_TAG_CLASS => {
+                TAG_CLASS => {
                     let ptr = ptr as *const std::cell::RefCell<Class>;
                     unsafe { (*ptr).borrow().mark(gc) };
                 }
-                SUB_TAG_CLOSURE => {
+                TAG_CLOSURE => {
                     let ptr = ptr as *const std::cell::RefCell<ClosureState>;
                     unsafe { (*ptr).borrow().mark(gc) };
                 }
-                SUB_TAG_THUNK => {
+                TAG_THUNK => {
                     let ptr = ptr as *const std::cell::RefCell<ThunkState>;
                     unsafe { (*ptr).borrow().mark(gc) };
                 }
-                SUB_TAG_TUPLE => {
+                TAG_TUPLE => {
                     let ptr = ptr as *const std::cell::RefCell<TupleState>;
                     unsafe { (*ptr).borrow().mark(gc) };
                 }
-                SUB_TAG_FILE => {
+                TAG_FILE => {
                     let ptr = ptr as *const std::cell::RefCell<crate::FileState>;
                     unsafe { (*ptr).borrow().mark(gc) };
                 }
-                SUB_TAG_MUTEX => {
+                TAG_MUTEX => {
                     let ptr = ptr as *const std::cell::RefCell<crate::MutexState>;
                     unsafe { (*ptr).borrow().mark(gc) };
                 }
-                SUB_TAG_CHANNEL => {
+                TAG_CHANNEL => {
                     let ptr = ptr as *const std::cell::RefCell<crate::ChannelState>;
                     unsafe { (*ptr).borrow().mark(gc) };
                 }
@@ -503,14 +464,11 @@ impl std::fmt::Debug for NanValue {
                 TAG_BOOL => write!(f, "Bool({:?})", self.as_bool().unwrap()),
                 TAG_NULL => write!(f, "Null"),
                 TAG_MISSING => write!(f, "Missing"),
-                TAG_PTR => write!(
-                    f,
-                    "Ptr({:p}, sub={})",
-                    self.as_ptr::<()>().unwrap(),
-                    self.sub_tag()
-                ),
-                TAG_FUNC => write!(f, "Func(...)"),
+                TAG_FUNC => write!(f, "Func({})", self.0 & PAYLOAD_MASK),
                 TAG_CHAR => write!(f, "Char({:?})", self.as_char().unwrap()),
+                t if t >= TAG_STRING => {
+                    write!(f, "Ptr({:p}, tag={})", self.as_ptr::<()>().unwrap(), t)
+                }
                 _ => write!(f, "Unknown({:#x})", self.0),
             }
         }
@@ -527,7 +485,7 @@ impl std::fmt::Display for NanValue {
                 TAG_BOOL => write!(f, "{}", self.as_bool().unwrap()),
                 TAG_NULL => write!(f, "null"),
                 TAG_MISSING => write!(f, "missing"),
-                TAG_PTR => write!(f, "<object@{:p}>", self.as_ptr::<()>().unwrap()),
+                t if t >= TAG_STRING => write!(f, "<object@{:p}>", self.as_ptr::<()>().unwrap()),
                 TAG_FUNC => write!(f, "<function>"),
                 TAG_CHAR => write!(f, "{}", self.as_char().unwrap()),
                 _ => write!(f, "unknown"),

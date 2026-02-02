@@ -51,6 +51,10 @@ impl<T: ?Sized + GcObject> GcRc<T> {
     pub fn as_ptr(&self) -> *const T {
         self.inner.as_ptr()
     }
+
+    pub fn as_refcell_ptr(&self) -> *const RefCell<T> {
+        Rc::as_ptr(&self.inner)
+    }
 }
 
 impl<T: ?Sized + GcObject> Clone for GcRc<T> {
