@@ -94,6 +94,8 @@ pub struct Compiler {
     macros: HashMap<String, MacroDef>,
     boxed_vars: Vec<HashSet<String>>,
     finally_stack: Vec<Option<Stmt>>,
+    optional_chain_jumps: Vec<usize>,
+    expr_depth: usize,
     pub is_async: bool,
     pub profile: BuildProfile,
     _source_map: pleno_diagnostics::SourceMap,
@@ -140,6 +142,8 @@ impl Compiler {
             macros: HashMap::new(),
             boxed_vars: vec![HashSet::new()],
             finally_stack: Vec::new(),
+            optional_chain_jumps: Vec::new(),
+            expr_depth: 0,
             is_async: false,
             profile: BuildProfile::Debug,
         }
@@ -1026,7 +1030,46 @@ impl Compiler {
         }
     }
 
+    fn is_postfix_op(kind: &ExprKind) -> bool {
+        matches!(
+            kind,
+            ExprKind::Property { .. }
+                | ExprKind::SafeProperty { .. }
+                | ExprKind::Call { .. }
+                | ExprKind::SafeCall { .. }
+                | ExprKind::Index { .. }
+                | ExprKind::SafeIndex { .. }
+                | ExprKind::Slice { .. }
+                | ExprKind::AssertNotNull(_)
+        )
+    }
+
     fn compile_expr(&mut self, expr: &Expr) -> Result<u8, CompileError> {
+        self.expr_depth += 1;
+        let is_postfix = Self::is_postfix_op(&expr.kind);
+        let start_jumps = self.optional_chain_jumps.len();
+
+        let reg = self.compile_expr_internal(expr)?;
+        self.expr_depth -= 1;
+
+        if self.optional_chain_jumps.len() > start_jumps && (!is_postfix || self.expr_depth == 0) {
+            // Patch all optional chain jumps to this point
+            let jumps_to_patch: Vec<usize> =
+                self.optional_chain_jumps.drain(start_jumps..).collect();
+            let jump_past_null = self.emit_jump(Opcode::Jump, 0);
+
+            for jump in jumps_to_patch {
+                self.patch_jump(jump)?;
+            }
+
+            self.emit(Opcode::LoadNull, reg, 0, 0);
+            self.patch_jump(jump_past_null)?;
+        }
+
+        Ok(reg)
+    }
+
+    fn compile_expr_internal(&mut self, expr: &Expr) -> Result<u8, CompileError> {
         self.current_span = expr.span;
 
         // Try constant folding (skip for simple literals as they are handled efficiently below)
@@ -1210,33 +1253,22 @@ impl Compiler {
                 }
             }
             ExprKind::SafeProperty { object, name } => {
-                // Safe property access: obj?.prop returns null if obj is null
                 let object_reg = self.compile_expr(object)?;
                 let dest = self.registers.allocate()?;
-                let null_check_reg = self.registers.allocate()?;
-                self.emit(Opcode::LoadNull, null_check_reg, 0, 0);
-                let is_null_reg = self.registers.allocate()?;
-                self.emit(Opcode::Eq, is_null_reg, object_reg, null_check_reg);
-                self.free_temp(null_check_reg);
 
-                // If object is null, jump to end and return null
+                let null_reg = self.registers.allocate()?;
+                self.emit(Opcode::LoadNull, null_reg, 0, 0);
+                let is_null_reg = self.registers.allocate()?;
+                self.emit(Opcode::Eq, is_null_reg, object_reg, null_reg);
+                self.free_temp(null_reg);
+
                 let jump_to_end = self.emit_jump(Opcode::JumpIf, is_null_reg);
+                self.optional_chain_jumps.push(jump_to_end);
                 self.free_temp(is_null_reg);
 
-                // Otherwise, get the property
                 let name_idx = self.add_constant(Value::String(name.clone().into()));
                 self.emit(Opcode::GetProperty, dest, object_reg, name_idx);
                 self.free_temp(object_reg);
-
-                // Jump past the null case
-                let jump_past_null = self.emit_jump(Opcode::Jump, 0);
-
-                // Null case: set dest to null
-                self.patch_jump(jump_to_end)?;
-                self.emit(Opcode::LoadNull, dest, 0, 0);
-
-                // Patch the jump past null case
-                self.patch_jump(jump_past_null)?;
 
                 Ok(dest)
             }
@@ -1244,7 +1276,7 @@ impl Compiler {
                 condition,
                 then_branch,
                 else_branch,
-            } => self.compile_if_expr(condition, then_branch, else_branch),
+            } => self.compile_if_expr(condition, then_branch, else_branch.as_deref()),
             ExprKind::Is { left, ty } => self.compile_is_expr(left, ty),
             ExprKind::Specialize { left, type_args } => {
                 let left_reg = self.compile_expr(left)?;
@@ -1336,6 +1368,27 @@ impl Compiler {
                 self.free_temp(index_reg);
                 Ok(dest)
             }
+            ExprKind::SafeIndex { collection, index } => {
+                let col_reg = self.compile_expr(collection)?;
+                let dest = self.registers.allocate()?;
+
+                let null_reg = self.registers.allocate()?;
+                self.emit(Opcode::LoadNull, null_reg, 0, 0);
+                let is_null_reg = self.registers.allocate()?;
+                self.emit(Opcode::Eq, is_null_reg, col_reg, null_reg);
+                self.free_temp(null_reg);
+
+                let jump_to_end = self.emit_jump(Opcode::JumpIf, is_null_reg);
+                self.optional_chain_jumps.push(jump_to_end);
+                self.free_temp(is_null_reg);
+
+                let idx_reg = self.compile_expr(index)?;
+                self.emit(Opcode::GetIndex, dest, col_reg, idx_reg);
+                self.free_temp(idx_reg);
+                self.free_temp(col_reg);
+
+                Ok(dest)
+            }
             ExprKind::Slice {
                 collection,
                 start,
@@ -1413,23 +1466,19 @@ impl Compiler {
                 let callee_reg = self.compile_expr(callee)?;
                 let dest = self.registers.allocate()?;
 
-                let null_check_reg = self.registers.allocate()?;
-                self.emit(Opcode::LoadNull, null_check_reg, 0, 0);
+                let null_reg = self.registers.allocate()?;
+                self.emit(Opcode::LoadNull, null_reg, 0, 0);
                 let is_null_reg = self.registers.allocate()?;
-                self.emit(Opcode::Eq, is_null_reg, callee_reg, null_check_reg);
-                self.free_temp(null_check_reg);
+                self.emit(Opcode::Eq, is_null_reg, callee_reg, null_reg);
+                self.free_temp(null_reg);
 
                 let jump_to_end = self.emit_jump(Opcode::JumpIf, is_null_reg);
+                self.optional_chain_jumps.push(jump_to_end);
                 self.free_temp(is_null_reg);
 
                 self.compile_call_internal(callee_reg, args, dest, expr.span)?;
-
-                let jump_past_null = self.emit_jump(Opcode::Jump, 0);
-                self.patch_jump(jump_to_end)?;
-                self.emit(Opcode::LoadNull, dest, 0, 0);
-                self.patch_jump(jump_past_null)?;
-
                 self.free_temp(callee_reg);
+
                 Ok(dest)
             }
             ExprKind::AssertNotNull(inner) => {
@@ -3932,7 +3981,9 @@ impl Compiler {
             } => {
                 self.collect_idents_expr(condition, used, scope);
                 self.collect_idents_expr(then_branch, used, scope);
-                self.collect_idents_expr(else_branch, used, scope);
+                if let Some(eb) = else_branch {
+                    self.collect_idents_expr(eb, used, scope);
+                }
             }
             ExprKind::MacroCall { args, .. } => {
                 for arg in args {
@@ -4225,7 +4276,9 @@ impl Compiler {
             } => {
                 self.expand_expr(condition, substitutions);
                 self.expand_expr(then_branch, substitutions);
-                self.expand_expr(else_branch, substitutions);
+                if let Some(eb) = else_branch {
+                    self.expand_expr(eb, substitutions);
+                }
             }
             ExprKind::Pipeline { left, right } => {
                 self.expand_expr(left, substitutions);
@@ -4525,7 +4578,9 @@ impl Compiler {
             } => {
                 self.collect_expr_refs(condition, referenced);
                 self.collect_expr_refs(then_branch, referenced);
-                self.collect_expr_refs(else_branch, referenced);
+                if let Some(eb) = else_branch {
+                    self.collect_expr_refs(eb, referenced);
+                }
             }
             ExprKind::Match { expr, arms } => {
                 self.collect_expr_refs(expr, referenced);
@@ -5324,7 +5379,7 @@ impl Compiler {
         &mut self,
         condition: &pleno_ast::Expr,
         then_branch: &pleno_ast::Expr,
-        else_branch: &pleno_ast::Expr,
+        else_branch: Option<&pleno_ast::Expr>,
     ) -> Result<u8, CompileError> {
         let cond_reg = self.compile_expr(condition)?;
         let else_jump = self.emit_jump(Opcode::JumpIfNot, cond_reg);
@@ -5340,9 +5395,13 @@ impl Compiler {
 
         self.patch_jump(else_jump)?;
 
-        let else_reg = self.compile_expr(else_branch)?;
-        self.emit(Opcode::Move, result_reg, else_reg, 0);
-        self.free_temp(else_reg);
+        if let Some(eb) = else_branch {
+            let else_reg = self.compile_expr(eb)?;
+            self.emit(Opcode::Move, result_reg, else_reg, 0);
+            self.free_temp(else_reg);
+        } else {
+            self.emit(Opcode::LoadNull, result_reg, 0, 0);
+        }
 
         self.patch_jump(end_jump)?;
 

@@ -2374,7 +2374,7 @@ impl Parser {
                 ExprKind::If {
                     condition: Box::new(expr),
                     then_branch: Box::new(then_branch),
-                    else_branch: Box::new(else_branch),
+                    else_branch: Some(Box::new(else_branch)),
                 },
                 start_span,
             ));
@@ -3066,6 +3066,18 @@ impl Parser {
                         ExprKind::SafeCall {
                             callee: Box::new(expr),
                             args,
+                        },
+                        start_span,
+                    );
+                    continue;
+                }
+                if self.matches(&TokenKind::LBracket) {
+                    let index = self.parse_expr()?;
+                    self.expect(TokenKind::RBracket, "Expected ']' after safe index")?;
+                    expr = self.wrap_expr(
+                        ExprKind::SafeIndex {
+                            collection: Box::new(expr),
+                            index: Box::new(index),
                         },
                         start_span,
                     );
@@ -4020,15 +4032,17 @@ impl Parser {
 
         let then_branch = self.parse_expr()?;
 
-        self.expect(TokenKind::KeywordElse, "Expected 'else' in if-expression")?;
-
-        let else_branch = self.parse_expr()?;
+        let else_branch = if self.matches(&TokenKind::KeywordElse) {
+            Some(Box::new(self.parse_expr()?))
+        } else {
+            None
+        };
 
         Ok(self.wrap_expr(
             ExprKind::If {
                 condition: Box::new(condition),
                 then_branch: Box::new(then_branch),
-                else_branch: Box::new(else_branch),
+                else_branch,
             },
             start_span,
         ))
