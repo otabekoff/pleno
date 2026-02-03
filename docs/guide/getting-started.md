@@ -18,6 +18,7 @@ cargo build --release
 ```
 
 Add the binary to your path (optional but recommended):
+
 ```bash
 # Windows (PowerShell)
 $env:PATH += ";$PWD\target\release"
@@ -45,6 +46,6 @@ pleno run hello.pln
 
 ## Next Steps
 
-- Explore the [Language Specification](../specs/spec.md)
+- Explore the [Language Specification](/specs/)
 - Learn about [Contributing](../guide/contributing.md)
 - Check out the [Examples](https://github.com/otabekoff/pleno/tree/main/examples)

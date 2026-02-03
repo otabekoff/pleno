@@ -83,10 +83,11 @@ export default defineConfig({
             { text: 'IO', link: '/stdlib/io' },
             { text: 'HTTP', link: '/stdlib/http' },
             { text: 'JSON', link: '/stdlib/json' },
-            // { text: 'Math', link: '/stdlib/math' }, // Parsing error
+            { text: 'Math', link: '/stdlib/math' },
+            { text: 'Regex', link: '/stdlib/regex' },
             { text: 'Time', link: '/stdlib/time' },
-            // { text: 'Regex', link: '/stdlib/regex' }, // Parsing error
             { text: 'OS', link: '/stdlib/os' },
+            { text: 'Log', link: '/stdlib/log' },
             { text: 'Benchmark', link: '/stdlib/benchmark' },
           ]
         }

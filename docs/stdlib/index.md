@@ -1,12 +1,18 @@
-# API Documentation
+# Standard Library Reference
+
+Pleno's standard library provides essential utilities organized by namespace.
 
 ## Modules
 
-- [std:benchmark](benchmark.md)
-- [std:core](core.md)
-- [std:http](http.md)
-- [std:io](io.md)
-- [std:json](json.md)
-- [std:log](log.md)
-- [std:os](os.md)
-- [std:time](time.md)
+| Module                        | Description                    |
+| ----------------------------- | ------------------------------ |
+| [std:core](core.md)           | Result, Option types           |
+| [std:io](io.md)               | File and directory operations  |
+| [std:http](http.md)           | HTTP client and server         |
+| [std:json](json.md)           | JSON parsing and serialization |
+| [std:math](math.md)           | Math constants and functions   |
+| [std:regex](regex.md)         | Regular expressions            |
+| [std:time](time.md)           | Date, time, and duration       |
+| [std:os](os.md)               | System and environment         |
+| [std:log](log.md)             | Logging utilities              |
+| [std:benchmark](benchmark.md) | Performance measurement        |
