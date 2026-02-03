@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<package xmlns="http://schemas.microsoft.com/packaging/2015/06/nuspec.xsd">
+  <metadata>
+    <id>pleno</id>
+    <version>0.1.0</version>
+    <title>Pleno Programming Language</title>
+    <authors>Otabek Ismoilov</authors>
+    <owners>otabekoff</owners>
+    <licenseUrl>https://github.com/otabekoff/pleno/blob/main/LICENSE</licenseUrl>
+    <projectUrl>https://otabekoff.github.io/pleno/</projectUrl>
+    <iconUrl>https://raw.githubusercontent.com/otabekoff/pleno/main/docs/public/logo.svg</iconUrl>
+    <requireLicenseAcceptance>false</requireLicenseAcceptance>
+    <description>Pleno is a modern programming language designed for clarity, safety, and expressiveness. It combines the best features from multiple programming paradigms while maintaining simplicity and consistency.</description>
+    <summary>Modern programming language with clarity, safety, and expressiveness</summary>
+    <releaseNotes>Initial release of Pleno for Windows via Chocolatey</releaseNotes>
+    <copyright>Copyright 2026 Pleno Team</copyright>
+    <tags>pleno programming language compiler interpreter</tags>
+    <packageSourceUrl>https://github.com/otabekoff/pleno</packageSourceUrl>
+    <docsUrl>https://otabekoff.github.io/pleno/</docsUrl>
+    <bugTrackerUrl>https://github.com/otabekoff/pleno/issues</bugTrackerUrl>
+  </metadata>
+  <files>
+    <file src="tools\**" target="tools" />
+  </files>
+</package>
