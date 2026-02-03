@@ -1,0 +1,29 @@
+{
+    "name": "pleno-lang",
+    "version": "0.1.0",
+    "description": "Professional, dynamic and type safe programming language",
+    "main": "index.js",
+    "bin": {
+        "pleno": "bin/pleno",
+        "plm": "bin/plm"
+    },
+    "scripts": {
+        "postinstall": "node scripts/install.js"
+    },
+    "keywords": [
+        "pleno",
+        "programming",
+        "language",
+        "compiler",
+        "vm"
+    ],
+    "author": "Otabek",
+    "license": "MIT",
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/otabekoff/pleno.git"
+    },
+    "engines": {
+        "node": ">=14"
+    }
+}

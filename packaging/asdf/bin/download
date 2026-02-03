@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ASDF_DOWNLOAD_PATH="$3"
+
+get_platform() {
+  local os=$(uname -s | tr '[:upper:]' '[:lower:]')
+  local arch=$(uname -m)
+  
+  if [ "$os" == "linux" ]; then
+    if [ "$arch" == "x86_64" ]; then echo "x86_64-unknown-linux-gnu";
+    elif [ "$arch" == "aarch64" ]; then echo "aarch64-unknown-linux-gnu"; fi
+  elif [ "$os" == "darwin" ]; then
+    if [ "$arch" == "x86_64" ]; then echo "x86_64-apple-darwin";
+    elif [ "$arch" == "arm64" ]; then echo "aarch64-apple-darwin"; fi
+  fi
+}
+
+platform=$(get_platform)
+# curl -L -o "$ASDF_DOWNLOAD_PATH/pleno" "https://github.com/otabekoff/pleno/releases/download/v$ASDF_INSTALL_VERSION/pleno-$platform"
+# curl -L -o "$ASDF_DOWNLOAD_PATH/plm" "https://github.com/otabekoff/pleno/releases/download/v$ASDF_INSTALL_VERSION/plm-$platform"
+chmod +x "$ASDF_DOWNLOAD_PATH/pleno" "$ASDF_DOWNLOAD_PATH/plm" || true

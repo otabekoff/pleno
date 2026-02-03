@@ -155,7 +155,9 @@ impl Formatter {
 
         let current_indent = self.indent(indent_level);
         let mut stmt_str = match &stmt.kind {
-            StmtKind::Module { name, body, doc: _ } => {
+            StmtKind::Module {
+                name, body, doc: _, ..
+            } => {
                 let mut result = self.format_annotations(&[], indent_level); // Modules don't have annotations yet
                 if let Some(stmts) = body {
                     result.push_str(&format!("{}module {} {{\n", current_indent, name));
@@ -534,6 +536,7 @@ impl Formatter {
                 annotations,
                 nested_classes,
                 doc: _,
+                ..
             } => {
                 let mut result = self.format_annotations(annotations, indent_level);
                 let mut prefix = current_indent.clone();
@@ -613,6 +616,7 @@ impl Formatter {
                 extends,
                 annotations,
                 doc: _,
+                ..
             } => {
                 let mut result = self.format_annotations(annotations, indent_level);
                 result.push_str(&format!("{}interface {} ", current_indent, name));
@@ -639,6 +643,7 @@ impl Formatter {
                 annotations,
                 is_async,
                 doc: _,
+                ..
             } => {
                 let mut result = self.format_annotations(annotations, indent_level);
                 result.push_str(&current_indent);

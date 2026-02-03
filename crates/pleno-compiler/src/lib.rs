@@ -613,6 +613,7 @@ impl Compiler {
                 body,
                 annotations,
                 is_async,
+                name_span,
                 ..
             } => {
                 let ownership = params
@@ -634,6 +635,7 @@ impl Compiler {
                 let decl = FunctionDecl {
                     span: Span::new(0, 0),
                     name: name.clone(),
+                    name_span: *name_span,
                     generics: generics.clone(),
                     params: params.clone(),
                     return_ty: None,
@@ -3000,6 +3002,7 @@ impl Compiler {
         let decl = FunctionDecl {
             span: Span::new(0, 0),
             name: "anonymous".to_string(),
+            name_span: Span::new(0, 0),
             generics: Vec::new(),
             params: params.to_vec(),
             return_ty: return_ty.map(|s| s.to_string()),
@@ -3300,6 +3303,7 @@ impl Compiler {
             methods_to_compile.push(FunctionDecl {
                 span: Span::new(0, 0),
                 name: "constructor".to_string(),
+                name_span: Span::new(0, 0),
                 params: Vec::new(),
                 body: Box::new(Stmt::new(StmtKind::Block(Vec::new()), Span::new(0, 0))),
                 return_ty: None,
@@ -4014,7 +4018,7 @@ impl Compiler {
                 self.collect_idents_expr(expr, used, scope);
                 for arm in arms {
                     scope.push(HashSet::new());
-                    self.collect_pattern_idents(&arm.pattern, used, scope);
+                    self.collect_pattern_idents(&arm.pattern, scope);
                     if let Some(guard) = &arm.guard {
                         self.collect_idents_expr(guard, used, scope);
                     }
@@ -4093,12 +4097,7 @@ impl Compiler {
         }
     }
 
-    fn collect_pattern_idents(
-        &self,
-        pattern: &Pattern,
-        used: &mut HashMap<String, bool>,
-        scope: &mut Vec<HashSet<String>>,
-    ) {
+    fn collect_pattern_idents(&self, pattern: &Pattern, scope: &mut Vec<HashSet<String>>) {
         match &pattern.kind {
             pleno_ast::PatternKind::Ident(name) => {
                 if let Some(s) = scope.last_mut() {
@@ -4112,25 +4111,25 @@ impl Compiler {
             }
             pleno_ast::PatternKind::Tuple(patterns) => {
                 for p in patterns {
-                    self.collect_pattern_idents(p, used, scope);
+                    self.collect_pattern_idents(p, scope);
                 }
             }
             pleno_ast::PatternKind::Variant(_, patterns) => {
                 for p in patterns {
-                    self.collect_pattern_idents(p, used, scope);
+                    self.collect_pattern_idents(p, scope);
                 }
             }
             pleno_ast::PatternKind::Object(props, rest) => {
                 for (_, p) in props {
-                    self.collect_pattern_idents(p, used, scope);
+                    self.collect_pattern_idents(p, scope);
                 }
                 if let Some(p) = rest {
-                    self.collect_pattern_idents(p, used, scope);
+                    self.collect_pattern_idents(p, scope);
                 }
             }
             pleno_ast::PatternKind::Or(patterns) => {
                 for p in patterns {
-                    self.collect_pattern_idents(p, used, scope);
+                    self.collect_pattern_idents(p, scope);
                 }
             }
             pleno_ast::PatternKind::Rest(Some(name)) => {
@@ -5161,11 +5160,13 @@ impl Compiler {
                 body,
                 annotations,
                 is_async,
+                name_span,
                 ..
             } => {
                 let decl = FunctionDecl {
                     span: Span::new(0, 0),
                     name: name.clone(),
+                    name_span: *name_span,
                     generics: generics.clone(),
                     params: params.clone(),
                     return_ty: None,
@@ -5209,6 +5210,7 @@ impl Compiler {
                 let decl = FunctionDecl {
                     span: Span::new(0, 0),
                     name: "anonymous".to_string(),
+                    name_span: Span::new(0, 0),
                     generics: Vec::new(),
                     params: params.clone(),
                     return_ty: None,

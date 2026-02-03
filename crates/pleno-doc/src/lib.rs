@@ -183,7 +183,9 @@ impl DocGenerator {
 
     fn extract_stmt(&self, stmt: &Stmt) -> Option<DocItem> {
         match &stmt.kind {
-            StmtKind::Module { name, body, doc } => {
+            StmtKind::Module {
+                name, body, doc, ..
+            } => {
                 let mut item = DocItem::new(name.clone(), DocItemKind::Module);
                 let (main_doc, params, returns) = self.process_doc(doc.clone());
                 item.doc = main_doc;
@@ -293,7 +295,7 @@ impl DocGenerator {
                 }
                 Some(item)
             }
-            StmtKind::TypeAlias { name, ty, doc } => {
+            StmtKind::TypeAlias { name, ty, doc, .. } => {
                 let mut item = DocItem::new(name.clone(), DocItemKind::TypeAlias);
                 let (main_doc, doc_params, doc_returns) = self.process_doc(doc.clone());
                 item.doc = main_doc;

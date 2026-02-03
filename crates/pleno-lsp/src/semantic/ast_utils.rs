@@ -1,6 +1,6 @@
 use pleno_ast::visitor::{
     Visitor, walk_enum_decl, walk_enum_variant, walk_expr, walk_field_decl, walk_function_decl,
-    walk_param, walk_pattern, walk_program, walk_property_decl, walk_stmt,
+    walk_param, walk_pattern, walk_property_decl, walk_stmt,
 };
 use pleno_ast::*;
 
@@ -11,11 +11,14 @@ pub enum Node<'a> {
     Param(&'a Param),
     Field(&'a FieldDecl),
     Function(&'a FunctionDecl),
+    #[allow(dead_code)]
     Property(&'a PropertyDecl),
+    #[allow(dead_code)]
     Enum(&'a EnumDecl),
     EnumVariant(&'a EnumVariant),
 }
 
+/*
 impl<'a> Node<'a> {
     pub fn span(&self) -> Span {
         match self {
@@ -31,6 +34,7 @@ impl<'a> Node<'a> {
         }
     }
 }
+*/
 
 pub struct NodeFinder<'a> {
     offset: usize,

@@ -1,0 +1,28 @@
+{
+    "app-id": "org.pleno_lang.Pleno",
+    "runtime": "org.freedesktop.Sdk",
+    "runtime-version": "24.08",
+    "sdk": "org.freedesktop.Sdk",
+    "command": "pleno",
+    "finish-args": [
+        "--share=network",
+        "--filesystem=home"
+    ],
+    "modules": [
+        {
+            "name": "pleno",
+            "buildsystem": "simple",
+            "build-commands": [
+                "cargo build --release",
+                "install -D target/release/pleno /app/bin/pleno",
+                "install -D target/release/plm /app/bin/plm"
+            ],
+            "sources": [
+                {
+                    "type": "git",
+                    "url": "https://github.com/otabekoff/pleno.git"
+                }
+            ]
+        }
+    ]
+}

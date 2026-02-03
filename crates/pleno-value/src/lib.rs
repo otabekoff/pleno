@@ -34,6 +34,7 @@ pub trait VMProvider {
     fn register_global(&mut self, name: String, value: Value);
     fn set_builtin_resolver(&mut self, resolver: fn(&str, &str) -> Option<NativeFunction>);
     fn add_timer(&mut self, delay_ms: u64, callback: Value, args: Vec<Value>) -> u64;
+    #[cfg(feature = "net")]
     fn register_io(
         &mut self,
         source: &mut dyn mio::event::Source,
@@ -41,6 +42,7 @@ pub trait VMProvider {
         callback: Value,
         persistent: bool,
     ) -> Result<mio::Token, RuntimeError>;
+    #[cfg(feature = "net")]
     fn unregister_io(
         &mut self,
         source: &mut dyn mio::event::Source,
