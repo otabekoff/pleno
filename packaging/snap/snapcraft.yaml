@@ -1,0 +1,49 @@
+name: pleno
+version: '0.1.0'
+summary: Modern programming language with clarity, safety, and expressiveness
+description: |
+  Pleno is a modern programming language designed for clarity, safety, 
+  and expressiveness. It combines the best features from multiple 
+  programming paradigms while maintaining simplicity and consistency.
+  
+  Features:
+  - Type Safety with optional static typing
+  - Modern syntax inspired by modern languages
+  - First-class functions, closures, lambdas
+  - Powerful pattern matching
+  - Built-in async/await support
+  - Rich standard library
+
+grade: stable
+confinement: classic
+base: core22
+
+architectures:
+  - build-on: amd64
+  - build-on: arm64
+
+parts:
+  pleno:
+    plugin: rust
+    source: https://github.com/otabekoff/pleno.git
+    source-type: git
+    source-branch: main
+    build-packages:
+      - libssl-dev
+      - pkg-config
+    stage-packages:
+      - libssl3
+
+apps:
+  pleno:
+    command: bin/pleno
+    plugs:
+      - home
+      - network
+      - network-bind
+  
+  plm:
+    command: bin/plm
+    plugs:
+      - home
+      - network

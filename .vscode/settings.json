@@ -83,5 +83,11 @@
     },
     "[pleno]": {
         "editor.defaultFormatter": "pleno.pleno-language"
+    },
+    "[yaml]": {
+        "editor.defaultFormatter": "esbenp.prettier-vscode"
+    },
+    "[dockercompose]": {
+        "editor.defaultFormatter": "esbenp.prettier-vscode"
     }
 }

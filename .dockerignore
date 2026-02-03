@@ -1,0 +1,49 @@
+# Docker ignore file
+# Reduces build context size and speeds up Docker builds
+
+# Build artifacts
+target/
+dist/
+
+# Git
+.git/
+.gitignore
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Node modules (for docs)
+node_modules/
+docs/.vitepress/cache/
+docs/.vitepress/dist/
+
+# Test files
+tests/
+*.test.pln
+
+# Documentation source
+docs/
+
+# Package manager caches
+.cargo/
+.rustup/
+
+# IDE extensions
+ide/vscode/node_modules/
+ide/vscode/out/
+*.vsix
+
+# Logs
+*.log
+.logs/
+
+# Local config
+.env
+.env.*
+
+# Tasks and artifacts
+tasks/
+.gemini/
