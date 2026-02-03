@@ -1432,12 +1432,20 @@ fn handle_install(args: &mut std::iter::Peekable<std::iter::Skip<std::env::Args>
 
     if let Some(pkg) = pkg_name {
         let (name, source) = if let Some(pos) = pkg.rfind('@') {
-            if pos > 0 && !pkg.starts_with("git+") && !pkg.starts_with("http") {
-                let (n, s) = pkg.split_at(pos);
-                (n.to_string(), s[1..].to_string())
+            let (n, s) = pkg.split_at(pos);
+            let version = s[1..].to_string();
+            if n.starts_with("github.com/") {
+                (n.to_string(), pkg.clone()) // Keep shorthand for source
+            } else if !n.starts_with("git+") && !n.starts_with("http") && !n.contains('/') {
+                (n.to_string(), version)
             } else {
-                (pkg.clone(), "*".to_string())
+                (
+                    n.split('/').next_back().unwrap().replace(".git", ""),
+                    pkg.clone(),
+                )
             }
+        } else if pkg.starts_with("github.com/") {
+            (pkg.clone(), pkg.clone())
         } else if pkg.contains('/') || pkg.starts_with("git+") {
             let name = pkg.split('/').next_back().unwrap().replace(".git", "");
             (name, pkg.clone())
@@ -1445,10 +1453,26 @@ fn handle_install(args: &mut std::iter::Peekable<std::iter::Skip<std::env::Args>
             (pkg.clone(), "*".to_string())
         };
 
-        let dep = if source.contains('/')
-            || source.starts_with("git+")
-            || source.starts_with("http")
-        {
+        let dep = if source.starts_with("github.com/") {
+            let (git_url, version) = if let Some(pos) = source.rfind('@') {
+                (
+                    source[..pos].to_string(),
+                    Some(source[pos + 1..].to_string()),
+                )
+            } else {
+                (source.clone(), None)
+            };
+            Dependency::Detailed(DependencyDetail {
+                git: Some(format!("https://{}", git_url)),
+                version: None,
+                path: None,
+                branch: None,
+                tag: version,
+                rev: None,
+                optional: None,
+                features: None,
+            })
+        } else if source.contains('/') || source.starts_with("git+") || source.starts_with("http") {
             Dependency::Detailed(DependencyDetail {
                 git: Some(source.clone()),
                 version: None,

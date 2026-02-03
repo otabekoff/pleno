@@ -73,6 +73,145 @@ pub struct VersionMetadata {
     pub manifest: Option<String>,
 }
 
+pub struct GitHubResolver;
+
+impl Default for GitHubResolver {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl GitHubResolver {
+    pub fn new() -> Self {
+        Self
+    }
+
+    fn get_repo_url(&self, name: &str) -> (String, Option<String>) {
+        if name.starts_with("github.com/") {
+            let parts: Vec<&str> = name.split('/').collect();
+            if parts.len() >= 3 {
+                let url = format!("https://{}/{}/{}", parts[0], parts[1], parts[2]);
+                let sub_path = if parts.len() > 3 {
+                    Some(parts[3..].join("/"))
+                } else {
+                    None
+                };
+                (url, sub_path)
+            } else {
+                (format!("https://{}", name), None)
+            }
+        } else {
+            (name.to_string(), None)
+        }
+    }
+}
+
+impl Registry for GitHubResolver {
+    fn query(&self, name: &str, _req: &VersionReq) -> Result<Vec<Version>, PackageError> {
+        if !name.starts_with("github.com/") {
+            return Ok(vec![]);
+        }
+
+        let (url, _sub_path) = self.get_repo_url(name);
+        let output = std::process::Command::new("git")
+            .args(["ls-remote", "--tags", &url])
+            .output()?;
+
+        if !output.status.success() {
+            return Err(PackageError::Io(std::io::Error::other(format!(
+                "git ls-remote failed for {}",
+                url
+            ))));
+        }
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let mut versions = vec![];
+        for line in stdout.lines() {
+            if let Some(tag_ref) = line.split('\t').nth(1)
+                && let Some(tag) = tag_ref.strip_prefix("refs/tags/")
+            {
+                let version_str = tag.strip_prefix('v').unwrap_or(tag);
+                if let Ok(v) = Version::parse(version_str) {
+                    versions.push(v);
+                }
+            }
+        }
+        Ok(versions)
+    }
+
+    fn fetch_source(
+        &self,
+        name: &str,
+        version: &Version,
+    ) -> Result<(String, Option<String>), PackageError> {
+        let (url, _sub_path) = self.get_repo_url(name);
+        Ok((format!("git+{}#v{}", url, version), None))
+    }
+
+    fn fetch_manifest(&self, name: &str, version: &Version) -> Result<Manifest, PackageError> {
+        let (url, sub_path) = self.get_repo_url(name);
+        let tag = format!("v{}", version);
+        let mut path_in_repo = "pleno.toml".to_string();
+        if let Some(sub) = sub_path {
+            path_in_repo = format!("{}/pleno.toml", sub);
+        }
+
+        let output = std::process::Command::new("git")
+            .args(["archive", "--remote", &url, &tag, &path_in_repo])
+            .output()?;
+
+        if !output.status.success() {
+            let tag = version.to_string();
+            let output = std::process::Command::new("git")
+                .args(["archive", "--remote", &url, &tag, &path_in_repo])
+                .output()?;
+
+            if !output.status.success() {
+                return Err(PackageError::Io(std::io::Error::other(format!(
+                    "Could not fetch {} from {} at tag {}",
+                    path_in_repo, url, version
+                ))));
+            }
+
+            let mut archive = tar::Archive::new(&output.stdout[..]);
+            for entry in archive.entries()? {
+                let mut entry = entry?;
+                if entry.path()?.to_string_lossy().ends_with("pleno.toml") {
+                    let mut content = String::new();
+                    use std::io::Read;
+                    entry.read_to_string(&mut content)?;
+                    let manifest: Manifest =
+                        toml::from_str(&content).map_err(PackageError::TomlParse)?;
+                    return Ok(manifest);
+                }
+            }
+        } else {
+            let mut archive = tar::Archive::new(&output.stdout[..]);
+            for entry in archive.entries()? {
+                let mut entry = entry?;
+                if entry.path()?.to_string_lossy().ends_with("pleno.toml") {
+                    let mut content = String::new();
+                    use std::io::Read;
+                    entry.read_to_string(&mut content)?;
+                    let manifest: Manifest =
+                        toml::from_str(&content).map_err(PackageError::TomlParse)?;
+                    return Ok(manifest);
+                }
+            }
+        }
+
+        Err(PackageError::Io(std::io::Error::other(
+            "pleno.toml not found in archive",
+        )))
+    }
+
+    fn publish(&self, _package: PublishPackage, _token: &str) -> Result<(), PackageError> {
+        Err(PackageError::Io(std::io::Error::other(
+            "GitHub resolution does not support central publication. Use git tags instead.",
+        )))
+    }
+}
+
 pub struct RemoteRegistry {
     pub base_url: String,
 }
@@ -517,6 +656,7 @@ impl PackageManager {
                 .registry_url
                 .as_ref()
                 .map(|url| RemoteRegistry::new(url.clone())),
+            github: GitHubResolver::new(),
         };
 
         let resolver = Resolver::new(&composite);
@@ -666,6 +806,7 @@ impl PackageManager {
 pub struct CompositeRegistry<'a> {
     pub local: &'a PackageManager,
     pub remote: Option<RemoteRegistry>,
+    pub github: GitHubResolver,
 }
 
 impl<'a> Registry for CompositeRegistry<'a> {
@@ -673,6 +814,9 @@ impl<'a> Registry for CompositeRegistry<'a> {
         let mut versions = self.local.query(name, req)?;
         if let Some(remote) = &self.remote {
             versions.extend(remote.query(name, req)?);
+        }
+        if name.starts_with("github.com/") {
+            versions.extend(self.github.query(name, req)?);
         }
         versions.sort();
         versions.dedup();
@@ -687,6 +831,11 @@ impl<'a> Registry for CompositeRegistry<'a> {
         if let Ok(source) = self.local.fetch_source(name, version) {
             return Ok(source);
         }
+        if name.starts_with("github.com/")
+            && let Ok(source) = self.github.fetch_source(name, version)
+        {
+            return Ok(source);
+        }
         if let Some(remote) = &self.remote {
             return remote.fetch_source(name, version);
         }
@@ -697,6 +846,11 @@ impl<'a> Registry for CompositeRegistry<'a> {
 
     fn fetch_manifest(&self, name: &str, version: &Version) -> Result<Manifest, PackageError> {
         if let Ok(manifest) = self.local.fetch_manifest(name, version) {
+            return Ok(manifest);
+        }
+        if name.starts_with("github.com/")
+            && let Ok(manifest) = self.github.fetch_manifest(name, version)
+        {
             return Ok(manifest);
         }
         if let Some(remote) = &self.remote {
@@ -785,14 +939,21 @@ impl PackageManager {
         }
         std::fs::create_dir_all(&dest)?;
 
-        if let Some(url) = source.strip_prefix("git+") {
-            let status = std::process::Command::new("git")
-                .arg("clone")
-                .arg("--depth")
-                .arg("1")
-                .arg(url)
-                .arg(&dest)
-                .status()?;
+        if let Some(url_full) = source.strip_prefix("git+") {
+            let (url, rev) = if let Some(pos) = url_full.find('#') {
+                (&url_full[..pos], Some(&url_full[pos + 1..]))
+            } else {
+                (url_full, None)
+            };
+
+            let mut cmd = std::process::Command::new("git");
+            cmd.arg("clone").arg("--depth").arg("1");
+            if let Some(r) = rev {
+                cmd.arg("--branch").arg(r);
+            }
+            cmd.arg(url).arg(&dest);
+
+            let status = cmd.status()?;
             if !status.success() {
                 return Err(PackageError::Io(std::io::Error::other(format!(
                     "git clone failed for {url}"
