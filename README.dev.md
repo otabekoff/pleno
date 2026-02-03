@@ -7,6 +7,7 @@ Welcome to the Pleno internal development guide. This document defines our engin
 - **[Architecture Deep Dive](ARCHITECTURE.md)**: Detailed technical overview of VM and Compiler internals.
 - **[Language Specification](specs.md)**: The authoritative reference for Pleno syntax and semantics.
 - **[Contributing Guidelines](CONTRIBUTING.md)**: How to submit your changes.
+- **[Code Signing Guide](docs/security/signing.md)**: professional signing and security procedures.
 
 ---
 
@@ -108,11 +109,7 @@ If a release fails and you need to retag `v0.1.0`:
 
 ### Code Signing & Security
 
-Pleno binaries are signed to prevent "Unknown Publisher" warnings and improve security.
-
-- **Windows**: Signed with SignTool using our EV Certificate.
-- **macOS**: Notarized by Apple.
-- **Linux**: GPG signed and SHA256 checksums provided.
+Pleno binaries are signed to prevent "Unknown Publisher" warnings and improve security. See the **[Code Signing Guide](docs/security/signing.md)** for detailed instructions on obtaining and setting up certificates.
 
 All releases include a `SHA256SUMS.txt` file. Verify with:
 `sha256sum -c SHA256SUMS.txt`
