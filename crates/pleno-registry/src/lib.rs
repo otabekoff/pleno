@@ -30,6 +30,7 @@ pub struct VersionInfo {
     pub version: String,
     pub url: String,
     pub sha256: Option<String>,
+    pub manifest: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -39,6 +40,7 @@ pub struct PublishRequest {
     pub git_url: String,
     pub commit: String,
     pub sha256: Option<String>,
+    pub manifest: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -111,7 +113,7 @@ pub async fn list_packages(
         let (name, desc, author) = row;
 
         let mut v_stmt = db
-            .prepare("SELECT version, url, sha256 FROM versions WHERE package_name = ?")
+            .prepare("SELECT version, url, sha256, manifest FROM versions WHERE package_name = ?")
             .unwrap();
         let v_rows = v_stmt
             .query_map([&name], |v_row| {
@@ -119,6 +121,7 @@ pub async fn list_packages(
                     version: v_row.get(0)?,
                     url: v_row.get(1)?,
                     sha256: v_row.get(2)?,
+                    manifest: v_row.get(3)?,
                 })
             })
             .unwrap();
@@ -154,7 +157,9 @@ pub async fn get_package_info(
     match pkg_row {
         Ok((name, desc, _author)) => {
             let mut v_stmt = db
-                .prepare("SELECT version, url, sha256 FROM versions WHERE package_name = ?")
+                .prepare(
+                    "SELECT version, url, sha256, manifest FROM versions WHERE package_name = ?",
+                )
                 .unwrap();
             let v_rows = v_stmt
                 .query_map([&name], |v_row| {
@@ -162,6 +167,7 @@ pub async fn get_package_info(
                         version: v_row.get(0)?,
                         url: v_row.get(1)?,
                         sha256: v_row.get(2)?,
+                        manifest: v_row.get(3)?,
                     })
                 })
                 .unwrap();
@@ -200,8 +206,8 @@ pub async fn publish_package(
     // 2. Insert version
     let url = format!("git+{}", payload.git_url);
     let res = db.execute(
-        "INSERT INTO versions (package_name, version, url, sha256) VALUES (?, ?, ?, ?)",
-        params![payload.name, payload.version, url, payload.sha256],
+        "INSERT INTO versions (package_name, version, url, sha256, manifest) VALUES (?, ?, ?, ?, ?)",
+        params![payload.name, payload.version, url, payload.sha256, payload.manifest],
     );
 
     match res {
@@ -260,6 +266,7 @@ pub fn init_db(db: &Connection) {
             version TEXT NOT NULL,
             url TEXT NOT NULL,
             sha256 TEXT,
+            manifest TEXT,
             created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
             UNIQUE(package_name, version),
             FOREIGN KEY(package_name) REFERENCES packages(name)

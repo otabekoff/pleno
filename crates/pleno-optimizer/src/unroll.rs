@@ -171,6 +171,7 @@ impl LoopUnroller {
                 let let_stmt = Stmt::new(
                     StmtKind::Let {
                         name: name.clone(),
+                        name_span: Span::new(0, 0),
                         mutable: false,
                         ty: None,
                         value: Some(Expr::new(ExprKind::Literal(Literal::Int(val)), body.span)),
@@ -240,6 +241,7 @@ impl LoopUnroller {
             let let_stmt = Stmt::new(
                 StmtKind::Let {
                     name: name.clone(),
+                    name_span: Span::new(0, 0),
                     mutable: false,
                     ty: None,
                     value: Some(Expr::new(ExprKind::Literal(Literal::Int(val)), body.span)),

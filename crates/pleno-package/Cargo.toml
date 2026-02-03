@@ -24,3 +24,6 @@ pleno-lexer = { workspace = true }
 pleno-parser = { workspace = true }
 pleno-compiler = { workspace = true }
 pleno-bytecode = { workspace = true }
+
+[dev-dependencies]
+mockall = "0.13"

@@ -194,6 +194,7 @@ impl VMProvider for VM {
         self.event_loop.add_timer(delay_ms, callback, args)
     }
 
+    #[cfg(feature = "net")]
     fn register_io(
         &mut self,
         source: &mut dyn mio::event::Source,
@@ -206,6 +207,7 @@ impl VMProvider for VM {
             .map_err(|e| RuntimeError::new(format!("IO registration failed: {}", e)))
     }
 
+    #[cfg(feature = "net")]
     fn unregister_io(
         &mut self,
         source: &mut dyn mio::event::Source,

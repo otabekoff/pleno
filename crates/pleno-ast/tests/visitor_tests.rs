@@ -49,6 +49,7 @@ fn test_symbol_collection() {
     let stmt1 = Stmt::new(
         StmtKind::Let {
             name: "x".to_string(),
+            name_span: span,
             mutable: false,
             ty: None,
             value: Some(Expr::new(ExprKind::Literal(Literal::Int(10)), span)),
@@ -76,10 +77,12 @@ fn test_symbol_collection() {
     let stmt2 = Stmt::new(
         StmtKind::Fn {
             name: "foo".to_string(),
+            name_span: span,
             generics: Vec::new(),
             params: vec![Param {
                 span,
                 name: "a".to_string(),
+                name_span: span,
                 ty: None,
                 default: None,
                 is_variadic: false,

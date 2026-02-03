@@ -228,11 +228,13 @@ impl Stmt {
 pub enum StmtKind {
     Module {
         name: String,
+        name_span: Span,
         body: Option<Vec<Stmt>>,
         doc: Option<String>,
     },
     Let {
         name: String,
+        name_span: Span,
         mutable: bool,
         ty: Option<String>,
         value: Option<Expr>,
@@ -243,6 +245,7 @@ pub enum StmtKind {
     },
     MacroDecl {
         name: String,
+        name_span: Span,
         params: Vec<String>,
         body: Box<Stmt>,
         doc: Option<String>,
@@ -294,6 +297,7 @@ pub enum StmtKind {
     ExportList(Vec<ExportName>),
     Class {
         name: String,
+        name_span: Span,
         generics: Vec<GenericParam>,
         fields: Vec<FieldDecl>,
         methods: Vec<FunctionDecl>,
@@ -307,6 +311,7 @@ pub enum StmtKind {
     },
     Interface {
         name: String,
+        name_span: Span,
         generics: Vec<GenericParam>,
         methods: Vec<FunctionDecl>,
         properties: Vec<PropertyDecl>,
@@ -317,6 +322,7 @@ pub enum StmtKind {
     Enum(EnumDecl),
     Fn {
         name: String,
+        name_span: Span,
         generics: Vec<GenericParam>,
         params: Vec<Param>,
         body: Box<Stmt>,
@@ -340,6 +346,7 @@ pub enum StmtKind {
     Block(Vec<Stmt>),
     TypeAlias {
         name: String,
+        name_span: Span,
         ty: String,
         doc: Option<String>,
     },
@@ -356,6 +363,7 @@ pub enum StmtKind {
 pub struct CatchBlock {
     pub span: Span,
     pub name: String,
+    pub name_span: Span,
     pub ty: Option<String>,
     pub body: Box<Stmt>,
 }
@@ -388,6 +396,7 @@ pub struct GenericParam {
 pub struct FunctionDecl {
     pub span: Span,
     pub name: String,
+    pub name_span: Span,
     pub generics: Vec<GenericParam>,
     pub params: Vec<Param>,
     pub return_ty: Option<String>,
@@ -405,6 +414,7 @@ pub struct FunctionDecl {
 pub struct PropertyDecl {
     pub span: Span,
     pub name: String,
+    pub name_span: Span,
     pub ty: Option<String>,
     pub getter: Option<FunctionDecl>,
     pub setter: Option<FunctionDecl>,
@@ -418,6 +428,7 @@ pub struct PropertyDecl {
 pub struct EnumDecl {
     pub span: Span,
     pub name: String,
+    pub name_span: Span,
     pub variants: Vec<EnumVariant>,
     pub methods: Vec<FunctionDecl>,
     pub annotations: Vec<Annotation>,
@@ -428,6 +439,7 @@ pub struct EnumDecl {
 pub struct EnumVariant {
     pub span: Span,
     pub name: String,
+    pub name_span: Span,
     pub params: Option<Vec<Param>>,
     pub doc: Option<String>,
 }
@@ -444,6 +456,7 @@ pub enum Ownership {
 pub struct Param {
     pub span: Span,
     pub name: String,
+    pub name_span: Span,
     pub ty: Option<String>,
     pub default: Option<Expr>,
     pub is_variadic: bool,
@@ -455,6 +468,7 @@ pub struct Param {
 pub struct FieldDecl {
     pub span: Span,
     pub name: String,
+    pub name_span: Span,
     pub ty: Option<String>,
     pub default: Option<Expr>,
     pub is_static: bool,

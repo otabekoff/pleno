@@ -3,10 +3,12 @@
 This guide provides instructions for building, testing, and contributing to the Pleno programming language.
 
 ## Prerequisites
+
 - Rust (latest stable)
 - Node.js & npm (for documentation)
 
 ## Building the Project
+
 We use a `Makefile` to simplify common tasks.
 
 ```bash
@@ -18,6 +20,7 @@ make clean
 ```
 
 ## Testing
+
 Always run tests before submitting changes.
 
 ```bash
@@ -29,19 +32,23 @@ make lint
 ```
 
 ## Manual Verification
+
 You can test the language features manually using the REPL or by running `.pln` files.
 
 ### Using the REPL
+
 ```bash
 cargo run -p pleno-repl
 ```
 
 ### Running a File
+
 ```bash
 cargo run -p pleno -- run examples/hello.pln
 ```
 
 ## Documentation
+
 The documentation is built with Vitepress and located in the `docs/` directory.
 
 ```bash
@@ -53,6 +60,7 @@ make docs-build
 ```
 
 ## IDE Support (VSCode)
+
 We provide a VSCode extension for syntax highlighting in `ide/vscode`.
 
 1. Open the `ide/vscode` directory in VSCode.
@@ -60,10 +68,24 @@ We provide a VSCode extension for syntax highlighting in `ide/vscode`.
 3. In the new window, open any `.pln` file to see the syntax highlighting in action.
 
 Alternatively, you can link the directory to your extensions folder:
+
 ```bash
 ln -s $(pwd)/ide/vscode ~/.vscode/extensions/pleno-vscode
 ```
 
+## Language Server (LSP)
+
+The Pleno Language Server (`pleno-lsp`) provides semantic features like:
+
+- **Go to Definition**: Navigate to variable, function, and class declarations.
+- **Find References**: Locate all usages of a symbol within the current file.
+- **Rename**: Safely rename symbols with scope awareness.
+- **Semantic Highlighting**: Precise coloring based on AST analysis.
+
+To test the LSP locally, you can use the VSCode extension in debug mode or connect any LSP-compatible editor to the `pleno-lsp` binary.
+
 ## Troubleshooting
+
 ### Flycheck Errors
+
 If you see errors about duplicated `--all-targets` flags, check `.vscode/settings.json` and ensure `rust-analyzer.checkOnSave.extraArgs` does not contain flags already enabled by `rust-analyzer.checkOnSave.allTargets`.

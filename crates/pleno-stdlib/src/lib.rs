@@ -3,14 +3,17 @@ pub mod builtins;
 pub mod concurrency;
 pub mod crypto;
 pub mod csv;
+#[cfg(feature = "db")]
 pub mod db;
 pub mod dotenv;
 pub mod gc;
+#[cfg(feature = "http")]
 pub mod http;
 pub mod io;
 pub mod json;
 pub mod log;
 pub mod math;
+#[cfg(feature = "net")]
 pub mod net;
 pub mod os;
 pub mod path;
@@ -485,19 +488,22 @@ pub fn register(vm: &mut dyn VMProvider) {
     );
 
     // std:net
-    let mut net_module = IndexMap::new();
-    net_module.insert(
-        "listen".to_string(),
-        Value::NativeFunction(net::net_tcp_listen),
-    );
-    net_module.insert(
-        "connect".to_string(),
-        Value::NativeFunction(net::net_tcp_connect),
-    );
-    modules.insert(
-        "std:net".to_string(),
-        Value::Map(gc.allocate(MapState::new(net_module)).unwrap()),
-    );
+    #[cfg(feature = "net")]
+    {
+        let mut net_module = IndexMap::new();
+        net_module.insert(
+            "listen".to_string(),
+            Value::NativeFunction(net::net_tcp_listen),
+        );
+        net_module.insert(
+            "connect".to_string(),
+            Value::NativeFunction(net::net_tcp_connect),
+        );
+        modules.insert(
+            "std:net".to_string(),
+            Value::Map(gc.allocate(MapState::new(net_module)).unwrap()),
+        );
+    }
 
     // std:os
     let mut os_module = IndexMap::new();
@@ -650,49 +656,55 @@ pub fn register(vm: &mut dyn VMProvider) {
     );
 
     // std:http
-    let mut http_module = IndexMap::new();
-    http_module.insert("get".to_string(), Value::NativeFunction(http::http_get));
-    http_module.insert("post".to_string(), Value::NativeFunction(http::http_post));
-    http_module.insert("put".to_string(), Value::NativeFunction(http::http_put));
-    http_module.insert(
-        "delete".to_string(),
-        Value::NativeFunction(http::http_delete),
-    );
-    http_module.insert("patch".to_string(), Value::NativeFunction(http::http_patch));
-    http_module.insert("head".to_string(), Value::NativeFunction(http::http_head));
-    http_module.insert(
-        "options".to_string(),
-        Value::NativeFunction(http::http_options),
-    );
-    http_module.insert(
-        "request".to_string(),
-        Value::NativeFunction(http::http_request),
-    );
-    http_module.insert(
-        "Router".to_string(),
-        Value::NativeFunction(http::http_router),
-    );
-    http_module.insert(
-        "Server".to_string(),
-        Value::NativeFunction(http::http_server),
-    );
-    modules.insert(
-        "std:http".to_string(),
-        Value::Map(gc.allocate(MapState::new(http_module)).unwrap()),
-    );
+    #[cfg(feature = "http")]
+    {
+        let mut http_module = IndexMap::new();
+        http_module.insert("get".to_string(), Value::NativeFunction(http::http_get));
+        http_module.insert("post".to_string(), Value::NativeFunction(http::http_post));
+        http_module.insert("put".to_string(), Value::NativeFunction(http::http_put));
+        http_module.insert(
+            "delete".to_string(),
+            Value::NativeFunction(http::http_delete),
+        );
+        http_module.insert("patch".to_string(), Value::NativeFunction(http::http_patch));
+        http_module.insert("head".to_string(), Value::NativeFunction(http::http_head));
+        http_module.insert(
+            "options".to_string(),
+            Value::NativeFunction(http::http_options),
+        );
+        http_module.insert(
+            "request".to_string(),
+            Value::NativeFunction(http::http_request),
+        );
+        http_module.insert(
+            "Router".to_string(),
+            Value::NativeFunction(http::http_router),
+        );
+        http_module.insert(
+            "Server".to_string(),
+            Value::NativeFunction(http::http_server),
+        );
+        modules.insert(
+            "std:http".to_string(),
+            Value::Map(gc.allocate(MapState::new(http_module)).unwrap()),
+        );
+    }
 
     // std:db
-    let mut db_module = IndexMap::new();
-    let mut db_obj = IndexMap::new();
-    db_obj.insert("connect".to_string(), Value::NativeFunction(db::db_connect));
-    db_module.insert(
-        "Database".to_string(),
-        Value::Map(gc.allocate(MapState::new(db_obj)).unwrap()),
-    );
-    modules.insert(
-        "std:db".to_string(),
-        Value::Map(gc.allocate(MapState::new(db_module)).unwrap()),
-    );
+    #[cfg(feature = "db")]
+    {
+        let mut db_module = IndexMap::new();
+        let mut db_obj = IndexMap::new();
+        db_obj.insert("connect".to_string(), Value::NativeFunction(db::db_connect));
+        db_module.insert(
+            "Database".to_string(),
+            Value::Map(gc.allocate(MapState::new(db_obj)).unwrap()),
+        );
+        modules.insert(
+            "std:db".to_string(),
+            Value::Map(gc.allocate(MapState::new(db_module)).unwrap()),
+        );
+    }
 
     // Register all in VM
     for (name, value) in modules {

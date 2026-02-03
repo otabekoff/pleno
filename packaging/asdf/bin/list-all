@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# In production, this should fetch tags from GitHub
+# curl -s https://api.github.com/repos/otabekoff/pleno/releases | grep -oE "tag_name\": \"v[0-9.]+" | sed 's/tag_name\": \"v//'
+echo "0.1.0"

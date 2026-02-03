@@ -38,6 +38,7 @@ pub struct Bundle {
     pub modules: HashMap<String, pleno_bytecode::Chunk>,
 }
 
+#[cfg_attr(test, mockall::automock)]
 pub trait Registry {
     fn query(&self, name: &str, req: &VersionReq) -> Result<Vec<Version>, PackageError>;
     fn fetch_source(
@@ -45,6 +46,7 @@ pub trait Registry {
         name: &str,
         version: &Version,
     ) -> Result<(String, Option<String>), PackageError>;
+    fn fetch_manifest(&self, name: &str, version: &Version) -> Result<Manifest, PackageError>;
     fn publish(&self, package: PublishPackage, token: &str) -> Result<(), PackageError>;
 }
 
@@ -55,6 +57,7 @@ pub struct PublishPackage {
     pub git_url: String,
     pub commit: String,
     pub sha256: Option<String>,
+    pub manifest: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -67,6 +70,7 @@ pub struct RegistryMetadata {
 pub struct VersionMetadata {
     pub url: String,
     pub sha256: Option<String>,
+    pub manifest: Option<String>,
 }
 
 pub struct RemoteRegistry {
@@ -122,6 +126,29 @@ impl Registry for RemoteRegistry {
             .ok_or_else(|| PackageError::NoCompatibleVersion(name.to_string(), v_str))?;
 
         Ok((v_meta.url.clone(), v_meta.sha256.clone()))
+    }
+
+    fn fetch_manifest(&self, name: &str, version: &Version) -> Result<Manifest, PackageError> {
+        let url = format!("{}/packages/{}", self.base_url, name);
+        let resp =
+            reqwest::blocking::get(url).map_err(|e| PackageError::Io(std::io::Error::other(e)))?;
+
+        let metadata: RegistryMetadata = resp
+            .json()
+            .map_err(|e| PackageError::Io(std::io::Error::other(e)))?;
+
+        let v_str = version.to_string();
+        let v_meta = metadata
+            .versions
+            .get(&v_str)
+            .ok_or_else(|| PackageError::NoCompatibleVersion(name.to_string(), v_str))?;
+
+        let manifest_str = v_meta
+            .manifest
+            .as_ref()
+            .ok_or_else(|| PackageError::Io(std::io::Error::other("Manifest not found")))?;
+        let manifest: Manifest = toml::from_str(manifest_str).map_err(PackageError::TomlParse)?;
+        Ok(manifest)
     }
 
     fn publish(&self, package: PublishPackage, token: &str) -> Result<(), PackageError> {
@@ -202,45 +229,9 @@ impl<'a> Resolver<'a> {
         stack.push(manifest.package.name.clone());
 
         for (name, dep) in &manifest.dependencies {
-            if resolved.contains_key(name) {
-                continue;
-            }
-
-            match dep {
-                Dependency::Version(v_str) => {
-                    let req = VersionReq::parse(v_str)
-                        .map_err(|_| PackageError::InvalidVersionReq(v_str.clone()))?;
-
-                    // Prefer lockfile if compatible
-                    if let Some(lock_pkg) = lockfile.packages.iter().find(|p| p.name == *name) {
-                        let lock_version =
-                            Version::parse(&lock_pkg.version).unwrap_or(Version::new(0, 0, 0));
-                        if req.matches(&lock_version) {
-                            resolved.insert(
-                                name.clone(),
-                                (
-                                    lock_version,
-                                    lock_pkg.source.clone(),
-                                    lock_pkg.checksum.clone(),
-                                ),
-                            );
-                            // Recursively resolve lock package dependencies
-                            // (Simplified for now: we'd need to fetch manifest of lock_version)
-                            continue;
-                        }
-                    }
-
-                    let versions = self.registry.query(name, &req)?;
-                    let best_version = versions
-                        .into_iter()
-                        .filter(|v| req.matches(v))
-                        .max()
-                        .ok_or_else(|| {
-                            PackageError::NoCompatibleVersion(name.clone(), v_str.clone())
-                        })?;
-                    let (source, sha256) = self.registry.fetch_source(name, &best_version)?;
-                    resolved.insert(name.clone(), (best_version, source, sha256));
-                }
+            let req = match dep {
+                Dependency::Version(v_str) => VersionReq::parse(v_str)
+                    .map_err(|_| PackageError::InvalidVersionReq(v_str.clone()))?,
                 Dependency::Detailed(detail) => {
                     // Check if optional and enabled
                     if detail.optional.unwrap_or(false) {
@@ -255,52 +246,87 @@ impl<'a> Resolver<'a> {
                             continue;
                         }
                     }
-
                     let v_str = detail.version.as_deref().unwrap_or("*");
-                    let req = VersionReq::parse(v_str)
-                        .map_err(|_| PackageError::InvalidVersionReq(v_str.to_string()))?;
+                    VersionReq::parse(v_str)
+                        .map_err(|_| PackageError::InvalidVersionReq(v_str.to_string()))?
+                }
+            };
 
-                    // Prefer lockfile
-                    if let Some(lock_pkg) = lockfile.packages.iter().find(|p| p.name == *name) {
-                        let lock_version =
-                            Version::parse(&lock_pkg.version).unwrap_or(Version::new(0, 0, 0));
-                        if req.matches(&lock_version) {
-                            let sha = if lock_pkg.source.starts_with("git+") {
-                                lock_pkg.commit.clone()
-                            } else {
-                                lock_pkg.checksum.clone()
-                            };
-                            resolved
-                                .insert(name.clone(), (lock_version, lock_pkg.source.clone(), sha));
-                            continue;
-                        }
-                    }
+            // Check for conflict
+            if let Some((resolved_v, _, _)) = resolved.get(name) {
+                if !req.matches(resolved_v) {
+                    return Err(PackageError::NoCompatibleVersion(
+                        name.clone(),
+                        format!("Conflict: already resolved {} but need {}", resolved_v, req),
+                    ));
+                }
+                continue;
+            }
 
-                    // Logic similar to Version variant but with detail source
-                    let source = if let Some(git) = &detail.git {
-                        format!("git+{}", git)
-                    } else if let Some(path) = &detail.path {
-                        path.clone()
+            // Resolve version
+            let (best_version, source, sha256) =
+                if let Some(lock_pkg) = lockfile.packages.iter().find(|p| p.name == *name) {
+                    let lock_version =
+                        Version::parse(&lock_pkg.version).unwrap_or(Version::new(0, 0, 0));
+                    if req.matches(&lock_version) {
+                        let sha = if lock_pkg.source.starts_with("git+") {
+                            lock_pkg.commit.clone()
+                        } else {
+                            lock_pkg.checksum.clone()
+                        };
+                        (lock_version, lock_pkg.source.clone(), sha)
                     } else {
-                        // Fallback to registry
-                        let versions = self.registry.query(name, &req)?;
-                        let best = versions
-                            .into_iter()
-                            .filter(|v| req.matches(v))
-                            .max()
-                            .ok_or_else(|| {
-                                PackageError::NoCompatibleVersion(name.clone(), v_str.to_string())
-                            })?;
-                        let (s, _) = self.registry.fetch_source(name, &best)?;
-                        s
-                    };
-                    resolved.insert(name.clone(), (Version::new(0, 0, 0), source, None));
+                        self.query_and_fetch_best(name, &req)?
+                    }
+                } else {
+                    self.query_and_fetch_best(name, &req)?
+                };
+
+            resolved.insert(name.clone(), (best_version.clone(), source, sha256));
+
+            // Recursively resolve
+            let dep_manifest = self.registry.fetch_manifest(name, &best_version)?;
+            // Features handling for dependencies would go here (using detail.features)
+            let dep_features = match dep {
+                Dependency::Detailed(d) => d.features.clone().unwrap_or_default(),
+                _ => vec![],
+            };
+            let mut dep_active_features = std::collections::HashSet::new();
+            for f in dep_features {
+                dep_active_features.insert(f);
+            }
+            if let Some(defaults) = dep_manifest.features.get("default") {
+                for f in defaults {
+                    dep_active_features.insert(f.clone());
                 }
             }
+
+            self.resolve_recursive(
+                &dep_manifest,
+                resolved,
+                lockfile,
+                stack,
+                &dep_active_features,
+            )?;
         }
 
         stack.pop();
         Ok(())
+    }
+
+    fn query_and_fetch_best(
+        &self,
+        name: &str,
+        req: &VersionReq,
+    ) -> Result<(Version, String, Option<String>), PackageError> {
+        let versions = self.registry.query(name, req)?;
+        let best_version = versions
+            .into_iter()
+            .filter(|v| req.matches(v))
+            .max()
+            .ok_or_else(|| PackageError::NoCompatibleVersion(name.to_string(), req.to_string()))?;
+        let (source, sha256) = self.registry.fetch_source(name, &best_version)?;
+        Ok((best_version, source, sha256))
     }
 }
 
@@ -518,6 +544,7 @@ impl PackageManager {
             });
         }
 
+        packages.sort_by(|a, b| a.name.cmp(&b.name));
         let new_lock = Lockfile { packages };
         new_lock.save_to_file(lockfile_path)?;
 
@@ -538,6 +565,7 @@ impl PackageManager {
             git_url,
             commit,
             sha256: None, // Optional: could hash the tree here
+            manifest: Some(toml::to_string(manifest).unwrap()),
         };
 
         if let Some(registry_url) = &self.registry_url {
@@ -667,6 +695,18 @@ impl<'a> Registry for CompositeRegistry<'a> {
         )))
     }
 
+    fn fetch_manifest(&self, name: &str, version: &Version) -> Result<Manifest, PackageError> {
+        if let Ok(manifest) = self.local.fetch_manifest(name, version) {
+            return Ok(manifest);
+        }
+        if let Some(remote) = &self.remote {
+            return remote.fetch_manifest(name, version);
+        }
+        Err(PackageError::Io(std::io::Error::other(
+            "Manifest not found in any registry",
+        )))
+    }
+
     fn publish(&self, package: PublishPackage, token: &str) -> Result<(), PackageError> {
         if let Some(remote) = &self.remote {
             remote.publish(package, token)
@@ -692,6 +732,12 @@ impl Registry for PackageManager {
         // Mock local source: doesn't know where to fetch from
         Err(PackageError::Io(std::io::Error::other(
             "Local registry fetch not implemented",
+        )))
+    }
+
+    fn fetch_manifest(&self, _name: &str, _version: &Version) -> Result<Manifest, PackageError> {
+        Err(PackageError::Io(std::io::Error::other(
+            "Local registry manifest fetch not implemented",
         )))
     }
 
@@ -884,5 +930,199 @@ impl PackageManager {
         std::fs::write(bundle_path, encoded)?;
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use semver::Version;
+    use std::collections::HashMap;
+
+    #[test]
+    fn test_simple_resolution() {
+        let mut mock = MockRegistry::new();
+
+        let _name = "foo";
+
+        mock.expect_query()
+            .returning(move |_, _| Ok(vec![Version::parse("1.0.0").unwrap()]));
+
+        mock.expect_fetch_source()
+            .returning(|_, _| Ok(("git+https://github.com/user/foo".to_string(), None)));
+
+        let manifest_content = r#"
+[package]
+name = "foo"
+version = "1.0.0"
+"#;
+        mock.expect_fetch_manifest()
+            .returning(move |_, _| Ok(toml::from_str(manifest_content).unwrap()));
+
+        let resolver = Resolver::new(&mock);
+        let root_manifest = Manifest {
+            package: PackageSection {
+                name: "root".to_string(),
+                version: "0.1.0".to_string(),
+                description: None,
+                main: "main.pln".to_string(),
+            },
+            scripts: HashMap::new(),
+            features: HashMap::new(),
+            dependencies: {
+                let mut deps = HashMap::new();
+                deps.insert("foo".to_string(), Dependency::Version("1.0.0".to_string()));
+                deps
+            },
+            dev_dependencies: HashMap::new(),
+        };
+
+        let resolved = resolver
+            .resolve(&root_manifest, &Lockfile::default(), &[])
+            .unwrap();
+        assert_eq!(resolved.len(), 1);
+        assert!(resolved.contains_key("foo"));
+        assert_eq!(
+            resolved.get("foo").unwrap().0,
+            Version::parse("1.0.0").unwrap()
+        );
+    }
+
+    #[test]
+    fn test_transitive_resolution() {
+        let mut mock = MockRegistry::new();
+
+        let manifest_foo = r#"
+[package]
+name = "foo"
+version = "1.0.0"
+[dependencies]
+bar = "2.0.0"
+"#;
+
+        let manifest_bar = r#"
+[package]
+name = "bar"
+version = "2.0.0"
+"#;
+
+        mock.expect_query().returning(move |name, _| match name {
+            "foo" => Ok(vec![Version::parse("1.0.0").unwrap()]),
+            "bar" => Ok(vec![Version::parse("2.0.0").unwrap()]),
+            _ => Ok(vec![]),
+        });
+
+        mock.expect_fetch_source()
+            .returning(|name, _| Ok((format!("git+https://github.com/user/{}", name), None)));
+
+        mock.expect_fetch_manifest()
+            .returning(move |name, _| match name {
+                "foo" => Ok(toml::from_str(manifest_foo).unwrap()),
+                "bar" => Ok(toml::from_str(manifest_bar).unwrap()),
+                _ => panic!("Unexpected manifest fetch"),
+            });
+
+        let resolver = Resolver::new(&mock);
+        let root_manifest = Manifest {
+            package: PackageSection {
+                name: "root".to_string(),
+                version: "0.1.0".to_string(),
+                description: None,
+                main: "main.pln".to_string(),
+            },
+            scripts: HashMap::new(),
+            features: HashMap::new(),
+            dependencies: {
+                let mut deps = HashMap::new();
+                deps.insert("foo".to_string(), Dependency::Version("1.0.0".to_string()));
+                deps
+            },
+            dev_dependencies: HashMap::new(),
+        };
+
+        let resolved = resolver
+            .resolve(&root_manifest, &Lockfile::default(), &[])
+            .unwrap();
+        assert_eq!(resolved.len(), 2);
+        assert!(resolved.contains_key("foo"));
+        assert!(resolved.contains_key("bar"));
+        assert_eq!(
+            resolved.get("foo").unwrap().0,
+            Version::parse("1.0.0").unwrap()
+        );
+        assert_eq!(
+            resolved.get("bar").unwrap().0,
+            Version::parse("2.0.0").unwrap()
+        );
+    }
+
+    #[test]
+    fn test_conflict_resolution() {
+        let mut mock = MockRegistry::new();
+
+        let manifest_foo = r#"
+[package]
+name = "foo"
+version = "1.0.0"
+[dependencies]
+common = "1.0.0"
+"#;
+
+        let manifest_bar = r#"
+[package]
+name = "bar"
+version = "1.0.0"
+[dependencies]
+common = "2.0.0"
+"#;
+
+        mock.expect_query().returning(move |name, _| match name {
+            "foo" => Ok(vec![Version::parse("1.0.0").unwrap()]),
+            "bar" => Ok(vec![Version::parse("1.0.0").unwrap()]),
+            "common" => Ok(vec![
+                Version::parse("1.0.0").unwrap(),
+                Version::parse("2.0.0").unwrap(),
+            ]),
+            _ => Ok(vec![]),
+        });
+
+        mock.expect_fetch_source()
+            .returning(|name, _| Ok((format!("git+https://github.com/user/{}", name), None)));
+
+        mock.expect_fetch_manifest()
+            .returning(move |name, _| match name {
+                "foo" => Ok(toml::from_str(manifest_foo).unwrap()),
+                "bar" => Ok(toml::from_str(manifest_bar).unwrap()),
+                "common" => Ok(toml::from_str(
+                    r#"[package]
+name = "common"
+version = "1.0.0"
+"#,
+                )
+                .unwrap()),
+                _ => panic!("Unexpected manifest fetch"),
+            });
+
+        let resolver = Resolver::new(&mock);
+        let root_manifest = Manifest {
+            package: PackageSection {
+                name: "root".to_string(),
+                version: "0.1.0".to_string(),
+                description: None,
+                main: "main.pln".to_string(),
+            },
+            scripts: HashMap::new(),
+            features: HashMap::new(),
+            dependencies: {
+                let mut deps = HashMap::new();
+                deps.insert("foo".to_string(), Dependency::Version("1.0.0".to_string()));
+                deps.insert("bar".to_string(), Dependency::Version("1.0.0".to_string()));
+                deps
+            },
+            dev_dependencies: HashMap::new(),
+        };
+
+        let result = resolver.resolve(&root_manifest, &Lockfile::default(), &[]);
+        assert!(result.is_err());
     }
 }
