@@ -1,184 +1,285 @@
-# Pleno Standard Library Reference
+# Pleno Standard Library Quick Reference
 
-This document provides a reference for the Pleno Standard Library modules.
+Complete API reference for all standard library modules.
 
-## Modules
+## Module Index
 
-- [std:io](#stdio) - File System and I/O
-- [std:net](#stdnet) - Networking (TCP)
-- [std:http](#stdhttp) - HTTP Client/Server
-- [std:math](#stdmath) - Mathematical functions
-- [std:time](#stdtime) - Time and Duration
-- [std:json](#stdjson) - JSON parsing and stringification
-- [std:os](#stdos) - Operating System interaction
-- [std:path](#stdpath) - File path manipulation
-- [std:process](#stdprocess) - Child process management
-- [std:test](#stdtest) - Testing framework
-- [std:concurrency](#stdconcurrency) - Concurrency primitives
+| Module                             | Description             |
+| ---------------------------------- | ----------------------- |
+| [std:core](#stdcore)               | Result, Option types    |
+| [std:io](#stdio)                   | File and Directory I/O  |
+| [std:path](#stdpath)               | Path manipulation       |
+| [std:os](#stdos)                   | Operating system info   |
+| [std:process](#stdprocess)         | Process management      |
+| [std:http](#stdhttp)               | HTTP client/server      |
+| [std:net](#stdnet)                 | Low-level TCP           |
+| [std:url](#stdurl)                 | URL parsing             |
+| [std:json](#stdjson)               | JSON serialization      |
+| [std:yaml](#stdyaml)               | YAML serialization      |
+| [std:toml](#stdtoml)               | TOML serialization      |
+| [std:xml](#stdxml)                 | XML parsing             |
+| [std:csv](#stdcsv)                 | CSV parsing             |
+| [std:base64](#stdbase64)           | Base64 encoding         |
+| [std:math](#stdmath)               | Mathematical functions  |
+| [std:random](#stdrandom)           | Random generation       |
+| [std:time](#stdtime)               | Date/time utilities     |
+| [std:crypto](#stdcrypto)           | Cryptography            |
+| [std:uuid](#stduuid)               | UUID generation         |
+| [std:regex](#stdregex)             | Regular expressions     |
+| [std:test](#stdtest)               | Testing framework       |
+| [std:log](#stdlog)                 | Logging                 |
+| [std:benchmark](#stdbenchmark)     | Performance measurement |
+| [std:promise](#stdpromise)         | Async utilities         |
+| [std:concurrency](#stdconcurrency) | Mutex, Channel          |
+| [std:reflect](#stdreflect)         | Runtime reflection      |
+| [std:dotenv](#stddotenv)           | Environment files       |
+
+---
+
+## std:core
+
+```pleno
+import { Result, Option, Ok, Err, Some, None } from "std:core";
+```
+
+| Type           | Description      |
+| -------------- | ---------------- |
+| `Result<T, E>` | Success or error |
+| `Option<T>`    | Value or nothing |
 
 ---
 
 ## std:io
 
-See [Specs](../specs.md#135-file-io-stdio) for details.
-
-## std:net
-
-See [Specs](../specs.md#139-low-level-networking) for details.
-
-## std:http
-
-See [Specs](../specs.md#136-http-client) for details.
-
-## std:math
-
-Provides basic mathematical functions and constants.
-
 ```pleno
-import { PI, sin } from "std:math";
-import math from "std:math";
+import { File, Directory } from "std:io";
 ```
 
-### Functions
+| Function                 | Description        |
+| ------------------------ | ------------------ |
+| `File.read(path)`        | Read file contents |
+| `File.write(path, data)` | Write to file      |
+| `File.exists(path)`      | Check existence    |
+| `Directory.list(path)`   | List directory     |
+| `Directory.create(path)` | Create directory   |
 
-| Function    | Signature                    | Description                      |
-| ----------- | ---------------------------- | -------------------------------- |
-| `abs`       | `abs(n: Number) -> Number`   | Absolute value                   |
-| `min`       | `min(a, b, ...) -> Number`   | Smallest of arguments            |
-| `max`       | `max(a, b, ...) -> Number`   | Largest of arguments             |
-| `floor`     | `floor(n: Number) -> Number` | Round down                       |
-| `ceil`      | `ceil(n: Number) -> Number`  | Round up                         |
-| `round`     | `round(n: Number) -> Number` | Round to nearest integer         |
-| `trunc`     | `trunc(n: Number) -> Number` | Truncate decimal part            |
-| `sqrt`      | `sqrt(n: Number) -> Number`  | Square root                      |
-| `pow`       | `pow(base, exp) -> Number`   | Power                            |
-| `exp`       | `exp(n) -> Number`           | e^n                              |
-| `log`       | `log(n) -> Number`           | Natural logarithm                |
-| `log10`     | `log10(n) -> Number`         | Base-10 logarithm                |
-| `sin`       | `sin(rad) -> Number`         | Sine                             |
-| `cos`       | `cos(rad) -> Number`         | Cosine                           |
-| `tan`       | `tan(rad) -> Number`         | Tangent                          |
-| `atan2`     | `atan2(y, x) -> Number`      | Arc tangent of y/x               |
-| `sign`      | `sign(n) -> Number`          | Sign of number (-1, 0, 1)        |
-| `random`    | `random() -> Float`          | Random float between 0.0 and 1.0 |
-| `randomInt` | `randomInt(min, max) -> Int` | Random integer in [min, max)     |
-
-### Constants
-
-| Constant | Description       |
-| -------- | ----------------- |
-| `PI`     | 3.14159...        |
-| `E`      | 2.71828...        |
-| `LN2`    | Natural log of 2  |
-| `LN10`   | Natural log of 10 |
-| `SQRT2`  | Square root of 2  |
-
-## std:time
-
-Time manipulation utilities.
-
-```pleno
-import { now, DateTime, setTimeout, sleep } from "std:time";
-```
-
-### Functions
-
-| Function     | Signature                                  | Description                          |
-| ------------ | ------------------------------------------ | ------------------------------------ |
-| `now`        | `now() -> Int`                             | Current timestamp (ms since epoch)   |
-| `sleep`      | `sleep(ms: Int)`                           | Sleep for `ms` milliseconds (sync)   |
-| `setTimeout` | `setTimeout(callback, ms, args...) -> Int` | Schedule callback (returns timer ID) |
-
-### DateTime Class
-
-| Method | Signature                    | Description              |
-| ------ | ---------------------------- | ------------------------ |
-| `now`  | `DateTime.now() -> DateTime` | Current date/time object |
-
-## std:json
-
-JSON processing.
-
-```pleno
-import { JSON } from "std:json";
-// or
-import _json from "std:json";
-let data = _json.JSON.parse(str);
-```
-
-### JSON Object
-
-| Method      | Signature                              | Description                  |
-| ----------- | -------------------------------------- | ---------------------------- |
-| `parse`     | `JSON.parse(str: String) -> Value`     | Parse JSON string            |
-| `stringify` | `JSON.stringify(val: Value) -> String` | Convert value to JSON string |
-
-## std:os
-
-Operating System information.
-
-```pleno
-import { platform, arch, homedir } from "std:os";
-import OS from "std:os";
-```
-
-| Function   | Signature              | Description                        |
-| ---------- | ---------------------- | ---------------------------------- |
-| `platform` | `platform() -> String` | OS name (linux, macos, windows)    |
-| `arch`     | `arch() -> String`     | CPU architecture (x86_64, aarch64) |
-| `hostname` | `hostname() -> String` | System hostname                    |
-| `homedir`  | `homedir() -> String`  | Current user's home directory      |
-| `tmpdir`   | `tmpdir() -> String`   | System temporary directory         |
-| `uptime`   | `uptime() -> Int`      | System uptime in seconds           |
+---
 
 ## std:path
 
-File path manipulation.
-
 ```pleno
-import { join, resolve, basename } from "std:path";
+import { Path } from "std:path";
 ```
 
-| Function    | Signature                     | Description                 |
-| ----------- | ----------------------------- | --------------------------- |
-| `join`      | `join(paths...) -> String`    | Join path segments          |
-| `resolve`   | `resolve(paths...) -> String` | Resolve absolute path       |
-| `dirname`   | `dirname(path) -> String`     | Directory name of path      |
-| `basename`  | `basename(path) -> String`    | File name of path           |
-| `extname`   | `extname(path) -> String`     | Extension of path           |
-| `exists`    | `exists(path) -> Bool`        | Check if path exists        |
-| `separator` | `String`                      | Path separator ('/' or '\') |
+| Function              | Description        |
+| --------------------- | ------------------ |
+| `Path.join(...parts)` | Join path segments |
+| `Path.dirname(path)`  | Get directory      |
+| `Path.basename(path)` | Get filename       |
+| `Path.extname(path)`  | Get extension      |
+| `Path.resolve(path)`  | Get absolute path  |
+
+---
+
+## std:os
+
+```pleno
+import { OS } from "std:os";
+```
+
+| Function        | Description      |
+| --------------- | ---------------- |
+| `OS.platform()` | OS name          |
+| `OS.arch()`     | CPU architecture |
+| `OS.hostname()` | System hostname  |
+| `OS.homedir()`  | Home directory   |
+
+---
 
 ## std:process
 
-Process interaction.
-
 ```pleno
-import { env, exit, args } from "std:process";
-import process from "std:process";
+import { Process } from "std:process";
 ```
 
-| Function | Signature                      | Description                   |
-| -------- | ------------------------------ | ----------------------------- |
-| `exit`   | `exit(code: Int)`              | Exit process with code        |
-| `cwd`    | `cwd() -> String`              | Get current working directory |
-| `pid`    | `pid() -> Int`                 | Process ID                    |
-| `args`   | `args() -> [String]`           | Command line arguments        |
-| `env`    | `env() -> Map<String, String>` | Environment variables         |
+| Function             | Description       |
+| -------------------- | ----------------- |
+| `Process.cwd()`      | Current directory |
+| `Process.exit(code)` | Exit process      |
+| `Process.args()`     | CLI arguments     |
+| `Process.env(name)`  | Get env variable  |
+| `Process.pid()`      | Process ID        |
+
+---
+
+## std:http
+
+```pleno
+import { HTTP } from "std:http";
+```
+
+| Function               | Description    |
+| ---------------------- | -------------- |
+| `HTTP.get(url)`        | GET request    |
+| `HTTP.post(url, body)` | POST request   |
+| `HTTP.put(url, body)`  | PUT request    |
+| `HTTP.delete(url)`     | DELETE request |
+| `HTTP.Server(router)`  | Create server  |
+
+---
+
+## std:json
+
+```pleno
+import { JSON } from "std:json";
+```
+
+| Function              | Description       |
+| --------------------- | ----------------- |
+| `JSON.parse(str)`     | Parse JSON string |
+| `JSON.stringify(val)` | Convert to JSON   |
+
+---
+
+## std:math
+
+```pleno
+import { Math } from "std:math";
+```
+
+| Constant  | Value      |
+| --------- | ---------- |
+| `Math.PI` | 3.14159... |
+| `Math.E`  | 2.71828... |
+
+| Function         | Description    |
+| ---------------- | -------------- |
+| `Math.abs(n)`    | Absolute value |
+| `Math.floor(n)`  | Round down     |
+| `Math.ceil(n)`   | Round up       |
+| `Math.sqrt(n)`   | Square root    |
+| `Math.pow(b, e)` | Power          |
+| `Math.sin(rad)`  | Sine           |
+| `Math.cos(rad)`  | Cosine         |
+
+---
+
+## std:random
+
+```pleno
+import { Random } from "std:random";
+```
+
+| Function                   | Description      |
+| -------------------------- | ---------------- |
+| `Random.random()`          | Float 0.0-1.0    |
+| `Random.randint(min, max)` | Random integer   |
+| `Random.choice(arr)`       | Random element   |
+| `Random.shuffle(arr)`      | Shuffle in place |
+
+---
+
+## std:time
+
+```pleno
+import { DateTime, Duration } from "std:time";
+```
+
+| Function                   | Description       |
+| -------------------------- | ----------------- |
+| `DateTime.now()`           | Current date/time |
+| `DateTime.parse(str, fmt)` | Parse date        |
+| `Duration.seconds(n)`      | Create duration   |
+
+---
+
+## std:crypto
+
+```pleno
+import { Crypto } from "std:crypto";
+```
+
+| Function                              | Description |
+| ------------------------------------- | ----------- |
+| `Crypto.hash(algo, data)`             | Hash data   |
+| `Crypto.hmac(algo, key, data)`        | HMAC        |
+| `Crypto.encrypt(algo, key, iv, data)` | Encrypt     |
+| `Crypto.decrypt(algo, key, iv, data)` | Decrypt     |
+| `Crypto.jwtSign(payload, secret)`     | Sign JWT    |
+| `Crypto.jwtVerify(token, secret)`     | Verify JWT  |
+
+---
+
+## std:uuid
+
+```pleno
+import { UUID } from "std:uuid";
+```
+
+| Function    | Description       |
+| ----------- | ----------------- |
+| `UUID.v4()` | Random UUID       |
+| `UUID.v7()` | Time-ordered UUID |
+
+---
+
+## std:regex
+
+```pleno
+import { Regex } from "std:regex";
+```
+
+| Method                     | Description      |
+| -------------------------- | ---------------- |
+| `Regex.test(str)`          | Check if matches |
+| `Regex.match(str)`         | Get first match  |
+| `Regex.findAll(str)`       | Get all matches  |
+| `Regex.replace(str, repl)` | Replace matches  |
+
+---
 
 ## std:test
 
-Testing framework. See [Specs](../specs.md#1310-testing-framework-stdtest).
+```pleno
+import { describe, test, assert } from "std:test";
+```
+
+| Function             | Description   |
+| -------------------- | ------------- |
+| `describe(name, fn)` | Test suite    |
+| `test(name, fn)`     | Test case     |
+| `assert.equal(a, b)` | Assert equal  |
+| `assert.true(val)`   | Assert true   |
+| `assert.throws(fn)`  | Assert throws |
+
+---
 
 ## std:concurrency
-
-Concurrency primitives.
 
 ```pleno
 import { Channel, Mutex } from "std:concurrency";
 ```
 
-| Class     | Description                                       |
-| --------- | ------------------------------------------------- |
-| `Channel` | Message passing channel (`send`, `recv`, `close`) |
-| `Mutex`   | Mutual exclusion lock (`lock`, `unlock`)          |
+| Type      | Description           |
+| --------- | --------------------- |
+| `Channel` | Message passing       |
+| `Mutex`   | Mutual exclusion lock |
+
+---
+
+## std:reflect
+
+```pleno
+import { Reflect } from "std:reflect";
+```
+
+| Function                              | Description      |
+| ------------------------------------- | ---------------- |
+| `Reflect.getTypeName(val)`            | Get type name    |
+| `Reflect.getFields(obj)`              | Get field names  |
+| `Reflect.getMethods(obj)`             | Get method names |
+| `Reflect.callMethod(obj, name, args)` | Call method      |
+
+---
+
+For detailed documentation, see the [Standard Library Reference](/stdlib/).

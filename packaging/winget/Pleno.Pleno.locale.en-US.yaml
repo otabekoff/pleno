@@ -1,0 +1,23 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.defaultLocale.1.4.0.schema.json
+PackageIdentifier: Pleno.Pleno
+PackageVersion: 0.1.0
+PackageLocale: en-US
+Publisher: Otabek Ismoilov
+PublisherUrl: https://github.com/otabekoff
+PublisherSupportUrl: https://github.com/otabekoff/pleno/issues
+PackageName: Pleno
+PackageUrl: https://otabekoff.github.io/pleno/
+License: MIT
+LicenseUrl: https://github.com/otabekoff/pleno/blob/main/LICENSE
+ShortDescription: Modern programming language with clarity, safety, and expressiveness
+Description: |
+  Pleno is a modern programming language designed for clarity, safety, 
+  and expressiveness. It combines the best features from multiple 
+  programming paradigms while maintaining simplicity and consistency.
+Tags:
+  - programming-language
+  - pleno
+  - compiler
+  - interpreter
+ManifestType: defaultLocale
+ManifestVersion: 1.4.0

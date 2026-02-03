@@ -1,12 +1,10 @@
 # Examples
 
-Specification implementations demonstrating common Pleno patterns.
+Practical examples demonstrating common Pleno patterns.
 
 ## Basic
 
 ### Hello World
-
-[`examples/hello_world.pln`](https://github.com/otabekoff/pleno/blob/main/examples/hello_world.pln)
 
 ```pleno
 fn main() {
@@ -16,11 +14,32 @@ fn main() {
 main();
 ```
 
+### Variables & Types
+
+```pleno
+// Immutable by default
+let name = "Alice";
+let age = 30;
+let pi = 3.14159;
+
+// Mutable variable
+let mut counter = 0;
+counter = counter + 1;
+
+// Constants
+const MAX_SIZE = 100;
+
+// Type annotations
+let score: Int = 95;
+let active: Bool = true;
+let data: String? = null;  // Optional
+```
+
+---
+
 ## Web Server
 
-### HTTP Server
-
-[`examples/http_server.pln`](https://github.com/otabekoff/pleno/blob/main/examples/http_server.pln)
+### REST API
 
 A simple REST API using `std:http`.
 
@@ -30,65 +49,75 @@ import { JSON } from "std:json";
 
 let router = HTTP.Router();
 
+// GET /
 router.get("/", fn(req, res) {
-    res.send("Hello, Pleno!");
+    res.send("Welcome to Pleno API!");
 });
 
+// GET /users/:id
 router.get("/users/:id", fn(req, res) {
     let userId = req.params.id;
     res.json({ "id": userId, "name": "User " + userId });
 });
 
+// POST /users
 router.post("/users", fn(req, res) {
     let user = JSON.parse(req.body);
-    // Save user to database
     res.status(201).json(user);
 });
 
 let server = HTTP.Server(router);
 server.listen(8080, fn() {
-    print("Server running on port 8080");
+    print("Server running on http://localhost:8080");
 });
 ```
+
+---
 
 ## CLI Applications
 
 ### Todo Manager
 
-[`examples/todo_app.pln`](https://github.com/otabekoff/pleno/blob/main/examples/todo_app.pln)
-
-A complete command-line interface for managing tasks, demonstrating file I/O, JSON handling, and classes.
+Command-line task manager with file persistence.
 
 ```pleno
 import { File } from "std:io";
 import { JSON } from "std:json";
+import { Process } from "std:process";
+
+class Todo {
+    public title: String;
+    public completed: Bool = false;
+
+    constructor(title: String) {
+        this.title = title;
+    }
+}
 
 class TodoManager {
-    private todos;
-    private file;
+    private todos: Array;
+    private file: String = "todos.json";
 
     constructor() {
         this.todos = [];
-        this.file = "todos.json";
         this.load();
     }
 
     fn add(title: String) {
-        let todo = Todo(title);
-        this.todos.push(todo);
+        this.todos.push(Todo(title));
         this.save();
         print("Added: " + title);
     }
 
     fn list() {
-        if (this.todos.isEmpty()) {
+        if (this.todos.length == 0) {
             print("No todos yet!");
             return;
         }
-
-        for (index, todo in this.todos) {
+        for (i in 0..this.todos.length) {
+            let todo = this.todos[i];
             let status = todo.completed ? "[✓]" : "[ ]";
-            print((index + 1) + ". " + status + " " + todo.title);
+            print((i + 1).toString() + ". " + status + " " + todo.title);
         }
     }
 
@@ -100,78 +129,49 @@ class TodoManager {
         }
     }
 
-    fn remove(index: Int) {
-        if (index >= 0 && index < this.todos.length) {
-            let removed = this.todos.remove(index);
-            this.save();
-            print("Removed: " + removed.title);
-        }
-    }
-
     private fn save() {
         File.write(this.file, JSON.stringify(this.todos));
     }
 
     private fn load() {
         if (File.exists(this.file)) {
-            let content = File.read(this.file);
-            this.todos = JSON.parse(content);
+            this.todos = JSON.parse(File.read(this.file));
         }
     }
 }
 
-class Todo {
-    public title: String;
-    public completed: Bool = false;
-
-    constructor(title: String) {
-        this.title = title;
-    }
-}
-
-fn main(args: String[]) {
+fn main() {
+    let args = Process.args();
     let manager = TodoManager();
 
-    if (args.length == 0) {
-        print("Usage: todo [add|list|complete|remove] ...");
+    if (args.length <= 1) {
+        print("Usage: todo [add|list|complete] ...");
         return;
     }
 
-    match (args[0]) {
-        case "add" => {
-            if (args.length > 1) {
-                manager.add(args[1..].join(" "));
-            }
-        },
+    match (args[1]) {
+        case "add" => manager.add(args[2]),
         case "list" => manager.list(),
-        case "complete" => {
-             if (args.length > 1) {
-                manager.complete(Int.parse(args[1]) - 1);
-            }
-        },
-        case "remove" => {
-            if (args.length > 1) {
-                manager.remove(Int.parse(args[1]) - 1);
-            }
-        },
+        case "complete" => manager.complete(Int.parse(args[2]) - 1),
         case _ => print("Unknown command")
     }
 }
+
+main();
 ```
 
-## More Resources
-
-- [Standard Library Specification](../stdlib/)
-- [Contributing Guidelines](../guide/contributing.md)
+---
 
 ## Async & Concurrency
 
 ### Basic Async/Await
 
 ```pleno
+import { HTTP } from "std:http";
+
 async fn fetchData(url: String): String {
-    let response = await fetch(url);
-    return await response.text();
+    let response = await HTTP.get(url);
+    return response.body;
 }
 
 async fn main() {
@@ -182,7 +182,7 @@ async fn main() {
 main();
 ```
 
-### Promise.all Pattern
+### Promise.all
 
 ```pleno
 async fn fetchMultiple() {
@@ -192,20 +192,19 @@ async fn fetchMultiple() {
         "https://api.example.com/comments"
     ];
 
-    // Execute all requests concurrently
-    let promises = urls.map(|url| => fetch(url));
+    let promises = urls.map(fn(url) => HTTP.get(url));
     let responses = await Promise.all(promises);
 
     for (response in responses) {
-        print(await response.text());
+        print(response.body);
     }
 }
 ```
 
-### Channel-based Communication
+### Channel Communication
 
 ```pleno
-import { Channel } from "std:concurrency";
+import { Channel, spawn } from "std:concurrency";
 
 fn producer(ch: Channel) {
     for (i in 0..10) {
@@ -220,16 +219,15 @@ fn consumer(ch: Channel) {
     }
 }
 
-let ch = Channel(5);  // Buffered channel with capacity 5
-spawn producer(ch);
+let ch = Channel(5);  // Buffered channel
+spawn(fn() => producer(ch));
 consumer(ch);
 ```
 
 ### Mutex for Shared State
 
 ```pleno
-import { Mutex, spawn } from "std:concurrency";
-import { sleep } from "std:time";
+import { Mutex, spawn, sleep } from "std:concurrency";
 
 let mutex = Mutex();
 let counter = 0;
@@ -247,31 +245,119 @@ async fn main() {
     spawn(fn() => increment(100));
     spawn(fn() => increment(100));
 
-    // In a real app we'd wait for these, for now we just sleep
     await sleep(500);
-    print("Final count: " + counter.toString());  // Should be 300
+    print("Final count: " + counter.toString());  // 300
 }
 ```
 
-### Promise.race for Timeouts
+---
+
+## Data Processing
+
+### JSON Handling
 
 ```pleno
-async fn fetchWithTimeout(url: String, timeoutMs: Int) {
-    let timeout = new Promise(fn(resolve, reject) {
-        setTimeout(fn() { reject("Request timed out"); }, timeoutMs);
-    });
+import { JSON } from "std:json";
 
-    let request = fetch(url);
+let data = JSON.parse(`{
+    "name": "Alice",
+    "age": 30,
+    "skills": ["Pleno", "Rust", "TypeScript"]
+}`);
 
-    return await Promise.race([request, timeout]);
-}
+print(data.name);           // Alice
+print(data.skills[0]);      // Pleno
 
-async fn main() {
-    try {
-        let response = await fetchWithTimeout("https://api.slow.com", 5000);
-        print("Success: " + await response.text());
-    } catch (e) {
-        print("Error: " + e);
-    }
+let output = JSON.stringify({ "status": "ok", "count": 42 });
+print(output);
+```
+
+### CSV Processing
+
+```pleno
+import { CSV } from "std:csv";
+import { File } from "std:io";
+
+let content = File.read("data.csv");
+let rows = CSV.parse(content);
+
+for (row in rows) {
+    print(row[0] + ": " + row[1]);
 }
 ```
+
+### Regex Matching
+
+```pleno
+import { Regex } from "std:regex";
+
+let email = Regex(r"(\w+)@(\w+\.\w+)");
+let match = email.match("user@example.com");
+
+if (match != null) {
+    print("User: " + match.group(1));     // user
+    print("Domain: " + match.group(2));   // example.com
+}
+
+let numbers = Regex(r"\d+");
+let all = numbers.findAll("abc 123 def 456");
+// ["123", "456"]
+```
+
+---
+
+## Testing
+
+### Unit Tests
+
+```pleno
+import { describe, test, assert } from "std:test";
+
+describe("Calculator", fn() {
+    test("addition", fn() {
+        assert.equal(1 + 1, 2);
+    });
+
+    test("subtraction", fn() {
+        assert.equal(5 - 3, 2);
+    });
+
+    test("division by zero throws", fn() {
+        assert.throws(fn() {
+            let x = 1 / 0;
+        });
+    });
+});
+```
+
+---
+
+## Cryptography
+
+### Hashing & JWT
+
+```pleno
+import { Crypto } from "std:crypto";
+
+// Hash a password
+let hash = Crypto.hash("sha256", "password123");
+print(hash);
+
+// Create JWT
+let token = Crypto.jwtSign({
+    "sub": "user123",
+    "exp": 1735689600
+}, "my-secret-key");
+
+// Verify JWT
+let payload = Crypto.jwtVerify(token, "my-secret-key");
+print(payload.sub);  // user123
+```
+
+---
+
+## More Resources
+
+- [Standard Library Reference](/stdlib/)
+- [Language Specification](/specs/)
+- [Contributing Guidelines](/guide/contributing)

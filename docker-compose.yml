@@ -1,0 +1,44 @@
+# Docker Compose for Pleno Development
+# Run with: docker compose up -d
+
+services:
+  # Development environment with full tooling
+  dev:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    volumes:
+      - .:/workspace
+    working_dir: /workspace
+    stdin_open: true
+    tty: true
+    command: /bin/bash
+
+  # Run Pleno scripts
+  pleno:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    volumes:
+      - .:/workspace:ro
+    working_dir: /workspace
+    command: ["pleno", "run", "examples/hello_world.pln"]
+
+  # REPL mode
+  repl:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    stdin_open: true
+    tty: true
+    command: ["pleno", "repl"]
+
+  # Run tests
+  test:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    volumes:
+      - .:/workspace:ro
+    working_dir: /workspace
+    command: ["pleno", "test", "tests/"]
