@@ -2,6 +2,9 @@
 
 Pleno is an ambitious, modern programming language project, but it is also intentionally **minimalistic** in how it is built and maintained.
 
+The first thing I want to say is
+> Yes, I am escaping from taking risks and responsibility, spending money and my precious time.
+
 I am looking for **curious, skilled, and thoughtful people** who want to help build something meaningful in the open-source world — not just another tool, but a language with long-term vision.
 
 If you are interested in:
@@ -62,7 +65,9 @@ This keeps Pleno free, open, and sustainable.
 
 ## VS Code Extension (Status)
 
-Pleno has a VS Code extension, but I want to be clear about the current direction:
+You can download Pleno Language Support extension and install it manually. But later I will publish it officially.
+
+Yes, Pleno has a VS Code extension, but I want to be clear about the current direction:
 
 - I **do not plan to officially publish** the VS Code extension marketplace release right now.
 - I want to avoid extra overhead like release cycles, marketplace maintenance, support requests, and constant compatibility work while the language itself is still evolving.

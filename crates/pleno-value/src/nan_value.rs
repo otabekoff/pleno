@@ -311,7 +311,9 @@ impl NanValue {
                 }
                 TAG_BOXED => {
                     let ptr = self.as_ptr::<()>().unwrap();
-                    unsafe { (*(ptr as *const Value)).clone() }
+                    // Use Rc for proper reference counting on Copy NanValues
+                    let rc = unsafe { ManuallyDrop::new(Rc::from_raw(ptr as *const Value)) };
+                    (**rc).clone()
                 }
                 _ => Value::Null,
             }
@@ -347,8 +349,10 @@ impl NanValue {
             Value::Channel(c) => Self::encode(TAG_CHANNEL, c.as_refcell_ptr() as usize as u64),
             Value::Range(r) => Self::encode(TAG_RANGE, r as *const Range as usize as u64),
             v => {
-                let boxed = Box::new(v.clone());
-                let ptr = Box::into_raw(boxed);
+                // Use Rc for proper reference counting when NanValue is copied
+                let rc = Rc::new(v.clone());
+                let ptr = Rc::into_raw(rc);
+                unsafe { Rc::increment_strong_count(ptr) };
                 Self::encode(TAG_BOXED, ptr as usize as u64)
             }
         }
@@ -447,6 +451,13 @@ impl NanValue {
                     unsafe { (*ptr).borrow().mark(gc) };
                 }
                 _ => {}
+            }
+        } else if tag == TAG_BOXED {
+            // Handle boxed values (e.g., Value::Partial, Value::BoundMethod, etc.)
+            let ptr = self.as_ptr::<crate::Value>().unwrap();
+            // Safety check: ensure pointer is properly aligned
+            if ptr.align_offset(std::mem::align_of::<crate::Value>()) == 0 {
+                unsafe { (*ptr).mark(gc) };
             }
         }
     }
