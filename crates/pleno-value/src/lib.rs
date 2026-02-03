@@ -723,6 +723,12 @@ impl pleno_diagnostics::ToDiagnostic for RuntimeError {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct GenericParamMetadata {
+    pub name: String,
+    pub variance: pleno_common::Variance,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Range {
     pub start: Option<i64>,
@@ -744,7 +750,7 @@ pub struct Interface {
     pub methods: IndexMap<String, MethodSignature>,
     pub getters: IndexMap<String, MethodSignature>,
     pub setters: IndexMap<String, MethodSignature>,
-    pub type_params: Vec<String>,
+    pub type_params: Vec<GenericParamMetadata>,
     pub type_constraints: IndexMap<String, Vec<String>>,
     pub annotations: Vec<RuntimeAnnotation>,
     pub module: Option<Rc<String>>,
@@ -823,7 +829,7 @@ pub struct Class {
     pub is_abstract: bool,
     pub is_pooled: bool,
     pub implements: Vec<Value>,
-    pub type_params: Vec<String>,
+    pub type_params: Vec<GenericParamMetadata>,
     pub type_constraints: IndexMap<String, Vec<String>>,
     #[serde(default)]
     pub annotations: Vec<RuntimeAnnotation>,

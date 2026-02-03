@@ -1,0 +1,10 @@
+// Database standard library module
+import _db from "std:db";
+export class Database {
+     static fn connect(conn_str: String): Database {
+
+        let conn = _db.Database.connect(conn_str);
+        return conn;
+    }
+}
+

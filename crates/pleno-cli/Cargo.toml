@@ -22,6 +22,7 @@ pleno-lsp = { workspace = true }
 pleno-repl = { workspace = true }
 pleno-linter = { workspace = true }
 pleno-doc = { workspace = true }
+pleno-dap = { workspace = true }
 pleno-value = { workspace = true }
 serde_json = { workspace = true }
 log = { workspace = true }

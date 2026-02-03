@@ -7,7 +7,7 @@ pub struct DapServer<R, W> {
     input: R,
     output: W,
     seq: i64,
-    breakpoints: std::collections::HashMap<String, Vec<usize>>,
+    breakpoints: std::collections::HashMap<String, Vec<pleno_vm::Breakpoint>>,
 }
 
 impl<R: BufRead, W: Write> DapServer<R, W> {
@@ -111,9 +111,10 @@ impl<R: BufRead, W: Write> DapServer<R, W> {
                 let body = serde_json::json!({
                     "supportsConfigurationDoneRequest": true,
                     "supportsFunctionBreakpoints": false,
-                    "supportsConditionalBreakpoints": false,
+                    "supportsConditionalBreakpoints": true,
                     "supportsHitConditionalBreakpoints": false,
-                    "supportsEvaluateForHovers": false,
+                    "supportsEvaluateForHovers": true,
+                    "supportsDataBreakpoints": true,
                 });
                 self.send_response(&request, true, None, Some(body))?;
                 self.send_event("initialized".to_string(), None)?;
@@ -128,18 +129,80 @@ impl<R: BufRead, W: Write> DapServer<R, W> {
                     .and_then(|s| s.get("path"))
                     .and_then(|v| v.as_str())
                     .unwrap_or("");
-                let bps = args.get("breakpoints").and_then(|v| v.as_array()).unwrap();
+                let bps_json = args.get("breakpoints").and_then(|v| v.as_array()).unwrap();
 
-                let lines: Vec<usize> = bps
-                    .iter()
-                    .map(|b| b.get("line").and_then(|l| l.as_u64()).unwrap_or(0) as usize)
-                    .collect();
-                self.breakpoints.insert(source.to_string(), lines.clone());
+                let mut vm_bps = Vec::new();
+                for bp_j in bps_json {
+                    let line = bp_j.get("line").and_then(|l| l.as_u64()).unwrap_or(0) as usize;
+                    let condition = bp_j
+                        .get("condition")
+                        .and_then(|c| c.as_str())
+                        .map(|s| s.to_string());
+                    let hit_condition = bp_j
+                        .get("hitCondition")
+                        .and_then(|c| c.as_str())
+                        .map(|s| s.to_string());
+                    let log_message = bp_j
+                        .get("logMessage")
+                        .and_then(|c| c.as_str())
+                        .map(|s| s.to_string());
 
-                let response_bps: Vec<serde_json::Value> = lines
+                    vm_bps.push(pleno_vm::Breakpoint {
+                        line,
+                        condition,
+                        hit_condition,
+                        log_message,
+                    });
+                }
+
+                self.breakpoints.insert(source.to_string(), vm_bps.clone());
+
+                let response_bps: Vec<serde_json::Value> = vm_bps
                     .into_iter()
-                    .map(|l| serde_json::json!({"verified": true, "line": l}))
+                    .map(|b| serde_json::json!({"verified": true, "line": b.line}))
                     .collect();
+
+                self.send_response(
+                    &request,
+                    true,
+                    None,
+                    Some(serde_json::json!({
+                        "breakpoints": response_bps
+                    })),
+                )?;
+            }
+            "dataBreakpointInfo" => {
+                let args = request.arguments.as_ref().unwrap();
+                let name = args.get("name").and_then(|v| v.as_str()).unwrap_or("");
+
+                self.send_response(
+                    &request,
+                    true,
+                    None,
+                    Some(serde_json::json!({
+                        "dataId": name,
+                        "description": format!("Value change of '{}'", name),
+                        "accessTypes": ["write"],
+                        "canPersist": true
+                    })),
+                )?;
+            }
+            "setDataBreakpoints" => {
+                let args = request.arguments.as_ref().unwrap();
+                let bps_json = args.get("breakpoints").and_then(|v| v.as_array()).unwrap();
+
+                // Clear or maintain a separate data_breakpoints list in DapServer?
+                // For now, just a placeholder if needed, but VM will hold the active ones.
+                // We don't have a place to store them in DapServer yet besides the VM itself which isn't created.
+                // But we can store them in a field similar to self.breakpoints.
+
+                let mut response_bps = Vec::new();
+                for bp_j in bps_json {
+                    let _data_id = bp_j.get("dataId").and_then(|v| v.as_str()).unwrap_or("");
+                    response_bps.push(serde_json::json!({
+                        "verified": true
+                    }));
+                }
 
                 self.send_response(
                     &request,
@@ -186,9 +249,9 @@ impl<R: BufRead, W: Write> DapServer<R, W> {
             .map_err(|e| anyhow::anyhow!("Compilation failed: {:?}", e))?;
 
         let mut vm = VM::new();
-        for (source, lines) in &self.breakpoints {
-            let set: std::collections::HashSet<usize> = lines.iter().cloned().collect();
-            vm.debug_context.breakpoints.insert(source.clone(), set);
+        for (source, bps) in &self.breakpoints {
+            vm.debug_context
+                .set_breakpoints(source.clone(), bps.clone());
         }
         vm.load_script(chunk);
 
@@ -292,25 +355,87 @@ impl<R: BufRead, W: Write> DapServer<R, W> {
                                     .and_then(|s| s.get("path"))
                                     .and_then(|v| v.as_str())
                                     .unwrap_or("");
-                                let bps =
+                                let bps_json =
                                     args.get("breakpoints").and_then(|v| v.as_array()).unwrap();
 
-                                let lines: Vec<usize> = bps
-                                    .iter()
-                                    .map(|b| {
-                                        b.get("line").and_then(|l| l.as_u64()).unwrap_or(0) as usize
-                                    })
-                                    .collect();
-                                self.breakpoints.insert(source.to_string(), lines.clone());
+                                let mut vm_bps = Vec::new();
+                                for bp_j in bps_json {
+                                    let line =
+                                        bp_j.get("line").and_then(|l| l.as_u64()).unwrap_or(0)
+                                            as usize;
+                                    let condition = bp_j
+                                        .get("condition")
+                                        .and_then(|c| c.as_str())
+                                        .map(|s| s.to_string());
+                                    let hit_condition = bp_j
+                                        .get("hitCondition")
+                                        .and_then(|c| c.as_str())
+                                        .map(|s| s.to_string());
+                                    let log_message = bp_j
+                                        .get("logMessage")
+                                        .and_then(|c| c.as_str())
+                                        .map(|s| s.to_string());
 
-                                let set: std::collections::HashSet<usize> =
-                                    lines.iter().cloned().collect();
-                                vm.debug_context.breakpoints.insert(source.to_string(), set);
+                                    vm_bps.push(pleno_vm::Breakpoint {
+                                        line,
+                                        condition,
+                                        hit_condition,
+                                        log_message,
+                                    });
+                                }
 
-                                let response_bps: Vec<serde_json::Value> = lines
+                                self.breakpoints.insert(source.to_string(), vm_bps.clone());
+                                vm.debug_context
+                                    .set_breakpoints(source.to_string(), vm_bps.clone());
+
+                                let response_bps: Vec<serde_json::Value> = vm_bps
                                     .into_iter()
-                                    .map(|l| serde_json::json!({"verified": true, "line": l}))
+                                    .map(|b| serde_json::json!({"verified": true, "line": b.line}))
                                     .collect();
+
+                                self.send_response(
+                                    &request,
+                                    true,
+                                    None,
+                                    Some(serde_json::json!({
+                                        "breakpoints": response_bps
+                                    })),
+                                )?;
+                            }
+                            "dataBreakpointInfo" => {
+                                let args = request.arguments.as_ref().unwrap();
+                                let name = args.get("name").and_then(|v| v.as_str()).unwrap_or("");
+
+                                self.send_response(
+                                    &request,
+                                    true,
+                                    None,
+                                    Some(serde_json::json!({
+                                        "dataId": name,
+                                        "description": format!("Value change of '{}'", name),
+                                        "accessTypes": ["write"],
+                                        "canPersist": true
+                                    })),
+                                )?;
+                            }
+                            "setDataBreakpoints" => {
+                                let args = request.arguments.as_ref().unwrap();
+                                let bps_json =
+                                    args.get("breakpoints").and_then(|v| v.as_array()).unwrap();
+
+                                vm.debug_context.data_breakpoints.clear();
+                                let mut response_bps = Vec::new();
+
+                                for bp_j in bps_json {
+                                    let data_id =
+                                        bp_j.get("dataId").and_then(|v| v.as_str()).unwrap_or("");
+                                    vm.debug_context
+                                        .data_breakpoints
+                                        .insert(data_id.to_string(), pleno_value::Value::Null);
+                                    response_bps.push(serde_json::json!({
+                                        "verified": true
+                                    }));
+                                }
 
                                 self.send_response(
                                     &request,
@@ -365,21 +490,125 @@ impl<R: BufRead, W: Write> DapServer<R, W> {
                                 )?;
                             }
                             "scopes" => {
-                                self.send_response(&request, true, None, Some(serde_json::json!({
-                                     "scopes": [
-                                         {"name": "Locals", "variablesReference": 1, "expensive": false}
-                                     ]
-                                 })))?;
-                            }
-                            "variables" => {
+                                let frame_id = request
+                                    .arguments
+                                    .as_ref()
+                                    .and_then(|a| a.get("frameId"))
+                                    .and_then(|v| v.as_u64())
+                                    .unwrap_or(0);
+                                // For simplicity, variablesReference = frameId + 1 (0 is invalid)
+                                // We use (frameId + 1) * 10 + 1 for Locals
+                                // We use (frameId + 1) * 10 + 2 for Globals
+                                let locals_ref = (frame_id + 1) * 10 + 1;
+                                let globals_ref = (frame_id + 1) * 10 + 2;
+
                                 self.send_response(
                                     &request,
                                     true,
                                     None,
                                     Some(serde_json::json!({
-                                        "variables": []
+                                        "scopes": [
+                                            {"name": "Locals", "variablesReference": locals_ref, "expensive": false},
+                                            {"name": "Globals", "variablesReference": globals_ref, "expensive": false}
+                                        ]
                                     })),
                                 )?;
+                            }
+                            "variables" => {
+                                let var_ref = request
+                                    .arguments
+                                    .as_ref()
+                                    .and_then(|a| a.get("variablesReference"))
+                                    .and_then(|v| v.as_u64())
+                                    .unwrap_or(0);
+
+                                let frame_idx = (var_ref / 10) - 1;
+                                let scope_type = var_ref % 10;
+
+                                let mut variables = Vec::new();
+
+                                if let Some(frame) = vm.frames.get(frame_idx as usize) {
+                                    if scope_type == 1 {
+                                        // Locals
+                                        let func = &vm.functions[frame.function_index];
+                                        let ip = frame.ip;
+                                        for local in &func.chunk.locals {
+                                            if ip >= local.start_ip && ip <= local.end_ip {
+                                                let val = vm.registers
+                                                    [frame.base + local.register as usize]
+                                                    .to_value();
+                                                variables.push(serde_json::json!({
+                                                    "name": local.name,
+                                                    "value": format!("{:?}", val),
+                                                    "variablesReference": 0 // 0 means not an object
+                                                }));
+                                            }
+                                        }
+
+                                        // Also add parameters
+                                        for (i, param) in func.params.iter().enumerate() {
+                                            let val = vm.registers[frame.base + i].to_value();
+                                            variables.push(serde_json::json!({
+                                                "name": param.name,
+                                                "value": format!("{:?}", val),
+                                                "variablesReference": 0
+                                            }));
+                                        }
+                                    } else if scope_type == 2 {
+                                        // Globals
+                                        for (name, val) in &vm.globals {
+                                            variables.push(serde_json::json!({
+                                                "name": name,
+                                                "value": format!("{:?}", val),
+                                                "variablesReference": 0
+                                            }));
+                                        }
+                                    }
+                                }
+
+                                self.send_response(
+                                    &request,
+                                    true,
+                                    None,
+                                    Some(serde_json::json!({
+                                        "variables": variables
+                                    })),
+                                )?;
+                            }
+                            "evaluate" => {
+                                let args = request.arguments.as_ref().unwrap();
+                                let expression = args
+                                    .get("expression")
+                                    .and_then(|v| v.as_str())
+                                    .unwrap_or("");
+                                let _frame_id = args.get("frameId").and_then(|v| v.as_u64());
+
+                                // Use the VM's robust evaluation
+                                let mut found_val = vm.evaluate_expression(expression).ok();
+
+                                if found_val.is_none() {
+                                    // Check globals
+                                    found_val = vm.globals.get(expression).cloned();
+                                }
+
+                                if let Some(val) = found_val {
+                                    self.send_response(
+                                        &request,
+                                        true,
+                                        None,
+                                        Some(serde_json::json!({
+                                            "result": format!("{:?}", val),
+                                            "variablesReference": 0
+                                        })),
+                                    )?;
+                                } else {
+                                    self.send_response(
+                                        &request,
+                                        false,
+                                        Some("Variable not found".to_string()),
+                                        None,
+                                    )?;
+                                }
                             }
                             _ => {
                                 self.send_response(

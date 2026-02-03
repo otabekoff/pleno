@@ -1980,6 +1980,13 @@ impl Parser {
         }
         let mut params = Vec::new();
         loop {
+            let mut variance = pleno_ast::Variance::Invariant;
+            if self.matches(&TokenKind::KeywordOut) {
+                variance = pleno_ast::Variance::Covariant;
+            } else if self.matches(&TokenKind::KeywordIn) {
+                variance = pleno_ast::Variance::Contravariant;
+            }
+
             let name = match self.advance().kind.clone() {
                 TokenKind::Ident(name) => name,
                 other => {
@@ -2009,7 +2016,11 @@ impl Parser {
                     }
                 }
             }
-            params.push(pleno_ast::GenericParam { name, constraints });
+            params.push(pleno_ast::GenericParam {
+                name,
+                constraints,
+                variance,
+            });
             if !self.matches(&TokenKind::Comma) {
                 break;
             }

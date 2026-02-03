@@ -1185,6 +1185,7 @@ dependencies = [
  "notify",
  "pleno-common",
  "pleno-compiler",
+ "pleno-dap",
  "pleno-diagnostics",
  "pleno-doc",
  "pleno-formatter",
@@ -1404,11 +1405,13 @@ version = "0.1.0"
 dependencies = [
  "chrono",
  "env_logger",
+ "hex",
  "indexmap",
  "log",
  "mio 1.1.1",
  "num-traits",
  "pleno-bytecode",
+ "pleno-common",
  "pleno-compiler",
  "pleno-diagnostics",
  "pleno-lexer",
@@ -1420,6 +1423,7 @@ dependencies = [
  "regex",
  "reqwest",
  "serde_json",
+ "sha2",
 ]
 
 [[package]]

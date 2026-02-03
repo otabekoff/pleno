@@ -361,10 +361,13 @@ impl Program {
     }
 }
 
+pub use pleno_common::Variance;
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct GenericParam {
     pub name: String,
     pub constraints: Vec<String>, // e.g. T: Comparable
+    pub variance: Variance,
 }
 
 #[derive(Debug, Clone, PartialEq)]

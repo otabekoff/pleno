@@ -1,0 +1,39 @@
+// Cryptography standard library module
+import _crypto from "std:crypto";
+export class Hash {
+    static fn sha256(data: String): String {
+
+        return _crypto.hash("sha256", data);
+    }
+    static fn sha512(data: String): String {
+
+        return _crypto.hash("sha512", data);
+    }
+}
+export class HMAC {
+    static fn sha256(key: String, data: String): String {
+
+        return _crypto.hmac("sha256", key, data);
+    }
+}
+export class Cipher {
+    static fn encrypt_aes256_cbc(key_hex: String, iv_hex: String, data: String): String {
+
+        return _crypto.encrypt("aes-256-cbc", key_hex, iv_hex, data);
+    }
+    static fn decrypt_aes256_cbc(key_hex: String, iv_hex: String, data_b64: String): String {
+
+        return _crypto.decrypt("aes-256-cbc", key_hex, iv_hex, data_b64);
+    }
+}
+export class JWT {
+    static fn sign(payload: Map, secret: String): String {
+
+        return _crypto.jwtSign(payload, secret);
+    }
+    static fn verify(token: String, secret: String): Map {
+
+        return _crypto.jwtVerify(token, secret);
+    }
+}
+

@@ -28,6 +28,7 @@ struct Local {
     mutable: bool,
     ty: Option<String>,
     is_boxed: bool,
+    start_ip: usize,
 }
 
 #[derive(Debug, Clone)]
@@ -889,11 +890,25 @@ impl Compiler {
                     self.emit(Opcode::NewMap, constraints_reg, 0, 0);
 
                     for g in generics {
+                        let meta_reg = self.registers.allocate()?;
+                        self.emit(Opcode::NewMap, meta_reg, 0, 0);
+
                         let name_idx =
                             self.add_constant(Value::String(std::rc::Rc::new(g.name.clone())));
                         let name_reg = self.registers.allocate()?;
                         self.emit(Opcode::LoadConst, name_reg, name_idx, 0);
-                        self.emit(Opcode::ArrayAppend, params_reg, name_reg, 0);
+                        let name_key_idx =
+                            self.add_constant(Value::String(std::rc::Rc::new("name".to_string())));
+                        self.emit(Opcode::SetProperty, name_reg, meta_reg, name_key_idx);
+
+                        let var_reg = self.registers.allocate()?;
+                        self.emit(Opcode::LoadInt, var_reg, g.variance as u8, 0);
+                        let var_key_idx = self
+                            .add_constant(Value::String(std::rc::Rc::new("variance".to_string())));
+                        self.emit(Opcode::SetProperty, var_reg, meta_reg, var_key_idx);
+                        self.free_temp(var_reg);
+
+                        self.emit(Opcode::ArrayAppend, params_reg, meta_reg, 0);
 
                         if !g.constraints.is_empty() {
                             let cons_list_reg = self.registers.allocate()?;
@@ -913,6 +928,7 @@ impl Compiler {
                         }
 
                         self.free_temp(name_reg);
+                        self.free_temp(meta_reg);
                     }
                     self.emit(
                         Opcode::SetTypeParams,
@@ -2854,7 +2870,14 @@ impl Compiler {
             is_inline: decl.annotations.iter().any(|a| a.name == "inline"),
             is_hot: decl.annotations.iter().any(|a| a.name == "hot"),
             no_optimize: decl.annotations.iter().any(|a| a.name == "no_optimize"),
-            type_params: decl.generics.iter().map(|g| g.name.clone()).collect(),
+            type_params: decl
+                .generics
+                .iter()
+                .map(|g| pleno_value::GenericParamMetadata {
+                    name: g.name.clone(),
+                    variance: g.variance,
+                })
+                .collect(),
             type_constraints,
             annotations: runtime_annotations,
         });
@@ -3378,10 +3401,24 @@ impl Compiler {
             self.emit(Opcode::NewMap, constraints_reg, 0, 0);
 
             for g in generics {
+                let meta_reg = self.registers.allocate()?;
+                self.emit(Opcode::NewMap, meta_reg, 0, 0);
+
                 let name_idx = self.add_constant(Value::String(std::rc::Rc::new(g.name.clone())));
                 let name_reg = self.registers.allocate()?;
                 self.emit(Opcode::LoadConst, name_reg, name_idx, 0);
-                self.emit(Opcode::ArrayAppend, params_reg, name_reg, 0);
+                let name_key_idx =
+                    self.add_constant(Value::String(std::rc::Rc::new("name".to_string())));
+                self.emit(Opcode::SetProperty, name_reg, meta_reg, name_key_idx);
+
+                let var_reg = self.registers.allocate()?;
+                self.emit(Opcode::LoadInt, var_reg, g.variance as u8, 0);
+                let var_key_idx =
+                    self.add_constant(Value::String(std::rc::Rc::new("variance".to_string())));
+                self.emit(Opcode::SetProperty, var_reg, meta_reg, var_key_idx);
+                self.free_temp(var_reg);
+
+                self.emit(Opcode::ArrayAppend, params_reg, meta_reg, 0);
 
                 if !g.constraints.is_empty() {
                     let cons_list_reg = self.registers.allocate()?;
@@ -3400,6 +3437,7 @@ impl Compiler {
                 }
 
                 self.free_temp(name_reg);
+                self.free_temp(meta_reg);
             }
             self.emit(
                 Opcode::SetTypeParams,
@@ -4934,12 +4972,13 @@ impl Compiler {
                 ));
             }
             scope.insert(
-                name,
+                name.clone(),
                 Local {
                     reg,
                     mutable,
                     ty,
                     is_boxed,
+                    start_ip: self.chunk.code.len(),
                 },
             );
         }
@@ -4975,7 +5014,14 @@ impl Compiler {
 
     fn pop_scope(&mut self) {
         if let Some(scope) = self.locals.pop() {
-            for local in scope.values() {
+            let end_ip = self.chunk.code.len();
+            for (name, local) in scope {
+                self.chunk.locals.push(pleno_bytecode::LocalVarInfo {
+                    name,
+                    register: local.reg,
+                    start_ip: local.start_ip,
+                    end_ip,
+                });
                 if Some(local.reg) != self.last_expr_register {
                     self.registers.free(local.reg);
                 }

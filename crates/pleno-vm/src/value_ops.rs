@@ -1,4 +1,5 @@
 use pleno_bytecode::Opcode;
+use pleno_value::nan_value::NanValue;
 use pleno_value::{RuntimeError, Value};
 use std::rc::Rc;
 
@@ -7,6 +8,18 @@ pub fn is_truthy(value: &Value) -> bool {
         Value::Null => false,
         Value::Missing => false,
         Value::Bool(value) => *value,
+        _ => true,
+    }
+}
+
+pub fn is_truthy_nan(val: NanValue) -> bool {
+    if val.is_f64() {
+        return true;
+    }
+    match val.tag() {
+        0 => true,                           // Float (handled above but just in case)
+        2 => val.as_bool().unwrap_or(false), // TAG_BOOL
+        3 | 4 => false,                      // TAG_NULL, TAG_MISSING
         _ => true,
     }
 }
@@ -162,4 +175,146 @@ pub fn compare_values(opcode: Opcode, left: Value, right: Value) -> Result<bool,
         }
         _ => Err(RuntimeError::new("invalid operands for comparison")),
     }
+}
+
+pub fn add_nan(
+    vm: &mut dyn pleno_value::VMProvider,
+    a: NanValue,
+    b: NanValue,
+) -> Result<NanValue, RuntimeError> {
+    if a.is_f64() && b.is_f64() {
+        return Ok(NanValue::from_f64(a.as_f64() + b.as_f64()));
+    }
+    if let (Some(ai), Some(bi)) = (a.as_int(), b.as_int()) {
+        let res: i64 = ai
+            .checked_add(bi)
+            .ok_or_else(|| RuntimeError::new("integer overflow in addition"))?;
+        return Ok(NanValue::from_int(res));
+    }
+    if let (Some(af), Some(bi)) = (if a.is_f64() { Some(a.as_f64()) } else { None }, b.as_int()) {
+        return Ok(NanValue::from_f64(af + bi as f64));
+    }
+    if let (Some(ai), Some(bf)) = (a.as_int(), if b.is_f64() { Some(b.as_f64()) } else { None }) {
+        return Ok(NanValue::from_f64(ai as f64 + bf));
+    }
+    Ok(NanValue::from_value(&add_values(
+        vm,
+        a.to_value(),
+        b.to_value(),
+    )?))
+}
+
+pub fn sub_nan(a: NanValue, b: NanValue) -> Result<NanValue, RuntimeError> {
+    if a.is_f64() && b.is_f64() {
+        return Ok(NanValue::from_f64(a.as_f64() - b.as_f64()));
+    }
+    if let (Some(ai), Some(bi)) = (a.as_int(), b.as_int()) {
+        let res: i64 = ai
+            .checked_sub(bi)
+            .ok_or_else(|| RuntimeError::new("integer overflow in subtraction"))?;
+        return Ok(NanValue::from_int(res));
+    }
+    if let (Some(af), Some(bi)) = (if a.is_f64() { Some(a.as_f64()) } else { None }, b.as_int()) {
+        return Ok(NanValue::from_f64(af - bi as f64));
+    }
+    if let (Some(ai), Some(bf)) = (a.as_int(), if b.is_f64() { Some(b.as_f64()) } else { None }) {
+        return Ok(NanValue::from_f64(ai as f64 - bf));
+    }
+    Ok(NanValue::from_value(&sub_values(
+        a.to_value(),
+        b.to_value(),
+    )?))
+}
+
+pub fn mul_nan(a: NanValue, b: NanValue) -> Result<NanValue, RuntimeError> {
+    if a.is_f64() && b.is_f64() {
+        return Ok(NanValue::from_f64(a.as_f64() * b.as_f64()));
+    }
+    if let (Some(ai), Some(bi)) = (a.as_int(), b.as_int()) {
+        let res: i64 = ai
+            .checked_mul(bi)
+            .ok_or_else(|| RuntimeError::new("integer overflow in multiplication"))?;
+        return Ok(NanValue::from_int(res));
+    }
+    if let (Some(af), Some(bi)) = (if a.is_f64() { Some(a.as_f64()) } else { None }, b.as_int()) {
+        return Ok(NanValue::from_f64(af * bi as f64));
+    }
+    if let (Some(ai), Some(bf)) = (a.as_int(), if b.is_f64() { Some(b.as_f64()) } else { None }) {
+        return Ok(NanValue::from_f64(ai as f64 * bf));
+    }
+    Ok(NanValue::from_value(&mul_values(
+        a.to_value(),
+        b.to_value(),
+    )?))
+}
+
+pub fn div_nan(a: NanValue, b: NanValue) -> Result<NanValue, RuntimeError> {
+    if a.is_f64() && b.is_f64() {
+        if b.as_f64() == 0.0 {
+            return Err(RuntimeError::new("division by zero"));
+        }
+        return Ok(NanValue::from_f64(a.as_f64() / b.as_f64()));
+    }
+    if let (Some(ai), Some(bi)) = (a.as_int(), b.as_int()) {
+        if bi == 0 {
+            return Err(RuntimeError::new("division by zero"));
+        }
+        return Ok(NanValue::from_f64(ai as f64 / bi as f64));
+    }
+    Ok(NanValue::from_value(&div_values(
+        a.to_value(),
+        b.to_value(),
+    )?))
+}
+
+pub fn mod_nan(a: NanValue, b: NanValue) -> Result<NanValue, RuntimeError> {
+    if a.is_f64() && b.is_f64() {
+        if b.as_f64() == 0.0 {
+            return Err(RuntimeError::new("modulo by zero"));
+        }
+        return Ok(NanValue::from_f64(a.as_f64() % b.as_f64()));
+    }
+    if let (Some(ai), Some(bi)) = (a.as_int(), b.as_int()) {
+        if bi == 0 {
+            return Err(RuntimeError::new("modulo by zero"));
+        }
+        return Ok(NanValue::from_int(ai % bi));
+    }
+    Ok(NanValue::from_value(&mod_values(
+        a.to_value(),
+        b.to_value(),
+    )?))
+}
+
+pub fn compare_nan(opcode: Opcode, a: NanValue, b: NanValue) -> Result<bool, RuntimeError> {
+    if a.is_f64() && b.is_f64() {
+        let (av, bv) = (a.as_f64(), b.as_f64());
+        return Ok(match opcode {
+            Opcode::Lt => av < bv,
+            Opcode::Le => av <= bv,
+            Opcode::Gt => av > bv,
+            Opcode::Ge => av >= bv,
+            _ => return Err(RuntimeError::new("invalid comparison opcode")),
+        });
+    }
+    if let (Some(ai), Some(bi)) = (a.as_int(), b.as_int()) {
+        return Ok(match opcode {
+            Opcode::Lt => ai < bi,
+            Opcode::Le => ai <= bi,
+            Opcode::Gt => ai > bi,
+            Opcode::Ge => ai >= bi,
+            _ => return Err(RuntimeError::new("invalid comparison opcode")),
+        });
+    }
+    compare_values(opcode, a.to_value(), b.to_value())
+}
+
+pub fn neg_nan(value: NanValue) -> Result<NanValue, RuntimeError> {
+    if value.is_f64() {
+        return Ok(NanValue::from_f64(-value.as_f64()));
+    }
+    if let Some(i) = value.as_int() {
+        return Ok(NanValue::from_int(-i));
+    }
+    Err(RuntimeError::new("invalid operand for unary -"))
 }
