@@ -1,0 +1,35 @@
+# Optimized Dockerfile for Releases
+# This image expects pre-built binaries in the context.
+FROM debian:bookworm-slim
+
+# Install runtime dependencies
+RUN apt-get update && apt-get install -y \
+    ca-certificates \
+    libssl3 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create non-root user
+RUN useradd -m -s /bin/bash pleno
+
+# Create workspace directory
+WORKDIR /workspace
+RUN chown pleno:pleno /workspace
+
+# Set binary path
+ARG TARGETARCH
+COPY binaries/${TARGETARCH}/pleno /usr/local/bin/pleno
+COPY binaries/${TARGETARCH}/plm /usr/local/bin/plm
+RUN chmod +x /usr/local/bin/pleno /usr/local/bin/plm && \
+    chown pleno:pleno /usr/local/bin/pleno /usr/local/bin/plm
+
+# Switch to non-root user
+USER pleno
+
+# Default command: start REPL
+CMD ["pleno", "repl"]
+
+# Labels for container metadata
+LABEL org.opencontainers.image.title="Pleno"
+LABEL org.opencontainers.image.description="Pleno Programming Language Runtime"
+LABEL org.opencontainers.image.source="https://github.com/otabekoff/pleno"
+LABEL org.opencontainers.image.licenses="MIT"

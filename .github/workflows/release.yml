@@ -10,6 +10,7 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
 
 jobs:
   # This job safely checks for secrets and provides outputs to other jobs.
@@ -59,6 +60,8 @@ jobs:
 
       - name: Rust Cache
         uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: "release-build"
 
       - name: Install System Dependencies (Linux)
         if: runner.os == 'Linux'
@@ -119,7 +122,7 @@ jobs:
           name: artifacts-${{ matrix.job.target }}
           path: |
             pleno-${{ github.ref_name }}-${{ matrix.job.target }}.*
-            dist/*.deb
+            dist/*
             *.sha256
 
   vscode-extension:
@@ -190,6 +193,27 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Download Linux amd64
+        uses: actions/download-artifact@v4
+        with:
+          name: artifacts-x86_64-unknown-linux-gnu
+          path: bin-amd64
+
+      - name: Download Linux arm64
+        uses: actions/download-artifact@v4
+        with:
+          name: artifacts-aarch64-unknown-linux-gnu
+          path: bin-arm64
+
+      - name: Prepare Binaries
+        run: |
+          mkdir -p binaries/amd64 binaries/arm64
+          cp bin-amd64/dist/pleno binaries/amd64/pleno
+          cp bin-amd64/dist/plm binaries/amd64/plm
+          cp bin-arm64/dist/pleno binaries/arm64/pleno
+          cp bin-arm64/dist/plm binaries/arm64/plm
+          chmod +x binaries/*/pleno binaries/*/plm
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -214,6 +238,7 @@ jobs:
         uses: docker/build-push-action@v5
         with:
           context: .
+          file: Dockerfile.release
           push: true
           platforms: linux/amd64,linux/arm64
           tags: |
