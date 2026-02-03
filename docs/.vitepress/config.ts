@@ -31,7 +31,6 @@ export default defineConfig({
       { text: 'Specs', link: '/specs/' },
       { text: 'Stdlib', link: '/stdlib/' },
       { text: 'Blog', link: '/blog/' },
-      { text: 'Community', link: '/community' },
       { text: 'Showcase', link: '/showcase' },
       { text: 'Examples', link: '/examples' }
     ],
