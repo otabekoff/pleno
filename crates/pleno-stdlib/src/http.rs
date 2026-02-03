@@ -477,6 +477,7 @@ pub fn http_server_listen(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Val
     Ok(Value::Null)
 }
 
+#[allow(clippy::collapsible_if)]
 pub fn http_server_on_accept(
     vm: &mut dyn VMProvider,
     args: &[Value],
@@ -495,11 +496,11 @@ pub fn http_server_on_accept(
 
     if let Some(Value::Resource(r)) = listener_val {
         let mut state = r.borrow_mut();
-        if let Some(inner) = state.inner.get_mut().as_mut()
-            && let Some(listener) = inner.downcast_mut::<mio::net::TcpListener>()
-        {
-            while let Ok((mut stream, _)) = listener.accept() {
-                handle_request(vm, &mut stream, router_ref.as_ref())?;
+        if let Some(inner) = state.inner.get_mut().as_mut() {
+            if let Some(listener) = inner.downcast_mut::<mio::net::TcpListener>() {
+                while let Ok((mut stream, _)) = listener.accept() {
+                    handle_request(vm, &mut stream, router_ref.as_ref())?;
+                }
             }
         }
     }
