@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pleno Playground</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body class="dark">
+    <div class="app-container">
+        <header class="app-header">
+            <div class="logo">
+                <span class="logo-icon">▲</span>
+                <span class="logo-text">Pleno <span class="badge">WASM</span></span>
+            </div>
+            <div class="controls">
+                <button id="run-btn" class="btn btn-primary">
+                    <span class="icon">▶</span> Run
+                </button>
+                <button id="share-btn" class="btn btn-secondary">Share</button>
+            </div>
+        </header>
+
+        <main class="app-main">
+            <div class="editor-pane">
+                <div class="pane-header">
+                    <span class="tab active">main.pln</span>
+                </div>
+                <div class="editor-wrapper">
+                    <div id="editor-container" style="width: 100%; height: 100%;"></div>
+                </div>
+            </div>
+
+            <div class="output-pane">
+                <div class="pane-header">
+                    <span class="title">Output</span>
+                    <button id="clear-btn" class="btn-text">Clear</button>
+                </div>
+                <div id="output" class="output-content">
+                    <div class="system-msg">Press 'Run' to execute code.</div>
+                </div>
+            </div>
+        </main>
+
+        <footer class="app-footer">
+            <div class="status-bar">
+                <span id="status">Ready</span>
+            </div>
+            <div class="links">
+                <a href="https://pleno-lang.org/docs" target="_blank">Documentation</a>
+                <a href="https://github.com/otabekoff/pleno" target="_blank">GitHub</a>
+            </div>
+        </footer>
+    </div>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.45.0/min/vs/loader.min.js"></script>
+    <script type="module" src="playground.js"></script>
+</body>
+</html>

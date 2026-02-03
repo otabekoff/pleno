@@ -1,6 +1,9 @@
+#[cfg(feature = "net")]
 use mio::{Events, Poll, Token};
 use pleno_value::Value;
-use std::collections::{HashMap, VecDeque};
+#[cfg(feature = "net")]
+use std::collections::HashMap;
+use std::collections::VecDeque;
 use std::time::{Duration, Instant};
 
 #[derive(Debug, Clone)]
@@ -35,6 +38,7 @@ impl Ord for Timer {
     }
 }
 
+#[cfg(feature = "net")]
 pub struct IoHandler {
     pub callback: Value,
     pub persistent: bool,
@@ -44,9 +48,13 @@ pub struct EventLoop {
     pub timers: std::collections::BinaryHeap<Timer>,
     pub ready_queue: VecDeque<Task>,
     pub next_timer_id: u64,
+    #[cfg(feature = "net")]
     pub poll: Poll,
+    #[cfg(feature = "net")]
     pub events: Events,
+    #[cfg(feature = "net")]
     pub io_handlers: HashMap<Token, IoHandler>,
+    #[cfg(feature = "net")]
     pub next_token: usize,
 }
 
@@ -69,9 +77,13 @@ impl EventLoop {
             timers: std::collections::BinaryHeap::new(),
             ready_queue: VecDeque::new(),
             next_timer_id: 1,
+            #[cfg(feature = "net")]
             poll: Poll::new().expect("Failed to create Poll"),
+            #[cfg(feature = "net")]
             events: Events::with_capacity(1024),
+            #[cfg(feature = "net")]
             io_handlers: HashMap::new(),
+            #[cfg(feature = "net")]
             next_token: 1,
         }
     }
@@ -98,9 +110,14 @@ impl EventLoop {
     }
 
     pub fn is_empty(&self) -> bool {
-        self.timers.is_empty() && self.ready_queue.is_empty() && self.io_handlers.is_empty()
+        let base_empty = self.timers.is_empty() && self.ready_queue.is_empty();
+        #[cfg(feature = "net")]
+        return base_empty && self.io_handlers.is_empty();
+        #[cfg(not(feature = "net"))]
+        return base_empty;
     }
 
+    #[cfg(feature = "net")]
     pub fn register_io(
         &mut self,
         source: &mut dyn mio::event::Source,
@@ -121,6 +138,7 @@ impl EventLoop {
         Ok(token)
     }
 
+    #[cfg(feature = "net")]
     pub fn unregister_io(
         &mut self,
         source: &mut dyn mio::event::Source,
@@ -159,41 +177,62 @@ impl EventLoop {
 
             // 3. If no ready tasks and nothing to wait for, return None
             let timeout = self.next_timeout();
-            if self.io_handlers.is_empty() && timeout.is_none() {
-                return None;
+
+            #[cfg(feature = "net")]
+            {
+                if self.io_handlers.is_empty() && timeout.is_none() {
+                    return None;
+                }
+            }
+            #[cfg(not(feature = "net"))]
+            {
+                timeout?;
             }
 
             // 4. Poll MIO
-            let result = self.poll.poll(&mut self.events, timeout);
+            #[cfg(feature = "net")]
+            {
+                let result = self.poll.poll(&mut self.events, timeout);
 
-            if let Ok(()) = result {
-                for event in self.events.iter() {
-                    let token = event.token();
-                    if let Some(handler) = self.io_handlers.get(&token) {
-                        self.ready_queue.push_back(Task {
-                            callback: handler.callback.clone(),
-                            args: vec![],
-                            promise_id: None,
-                        });
+                if let Ok(()) = result {
+                    for event in self.events.iter() {
+                        let token = event.token();
+                        if let Some(handler) = self.io_handlers.get(&token) {
+                            self.ready_queue.push_back(Task {
+                                callback: handler.callback.clone(),
+                                args: vec![],
+                                promise_id: None,
+                            });
+                        }
                     }
                 }
             }
 
-            // If we have items now, the next iteration will return them
-            if !self.ready_queue.is_empty() {
+            #[cfg(not(feature = "net"))]
+            {
+                if self.ready_queue.is_empty() {
+                    return None;
+                }
                 continue;
             }
 
-            // If poll returned because of timeout, the next iteration will process the timer
-            if timeout.is_some() {
-                continue;
-            }
+            #[cfg(feature = "net")]
+            {
+                if !self.ready_queue.is_empty() {
+                    continue;
+                }
 
-            // If we reach here and queue is empty, and we didn't have a timeout,
-            // it means poll finished for some other reason (e.g. error or empty event list)
-            // If it's empty, we might want to return None to avoid busy loop if no progress is possible.
-            if self.ready_queue.is_empty() {
-                return None;
+                // If poll returned because of timeout, the next iteration will process the timer
+                if timeout.is_some() {
+                    continue;
+                }
+
+                // If we reach here and queue is empty, and we didn't have a timeout,
+                // it means poll finished for some other reason (e.g. error or empty event list)
+                // If it's empty, we might want to return None to avoid busy loop if no progress is possible.
+                if self.ready_queue.is_empty() {
+                    return None;
+                }
             }
         }
     }

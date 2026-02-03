@@ -620,9 +620,66 @@ impl<'a> LintVisitor<'a> {
                 self.check_unused_in_current_scope();
                 self.scope_tracker.exit_scope();
             }
+            ExprKind::Match { expr, arms } => {
+                self.visit_expr(expr);
+                for arm in arms {
+                    self.scope_tracker.enter_scope();
+                    self.visit_pattern(&arm.pattern);
+                    if let Some(guard) = &arm.guard {
+                        self.visit_expr(guard);
+                    }
+                    self.visit_expr(&arm.body);
+                    self.check_unused_in_current_scope();
+                    self.scope_tracker.exit_scope();
+                }
+            }
+            ExprKind::If {
+                condition,
+                then_branch,
+                else_branch,
+            } => {
+                self.visit_expr(condition);
+                self.visit_expr(then_branch);
+                if let Some(eb) = else_branch {
+                    self.visit_expr(eb);
+                }
+            }
             _ => {
                 // ... handle other complex expressions as needed ...
             }
+        }
+    }
+
+    fn visit_pattern(&mut self, pattern: &Pattern) {
+        match &pattern.kind {
+            PatternKind::Ident(name) => {
+                let (line, col) = position_from_offset(self.source, pattern.span.start);
+                self.scope_tracker.declare(name.clone(), line, col);
+            }
+            PatternKind::Type(_, Some(name)) => {
+                let (line, col) = position_from_offset(self.source, pattern.span.start);
+                self.scope_tracker.declare(name.clone(), line, col);
+            }
+            PatternKind::Tuple(patterns)
+            | PatternKind::Variant(_, patterns)
+            | PatternKind::Or(patterns) => {
+                for p in patterns {
+                    self.visit_pattern(p);
+                }
+            }
+            PatternKind::Object(props, rest) => {
+                for (_, p) in props {
+                    self.visit_pattern(p);
+                }
+                if let Some(p) = rest {
+                    self.visit_pattern(p);
+                }
+            }
+            PatternKind::Rest(Some(name)) => {
+                let (line, col) = position_from_offset(self.source, pattern.span.start);
+                self.scope_tracker.declare(name.clone(), line, col);
+            }
+            _ => {}
         }
     }
 

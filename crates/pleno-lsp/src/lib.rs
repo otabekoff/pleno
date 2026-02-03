@@ -1,13 +1,16 @@
 use pleno_ast::{Program, Span, StmtKind};
-// use pleno_lexer::Token; // Unused
 use pleno_formatter::{FormatOptions, format_code};
+use pleno_lexer::lex;
 use pleno_linter::Linter;
+use pleno_parser::Parser;
 use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::fs;
 use std::io::{self, BufRead, Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
+
+mod semantic;
 
 // --- Data Structures ---
 
@@ -44,6 +47,8 @@ struct SemanticToken {
 struct ServerState {
     // Map URI -> File Content
     documents: HashMap<String, String>,
+    // Map URI -> Parsed Program (AST)
+    programs: HashMap<String, Program>,
     // Map URI -> Parsed Symbols
     index: HashMap<String, Vec<Symbol>>,
     #[allow(dead_code)]
@@ -54,6 +59,7 @@ impl ServerState {
     fn new() -> Self {
         Self {
             documents: HashMap::new(),
+            programs: HashMap::new(),
             index: HashMap::new(),
             root_uri: None,
         }
@@ -152,8 +158,9 @@ impl ServerState {
                         }
                     }
 
-                    self.index.insert(uri, symbols);
+                    self.index.insert(uri.clone(), symbols);
                 }
+                self.programs.insert(uri, program);
             }
             Err(e) => {
                 let (start, end) = span_to_range(&text, e.span.start, e.span.end);
@@ -328,62 +335,55 @@ pub fn start() -> io::Result<()> {
                     let mut result = Value::Null;
 
                     let state = state_clone.lock().unwrap();
-                    // Ensure we have current file content
-                    if let Some(text) = state.documents.get(uri_str).cloned() {
-                        // We need to parse finding the token at cursor
-                        if let Some(pos_val) = pos_json {
-                            let line =
-                                pos_val.get("line").and_then(|l| l.as_u64()).unwrap_or(0) as u32;
-                            let char = pos_val
-                                .get("character")
-                                .and_then(|c| c.as_u64())
-                                .unwrap_or(0) as u32;
+                    if let Some(text) = state.documents.get(uri_str).cloned()
+                        && let Some(pos_val) = pos_json
+                    {
+                        let line = pos_val.get("line").and_then(|l| l.as_u64()).unwrap_or(0) as u32;
+                        let char = pos_val
+                            .get("character")
+                            .and_then(|c| c.as_u64())
+                            .unwrap_or(0) as u32;
 
-                            if let Some(word) = get_word_at_position(&text, line, char) {
-                                // 1. Search in global index
-                                // Note: For real import resolution, we should resolve imports in this file.
-                                // For now, simpler approach: search ALL indexed symbols with matching name.
-                                // Improve later to respect scope/imports.
+                        if let Some(offset) = position_to_offset(&text, line, char)
+                            && let Ok(tokens) = lex(&text)
+                        {
+                            let mut parser = Parser::new(tokens, &text);
+                            if let Ok(program) = parser.parse_program()
+                                && let Some(span) =
+                                    semantic::usage_finder::find_declaration(&program, offset)
+                            {
+                                let (start, end) = span_to_range(&text, span.start, span.end);
+                                result = json!({
+                                    "uri": uri_str,
+                                    "range": { "start": start, "end": end }
+                                });
+                            }
+                        }
 
-                                // Also lazily index other files if not in index?
-                                // For now assume we only know about opened files or we'd need to walk dir.
+                        // Fallback to naive search if semantic search failed (for cross-file or non-local symbols)
+                        if result.is_null()
+                            && let Some(word) = get_word_at_position(&text, line, char)
+                        {
+                            for (idx_uri, symbols) in &state.index {
+                                if let Some(sym) = symbols.iter().find(|s| s.name == word) {
+                                    let file_content = if let Some(c) = state.documents.get(idx_uri)
+                                    {
+                                        c.clone()
+                                    } else if let Some(p) = uri_to_path(idx_uri) {
+                                        fs::read_to_string(p).unwrap_or_default()
+                                    } else {
+                                        String::new()
+                                    };
 
-                                // Let's try to match exact name
-                                for (idx_uri, symbols) in &state.index {
-                                    if let Some(sym) = symbols.iter().find(|s| s.name == word) {
-                                        // Found definition!
-                                        // Need to read that file to get line/col from span if not cached?
-                                        // Wait, Symbol stores Span (byte offset).
-                                        // We need content of that file to convert Span -> Line/Col.
-
-                                        let file_content =
-                                            if let Some(c) = state.documents.get(idx_uri) {
-                                                c.clone()
-                                            } else {
-                                                // Try reading from disk
-                                                if let Some(p) = uri_to_path(idx_uri) {
-                                                    if let Ok(c) = fs::read_to_string(p) {
-                                                        c
-                                                    } else {
-                                                        continue;
-                                                    }
-                                                } else {
-                                                    continue;
-                                                }
-                                            };
-
+                                    if !file_content.is_empty() {
                                         let (start, end) = span_to_range(
                                             &file_content,
                                             sym.span.start,
                                             sym.span.end,
                                         );
-
                                         result = json!({
                                             "uri": idx_uri,
-                                            "range": {
-                                                "start": start,
-                                                "end": end
-                                            }
+                                            "range": { "start": start, "end": end }
                                         });
                                         break;
                                     }
@@ -413,6 +413,7 @@ pub fn start() -> io::Result<()> {
 
                     let state = state_clone.lock().unwrap();
                     if let Some(text) = state.documents.get(uri_str).cloned()
+                        && let Some(program) = state.programs.get(uri_str)
                         && let Some(pos_val) = pos_json
                     {
                         let line = pos_val.get("line").and_then(|l| l.as_u64()).unwrap_or(0) as u32;
@@ -421,40 +422,17 @@ pub fn start() -> io::Result<()> {
                             .and_then(|c| c.as_u64())
                             .unwrap_or(0) as u32;
 
-                        if let Some(word) = get_word_at_position(&text, line, char) {
-                            // Search all documents for references to this symbol
-                            for (doc_uri, doc_text) in &state.documents {
-                                // Find all occurrences of the word in this document
-                                for (line_idx, line_content) in doc_text.lines().enumerate() {
-                                    let mut search_start = 0;
-                                    while let Some(col) = line_content[search_start..].find(&word) {
-                                        let abs_col = search_start + col;
-                                        // Check if it's a word boundary
-                                        let before_ok = abs_col == 0
-                                            || !line_content
-                                                .chars()
-                                                .nth(abs_col - 1)
-                                                .map(|c| c.is_alphanumeric() || c == '_')
-                                                .unwrap_or(false);
-                                        let after_ok = abs_col + word.len() >= line_content.len()
-                                            || !line_content
-                                                .chars()
-                                                .nth(abs_col + word.len())
-                                                .map(|c| c.is_alphanumeric() || c == '_')
-                                                .unwrap_or(false);
-
-                                        if before_ok && after_ok {
-                                            references.push(json!({
-                                                    "uri": doc_uri,
-                                                    "range": {
-                                                        "start": { "line": line_idx, "character": abs_col },
-                                                        "end": { "line": line_idx, "character": abs_col + word.len() }
-                                                    }
-                                                }));
-                                        }
-                                        search_start = abs_col + 1;
+                        if let Some(offset) = position_to_offset(&text, line, char) {
+                            let spans = semantic::usage_finder::find_usages(program, offset);
+                            for span in spans {
+                                let (start, end) = span_to_range(&text, span.start, span.end);
+                                references.push(json!({
+                                    "uri": uri_str,
+                                    "range": {
+                                        "start": start,
+                                        "end": end
                                     }
-                                }
+                                }));
                             }
                         }
                     }
@@ -484,6 +462,7 @@ pub fn start() -> io::Result<()> {
 
                     let state = state_clone.lock().unwrap();
                     if let Some(text) = state.documents.get(uri_str).cloned()
+                        && let Some(program) = state.programs.get(uri_str)
                         && let Some(pos_val) = pos_json
                         && !new_name.is_empty()
                     {
@@ -493,43 +472,21 @@ pub fn start() -> io::Result<()> {
                             .and_then(|c| c.as_u64())
                             .unwrap_or(0) as u32;
 
-                        if let Some(word) = get_word_at_position(&text, line, char) {
-                            // Search all documents for references to this symbol and replace them
-                            for (doc_uri, doc_text) in &state.documents {
-                                let mut edits = Vec::new();
-                                for (line_idx, line_content) in doc_text.lines().enumerate() {
-                                    let mut search_start = 0;
-                                    while let Some(col) = line_content[search_start..].find(&word) {
-                                        let abs_col = search_start + col;
-                                        // Check if it's a word boundary
-                                        let before_ok = abs_col == 0
-                                            || !line_content
-                                                .chars()
-                                                .nth(abs_col - 1)
-                                                .map(|c| c.is_alphanumeric() || c == '_')
-                                                .unwrap_or(false);
-                                        let after_ok = abs_col + word.len() >= line_content.len()
-                                            || !line_content
-                                                .chars()
-                                                .nth(abs_col + word.len())
-                                                .map(|c| c.is_alphanumeric() || c == '_')
-                                                .unwrap_or(false);
-
-                                        if before_ok && after_ok {
-                                            edits.push(json!({
-                                                "range": {
-                                                    "start": { "line": line_idx, "character": abs_col },
-                                                    "end": { "line": line_idx, "character": abs_col + word.len() }
-                                                },
-                                                "newText": new_name
-                                            }));
-                                        }
-                                        search_start = abs_col + 1;
-                                    }
-                                }
-                                if !edits.is_empty() {
-                                    changes.insert(doc_uri.clone(), edits);
-                                }
+                        if let Some(offset) = position_to_offset(&text, line, char) {
+                            let spans = semantic::usage_finder::find_usages(program, offset);
+                            let mut edits = Vec::new();
+                            for span in spans {
+                                let (start, end) = span_to_range(&text, span.start, span.end);
+                                edits.push(json!({
+                                    "range": {
+                                        "start": start,
+                                        "end": end
+                                    },
+                                    "newText": new_name
+                                }));
+                            }
+                            if !edits.is_empty() {
+                                changes.insert(uri_str.to_string(), edits);
                             }
                         }
                     }
@@ -1262,7 +1219,12 @@ fn extract_symbols(program: &Program, file_path: &Path) -> Vec<Symbol> {
 
     for stmt in &program.statements {
         match &stmt.kind {
-            StmtKind::Fn { name, params, .. } => {
+            StmtKind::Fn {
+                name,
+                params,
+                name_span,
+                ..
+            } => {
                 let params_str = params
                     .iter()
                     .map(|p| format!("{}: {}", p.name, p.ty.as_deref().unwrap_or("Any")))
@@ -1272,7 +1234,7 @@ fn extract_symbols(program: &Program, file_path: &Path) -> Vec<Symbol> {
                 symbols.push(Symbol {
                     name: name.clone(),
                     kind: SymbolKind::Function,
-                    span: stmt.span,
+                    span: *name_span,
                     detail: Some(detail),
                     file_path: file_path.to_path_buf(),
                     children: vec![],
@@ -1282,6 +1244,7 @@ fn extract_symbols(program: &Program, file_path: &Path) -> Vec<Symbol> {
                 name,
                 methods,
                 fields,
+                name_span,
                 ..
             } => {
                 let mut class_children = Vec::new();
@@ -1298,7 +1261,7 @@ fn extract_symbols(program: &Program, file_path: &Path) -> Vec<Symbol> {
                     class_children.push(Symbol {
                         name: method.name.clone(),
                         kind: SymbolKind::Method,
-                        span: method.body.span, // Use body span as fallback
+                        span: method.name_span,
                         detail: Some(detail),
                         file_path: file_path.to_path_buf(),
                         children: vec![],
@@ -1310,7 +1273,7 @@ fn extract_symbols(program: &Program, file_path: &Path) -> Vec<Symbol> {
                     class_children.push(Symbol {
                         name: field.name.clone(),
                         kind: SymbolKind::Field,
-                        span: stmt.span, // Fallback to class span
+                        span: field.name_span, // Assuming FieldDecl has name_span now (verified in parser)
                         detail: Some(format!("field {}", field.name)),
                         file_path: file_path.to_path_buf(),
                         children: vec![],
@@ -1320,28 +1283,35 @@ fn extract_symbols(program: &Program, file_path: &Path) -> Vec<Symbol> {
                 symbols.push(Symbol {
                     name: name.clone(),
                     kind: SymbolKind::Class,
-                    span: stmt.span,
+                    span: *name_span,
                     detail: Some(format!("class {}", name)),
                     file_path: file_path.to_path_buf(),
                     children: class_children,
                 });
             }
-            StmtKind::Interface { name, .. } => {
+            StmtKind::Interface {
+                name, name_span, ..
+            } => {
                 symbols.push(Symbol {
                     name: name.clone(),
                     kind: SymbolKind::Interface,
-                    span: stmt.span,
+                    span: *name_span,
                     detail: Some(format!("interface {}", name)),
                     file_path: file_path.to_path_buf(),
                     children: vec![],
                 });
             }
-            StmtKind::Let { name, ty, .. } => {
+            StmtKind::Let {
+                name,
+                ty,
+                name_span,
+                ..
+            } => {
                 let t = ty.clone().unwrap_or_else(|| "Any".to_string());
                 symbols.push(Symbol {
                     name: name.clone(),
                     kind: SymbolKind::Variable,
-                    span: stmt.span,
+                    span: *name_span,
                     detail: Some(format!("let {}: {}", name, t)),
                     file_path: file_path.to_path_buf(),
                     children: vec![],
@@ -1896,4 +1866,24 @@ fn collect_calls_from_in_expr(
             }));
         }
     }
+}
+
+fn position_to_offset(source: &str, line: u32, character: u32) -> Option<usize> {
+    let lines: Vec<&str> = source.lines().collect();
+    if line as usize >= lines.len() {
+        return None;
+    }
+
+    let mut offset = 0;
+    for (i, l) in lines.iter().enumerate() {
+        if i == line as usize {
+            // Relaxed check: if char is within line len + 1 (newline/EOF)
+            if character as usize > l.len() + 1 {
+                return None;
+            }
+            return Some(offset + character as usize);
+        }
+        offset += l.len() + 1; // +1 for newline
+    }
+    None
 }

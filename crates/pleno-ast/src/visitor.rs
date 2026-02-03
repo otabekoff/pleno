@@ -1,79 +1,85 @@
 use crate::*;
 
-pub trait Visitor<T: Default = ()> {
-    fn visit_program(&mut self, program: &Program) -> T {
+pub trait Visitor<'ast, T: Default = ()> {
+    fn visit_program(&mut self, program: &'ast Program) -> T {
         walk_program(self, program)
     }
 
-    fn visit_stmt(&mut self, stmt: &Stmt) -> T {
+    fn visit_stmt(&mut self, stmt: &'ast Stmt) -> T {
         walk_stmt(self, stmt)
     }
 
-    fn visit_expr(&mut self, expr: &Expr) -> T {
+    fn visit_expr(&mut self, expr: &'ast Expr) -> T {
         walk_expr(self, expr)
     }
 
-    fn visit_pattern(&mut self, pattern: &Pattern) -> T {
+    fn visit_pattern(&mut self, pattern: &'ast Pattern) -> T {
         walk_pattern(self, pattern)
     }
 
-    fn visit_param(&mut self, param: &Param) -> T {
+    fn visit_param(&mut self, param: &'ast Param) -> T {
         walk_param(self, param)
     }
 
-    fn visit_annotation(&mut self, annotation: &Annotation) -> T {
+    fn visit_annotation(&mut self, annotation: &'ast Annotation) -> T {
         walk_annotation(self, annotation)
     }
 
-    fn visit_generic_param(&mut self, param: &GenericParam) -> T {
+    fn visit_generic_param(&mut self, param: &'ast GenericParam) -> T {
         walk_generic_param(self, param)
     }
 
-    fn visit_field_decl(&mut self, field: &FieldDecl) -> T {
+    fn visit_field_decl(&mut self, field: &'ast FieldDecl) -> T {
         walk_field_decl(self, field)
     }
 
-    fn visit_function_decl(&mut self, decl: &FunctionDecl) -> T {
+    fn visit_function_decl(&mut self, decl: &'ast FunctionDecl) -> T {
         walk_function_decl(self, decl)
     }
 
-    fn visit_property_decl(&mut self, decl: &PropertyDecl) -> T {
+    fn visit_property_decl(&mut self, decl: &'ast PropertyDecl) -> T {
         walk_property_decl(self, decl)
     }
 
-    fn visit_enum_decl(&mut self, decl: &EnumDecl) -> T {
+    fn visit_enum_decl(&mut self, decl: &'ast EnumDecl) -> T {
         walk_enum_decl(self, decl)
     }
 
-    fn visit_enum_variant(&mut self, variant: &EnumVariant) -> T {
+    fn visit_enum_variant(&mut self, variant: &'ast EnumVariant) -> T {
         walk_enum_variant(self, variant)
     }
 
-    fn visit_catch_block(&mut self, catch: &CatchBlock) -> T {
+    fn visit_catch_block(&mut self, catch: &'ast CatchBlock) -> T {
         walk_catch_block(self, catch)
     }
 
-    fn visit_match_arm(&mut self, arm: &MatchArm) -> T {
+    fn visit_match_arm(&mut self, arm: &'ast MatchArm) -> T {
         walk_match_arm(self, arm)
     }
 
-    fn visit_call_arg(&mut self, arg: &CallArg) -> T {
+    fn visit_call_arg(&mut self, arg: &'ast CallArg) -> T {
         walk_call_arg(self, arg)
     }
 
-    fn visit_map_item(&mut self, item: &MapItem) -> T {
+    fn visit_map_item(&mut self, item: &'ast MapItem) -> T {
         walk_map_item(self, item)
     }
 }
 
-pub fn walk_program<V: Visitor<T> + ?Sized, T: Default>(visitor: &mut V, program: &Program) -> T {
+pub fn walk_program<'ast, V: Visitor<'ast, T> + ?Sized, T: Default>(
+    visitor: &mut V,
+    program: &'ast Program,
+) -> T {
     for stmt in &program.statements {
         visitor.visit_stmt(stmt);
     }
     T::default()
 }
 
-pub fn walk_stmt<V: Visitor<T> + ?Sized, T: Default>(visitor: &mut V, stmt: &Stmt) -> T {
+pub fn walk_stmt<'ast, V: Visitor<'ast, T> + ?Sized, T: Default>(
+    visitor: &mut V,
+    stmt: &'ast Stmt,
+) -> T {
     match &stmt.kind {
         StmtKind::Module { body, .. } => {
             if let Some(stmts) = body {
@@ -257,7 +263,10 @@ pub fn walk_stmt<V: Visitor<T> + ?Sized, T: Default>(visitor: &mut V, stmt: &Stm
     T::default()
 }
 
-pub fn walk_expr<V: Visitor<T> + ?Sized, T: Default>(visitor: &mut V, expr: &Expr) -> T {
+pub fn walk_expr<'ast, V: Visitor<'ast, T> + ?Sized, T: Default>(
+    visitor: &mut V,
+    expr: &'ast Expr,
+) -> T {
     match &expr.kind {
         ExprKind::Literal(_) => {}
         ExprKind::Ident(_) => {}
@@ -410,23 +419,26 @@ pub fn walk_expr<V: Visitor<T> + ?Sized, T: Default>(visitor: &mut V, expr: &Exp
     T::default()
 }
 
-pub fn walk_pattern<V: Visitor<T> + ?Sized, T: Default>(visitor: &mut V, pattern: &Pattern) -> T {
-    match pattern {
-        Pattern::Literal(_) => {}
-        Pattern::Ident(_) => {}
-        Pattern::Tuple(patterns) => {
+pub fn walk_pattern<'ast, V: Visitor<'ast, T> + ?Sized, T: Default>(
+    visitor: &mut V,
+    pattern: &'ast Pattern,
+) -> T {
+    match &pattern.kind {
+        PatternKind::Literal(_) => {}
+        PatternKind::Ident(_) => {}
+        PatternKind::Tuple(patterns) => {
             for p in patterns {
                 visitor.visit_pattern(p);
             }
         }
-        Pattern::Rest(_) => {}
-        Pattern::Underscore => {}
-        Pattern::Variant(_, patterns) => {
+        PatternKind::Rest(_) => {}
+        PatternKind::Underscore => {}
+        PatternKind::Variant(_, patterns) => {
             for p in patterns {
                 visitor.visit_pattern(p);
             }
         }
-        Pattern::Object(items, rest) => {
+        PatternKind::Object(items, rest) => {
             for (_, p) in items {
                 visitor.visit_pattern(p);
             }
@@ -434,8 +446,8 @@ pub fn walk_pattern<V: Visitor<T> + ?Sized, T: Default>(visitor: &mut V, pattern
                 visitor.visit_pattern(r);
             }
         }
-        Pattern::Type(_, _) => {}
-        Pattern::Or(patterns) => {
+        PatternKind::Type(_, _) => {}
+        PatternKind::Or(patterns) => {
             for p in patterns {
                 visitor.visit_pattern(p);
             }
@@ -444,16 +456,19 @@ pub fn walk_pattern<V: Visitor<T> + ?Sized, T: Default>(visitor: &mut V, pattern
     T::default()
 }
 
-pub fn walk_param<V: Visitor<T> + ?Sized, T: Default>(visitor: &mut V, param: &Param) -> T {
+pub fn walk_param<'ast, V: Visitor<'ast, T> + ?Sized, T: Default>(
+    visitor: &mut V,
+    param: &'ast Param,
+) -> T {
     if let Some(d) = &param.default {
         visitor.visit_expr(d);
     }
     T::default()
 }
 
-pub fn walk_annotation<V: Visitor<T> + ?Sized, T: Default>(
+pub fn walk_annotation<'ast, V: Visitor<'ast, T> + ?Sized, T: Default>(
     visitor: &mut V,
-    annotation: &Annotation,
+    annotation: &'ast Annotation,
 ) -> T {
     for arg in &annotation.args {
         visitor.visit_expr(arg);
@@ -461,16 +476,16 @@ pub fn walk_annotation<V: Visitor<T> + ?Sized, T: Default>(
     T::default()
 }
 
-pub fn walk_generic_param<V: Visitor<T> + ?Sized, T: Default>(
+pub fn walk_generic_param<'ast, V: Visitor<'ast, T> + ?Sized, T: Default>(
     _visitor: &mut V,
-    _param: &GenericParam,
+    _param: &'ast GenericParam,
 ) -> T {
     T::default()
 }
 
-pub fn walk_field_decl<V: Visitor<T> + ?Sized, T: Default>(
+pub fn walk_field_decl<'ast, V: Visitor<'ast, T> + ?Sized, T: Default>(
     visitor: &mut V,
-    field: &FieldDecl,
+    field: &'ast FieldDecl,
 ) -> T {
     if let Some(d) = &field.default {
         visitor.visit_expr(d);
@@ -481,9 +496,9 @@ pub fn walk_field_decl<V: Visitor<T> + ?Sized, T: Default>(
     T::default()
 }
 
-pub fn walk_function_decl<V: Visitor<T> + ?Sized, T: Default>(
+pub fn walk_function_decl<'ast, V: Visitor<'ast, T> + ?Sized, T: Default>(
     visitor: &mut V,
-    decl: &FunctionDecl,
+    decl: &'ast FunctionDecl,
 ) -> T {
     for g in &decl.generics {
         visitor.visit_generic_param(g);
@@ -498,9 +513,9 @@ pub fn walk_function_decl<V: Visitor<T> + ?Sized, T: Default>(
     T::default()
 }
 
-pub fn walk_property_decl<V: Visitor<T> + ?Sized, T: Default>(
+pub fn walk_property_decl<'ast, V: Visitor<'ast, T> + ?Sized, T: Default>(
     visitor: &mut V,
-    decl: &PropertyDecl,
+    decl: &'ast PropertyDecl,
 ) -> T {
     if let Some(g) = &decl.getter {
         visitor.visit_function_decl(g);
@@ -514,7 +529,10 @@ pub fn walk_property_decl<V: Visitor<T> + ?Sized, T: Default>(
     T::default()
 }
 
-pub fn walk_enum_decl<V: Visitor<T> + ?Sized, T: Default>(visitor: &mut V, decl: &EnumDecl) -> T {
+pub fn walk_enum_decl<'ast, V: Visitor<'ast, T> + ?Sized, T: Default>(
+    visitor: &mut V,
+    decl: &'ast EnumDecl,
+) -> T {
     for v in &decl.variants {
         visitor.visit_enum_variant(v);
     }
@@ -527,9 +545,9 @@ pub fn walk_enum_decl<V: Visitor<T> + ?Sized, T: Default>(visitor: &mut V, decl:
     T::default()
 }
 
-pub fn walk_enum_variant<V: Visitor<T> + ?Sized, T: Default>(
+pub fn walk_enum_variant<'ast, V: Visitor<'ast, T> + ?Sized, T: Default>(
     visitor: &mut V,
-    variant: &EnumVariant,
+    variant: &'ast EnumVariant,
 ) -> T {
     if let Some(params) = &variant.params {
         for p in params {
@@ -539,15 +557,18 @@ pub fn walk_enum_variant<V: Visitor<T> + ?Sized, T: Default>(
     T::default()
 }
 
-pub fn walk_catch_block<V: Visitor<T> + ?Sized, T: Default>(
+pub fn walk_catch_block<'ast, V: Visitor<'ast, T> + ?Sized, T: Default>(
     visitor: &mut V,
-    catch: &CatchBlock,
+    catch: &'ast CatchBlock,
 ) -> T {
     visitor.visit_stmt(&catch.body);
     T::default()
 }
 
-pub fn walk_match_arm<V: Visitor<T> + ?Sized, T: Default>(visitor: &mut V, arm: &MatchArm) -> T {
+pub fn walk_match_arm<'ast, V: Visitor<'ast, T> + ?Sized, T: Default>(
+    visitor: &mut V,
+    arm: &'ast MatchArm,
+) -> T {
     visitor.visit_pattern(&arm.pattern);
     if let Some(g) = &arm.guard {
         visitor.visit_expr(g);
@@ -556,7 +577,10 @@ pub fn walk_match_arm<V: Visitor<T> + ?Sized, T: Default>(visitor: &mut V, arm: 
     T::default()
 }
 
-pub fn walk_call_arg<V: Visitor<T> + ?Sized, T: Default>(visitor: &mut V, arg: &CallArg) -> T {
+pub fn walk_call_arg<'ast, V: Visitor<'ast, T> + ?Sized, T: Default>(
+    visitor: &mut V,
+    arg: &'ast CallArg,
+) -> T {
     match arg {
         CallArg::Positional(e) => {
             visitor.visit_expr(e);
@@ -572,7 +596,10 @@ pub fn walk_call_arg<V: Visitor<T> + ?Sized, T: Default>(visitor: &mut V, arg: &
     T::default()
 }
 
-pub fn walk_map_item<V: Visitor<T> + ?Sized, T: Default>(visitor: &mut V, item: &MapItem) -> T {
+pub fn walk_map_item<'ast, V: Visitor<'ast, T> + ?Sized, T: Default>(
+    visitor: &mut V,
+    item: &'ast MapItem,
+) -> T {
     match item {
         MapItem::Entry(_, e) => {
             visitor.visit_expr(e);

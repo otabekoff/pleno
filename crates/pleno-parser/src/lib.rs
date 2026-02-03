@@ -167,6 +167,10 @@ impl Parser {
         Expr::new(kind, Span::new(start.start, self.previous_span().end))
     }
 
+    fn wrap_pattern(&self, kind: pleno_ast::PatternKind, start: Span) -> pleno_ast::Pattern {
+        pleno_ast::Pattern::new(kind, Span::new(start.start, self.previous_span().end))
+    }
+
     fn wrap_stmt(&mut self, kind: StmtKind, start: Span) -> Stmt {
         let span = Span::new(start.start, self.previous_span().end);
         let start_line = self.get_line(span.start);
@@ -271,6 +275,7 @@ impl Parser {
                     Ok(self.wrap_stmt(
                         StmtKind::Fn {
                             name: decl.name,
+                            name_span: decl.name_span,
                             generics: decl.generics,
                             params: decl.params,
                             body: decl.body,
@@ -363,6 +368,7 @@ impl Parser {
         self.advance(); // let
         let is_lazy = self.matches(&TokenKind::KeywordLazy);
         let mutable = self.matches(&TokenKind::KeywordMut) || forced_mutable;
+        let name_span = self.peek_span();
         let name = match self.advance().kind.clone() {
             TokenKind::Ident(value) => value,
             other => {
@@ -385,6 +391,7 @@ impl Parser {
         Ok(self.wrap_stmt(
             StmtKind::Let {
                 name,
+                name_span,
                 mutable,
                 ty,
                 value,
@@ -418,7 +425,7 @@ impl Parser {
         }
 
         let is_deep = self.matches(&TokenKind::KeywordDeep);
-
+        let name_span = self.peek_span();
         let name = match self.advance().kind.clone() {
             TokenKind::Ident(value) => value,
             other => {
@@ -440,6 +447,7 @@ impl Parser {
         };
         Ok(StmtKind::Let {
             name,
+            name_span,
             mutable: false,
             ty,
             value,
@@ -509,6 +517,7 @@ impl Parser {
     fn parse_module_stmt(&mut self, doc: Option<String>) -> Result<Stmt, ParseError> {
         let start_span = self.peek_span();
         self.advance();
+        let name_span = self.peek_span();
         let name = match self.advance().kind.clone() {
             TokenKind::Ident(value) => value,
             other => {
@@ -523,6 +532,7 @@ impl Parser {
             Ok(self.wrap_stmt(
                 StmtKind::Module {
                     name,
+                    name_span,
                     body: None,
                     doc,
                 },
@@ -531,17 +541,19 @@ impl Parser {
         } else {
             self.expect(TokenKind::LBrace, "Expected '{' or ';' after module name")?;
             let mut body = Vec::new();
-            while !self.matches(&TokenKind::RBrace) {
+            while !self.check(&TokenKind::RBrace) {
                 if self.is_at_end() {
                     return Err(
-                        self.error("Unterminated module block".to_string(), self.peek_span())
+                        self.error("Unterminated module body".to_string(), self.previous_span())
                     );
                 }
                 body.push(self.parse_stmt()?);
             }
+            self.expect(TokenKind::RBrace, "Expected '}' after module body")?;
             Ok(self.wrap_stmt(
                 StmtKind::Module {
                     name,
+                    name_span,
                     body: Some(body),
                     doc,
                 },
@@ -563,6 +575,7 @@ impl Parser {
     fn parse_macro_decl_stmt(&mut self, doc: Option<String>) -> Result<Stmt, ParseError> {
         let start_span = self.peek_span();
         self.advance(); // macro
+        let name_span = self.peek_span();
         let name = match self.advance().kind.clone() {
             TokenKind::Ident(value) => value,
             other => {
@@ -598,6 +611,7 @@ impl Parser {
         Ok(self.wrap_stmt(
             StmtKind::MacroDecl {
                 name,
+                name_span,
                 params,
                 body,
                 doc,
@@ -625,6 +639,7 @@ impl Parser {
         Ok(self.wrap_stmt(
             StmtKind::Fn {
                 name: decl.name,
+                name_span: decl.name_span,
                 generics: decl.generics,
                 params: decl.params,
                 body: decl.body,
@@ -890,6 +905,7 @@ impl Parser {
     ) -> Result<Stmt, ParseError> {
         let start_span = self.peek_span();
         self.advance(); // interface
+        let name_span = self.peek_span();
         let name = match self.advance().kind.clone() {
             TokenKind::Ident(value) => value,
             other => {
@@ -1055,6 +1071,7 @@ impl Parser {
         Ok(self.wrap_stmt(
             StmtKind::Interface {
                 name,
+                name_span,
                 generics,
                 methods,
                 properties,
@@ -1073,6 +1090,7 @@ impl Parser {
     ) -> Result<Stmt, ParseError> {
         let start_span = self.peek_span();
         self.advance(); // enum
+        let name_span = self.peek_span();
         let name = match self.advance().kind.clone() {
             TokenKind::Ident(value) => value,
             other => {
@@ -1139,6 +1157,7 @@ impl Parser {
                     params.push(pleno_ast::Param {
                         span: param_span,
                         name: param_name,
+                        name_span: param_name_token.span,
                         ty,
                         default: None,
                         is_variadic: false,
@@ -1160,6 +1179,7 @@ impl Parser {
             variants.push(pleno_ast::EnumVariant {
                 span: variant_span,
                 name: variant_name,
+                name_span: variant_token.span,
                 params,
                 doc: None,
             });
@@ -1219,7 +1239,9 @@ impl Parser {
 
         Ok(self.wrap_stmt(
             StmtKind::Enum(pleno_ast::EnumDecl {
+                span: Span::new(start_span.start, self.previous_span().end),
                 name,
+                name_span,
                 variants,
                 methods,
                 annotations,
@@ -1251,32 +1273,27 @@ impl Parser {
         let try_branch = Box::new(self.parse_stmt()?);
         let mut catch_branches = Vec::new();
         while self.matches(&TokenKind::KeywordCatch) {
+            let catch_start = self.previous_span(); // after 'catch'
             self.expect(TokenKind::LParen, "Expected '(' after 'catch'")?;
+            let name_span = self.peek_span();
             let name = match self.advance().kind.clone() {
                 TokenKind::Ident(name) => name,
-                other => {
-                    return Err(self.error(
-                        format!("Expected identifier in catch, found {other:?}"),
-                        self.previous_span(),
-                    ));
-                }
+                _ => return Err(self.error_at_current("Expected name after '('".to_string())),
             };
             let ty = if self.matches(&TokenKind::Colon) {
-                match self.advance().kind.clone() {
-                    TokenKind::Ident(ty) => Some(ty),
-                    other => {
-                        return Err(self.error(
-                            format!("Expected type name in catch, found {other:?}"),
-                            self.previous_span(),
-                        ));
-                    }
-                }
+                Some(self.parse_type()?)
             } else {
                 None
             };
-            self.expect(TokenKind::RParen, "Expected ')' after catch parameters")?;
+            self.expect(TokenKind::RParen, "Expected ')' after catch parameter")?;
             let body = Box::new(self.parse_stmt()?);
-            catch_branches.push(pleno_ast::CatchBlock { name, ty, body });
+            catch_branches.push(pleno_ast::CatchBlock {
+                span: Span::new(catch_start.start, self.previous_span().end),
+                name,
+                name_span,
+                ty,
+                body,
+            });
         }
         let finally_branch = if self.matches(&TokenKind::KeywordFinally) {
             Some(Box::new(self.parse_stmt()?))
@@ -1468,6 +1485,7 @@ impl Parser {
     ) -> Result<Stmt, ParseError> {
         let start_span = self.peek_span();
         self.advance();
+        let name_span = self.peek_span();
         let name = match self.advance().kind.clone() {
             TokenKind::Ident(value) => value,
             other => {
@@ -1634,6 +1652,7 @@ impl Parser {
                 methods.push(pleno_ast::FunctionDecl {
                     span: method_span,
                     name: format!("operator{}", op_symbol),
+                    name_span: self.previous_span(),
                     generics: Vec::new(),
                     params,
                     return_ty,
@@ -1764,6 +1783,7 @@ impl Parser {
                 methods.push(pleno_ast::FunctionDecl {
                     span: constructor_span,
                     name,
+                    name_span: self.tokens[self.index - 5].span, // 'constructor' keyword. Approximate.
                     generics: Vec::new(),
                     params,
                     return_ty: None,
@@ -1805,6 +1825,7 @@ impl Parser {
             fields.push(pleno_ast::FieldDecl {
                 span: field_span,
                 name,
+                name_span,
                 ty,
                 default,
                 is_static,
@@ -1822,6 +1843,7 @@ impl Parser {
         Ok(self.wrap_stmt(
             StmtKind::Class {
                 name,
+                name_span,
                 generics,
                 fields,
                 methods,
@@ -1845,7 +1867,9 @@ impl Parser {
         annotations: Vec<pleno_ast::Annotation>,
         doc: Option<String>,
     ) -> Result<pleno_ast::PropertyDecl, ParseError> {
+        let start_span = self.peek_span();
         self.advance(); // consume 'property'
+        let name_span = self.peek_span();
         let name = match self.advance().kind.clone() {
             TokenKind::Ident(value) => value,
             TokenKind::KeywordGet => "get".to_string(),
@@ -1887,6 +1911,7 @@ impl Parser {
                 getter = Some(pleno_ast::FunctionDecl {
                     span: getter_span,
                     name: format!("get_{}", name),
+                    name_span: self.previous_span(), // 'get' keyword
                     generics: Vec::new(),
                     params: Vec::new(),
                     return_ty: ty.clone(),
@@ -1907,6 +1932,7 @@ impl Parser {
                     ));
                 }
                 self.expect(TokenKind::LParen, "Expected '(' after 'set'")?;
+                let param_name_span = self.peek_span();
                 let param_name = match self.advance().kind.clone() {
                     TokenKind::Ident(value) => value,
                     other => {
@@ -1927,10 +1953,12 @@ impl Parser {
                 setter = Some(pleno_ast::FunctionDecl {
                     span: setter_span,
                     name: format!("set_{}", name),
+                    name_span: self.tokens[self.index - 7].span, // 'set' keyword. Approximate.
                     generics: Vec::new(),
                     params: vec![pleno_ast::Param {
-                        span: Span::new(self.peek().span.start, self.previous_span().end), // Approx span for param
+                        span: param_name_span,
                         name: param_name,
+                        name_span: param_name_span,
                         ty: ty.clone(),
                         default: None,
                         is_variadic: false,
@@ -1960,10 +1988,11 @@ impl Parser {
 
         self.expect(TokenKind::RBrace, "Expected '}' after property body")?;
 
-        let prop_span = Span::new(self.peek().span.start, self.previous_span().end);
+        let property_span = Span::new(start_span.start, self.previous_span().end);
         Ok(pleno_ast::PropertyDecl {
-            span: prop_span,
+            span: property_span,
             name,
+            name_span,
             ty,
             getter,
             setter,
@@ -2100,6 +2129,7 @@ impl Parser {
         Ok(pleno_ast::FunctionDecl {
             span: decl_span,
             name,
+            name_span: name_token.span,
             generics,
             params,
             return_ty,
@@ -2165,6 +2195,7 @@ impl Parser {
         Ok(pleno_ast::FunctionDecl {
             span: decl_span,
             name,
+            name_span: name_token.span,
             generics: Vec::new(),
             params,
             return_ty: None,
@@ -2292,6 +2323,7 @@ impl Parser {
             params.push(pleno_ast::Param {
                 span: param_span,
                 name,
+                name_span: name_token.span,
                 ty,
                 default,
                 is_variadic,
@@ -2334,6 +2366,7 @@ impl Parser {
             params.push(pleno_ast::Param {
                 span: param_span,
                 name,
+                name_span: name_token.span,
                 ty: None,
                 default: None,
                 is_variadic: false,
@@ -2720,6 +2753,7 @@ impl Parser {
             params.push(pleno_ast::Param {
                 span: param_span,
                 name,
+                name_span: name_token.span,
                 ty: None,
                 default: None,
                 is_variadic: false,
@@ -3411,7 +3445,12 @@ impl Parser {
             }
 
             let pattern = if patterns.len() > 1 {
-                pleno_ast::Pattern::Or(patterns)
+                let start = patterns[0].span;
+                let end = patterns.last().unwrap().span;
+                pleno_ast::Pattern::new(
+                    pleno_ast::PatternKind::Or(patterns),
+                    Span::new(start.start, end.end),
+                )
             } else {
                 patterns.remove(0)
             };
@@ -3426,6 +3465,7 @@ impl Parser {
             self.expect(TokenKind::FatArrow, "Expected '=>' after pattern")?;
             let body = self.parse_expr()?;
             arms.push(pleno_ast::MatchArm {
+                span: Span::new(pattern.span.start, self.previous_span().end),
                 pattern,
                 guard,
                 body,
@@ -3447,6 +3487,7 @@ impl Parser {
     }
 
     fn parse_pattern_inner(&mut self) -> Result<pleno_ast::Pattern, ParseError> {
+        let start_span = self.peek_span();
         let mut patterns = vec![self.parse_primary_pattern()?];
 
         while self.matches(&TokenKind::Pipe) {
@@ -3456,7 +3497,7 @@ impl Parser {
         if patterns.len() == 1 {
             Ok(patterns.pop().unwrap())
         } else {
-            Ok(pleno_ast::Pattern::Or(patterns))
+            Ok(self.wrap_pattern(pleno_ast::PatternKind::Or(patterns), start_span))
         }
     }
 
@@ -3468,9 +3509,12 @@ impl Parser {
     }
 
     fn parse_primary_pattern_inner(&mut self) -> Result<pleno_ast::Pattern, ParseError> {
+        let start_span = self.peek_span();
         let token = self.advance();
         match token.kind.clone() {
-            TokenKind::Underscore => Ok(pleno_ast::Pattern::Underscore),
+            TokenKind::Underscore => {
+                Ok(self.wrap_pattern(pleno_ast::PatternKind::Underscore, start_span))
+            }
             TokenKind::Ident(mut name) => {
                 let mut qualified = false;
                 while self.matches(&TokenKind::Dot) {
@@ -3497,12 +3541,18 @@ impl Parser {
                         }
                     }
                     self.expect(TokenKind::RParen, "Expected ')' after variant pattern")?;
-                    return Ok(pleno_ast::Pattern::Variant(name, patterns));
+                    return Ok(self.wrap_pattern(
+                        pleno_ast::PatternKind::Variant(name, patterns),
+                        start_span,
+                    ));
                 }
 
                 // If it was qualified, it's a variant pattern even without parameters
                 if qualified {
-                    return Ok(pleno_ast::Pattern::Variant(name, Vec::new()));
+                    return Ok(self.wrap_pattern(
+                        pleno_ast::PatternKind::Variant(name, Vec::new()),
+                        start_span,
+                    ));
                 }
 
                 // Type pattern: Type ident or Type _
@@ -3515,10 +3565,12 @@ impl Parser {
                         TokenKind::Underscore => None,
                         _ => unreachable!(),
                     };
-                    return Ok(pleno_ast::Pattern::Type(name, binding));
+                    return Ok(
+                        self.wrap_pattern(pleno_ast::PatternKind::Type(name, binding), start_span)
+                    );
                 }
 
-                Ok(pleno_ast::Pattern::Ident(name))
+                Ok(self.wrap_pattern(pleno_ast::PatternKind::Ident(name), start_span))
             }
             TokenKind::LBrace => {
                 let mut patterns = Vec::new();
@@ -3526,6 +3578,7 @@ impl Parser {
                 if !matches!(self.peek_kind(), TokenKind::RBrace) {
                     loop {
                         if matches!(self.peek_kind(), TokenKind::DotDot | TokenKind::Ellipsis) {
+                            let dot_start = self.peek_span();
                             self.advance();
                             let name = if matches!(self.peek_kind(), TokenKind::Ident(_)) {
                                 match &self.advance().kind {
@@ -3535,7 +3588,9 @@ impl Parser {
                             } else {
                                 None
                             };
-                            rest = Some(Box::new(pleno_ast::Pattern::Rest(name)));
+                            rest = Some(Box::new(
+                                self.wrap_pattern(pleno_ast::PatternKind::Rest(name), dot_start),
+                            ));
                             if self.matches(&TokenKind::Comma)
                                 && !matches!(self.peek_kind(), TokenKind::RBrace)
                             {
@@ -3564,7 +3619,10 @@ impl Parser {
                             self.parse_pattern()?
                         } else {
                             // Shorthand: { x } is { x: x }
-                            pleno_ast::Pattern::Ident(field_name.clone())
+                            self.wrap_pattern(
+                                pleno_ast::PatternKind::Ident(field_name.clone()),
+                                self.previous_span(),
+                            )
                         };
 
                         patterns.push((field_name, pattern));
@@ -3575,7 +3633,7 @@ impl Parser {
                     }
                 }
                 self.expect(TokenKind::RBrace, "Expected '}' after object pattern")?;
-                Ok(pleno_ast::Pattern::Object(patterns, rest))
+                Ok(self.wrap_pattern(pleno_ast::PatternKind::Object(patterns, rest), start_span))
             }
             TokenKind::LBracket => {
                 let mut items = Vec::new();
@@ -3591,7 +3649,7 @@ impl Parser {
                     }
                 }
                 self.expect(TokenKind::RBracket, "Expected ']' after array pattern")?;
-                Ok(pleno_ast::Pattern::Tuple(items))
+                Ok(self.wrap_pattern(pleno_ast::PatternKind::Tuple(items), start_span))
             }
             TokenKind::LParen => {
                 let mut items = Vec::new();
@@ -3607,18 +3665,29 @@ impl Parser {
                     }
                 }
                 self.expect(TokenKind::RParen, "Expected ')' after tuple pattern")?;
-                Ok(pleno_ast::Pattern::Tuple(items))
+                Ok(self.wrap_pattern(pleno_ast::PatternKind::Tuple(items), start_span))
             }
 
-            TokenKind::Int(val) => Ok(pleno_ast::Pattern::Literal(pleno_ast::Literal::Int(val))),
-            TokenKind::Float(val) => {
-                Ok(pleno_ast::Pattern::Literal(pleno_ast::Literal::Float(val)))
-            }
-            TokenKind::String(val) => {
-                Ok(pleno_ast::Pattern::Literal(pleno_ast::Literal::String(val)))
-            }
-            TokenKind::Bool(val) => Ok(pleno_ast::Pattern::Literal(pleno_ast::Literal::Bool(val))),
-            TokenKind::Null => Ok(pleno_ast::Pattern::Literal(pleno_ast::Literal::Null)),
+            TokenKind::Int(val) => Ok(self.wrap_pattern(
+                pleno_ast::PatternKind::Literal(pleno_ast::Literal::Int(val)),
+                start_span,
+            )),
+            TokenKind::Float(val) => Ok(self.wrap_pattern(
+                pleno_ast::PatternKind::Literal(pleno_ast::Literal::Float(val)),
+                start_span,
+            )),
+            TokenKind::String(val) => Ok(self.wrap_pattern(
+                pleno_ast::PatternKind::Literal(pleno_ast::Literal::String(val)),
+                start_span,
+            )),
+            TokenKind::Bool(val) => Ok(self.wrap_pattern(
+                pleno_ast::PatternKind::Literal(pleno_ast::Literal::Bool(val)),
+                start_span,
+            )),
+            TokenKind::Null => Ok(self.wrap_pattern(
+                pleno_ast::PatternKind::Literal(pleno_ast::Literal::Null),
+                start_span,
+            )),
             TokenKind::DotDot | TokenKind::Ellipsis => {
                 let name = if matches!(self.peek_kind(), TokenKind::Ident(_)) {
                     match &self.advance().kind {
@@ -3628,7 +3697,7 @@ impl Parser {
                 } else {
                     None
                 };
-                Ok(pleno_ast::Pattern::Rest(name))
+                Ok(self.wrap_pattern(pleno_ast::PatternKind::Rest(name), start_span))
             }
             other => Err(self.error(
                 format!("Expected pattern, found {other:?}"),
@@ -3756,6 +3825,7 @@ impl Parser {
     fn parse_type_alias_stmt(&mut self, doc: Option<String>) -> Result<Stmt, ParseError> {
         let start_span = self.peek_span();
         self.advance(); // type
+        let name_span = self.peek_span();
         let name = match self.advance().kind.clone() {
             TokenKind::Ident(value) => value,
             other => {
@@ -3768,7 +3838,15 @@ impl Parser {
         self.expect(TokenKind::Equal, "Expected '=' after type alias name")?;
         let ty = self.parse_type()?;
         self.expect(TokenKind::Semicolon, "Expected ';' after type alias")?;
-        Ok(self.wrap_stmt(StmtKind::TypeAlias { name, ty, doc }, start_span))
+        Ok(self.wrap_stmt(
+            StmtKind::TypeAlias {
+                name,
+                name_span,
+                ty,
+                doc,
+            },
+            start_span,
+        ))
     }
 
     fn parse_type(&mut self) -> Result<String, ParseError> {

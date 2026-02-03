@@ -19,9 +19,13 @@ rand = { workspace = true }
 regex = { workspace = true }
 chrono = { workspace = true }
 pleno-diagnostics = { workspace = true }
-mio = { workspace = true }
+mio = { workspace = true, optional = true }
 sha2 = { workspace = true }
 hex = { workspace = true }
+
+[features]
+default = ["net"]
+net = ["dep:mio", "pleno-value/net"]
 
 [dev-dependencies]
 pleno-stdlib = { workspace = true }
