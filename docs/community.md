@@ -3,16 +3,18 @@
 Pleno is an ambitious, modern programming language project, but it is also intentionally **minimalistic** in how it is built and maintained.
 
 The first thing I want to say is
+
 > Yes, I am escaping from taking risks and responsibility, spending money and my precious time.
 
 I am looking for **curious, skilled, and thoughtful people** who want to help build something meaningful in the open-source world — not just another tool, but a language with long-term vision.
 
 If you are interested in:
-- Programming language design  
-- Virtual machines, compilers, or runtimes  
-- Tooling (LSP, debugger, formatter)  
-- Documentation and learning materials  
-- Or simply helping an open-source ecosystem grow  
+
+- Programming language design
+- Virtual machines, compilers, or runtimes
+- Tooling (LSP, debugger, formatter)
+- Documentation and learning materials
+- Or simply helping an open-source ecosystem grow
 
 You are very welcome here.
 
@@ -23,20 +25,21 @@ You are very welcome here.
 Pleno is built with a very clear philosophy:
 
 > **Focus on the language itself.  
-Not on surrounding bureaucracy.**
+> Not on surrounding bureaucracy.**
 
 I deliberately avoid building and maintaining things that create:
-- financial overhead  
-- infrastructure burden  
-- long-term operational cost  
-- or large time sinks unrelated to language design  
+
+- financial overhead
+- infrastructure burden
+- long-term operational cost
+- or large time sinks unrelated to language design
 
 This is why Pleno does **not** have:
 
-- A central package registry  
-- Winget, Scoop, Brew, Apt, or similar installers  
-- Complex cloud infrastructure  
-- Paid hosting requirements  
+- A central package registry
+- Winget, Scoop, Brew, Apt, or similar installers
+- Complex cloud infrastructure
+- Paid hosting requirements
 
 All of those systems require constant money, time, legal, and operational effort — and they distract from the actual goal:
 
@@ -47,17 +50,19 @@ All of those systems require constant money, time, legal, and operational effort
 ## Why this approach
 
 Most language projects fail not because of bad design, but because of:
-- infrastructure burnout  
-- funding pressure  
-- maintenance overload  
+
+- infrastructure burnout
+- funding pressure
+- maintenance overload
 
 Pleno is designed to survive **without money**.
 
 By keeping everything simple, Git-based, and decentralized:
-- Anyone can contribute  
-- Anyone can host  
-- Anyone can fork  
-- Nobody is blocked by payments or servers  
+
+- Anyone can contribute
+- Anyone can host
+- Anyone can fork
+- Nobody is blocked by payments or servers
 
 This keeps Pleno free, open, and sustainable.
 
@@ -79,10 +84,11 @@ For now, the priority is simple:
 That said, this is not a “never”.
 
 If Pleno reaches a stable stage, I may return to tooling and distribution **step by step**, such as:
-- publishing the VS Code extension officially  
-- improving editor support  
-- adding better installation options  
-- and other ecosystem pieces  
+
+- publishing the VS Code extension officially
+- improving editor support
+- adding better installation options
+- and other ecosystem pieces
 
 But only after the core language is strong enough to justify that effort.
 
@@ -93,20 +99,22 @@ But only after the core language is strong enough to justify that effort.
 While Pleno is designed to run without cost, support is always appreciated.
 
 If you are:
-- a sponsor  
-- a developer  
-- a maintainer  
-- a teacher  
-- or just someone who believes in this idea  
+
+- a sponsor
+- a developer
+- a maintainer
+- a teacher
+- or just someone who believes in this idea
 
 You are welcome to help in any way you can.
 
 This can be:
-- contributing code  
-- improving documentation  
-- testing  
-- building tools  
-- or providing financial support  
+
+- contributing code
+- improving documentation
+- testing
+- building tools
+- or providing financial support
 
 There is no obligation — only shared curiosity and respect for good engineering.
 
@@ -118,15 +126,15 @@ Pleno is not a product.
 It is a **craft**.
 
 If you enjoy building things that are:
-- elegant  
-- deep  
-- long-lasting  
-- and truly useful  
+
+- elegant
+- deep
+- long-lasting
+- and truly useful
 
 Then you are already part of the kind of community this project wants.
 
 Welcome.
-
 
 ## Community
 
@@ -151,7 +159,7 @@ A showcase of projects created by our community.
 
 - **[Pleno Playground](/playground)**: The official online REPL for Pleno.
 - **[Pleno LSP](/specs/tooling-cli)**: High-performance language server.
-- **[Pleno Registry](https://packages.pleno-lang.org)**: The official package registry.
+- **[GitHub Releases](https://github.com/otabekoff/pleno/releases)**: Download binaries and VS Code extension.
 
 ---
 
