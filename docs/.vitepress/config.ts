@@ -19,10 +19,6 @@ export default defineConfig({
   themeConfig: {
     search: {
       provider: 'local',
-      // options: {
-      //   miniSearch: {
-      //   }
-      // }
     },
     outline: {
       level: "deep",
@@ -75,20 +71,71 @@ export default defineConfig({
       ],
       '/stdlib/': [
         {
-          text: 'Standard Library',
+          text: 'Core',
           items: [
-            // TODO: This should be auto-generated or listed manually if generator doesn't update config
-            // For now, linking to index if generated, or listing known modules
-            { text: 'Core', link: '/stdlib/core' },
-            { text: 'IO', link: '/stdlib/io' },
-            { text: 'HTTP', link: '/stdlib/http' },
-            { text: 'JSON', link: '/stdlib/json' },
+            { text: 'Overview', link: '/stdlib/' },
+            { text: 'Core Types', link: '/stdlib/core' },
             { text: 'Math', link: '/stdlib/math' },
-            { text: 'Regex', link: '/stdlib/regex' },
+            { text: 'Random', link: '/stdlib/random' },
             { text: 'Time', link: '/stdlib/time' },
+          ]
+        },
+        {
+          text: 'I/O & System',
+          items: [
+            { text: 'IO', link: '/stdlib/io' },
+            { text: 'Path', link: '/stdlib/path' },
             { text: 'OS', link: '/stdlib/os' },
+            { text: 'Process', link: '/stdlib/process' },
+            { text: 'Dotenv', link: '/stdlib/dotenv' },
+          ]
+        },
+        {
+          text: 'Network',
+          items: [
+            { text: 'HTTP', link: '/stdlib/http' },
+            { text: 'Net', link: '/stdlib/net' },
+            { text: 'URL', link: '/stdlib/url' },
+          ]
+        },
+        {
+          text: 'Data Formats',
+          items: [
+            { text: 'JSON', link: '/stdlib/json' },
+            { text: 'YAML', link: '/stdlib/yaml' },
+            { text: 'TOML', link: '/stdlib/toml' },
+            { text: 'XML', link: '/stdlib/xml' },
+            { text: 'CSV', link: '/stdlib/csv' },
+            { text: 'Base64', link: '/stdlib/base64' },
+          ]
+        },
+        {
+          text: 'Async & Concurrency',
+          items: [
+            { text: 'Promise', link: '/stdlib/promise' },
+            { text: 'Concurrency', link: '/stdlib/concurrency' },
+          ]
+        },
+        {
+          text: 'Security & Crypto',
+          items: [
+            { text: 'Crypto', link: '/stdlib/crypto' },
+            { text: 'UUID', link: '/stdlib/uuid' },
+          ]
+        },
+        {
+          text: 'Testing & Debugging',
+          items: [
+            { text: 'Test', link: '/stdlib/test' },
             { text: 'Log', link: '/stdlib/log' },
             { text: 'Benchmark', link: '/stdlib/benchmark' },
+          ]
+        },
+        {
+          text: 'Advanced',
+          items: [
+            { text: 'Reflect', link: '/stdlib/reflect' },
+            { text: 'Regex', link: '/stdlib/regex' },
           ]
         }
       ],
