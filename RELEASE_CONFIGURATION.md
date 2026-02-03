@@ -58,8 +58,14 @@ This allows the workflow to update your Homebrew formula in `otabekoff/homebrew-
 | :------------------- | :-------- | :---------------------------------------------------------------- |
 | `GITHUB_TOKEN`       | Automatic | Built-in token. No setup needed (just the permissions in step 1). |
 | `DOCKERHUB_USERNAME` | Secret    | Your Docker Hub ID.                                               |
-| `DOCKERHUB_TOKEN`    | Secret    | Access token for pushing images.                                  |
+| `DOCKERHUB_TOKEN`    | Secret    | Access token (the one you just generated).                        |
 | `HOMEBREW_TAP_TOKEN` | Secret    | GitHub PAT with `repo` scope to update your Formula tap.          |
+
+> [!IMPORTANT]
+> **What do you do in the workflow file?**
+> You don't need to change anything in `.github/workflows/release.yml`.
+> The workflow is already programmed to automatically look for these exact secret names: `DOCKERHUB_USERNAME`, `DOCKERHUB_TOKEN`, and `HOMEBREW_TAP_TOKEN`.
+> As long as you followed the naming in **Step 2** of this guide, it will work perfectly!
 
 ---
 
