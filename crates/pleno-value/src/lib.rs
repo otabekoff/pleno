@@ -523,7 +523,11 @@ impl GcObject for Value {
             Value::Set(s) => gc.mark_object(&s.to_gc_object()),
             Value::Object(o) => gc.mark_object(&o.to_gc_object()),
             Value::Partial { callee, args, .. } => {
-                callee.mark(gc);
+                // Defensive check: verify pointer alignment before marking
+                let ptr = callee.as_ref() as *const Value;
+                if ptr.align_offset(std::mem::align_of::<Value>()) == 0 {
+                    callee.mark(gc);
+                }
                 for v in args {
                     v.mark(gc);
                 }

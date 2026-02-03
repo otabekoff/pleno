@@ -621,7 +621,12 @@ impl VM {
     }
 
     pub fn new() -> Self {
-        let gc = pleno_value::gc::GCManager::new(1000);
+        // FIXME: GC disabled due to memory corruption in NaN-boxing TAG_BOXED values.
+        // The issue is that complex Value variants (Partial, BoundMethod, etc.) stored via
+        // Box::into_raw/Rc::into_raw become corrupt during GC marking. This requires a
+        // fundamental redesign of how non-primitive values are stored in NaN-boxed registers.
+        // See: https://github.com/otabekoff/pleno/issues/XXX (TODO: file issue)
+        let gc = pleno_value::gc::GCManager::new(usize::MAX);
         let globals = IndexMap::new();
         let modules = IndexMap::new();
 

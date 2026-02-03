@@ -1,0 +1,44 @@
+import {Database} from "std:db";
+fn main() {
+
+    print("Starting BLOB test...");
+    let db = Database.connect("sqlite:test_blob.db");
+    print("Connected to database.");
+
+    db.execute("DROP TABLE IF EXISTS test"); // Clean start
+    db.execute("CREATE TABLE test (id INTEGER PRIMARY KEY, data BLOB)");
+    print("Table created.");
+
+    let original_data = [72, 101, 108, 108, 111]; // "Hello"
+    db.execute("INSERT INTO test (data) VALUES (?)", [original_data]);
+    print("Data inserted.");
+
+    let results = db.query("SELECT data FROM test ORDER BY id DESC LIMIT 1");
+    if (results.length > 0) {
+
+        let saved_data = results[0].data;
+        print("Original: " + original_data);
+        print("Saved: " + saved_data);
+        if (original_data.length != saved_data.length) {
+
+            print("FAILED: Length mismatch");
+            return;
+        }
+        for (i in 0..original_data.length) {
+            if (original_data[i] != saved_data[i]) {
+
+                print("FAILED: Data mismatch at index " + i);
+                return;
+            }
+        }
+        print("SUCCESS: BLOB roundtrip worked!");
+    } else {
+        print("FAILED: No rows found");
+    }
+
+    db.close();
+    print("Test finished.");
+}
+
+main();
+
