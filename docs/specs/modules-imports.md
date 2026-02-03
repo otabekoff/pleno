@@ -40,21 +40,22 @@ export class Calculator {
 
 ```pleno
 // Import entire module
-import MathUtils;
-MathUtils.square(5.0);
+import "math_utils.pln";
+// Note: If no alias is provided, the module needs to be accessed
+// via its defined module name if present, or by filename.
 
 // Import specific items
-import { square, PI } from MathUtils;
+import { square, PI } from "math_utils.pln";
 square(5.0);
 
 // Import with alias
-import { square as sq } from MathUtils;
+import { square as sq } from "math_utils.pln";
 sq(5.0);
 
-// Import all exported items
-import * from MathUtils;
-square(5.0);
-PI;
+// Import all exported items with a namespace alias
+import * as Math from "math_utils.pln";
+Math.square(5.0);
+Math.PI;
 
 // Relative imports
 import { User } from "./models/user.pln";
@@ -78,7 +79,8 @@ json-parser = "^1.5.0"
 // Using external packages
 import { HttpClient } from "http-client";
 import { parse } from "json-parser";
-```
+
+````
 ### 8.4 Standard Library Imports
 
 Pleno's standard library modules are accessed via the `std:` namespace prefix.
@@ -91,6 +93,6 @@ import { File, Directory } from "std:io";
 // Native modules are often prefixed with _ in internal code
 import _math from "std:math";
 let res = _math.sin(_math.PI / 2);
-```
+````
 
 For more details on available modules, see the [Standard Library Reference](../stdlib-ref.md).

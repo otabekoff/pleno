@@ -17,15 +17,15 @@ let inferred = identity(3.14);  // Type inferred as Float
 ```pleno
 class Box<T> {
     private value: T;
-    
+
     constructor(value: T) {
         this.value = value;
     }
-    
+
     public fn get(): T {
         return this.value;
     }
-    
+
     public fn set(value: T): Void {
         this.value = value;
     }
@@ -41,7 +41,7 @@ let strBox = Box<String>("hello");
 // Constraint: T must implement Comparable
 fn findMax<T: Comparable>(items: T[]): T? {
     if (items.isEmpty()) return None;
-    
+
     let max = items[0];
     for (item in items) {
         if (item > max) {
@@ -70,20 +70,58 @@ interface Container<T> {
 
 class ArrayList<T> implements Container<T> {
     private items: T[] = [];
-    
+
     fn add(item: T): Void {
         this.items.push(item);
     }
-    
+
     fn get(index: Int): T? {
         if (index >= 0 && index < this.items.length) {
             return Some(this.items[index]);
         }
         return None;
     }
-    
+
     fn size(): Int {
         return this.items.length;
     }
 }
 ```
+
+### 10.5 Variance Annotations
+
+Pleno V2 supports variance annotations on generic parameters to enable safer and more flexible type relationships.
+
+#### Covariance (`out`)
+
+Use `out` when a type parameter only appears in **output** positions (return types). This allows a more specific type to be used where a more general one is expected.
+
+```pleno
+interface Producer<out T> {
+    fn produce(): T;
+}
+
+class AnimalProducer implements Producer<Animal> { ... }
+class DogProducer implements Producer<Dog> { ... }
+
+let p: Producer<Animal> = DogProducer(); // Valid due to 'out'
+```
+
+#### Contravariance (`in`)
+
+Use `in` when a type parameter only appears in **input** positions (argument types). This allows a more general type to be used where a more specific one is expected.
+
+```pleno
+interface Consumer<in T> {
+    fn consume(item: T): Void;
+}
+
+class AnimalConsumer implements Consumer<Animal> { ... }
+class DogConsumer implements Consumer<Dog> { ... }
+
+let c: Consumer<Dog> = AnimalConsumer(); // Valid due to 'in'
+```
+
+#### Invariance (Default)
+
+If no annotation is provided, the type is **invariant**. `Box<Dog>` cannot be assigned to `Box<Animal>` because a `Box` allows both reading and writing.

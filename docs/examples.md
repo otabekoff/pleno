@@ -67,7 +67,7 @@ class TodoManager {
     private todos;
     private file;
 
-    fn constructor() {
+    constructor() {
         this.todos = [];
         this.file = "todos.json";
         this.load();
@@ -124,7 +124,7 @@ class Todo {
     public title: String;
     public completed: Bool = false;
 
-    fn constructor(title: String) {
+    constructor(title: String) {
         this.title = title;
     }
 }
@@ -169,7 +169,7 @@ fn main(args: String[]) {
 ### Basic Async/Await
 
 ```pleno
-async fn fetchData(url: String) -> String {
+async fn fetchData(url: String): String {
     let response = await fetch(url);
     return await response.text();
 }
