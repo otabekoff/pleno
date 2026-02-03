@@ -207,11 +207,15 @@ jobs:
 
       - name: Prepare Binaries
         run: |
+          ls -R
           mkdir -p binaries/amd64 binaries/arm64
-          cp bin-amd64/dist/pleno binaries/amd64/pleno
-          cp bin-amd64/dist/plm binaries/amd64/plm
-          cp bin-arm64/dist/pleno binaries/arm64/pleno
-          cp bin-arm64/dist/plm binaries/arm64/plm
+          
+          # Use find to locate binaries regardless of directory structure
+          cp $(find bin-amd64 -name "pleno" -type f | head -n 1) binaries/amd64/pleno
+          cp $(find bin-amd64 -name "plm" -type f | head -n 1) binaries/amd64/plm
+          cp $(find bin-arm64 -name "pleno" -type f | head -n 1) binaries/arm64/pleno
+          cp $(find bin-arm64 -name "plm" -type f | head -n 1) binaries/arm64/plm
+          
           chmod +x binaries/*/pleno binaries/*/plm
 
       - name: Set up Docker Buildx
