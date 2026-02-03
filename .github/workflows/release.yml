@@ -246,8 +246,8 @@ jobs:
           push: true
           platforms: linux/amd64,linux/arm64
           tags: |
-            pleno/pleno:latest
-            pleno/pleno:${{ steps.version.outputs.VERSION }}
+            ${{ secrets.DOCKERHUB_USERNAME }}/pleno:latest
+            ${{ secrets.DOCKERHUB_USERNAME }}/pleno:${{ steps.version.outputs.VERSION }}
             ghcr.io/${{ github.repository }}:latest
             ghcr.io/${{ github.repository }}:${{ steps.version.outputs.VERSION }}
           cache-from: type=gha
