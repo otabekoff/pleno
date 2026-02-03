@@ -1,89 +1,80 @@
-# Code Signing and Security Guide
+# Security, Signing & Trust Guide
 
-This guide explains how Pleno ensures binary integrity and trust across different platforms.
+As an Open Source and non-profit project, Pleno prioritizes security without requiring expensive commercial certificates. This guide explains how we build trust and ensure binary integrity for free.
 
-## 🛡️ Why Sign?
+## 🛡️ Trust Architecture
 
-To prevent "Unknown Publisher" or "Malicious Software" warnings (Windows SmartScreen, macOS Gatekeeper) and to ensure users are running authentic Pleno binaries that haven't been tampered with.
+Since we don't use high-cost "Enterprise" certificates, we use a **Community Trust Model**:
 
----
-
-## 🍏 macOS (Notarization)
-
-Apple requires all software distributed outside the App Store to be signed with a **Developer ID Certificate** and notarized by Apple.
-
-### What you need:
-
-1.  **Apple Developer Program Subscription** ($99/year).
-2.  **Certificate**: Create a "Developer ID Application" certificate in the [Apple Developer Portal](https://developer.apple.com/account/resources/certificates/list).
-3.  **App-Specific Password**: For the GitHub Action to authenticate.
-
-### GitHub Secrets to Add:
-
-- `MACOS_CERTIFICATE`: Base64 encoded `.p12` certificate.
-- `MACOS_CERTIFICATE_PASSWORD`: Password for the `.p12` file.
-- `MACOS_DEVELOPER_ID`: Your Developer ID (e.g., `Developer ID Application: Your Name (ID)`).
-- `MACOS_NOTARIZATION_APPLE_ID`: Your Apple ID email.
-- `MACOS_NOTARIZATION_PASSWORD`: The app-specific password.
+1.  **Transparency**: Every binary is built from public source code on GitHub Actions.
+2.  **Verification**: Every release is GPG signed and SHA256 hashed.
+3.  **Managed Distribution**: We prioritize Package Managers (Homebrew, AUR, Scoop) which "vouch" for the software.
 
 ---
 
-## 🪟 Windows (EV/Standard Certificate)
+## 🪟 Windows: Free Code Signing (SignPath)
 
-Windows binaries should be signed with an Authenticode certificate. **EV (Extended Validation)** certificates provide instant SmartScreen reputation.
+Windows "SmartScreen" warnings can be avoided for free using **SignPath Foundation**.
 
-### What you need:
+- **Service**: [SignPath.io](https://signpath.io/)
+- **How it works**: They provide a free code signing service for Open Source projects. You link your GitHub repository, and their CI signs your binaries with a certificate trusted by Windows.
+- **Cost**: $0 for Open Source.
 
-1.  **Purchase a Certificate**: From a CA like DigiCert, GlobalSign, or Sectigo.
-2.  **Export as PFX**: Usually provided as a `.pfx` or `.p12` file.
+### Alternative: Reputation Building
 
-### GitHub Secrets to Add:
-
-- `WINDOWS_CERT_BASE64`: Base64 encoded `.pfx` file.
-- `WINDOWS_CERT_PASSWORD`: Password for the `.pfx` file.
+If not signing, Windows will warn users initially. As more users click "Run anyway", the reputation of the binary grows, and the warning eventually disappears.
 
 ---
 
-## 🐧 Linux (GPG Signing)
+## 🍏 macOS: Homebrew Over Manual Install
 
-On Linux, we provide GPG signatures for our releases and checksum files. This is **free** and uses standard open-source tools.
+Apple's $99/year fee is the only way to get a "Notarized" app for direct download. **However, for developers, Homebrew is the better, free alternative.**
 
-### What you need:
+- **The Solution**: Use our [Homebrew Tap](https://github.com/otabekoff/homebrew-tap).
+- **Why it works**: When users run `brew install pleno`, Homebrew downloads or builds the binary. Since it's handled by a trusted local tool, macOS Gatekeeper does not block it like a random download from the web.
+- **Cost**: $0.
 
-1.  **GPG Key Pair**:
+---
+
+## 🐧 Linux: GPG & Checksums (The Standard)
+
+Linux users trust GPG signatures and repository managers.
+
+### 1. GPG Signing (Free)
+
+We sign our `SHA256SUMS.txt` with a GPG key. This allows you to verify that the binary was indeed packaged by the Pleno team.
+
+### 2. Official Repositories
+
+Installing via **AUR** (Arch) or **Snap** provides an extra layer of trust as these packages are defined by public build scripts.
+
+---
+
+## 🛠️ Verification for Users
+
+Users can verify any Pleno download for free:
+
+1.  **Verify Checksum**:
     ```bash
-    gpg --full-generate-key
+    sha256sum -c SHA256SUMS.txt
     ```
-2.  **Export Private Key**:
+2.  **Verify Signature**:
     ```bash
-    gpg --export-secret-keys --armor <ID> | base64
+    # Download our public key once
+    gpg --recv-keys <OUR_KEY_ID>
+    # Verify the sums file
+    gpg --verify SHA256SUMS.txt.asc
     ```
 
-### GitHub Secrets to Add:
+---
 
-- `GPG_PRIVATE_KEY`: The base64 encoded private key.
-- `GPG_PASSPHRASE`: The passphrase for your key.
+## 💡 Policy for Contributors
+
+- **Never** add your own private signing keys to the repo.
+- **Always** ensure the CI generates checksums for new artifacts.
+- **Prefer** updating package manager manifests over direct binary links in documentation.
 
 ---
 
-## 🛠️ How to Implement (Infrastructure)
-
-The [release.yml](.github/workflows/release.yml) is already configured with placeholders for these processes. Once you add the secrets above, the CI will automatically:
-
-1.  Sign Windows `.exe` files using `signtool`.
-2.  Sign macOS binaries and notarize them.
-3.  Sign the `SHA256SUMS.txt` file with GPG.
-
-### Verifying a Release
-
-Users can verify the signature of the checksum file:
-
-```bash
-gpg --verify SHA256SUMS.txt.asc
-sha256sum -c SHA256SUMS.txt
-```
-
----
-
-> [!IMPORTANT]
-> As an AI, I cannot purchase these certificates for you (they require legal identity verification and payment). However, once you obtain them and add them to your GitHub Secrets, the automation I've built will take over.
+> [!TIP]
+> **Aesthestics of Trust**: Even without a "Verified Publisher" badge, having a professional website, clear SHA256 hashes, and GPG signatures sends a strong signal to the developer community that Pleno is high-quality and secure.

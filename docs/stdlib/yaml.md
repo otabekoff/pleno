@@ -37,7 +37,7 @@ Converts a Pleno value to a YAML string.
 ```pleno
 let data = {
     "name": "Pleno",
-    "version": "2.0.0",
+    "version": "0.1.0",
     "features": ["fast", "safe", "expressive"]
 };
 
