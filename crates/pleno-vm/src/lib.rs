@@ -408,31 +408,12 @@ impl VM {
     }
 
     pub fn evaluate_expression(&mut self, expression: &str) -> Result<Value, RuntimeError> {
-        if let Some(frame) = self.frames.last() {
-            let func = &self.functions[frame.function_index];
-            let ip = frame.ip;
-
-            // Check locals
-            for local in &func.chunk.locals {
-                if local.name == expression && ip >= local.start_ip && ip <= local.end_ip {
-                    return Ok(self.registers[frame.base + local.register as usize].to_value());
-                }
-            }
-
-            // Check params
-            for (i, param) in func.params.iter().enumerate() {
-                if param.name == expression {
-                    return Ok(self.registers[frame.base + i].to_value());
-                }
-            }
+        let expression = expression.trim();
+        if expression.is_empty() {
+            return Ok(Value::Null);
         }
 
-        // Check globals
-        if let Some(val) = self.globals.get(expression) {
-            return Ok(val.clone());
-        }
-
-        // Basic literals
+        // Handle basic literals first (to avoid conflict with identifiers)
         if let Ok(i) = expression.parse::<i64>() {
             return Ok(Value::Int(i));
         }
@@ -449,10 +430,163 @@ impl VM {
             return Ok(Value::Null);
         }
 
+        // Simplified parser for property access: base.prop1[index].prop2
+        // We'll split by '.' and handle '[' ']' separately.
+        let mut parts = Vec::new();
+        let mut current_part = String::new();
+        let mut in_bracket = false;
+
+        for c in expression.chars() {
+            match c {
+                '.' if !in_bracket => {
+                    if !current_part.is_empty() {
+                        parts.push(current_part.clone());
+                        current_part.clear();
+                    }
+                }
+                '[' if !in_bracket => {
+                    if !current_part.is_empty() {
+                        parts.push(current_part.clone());
+                        current_part.clear();
+                    }
+                    in_bracket = true;
+                }
+                ']' if in_bracket => {
+                    if !current_part.is_empty() {
+                        parts.push(current_part.clone());
+                        current_part.clear();
+                    }
+                    in_bracket = false;
+                }
+                _ => {
+                    current_part.push(c);
+                }
+            }
+        }
+        if !current_part.is_empty() {
+            parts.push(current_part);
+        }
+
+        if parts.is_empty() {
+            return Err(RuntimeError::new("invalid expression"));
+        }
+
+        let mut val = self.resolve_base_value(&parts[0])?;
+
+        for part in &parts[1..] {
+            let key = part.trim().trim_matches(|c| c == '"' || c == '\'');
+            val = self.get_member(&val, key)?;
+        }
+
+        Ok(val)
+    }
+
+    fn resolve_base_value(&self, name: &str) -> Result<Value, RuntimeError> {
+        let name = name.trim();
+        if let Some(frame) = self.frames.last() {
+            let func = &self.functions[frame.function_index];
+            let ip = frame.ip;
+
+            // Check locals
+            for local in &func.chunk.locals {
+                if local.name == name && ip >= local.start_ip && ip <= local.end_ip {
+                    return Ok(self.registers[frame.base + local.register as usize].to_value());
+                }
+            }
+
+            // Check params
+            for (i, param) in func.params.iter().enumerate() {
+                if param.name == name {
+                    return Ok(self.registers[frame.base + i].to_value());
+                }
+            }
+        }
+
+        // Check globals
+        if let Some(val) = self.globals.get(name) {
+            return Ok(val.clone());
+        }
+
         Err(RuntimeError::new(format!(
-            "cannot evaluate expression: {}",
-            expression
+            "cannot resolve base value: {}",
+            name
         )))
+    }
+
+    fn get_member(&self, val: &Value, key: &str) -> Result<Value, RuntimeError> {
+        match val {
+            Value::Object(obj) => {
+                if let Some(v) = obj.borrow().fields.get(key) {
+                    return Ok(v.clone());
+                }
+                Err(RuntimeError::new(format!("property '{}' not found", key)))
+            }
+            Value::Map(map) => {
+                if let Some(v) = map.borrow().entries.get(key) {
+                    return Ok(v.clone());
+                }
+                Err(RuntimeError::new(format!("map key '{}' not found", key)))
+            }
+            Value::Array(arr) => {
+                if let Ok(idx) = key.parse::<usize>() {
+                    let b = arr.borrow();
+                    if idx < b.elements.len() {
+                        return Ok(b.elements[idx].clone());
+                    }
+                    return Err(RuntimeError::new("array index out of bounds"));
+                }
+                Err(RuntimeError::new("invalid array index"))
+            }
+            Value::Tuple(t) => {
+                if let Ok(idx) = key.parse::<usize>() {
+                    let b = t.borrow();
+                    if idx < b.elements.len() {
+                        return Ok(b.elements[idx].clone());
+                    }
+                    return Err(RuntimeError::new("tuple index out of bounds"));
+                }
+                Err(RuntimeError::new("invalid tuple index"))
+            }
+            _ => Err(RuntimeError::new("value is not an object, map, or array")),
+        }
+    }
+
+    pub fn get_variable_children(&mut self, var_ref: u64) -> Vec<(String, Value)> {
+        let val = if let Some(v) = self.debug_context.variable_tracker.get(var_ref) {
+            v.clone()
+        } else {
+            return Vec::new();
+        };
+
+        match val {
+            Value::Array(arr) => arr
+                .borrow()
+                .elements
+                .iter()
+                .enumerate()
+                .map(|(i, v)| (i.to_string(), v.clone()))
+                .collect(),
+            Value::Map(map) => map
+                .borrow()
+                .entries
+                .iter()
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect(),
+            Value::Object(obj) => obj
+                .borrow()
+                .fields
+                .iter()
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect(),
+            Value::Tuple(t) => t
+                .borrow()
+                .elements
+                .iter()
+                .enumerate()
+                .map(|(i, v)| (i.to_string(), v.clone()))
+                .collect(),
+            _ => Vec::new(),
+        }
     }
 
     pub fn process_debug_log(&mut self, message: &str) {

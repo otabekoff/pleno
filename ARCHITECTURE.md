@@ -91,6 +91,15 @@ Pleno enforces true encapsulation at the VM level.
 - **Visibility**: `private`, `protected`, `public`, and `internal` modifiers.
 - **Access Control**: The VM checks the current `CallFrame`'s class and module against the target property's visibility before allowing access.
 
+### Generics & Variance
+
+Pleno V2 supports advanced generic types with variance annotations.
+
+- **Covariance (`out`)**: Allows a type to be replaced by its subtype (e.g., `List<out Animal>` can accept `List<Dog>`).
+- **Contravariance (`in`)**: Allows a type to be replaced by its supertype (e.g., `Comparable<in Dog>` can accept `Comparable<Animal>`).
+- **Invariance (default)**: Types must match exactly.
+- **VM Verification**: The VM uses `GenericParamMetadata` in bytecode to verify variance during type checks and assignments.
+
 ## 4. Garbage Collection (`pleno-gc`)
 
 Pleno uses a hybrid memory management strategy:
@@ -106,6 +115,24 @@ Pleno bridges to Rust via **Native Functions**. The `pleno-stdlib` crate provide
 - **Net**: HTTP client and server capabilities.
 - **Concurrency**: `Mutex` and `Channel` primitives.
 - **Time**: High-precision timers and DateTime utilities.
+
+## 6. Debugging Protocol (`pleno-dap`)
+
+Pleno supports the **Debug Adapter Protocol (DAP)**, enabling IDEs like VS Code to debug Pleno programs.
+
+### Debug Execution
+
+The VM can run in `debug` mode, which:
+
+- Checks for breakpoints before each instruction.
+- Supports `step_over`, `step_into`, and `step_out` by tracking stack depth and instruction pointers.
+- Allows pausing upon exceptions or user-defined data breakpoints.
+
+### State Inspection
+
+- **Variables**: Deep inspection of `Array`, `Map`, and `Object` types via recursive ID-based variable references managed by `VariableTracker`.
+- **Evaluation**: A simplified VM-level expression evaluator that supports property access and indexing during a pause.
+- **Call Stack**: Full stack trace visibility with source mapping and function name resolution.
 
 ---
 
