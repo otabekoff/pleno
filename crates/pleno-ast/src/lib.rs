@@ -172,13 +172,26 @@ pub enum MapItem {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct MatchArm {
+    pub span: Span,
     pub pattern: Pattern,
     pub guard: Option<Expr>,
     pub body: Expr,
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum Pattern {
+pub struct Pattern {
+    pub kind: PatternKind,
+    pub span: Span,
+}
+
+impl Pattern {
+    pub fn new(kind: PatternKind, span: Span) -> Self {
+        Self { kind, span }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum PatternKind {
     Literal(Literal),
     Ident(String),
     Tuple(Vec<Pattern>),
@@ -341,6 +354,7 @@ pub enum StmtKind {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct CatchBlock {
+    pub span: Span,
     pub name: String,
     pub ty: Option<String>,
     pub body: Box<Stmt>,
@@ -402,6 +416,7 @@ pub struct PropertyDecl {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct EnumDecl {
+    pub span: Span,
     pub name: String,
     pub variants: Vec<EnumVariant>,
     pub methods: Vec<FunctionDecl>,

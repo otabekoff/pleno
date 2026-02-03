@@ -2357,8 +2357,8 @@ impl Compiler {
         value_reg: u8,
         fail_jumps: &mut Vec<usize>,
     ) -> Result<(), CompileError> {
-        match pattern {
-            Pattern::Literal(lit) => {
+        match &pattern.kind {
+            pleno_ast::PatternKind::Literal(lit) => {
                 let lit_reg = self.compile_expr(&Expr {
                     kind: ExprKind::Literal(lit.clone()),
                     span: Span::new(0, 0),
@@ -2369,13 +2369,13 @@ impl Compiler {
                 fail_jumps.push(self.emit_jump(Opcode::JumpIfNot, eq_reg));
                 self.free_temp(eq_reg);
             }
-            Pattern::Ident(name) => {
+            pleno_ast::PatternKind::Ident(name) => {
                 let reg = self.registers.allocate()?;
                 self.emit(Opcode::Move, reg, value_reg, 0);
                 self.insert_local(name.clone(), reg, false, None)?;
             }
-            Pattern::Underscore => {}
-            Pattern::Tuple(patterns) => {
+            pleno_ast::PatternKind::Underscore => {}
+            pleno_ast::PatternKind::Tuple(patterns) => {
                 // Check if Tuple or Array
                 let tuple_str_idx = self.add_constant(Value::String(Rc::new("Tuple".to_string())));
                 let tuple_str_reg = self.registers.allocate()?;
@@ -2406,7 +2406,9 @@ impl Compiler {
                 let len_reg = self.registers.allocate()?;
                 self.emit(Opcode::ArrayLen, len_reg, value_reg, 0);
 
-                let has_rest = patterns.iter().any(|p| matches!(p, Pattern::Rest(_)));
+                let has_rest = patterns
+                    .iter()
+                    .any(|p| matches!(p.kind, pleno_ast::PatternKind::Rest(_)));
                 if has_rest {
                     let min_len = patterns.len().saturating_sub(1);
                     let min_len_reg = self.registers.allocate()?;
@@ -2430,7 +2432,7 @@ impl Compiler {
 
                 // Match elements
                 for (i, p) in patterns.iter().enumerate() {
-                    if let Pattern::Rest(name) = p {
+                    if let pleno_ast::PatternKind::Rest(name) = &p.kind {
                         let args_reg = self.registers.allocate()?;
                         self.emit(Opcode::NewMap, args_reg, 0, 0);
 
@@ -2470,7 +2472,7 @@ impl Compiler {
                     }
                 }
             }
-            Pattern::Variant(name, patterns) => {
+            pleno_ast::PatternKind::Variant(name, patterns) => {
                 let name_idx = self.add_constant(Value::String(Rc::new(name.clone())));
                 let is_match_reg = self.registers.allocate()?;
                 self.emit(Opcode::MatchVariant, is_match_reg, value_reg, name_idx);
@@ -2484,7 +2486,7 @@ impl Compiler {
                     self.free_temp(field_reg);
                 }
             }
-            Pattern::Object(props, rest) => {
+            pleno_ast::PatternKind::Object(props, rest) => {
                 // Check if it's a map first
                 let map_str_idx = self.add_constant(Value::String(Rc::new("Map".to_string())));
                 let map_str_reg = self.registers.allocate()?;
@@ -2521,7 +2523,7 @@ impl Compiler {
                     self.free_temp(rest_map_reg);
                 }
             }
-            Pattern::Type(name, binding) => {
+            pleno_ast::PatternKind::Type(name, binding) => {
                 let type_name_idx = self.add_constant(Value::String(Rc::new(name.clone())));
                 let type_name_reg = self.registers.allocate()?;
                 self.emit(Opcode::LoadConst, type_name_reg, type_name_idx, 0);
@@ -2538,7 +2540,7 @@ impl Compiler {
                     self.insert_local(b.clone(), reg, false, Some(name.clone()))?;
                 }
             }
-            Pattern::Or(patterns) => {
+            pleno_ast::PatternKind::Or(patterns) => {
                 let mut success_jumps = Vec::new();
                 for p in patterns {
                     let mut p_fail_jumps = Vec::new();
@@ -2561,7 +2563,7 @@ impl Compiler {
                     self.patch_jump(s)?;
                 }
             }
-            Pattern::Rest(name) => {
+            pleno_ast::PatternKind::Rest(name) => {
                 if let Some(name_str) = name {
                     let reg = self.registers.allocate()?;
                     self.emit(Opcode::Move, reg, value_reg, 0);
@@ -4011,8 +4013,13 @@ impl Compiler {
             ExprKind::Match { expr, arms } => {
                 self.collect_idents_expr(expr, used, scope);
                 for arm in arms {
-                    // Arm pattern can define locals, but for simplicity let's just recurse
+                    scope.push(HashSet::new());
+                    self.collect_pattern_idents(&arm.pattern, used, scope);
+                    if let Some(guard) = &arm.guard {
+                        self.collect_idents_expr(guard, used, scope);
+                    }
                     self.collect_idents_expr(&arm.body, used, scope);
+                    scope.pop();
                 }
             }
             ExprKind::Pipeline { left, right } => {
@@ -4082,6 +4089,55 @@ impl Compiler {
                 }
             }
             ExprKind::SafeProperty { object, .. } => self.collect_idents_expr(object, used, scope),
+            _ => {}
+        }
+    }
+
+    fn collect_pattern_idents(
+        &self,
+        pattern: &Pattern,
+        used: &mut HashMap<String, bool>,
+        scope: &mut Vec<HashSet<String>>,
+    ) {
+        match &pattern.kind {
+            pleno_ast::PatternKind::Ident(name) => {
+                if let Some(s) = scope.last_mut() {
+                    s.insert(name.clone());
+                }
+            }
+            pleno_ast::PatternKind::Type(_, Some(name)) => {
+                if let Some(s) = scope.last_mut() {
+                    s.insert(name.clone());
+                }
+            }
+            pleno_ast::PatternKind::Tuple(patterns) => {
+                for p in patterns {
+                    self.collect_pattern_idents(p, used, scope);
+                }
+            }
+            pleno_ast::PatternKind::Variant(_, patterns) => {
+                for p in patterns {
+                    self.collect_pattern_idents(p, used, scope);
+                }
+            }
+            pleno_ast::PatternKind::Object(props, rest) => {
+                for (_, p) in props {
+                    self.collect_pattern_idents(p, used, scope);
+                }
+                if let Some(p) = rest {
+                    self.collect_pattern_idents(p, used, scope);
+                }
+            }
+            pleno_ast::PatternKind::Or(patterns) => {
+                for p in patterns {
+                    self.collect_pattern_idents(p, used, scope);
+                }
+            }
+            pleno_ast::PatternKind::Rest(Some(name)) => {
+                if let Some(s) = scope.last_mut() {
+                    s.insert(name.clone());
+                }
+            }
             _ => {}
         }
     }
@@ -5525,8 +5581,8 @@ impl Compiler {
             // If it was a wildcard or identity match without a guard, we don't need to check further arms
             if arm.guard.is_none()
                 && matches!(
-                    arm.pattern,
-                    pleno_ast::Pattern::Underscore | pleno_ast::Pattern::Ident(_)
+                    &arm.pattern.kind,
+                    pleno_ast::PatternKind::Underscore | pleno_ast::PatternKind::Ident(_)
                 )
             {
                 break;

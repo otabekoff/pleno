@@ -14,6 +14,9 @@ pub trait VMProvider {
     fn call(&mut self, callee: Value, args: Vec<Value>) -> Result<Value, RuntimeError> {
         self.call_ext(callee, args, CallOptions::default())
     }
+    fn print(&mut self, text: &str) {
+        print!("{}", text);
+    }
     fn call_ext(
         &mut self,
         callee: Value,

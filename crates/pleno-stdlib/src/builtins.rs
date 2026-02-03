@@ -604,29 +604,33 @@ fn print_impl(
     if !vm.is_io_allowed() {
         return Err(RuntimeError::new("SecurityError: IO access denied"));
     }
-    let named_args = vm.get_named_args();
-    let sep = named_args
-        .get("sep")
-        .and_then(|v| v.as_str())
-        .unwrap_or(" ");
-    let end = named_args
-        .get("end")
-        .and_then(|v| v.as_str())
-        .unwrap_or(default_end);
-
-    let file_arg = named_args.get("file");
-    let flush_arg = named_args.get("flush");
+    let (sep, end, file_arg, flush_arg) = {
+        let named_args = vm.get_named_args();
+        let sep = named_args
+            .get("sep")
+            .and_then(|v| v.as_str())
+            .unwrap_or(" ")
+            .to_string();
+        let end = named_args
+            .get("end")
+            .and_then(|v| v.as_str())
+            .unwrap_or(default_end)
+            .to_string();
+        let file_arg = named_args.get("file").cloned();
+        let flush_arg = named_args.get("flush").cloned();
+        (sep, end, file_arg, flush_arg)
+    };
 
     let mut out = String::new();
     for (idx, value) in args.iter().enumerate() {
         if idx > 0 {
-            out.push_str(sep);
+            out.push_str(&sep);
         }
         out.push_str(&format!("{}", value));
     }
-    out.push_str(end);
+    out.push_str(&end);
 
-    if let Some(f_val) = file_arg {
+    if let Some(ref f_val) = file_arg {
         match f_val {
             Value::File(f) => {
                 let file_state = f.borrow();
@@ -643,7 +647,7 @@ fn print_impl(
             _ => return Err(RuntimeError::new("print: file argument must be a File")),
         }
     } else {
-        print!("{}", out);
+        vm.print(&out);
     }
 
     let should_flush = if let Some(fl) = flush_arg {
@@ -653,7 +657,7 @@ fn print_impl(
     };
 
     if should_flush {
-        if let Some(f_val) = file_arg {
+        if let Some(ref f_val) = file_arg {
             if let Value::File(f) = f_val {
                 let file_state = f.borrow();
                 let mut inner = file_state.inner.borrow_mut();
@@ -698,7 +702,7 @@ fn native_input(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, Runtim
 
     // Print optional prompt (without newline)
     if let Some(prompt) = args.first() {
-        print!("{}", prompt);
+        vm.print(&prompt.to_string());
         std::io::stdout().flush().ok();
     }
 

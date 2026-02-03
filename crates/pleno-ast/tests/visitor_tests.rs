@@ -14,8 +14,8 @@ impl SymbolCollector {
     }
 }
 
-impl Visitor<()> for SymbolCollector {
-    fn visit_stmt(&mut self, stmt: &Stmt) {
+impl<'ast> Visitor<'ast, ()> for SymbolCollector {
+    fn visit_stmt(&mut self, stmt: &'ast Stmt) {
         match &stmt.kind {
             StmtKind::Let { name, .. } => {
                 self.symbols.push(name.clone());
@@ -28,14 +28,14 @@ impl Visitor<()> for SymbolCollector {
         visitor::walk_stmt(self, stmt);
     }
 
-    fn visit_expr(&mut self, expr: &Expr) {
+    fn visit_expr(&mut self, expr: &'ast Expr) {
         if let ExprKind::Ident(name) = &expr.kind {
             self.symbols.push(name.clone());
         }
         visitor::walk_expr(self, expr);
     }
 
-    fn visit_param(&mut self, param: &Param) {
+    fn visit_param(&mut self, param: &'ast Param) {
         self.symbols.push(param.name.clone());
         visitor::walk_param(self, param);
     }

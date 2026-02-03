@@ -52,6 +52,7 @@ pub struct VM {
     pub instruction_count: u64,
     pub event_loop: event_loop::EventLoop,
     pub debug_context: DebugContext,
+    pub output: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -70,6 +71,14 @@ pub struct Function {
 }
 
 impl VMProvider for VM {
+    fn print(&mut self, text: &str) {
+        if let Some(buf) = &mut self.output {
+            buf.push_str(text);
+        } else {
+            print!("{}", text);
+        }
+    }
+
     fn call_ext(
         &mut self,
         callee: Value,
@@ -633,6 +642,7 @@ impl VM {
             instruction_count: 0,
             event_loop: event_loop::EventLoop::new(),
             debug_context: DebugContext::new(),
+            output: None,
         }
     }
 

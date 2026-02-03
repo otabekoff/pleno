@@ -1202,27 +1202,27 @@ impl Formatter {
     }
 
     fn format_pattern(&self, pattern: &Pattern) -> String {
-        match pattern {
-            Pattern::Literal(literal) => self.format_literal(literal),
-            Pattern::Ident(name) => name.clone(),
-            Pattern::Tuple(patterns) => {
+        match &pattern.kind {
+            PatternKind::Literal(literal) => self.format_literal(literal),
+            PatternKind::Ident(name) => name.clone(),
+            PatternKind::Tuple(patterns) => {
                 let items: Vec<String> = patterns.iter().map(|p| self.format_pattern(p)).collect();
                 format!("({})", items.join(", "))
             }
-            Pattern::Underscore => "_".to_string(),
-            Pattern::Rest(name) => match name {
+            PatternKind::Underscore => "_".to_string(),
+            PatternKind::Rest(name) => match name {
                 Some(n) => format!("...{}", n),
                 None => "...".to_string(),
             },
-            Pattern::Variant(name, patterns) => {
+            PatternKind::Variant(name, patterns) => {
                 let items: Vec<String> = patterns.iter().map(|p| self.format_pattern(p)).collect();
                 format!("{}({})", name, items.join(", "))
             }
-            Pattern::Object(props, rest) => {
+            PatternKind::Object(props, rest) => {
                 let mut items: Vec<String> = props
                     .iter()
                     .map(|(name, p)| {
-                        if let Pattern::Ident(ident_name) = p
+                        if let PatternKind::Ident(ident_name) = &p.kind
                             && ident_name == name
                         {
                             return name.clone();
@@ -1235,11 +1235,11 @@ impl Formatter {
                 }
                 format!("{{ {} }}", items.join(", "))
             }
-            Pattern::Type(ty, binding) => match binding {
+            PatternKind::Type(ty, binding) => match binding {
                 Some(b) => format!("{} {}", ty, b),
                 None => ty.clone(),
             },
-            Pattern::Or(patterns) => {
+            PatternKind::Or(patterns) => {
                 let items: Vec<String> = patterns.iter().map(|p| self.format_pattern(p)).collect();
                 items.join(", ")
             }
