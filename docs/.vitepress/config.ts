@@ -28,8 +28,11 @@ export default defineConfig({
     nav: [
       { text: 'Home', link: '/' },
       { text: 'Guide', link: '/guide/getting-started' },
-      { text: 'Specification', link: '/specs/' },
+      { text: 'Specs', link: '/specs/' },
       { text: 'Stdlib', link: '/stdlib/' },
+      { text: 'Blog', link: '/blog/' },
+      { text: 'Community', link: '/community' },
+      { text: 'Showcase', link: '/showcase' },
       { text: 'Examples', link: '/examples' }
     ],
 
@@ -136,6 +139,15 @@ export default defineConfig({
           items: [
             { text: 'Reflect', link: '/stdlib/reflect' },
             { text: 'Regex', link: '/stdlib/regex' },
+          ]
+        }
+      ],
+      '/blog/': [
+        {
+          text: 'Blog',
+          items: [
+            { text: 'All Posts', link: '/blog/' },
+            { text: 'Announcing Phase 5', link: '/blog/announcing-phase-5' },
           ]
         }
       ],
