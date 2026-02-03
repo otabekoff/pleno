@@ -7,6 +7,10 @@ default-members = ["crates/pleno-cli"]
 edition = "2024"
 version = "0.1.0"
 license = "MIT"
+authors = ["Otabek <otabek@plano.org>"]
+description = "A modern, high-performance programming language designed for clarity, safety, and expressiveness."
+repository = "https://github.com/otabekoff/pleno"
+homepage = "https://plano.org"
 
 [workspace.dependencies]
 pleno-ast = { path = "crates/pleno-ast" }
