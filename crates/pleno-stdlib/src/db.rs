@@ -72,8 +72,6 @@ pub fn db_connect(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, Runt
 }
 
 // SQLite implementation for std:db
-
-#[allow(clippy::collapsible_if)]
 pub fn db_execute(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
     // args[0] = this (Map), args[1] = sql, args[2] = params (Array)
     let this = &args[0];
@@ -90,14 +88,14 @@ pub fn db_execute(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, Run
     if let Some(Value::Database(d)) = handle {
         let state = d.borrow();
         let mut inner = state.inner.borrow_mut();
-        if let Some(conn_any) = inner.as_mut() {
-            if let Some(conn) = conn_any.downcast_mut::<Connection>() {
-                let sql_params = translate_params(args.get(2))?;
-                let rows = conn
-                    .execute(sql, rusqlite::params_from_iter(sql_params))
-                    .map_err(|e| RuntimeError::new(format!("Execute failed: {}", e)))?;
-                return Ok(Value::Int(rows as i64));
-            }
+        if let Some(conn_any) = inner.as_mut()
+            && let Some(conn) = conn_any.downcast_mut::<Connection>()
+        {
+            let sql_params = translate_params(args.get(2))?;
+            let rows = conn
+                .execute(sql, rusqlite::params_from_iter(sql_params))
+                .map_err(|e| RuntimeError::new(format!("Execute failed: {}", e)))?;
+            return Ok(Value::Int(rows as i64));
         }
     }
     Err(RuntimeError::new("Database connection is closed"))

@@ -1,6 +1,16 @@
 # Memory Management & Performance
 
-### 12.1 Ownership Hints (Optional)
+Pleno uses automatic memory management with garbage collection, plus optional hints for performance optimization.
+
+## Memory Model
+
+- **Garbage Collection**: Automatic memory reclamation
+- **Reference Counting**: RC for value types with cycle detection
+- **Value Semantics**: Primitives copied by value
+
+## Ownership Hints (Optional)
+
+Pleno supports optional ownership annotations for performance-critical code:
 
 ```pleno
 // Move semantics (transfer ownership)
@@ -19,27 +29,60 @@ fn borrowMutable(value: &mut String) {
 }
 ```
 
-### 12.2 Lazy Evaluation
+## Lazy Evaluation
+
+Defer computation until the value is actually needed:
 
 ```pleno
-// Lazy evaluation
-let lazy lazyValue = expensiveComputation();
-// Computed only when accessed
-print(lazyValue);  // Computation happens here
+// Lazy value - computed on first access
+let lazy expensiveResult = computeExpensiveValue();
+print(expensiveResult);  // Computation happens here
 
-// Lazy sequences
-let lazySeq = (0..)
-    .map(|x| => x * x)
-    .filter(|x| => x % 2 == 0)
+// Lazy sequences (infinite streams)
+let squares = (0..)
+    .map(fn(x) => x * x)
+    .filter(fn(x) => x % 2 == 0)
     .take(10);  // Only computes 10 items
 ```
 
-### 12.3 Memory Pooling
+## Memory Pooling
+
+Reuse object allocations for performance:
 
 ```pleno
-// Object pooling
 @pooled(size: 100)
 class GameObject {
-    // Instances recycled from pool
+    public x: Float;
+    public y: Float;
+
+    fn reset() {
+        this.x = 0;
+        this.y = 0;
+    }
 }
+
+// Objects are recycled from the pool
+let obj = GameObject();  // May reuse existing allocation
 ```
+
+## Const & Immutability
+
+Deep immutability prevents accidental mutations:
+
+```pleno
+const deep config = {
+    "host": "localhost",
+    "ports": [8080, 8443]
+};
+
+// config.host = "remote";      // ERROR: Cannot mutate
+// config.ports.push(9000);     // ERROR: Cannot mutate nested
+```
+
+## Performance Tips
+
+1. **Use `const`** for data that won't change
+2. **Prefer lazy evaluation** for expensive computations
+3. **Use pooling** for frequently allocated objects
+4. **Avoid closures in hot loops** when possible
+5. **Batch I/O operations** instead of many small ones
