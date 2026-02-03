@@ -19,8 +19,10 @@ RUN chown pleno:pleno /workspace
 ARG TARGETARCH
 COPY binaries/${TARGETARCH}/pleno /usr/local/bin/pleno
 COPY binaries/${TARGETARCH}/plm /usr/local/bin/plm
-RUN chmod +x /usr/local/bin/pleno /usr/local/bin/plm && \
-    chown pleno:pleno /usr/local/bin/pleno /usr/local/bin/plm
+COPY binaries/${TARGETARCH}/pleno-lsp /usr/local/bin/pleno-lsp
+COPY binaries/${TARGETARCH}/pleno-repl /usr/local/bin/pleno-repl
+RUN chmod +x /usr/local/bin/pleno /usr/local/bin/plm /usr/local/bin/pleno-lsp /usr/local/bin/pleno-repl && \
+    chown pleno:pleno /usr/local/bin/pleno /usr/local/bin/plm /usr/local/bin/pleno-lsp /usr/local/bin/pleno-repl
 
 # Switch to non-root user
 USER pleno
