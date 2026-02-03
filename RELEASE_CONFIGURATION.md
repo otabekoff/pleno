@@ -18,6 +18,69 @@ This allows the default `GITHUB_TOKEN` to create releases and upload binary asse
 
 ## 2. Configure Repository Secrets
 
+If you want to add free, keyless signing to your workflow using Sigstore (Cosign), follow this complete guide.
+
+### Prerequisites
+
+You do **NOT** need to generate keys. Sigstore uses your GitHub identity (OIDC) to sign artifacts.
+
+### 1. Update Workflow Permissions
+
+In `.github/workflows/release.yml`, add `id-token: write` to the `publish-github` job. This allows GitHub to assert its identity.
+
+```yaml
+publish-github:
+  # ...
+  permissions:
+    contents: write
+    id-token: write # REQUIRED for Sigstore
+```
+
+### 2. Add Signing Step
+
+Modify the `publish-github` job to install Cosign and sign the artifacts before uploading.
+
+```yaml
+steps:
+  - uses: actions/checkout@v4
+
+  # ... (download artifacts step) ...
+
+  - name: Install Cosign
+    uses: sigstore/cosign-installer@v3.3.0
+
+  - name: Sign Release Assets
+    run: |
+      cd all-artifacts
+      # Sign all binaries and archives
+      cosign sign-blob --yes --bundle signature.bundle dist/pleno*
+      cd ..
+
+  # ... (upload step) ...
+```
+
+### 3. Verification for Users
+
+Users can verify that the binary was built by your GitHub Actions workflow:
+
+1.  Download the binary (`pleno`) and the signature bundle (`signature.bundle`).
+2.  Run verify:
+
+```bash
+cosign verify-blob \
+  --certificate-identity "https://github.com/otabekoff/pleno/.github/workflows/release.yml@refs/tags/v0.1.0" \
+  --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+  --bundle signature.bundle \
+  pleno
+```
+
+Result:
+
+> Verified OK
+
+### Why do this?
+
+It proves to users that the binary they downloaded was actually built by the code in your repository at that specific tag, and hasn't been swapped out by a malicious middleman.
 These secrets are required for optional distribution channels like Docker Hub and Homebrew.
 
 1.  Stay in the **Settings** tab.
