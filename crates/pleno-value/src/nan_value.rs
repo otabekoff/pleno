@@ -1,7 +1,8 @@
 // This file is part of the Pleno programming language.
 use crate::{
-    ArrayState, Class, ClosureState, EnumType, Interface, MapState, Object, Range, SetState,
-    ThunkState, TupleState, Value, gc::GcObject, gc::GcRc,
+    ArrayState, BoundFunctionState, BoundMethodState, BoundNativeMethodState, CellState, Class,
+    ClosureState, EnumType, Interface, MapState, Object, PartialState, Range, SetState,
+    StaticMethodState, ThunkState, TupleState, Value, gc::GcObject, gc::GcRc,
 };
 use std::mem::ManuallyDrop;
 use std::rc::Rc;
@@ -42,7 +43,16 @@ const TAG_FILE: u64 = 18;
 const TAG_MUTEX: u64 = 19;
 const TAG_CHANNEL: u64 = 20;
 const TAG_RANGE: u64 = 22;
-const TAG_BOXED: u64 = 23;
+const TAG_PARTIAL: u64 = 23;
+const TAG_BOUND_METHOD: u64 = 24;
+const TAG_STATIC_METHOD: u64 = 25;
+const TAG_BOUND_NATIVE: u64 = 26;
+const TAG_BOUND_FUNC: u64 = 27;
+const TAG_CELL: u64 = 28;
+const TAG_ITERATOR: u64 = 21;
+const TAG_DATABASE: u64 = 29;
+const TAG_RESOURCE: u64 = 30;
+const TAG_VARIANT_COMBINED: u64 = 31;
 
 const PAYLOAD_MASK: u64 = 0x0000_7FFF_FFFF_FFFF;
 
@@ -152,7 +162,9 @@ impl NanValue {
     pub fn as_ptr<T>(self) -> Option<*const T> {
         if self.tag() >= TAG_STRING {
             // All tags >= TAG_STRING are pointers
-            Some((self.0 & PAYLOAD_MASK) as usize as *const T)
+            // Mask out the discriminator bit for combined tags if necessary
+            let ptr = (self.0 & PAYLOAD_MASK) & !0x1;
+            Some(ptr as usize as *const T)
         } else {
             None
         }
@@ -168,7 +180,17 @@ impl NanValue {
                 TAG_NULL => Value::Null,
                 TAG_MISSING => Value::Missing,
                 TAG_CHAR => Value::Char(self.as_char().unwrap()),
-                TAG_FUNC => Value::Function((self.0 & PAYLOAD_MASK) as usize),
+                TAG_FUNC => {
+                    let payload = self.0 & PAYLOAD_MASK;
+                    if (payload & 0x1) != 0 {
+                        let ptr = (payload & !0x1) as usize as *const ();
+                        Value::NativeFunction(unsafe {
+                            std::mem::transmute::<*const (), crate::NativeFunction>(ptr)
+                        })
+                    } else {
+                        Value::Function((payload >> 1) as usize)
+                    }
+                }
                 TAG_STRING => {
                     let ptr = self.as_ptr::<()>().unwrap();
                     let rc = unsafe { ManuallyDrop::new(Rc::from_raw(ptr as *const String)) };
@@ -309,11 +331,125 @@ impl NanValue {
                     let ptr = self.as_ptr::<()>().unwrap();
                     Value::Range(unsafe { (*(ptr as *const Range)).clone() })
                 }
-                TAG_BOXED => {
+                TAG_PARTIAL => {
                     let ptr = self.as_ptr::<()>().unwrap();
-                    // Use Rc for proper reference counting on Copy NanValues
-                    let rc = unsafe { ManuallyDrop::new(Rc::from_raw(ptr as *const Value)) };
-                    (**rc).clone()
+                    let rc = unsafe {
+                        ManuallyDrop::new(Rc::from_raw(
+                            ptr as *const std::cell::RefCell<PartialState>,
+                        ))
+                    };
+                    Value::Partial(GcRc {
+                        inner: Rc::clone(&rc),
+                    })
+                }
+                TAG_BOUND_METHOD => {
+                    let ptr = self.as_ptr::<()>().unwrap();
+                    let rc = unsafe {
+                        ManuallyDrop::new(Rc::from_raw(
+                            ptr as *const std::cell::RefCell<BoundMethodState>,
+                        ))
+                    };
+                    Value::BoundMethod(GcRc {
+                        inner: Rc::clone(&rc),
+                    })
+                }
+                TAG_STATIC_METHOD => {
+                    let ptr = self.as_ptr::<()>().unwrap();
+                    let rc = unsafe {
+                        ManuallyDrop::new(Rc::from_raw(
+                            ptr as *const std::cell::RefCell<StaticMethodState>,
+                        ))
+                    };
+                    Value::StaticMethod(GcRc {
+                        inner: Rc::clone(&rc),
+                    })
+                }
+                TAG_BOUND_NATIVE => {
+                    let ptr = self.as_ptr::<()>().unwrap();
+                    let rc = unsafe {
+                        ManuallyDrop::new(Rc::from_raw(
+                            ptr as *const std::cell::RefCell<BoundNativeMethodState>,
+                        ))
+                    };
+                    Value::BoundNativeMethod(GcRc {
+                        inner: Rc::clone(&rc),
+                    })
+                }
+                TAG_BOUND_FUNC => {
+                    let ptr = self.as_ptr::<()>().unwrap();
+                    let rc = unsafe {
+                        ManuallyDrop::new(Rc::from_raw(
+                            ptr as *const std::cell::RefCell<BoundFunctionState>,
+                        ))
+                    };
+                    Value::BoundFunction(GcRc {
+                        inner: Rc::clone(&rc),
+                    })
+                }
+                TAG_CELL => {
+                    let ptr = self.as_ptr::<()>().unwrap();
+                    let rc = unsafe {
+                        ManuallyDrop::new(Rc::from_raw(ptr as *const std::cell::RefCell<CellState>))
+                    };
+                    Value::Cell(GcRc {
+                        inner: Rc::clone(&rc),
+                    })
+                }
+                TAG_ITERATOR => {
+                    let ptr = self.as_ptr::<()>().unwrap();
+                    let rc = unsafe {
+                        ManuallyDrop::new(Rc::from_raw(
+                            ptr as *const std::cell::RefCell<crate::IteratorState>,
+                        ))
+                    };
+                    Value::Iterator(GcRc {
+                        inner: Rc::clone(&rc),
+                    })
+                }
+                TAG_DATABASE => {
+                    let ptr = self.as_ptr::<()>().unwrap();
+                    let rc = unsafe {
+                        ManuallyDrop::new(Rc::from_raw(
+                            ptr as *const std::cell::RefCell<crate::DatabaseState>,
+                        ))
+                    };
+                    Value::Database(GcRc {
+                        inner: Rc::clone(&rc),
+                    })
+                }
+                TAG_RESOURCE => {
+                    let ptr = self.as_ptr::<()>().unwrap();
+                    let rc = unsafe {
+                        ManuallyDrop::new(Rc::from_raw(
+                            ptr as *const std::cell::RefCell<crate::NativeResource>,
+                        ))
+                    };
+                    Value::Resource(GcRc {
+                        inner: Rc::clone(&rc),
+                    })
+                }
+                TAG_VARIANT_COMBINED => {
+                    let is_constructor = (self.0 & 0x1) != 0;
+                    let ptr = self.as_ptr::<()>().unwrap();
+                    if is_constructor {
+                        let rc = unsafe {
+                            ManuallyDrop::new(Rc::from_raw(
+                                ptr as *const std::cell::RefCell<crate::VariantConstructorState>,
+                            ))
+                        };
+                        Value::VariantConstructor(GcRc {
+                            inner: Rc::clone(&rc),
+                        })
+                    } else {
+                        let rc = unsafe {
+                            ManuallyDrop::new(Rc::from_raw(
+                                ptr as *const std::cell::RefCell<crate::VariantState>,
+                            ))
+                        };
+                        Value::Variant(GcRc {
+                            inner: Rc::clone(&rc),
+                        })
+                    }
                 }
                 _ => Value::Null,
             }
@@ -328,7 +464,8 @@ impl NanValue {
             Value::Int(i) => Self::from_int(*i),
             Value::Float(f) => Self::from_f64(*f),
             Value::Char(c) => Self::from_char(*c),
-            Value::Function(idx) => Self::encode(TAG_FUNC, *idx as u64),
+            Value::Function(idx) => Self::encode(TAG_FUNC, (*idx as u64) << 1),
+            Value::NativeFunction(f) => Self::encode(TAG_FUNC, (*f as usize as u64) | 0x1),
             Value::String(s) => {
                 let ptr = Rc::as_ptr(s);
                 unsafe { Rc::increment_strong_count(ptr) };
@@ -348,12 +485,32 @@ impl NanValue {
             Value::Mutex(m) => Self::encode(TAG_MUTEX, m.as_refcell_ptr() as usize as u64),
             Value::Channel(c) => Self::encode(TAG_CHANNEL, c.as_refcell_ptr() as usize as u64),
             Value::Range(r) => Self::encode(TAG_RANGE, r as *const Range as usize as u64),
+            Value::Partial(p) => Self::encode(TAG_PARTIAL, p.as_refcell_ptr() as usize as u64),
+            Value::BoundMethod(m) => {
+                Self::encode(TAG_BOUND_METHOD, m.as_refcell_ptr() as usize as u64)
+            }
+            Value::StaticMethod(m) => {
+                Self::encode(TAG_STATIC_METHOD, m.as_refcell_ptr() as usize as u64)
+            }
+            Value::BoundNativeMethod(m) => {
+                Self::encode(TAG_BOUND_NATIVE, m.as_refcell_ptr() as usize as u64)
+            }
+            Value::BoundFunction(f) => {
+                Self::encode(TAG_BOUND_FUNC, f.as_refcell_ptr() as usize as u64)
+            }
+            Value::Cell(c) => Self::encode(TAG_CELL, c.as_refcell_ptr() as usize as u64),
+            Value::Iterator(i) => Self::encode(TAG_ITERATOR, i.as_refcell_ptr() as usize as u64),
+            Value::Database(d) => Self::encode(TAG_DATABASE, d.as_refcell_ptr() as usize as u64),
+            Value::Resource(r) => Self::encode(TAG_RESOURCE, r.as_refcell_ptr() as usize as u64),
+            Value::Variant(v) => {
+                Self::encode(TAG_VARIANT_COMBINED, v.as_refcell_ptr() as usize as u64)
+            }
+            Value::VariantConstructor(v) => Self::encode(
+                TAG_VARIANT_COMBINED,
+                (v.as_refcell_ptr() as usize as u64) | 0x1,
+            ),
             v => {
-                // Use Rc for proper reference counting when NanValue is copied
-                let rc = Rc::new(v.clone());
-                let ptr = Rc::into_raw(rc);
-                unsafe { Rc::increment_strong_count(ptr) };
-                Self::encode(TAG_BOXED, ptr as usize as u64)
+                panic!("Unhandled value type in NanValue::from_value: {:?}", v);
             }
         }
     }
@@ -379,7 +536,13 @@ impl NanValue {
                 TAG_BOOL => "Bool",
                 TAG_NULL => "Null",
                 TAG_MISSING => "Missing",
-                TAG_FUNC => "Function",
+                TAG_FUNC => {
+                    if (self.0 & 0x1) != 0 {
+                        "NativeFunction"
+                    } else {
+                        "Function"
+                    }
+                }
                 TAG_CHAR => "Char",
                 TAG_STRING => "String",
                 TAG_MAP => "Map",
@@ -452,12 +615,35 @@ impl NanValue {
                 }
                 _ => {}
             }
-        } else if tag == TAG_BOXED {
-            // Handle boxed values (e.g., Value::Partial, Value::BoundMethod, etc.)
-            let ptr = self.as_ptr::<crate::Value>().unwrap();
-            // Safety check: ensure pointer is properly aligned
-            if ptr.align_offset(std::mem::align_of::<crate::Value>()) == 0 {
-                unsafe { (*ptr).mark(gc) };
+        } else if (TAG_PARTIAL..=TAG_CELL).contains(&tag) {
+            // Handle new boxed types
+            let ptr = self.as_ptr::<()>().unwrap();
+            match tag {
+                TAG_PARTIAL => {
+                    let ptr = ptr as *const std::cell::RefCell<PartialState>;
+                    unsafe { (*ptr).borrow().mark(gc) };
+                }
+                TAG_BOUND_METHOD => {
+                    let ptr = ptr as *const std::cell::RefCell<BoundMethodState>;
+                    unsafe { (*ptr).borrow().mark(gc) };
+                }
+                TAG_STATIC_METHOD => {
+                    let ptr = ptr as *const std::cell::RefCell<StaticMethodState>;
+                    unsafe { (*ptr).borrow().mark(gc) };
+                }
+                TAG_BOUND_NATIVE => {
+                    let ptr = ptr as *const std::cell::RefCell<BoundNativeMethodState>;
+                    unsafe { (*ptr).borrow().mark(gc) };
+                }
+                TAG_BOUND_FUNC => {
+                    let ptr = ptr as *const std::cell::RefCell<BoundFunctionState>;
+                    unsafe { (*ptr).borrow().mark(gc) };
+                }
+                TAG_CELL => {
+                    let ptr = ptr as *const std::cell::RefCell<CellState>;
+                    unsafe { (*ptr).borrow().mark(gc) };
+                }
+                _ => {}
             }
         }
     }

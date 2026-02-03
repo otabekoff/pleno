@@ -1,8 +1,6 @@
 use chrono::{TimeZone, Utc};
 use indexmap::IndexMap;
-use pleno_value::MapState;
-use pleno_value::RuntimeError;
-use pleno_value::Value;
+use pleno_value::{BoundNativeMethodState, MapState, RuntimeError, Value};
 use std::rc::Rc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -213,21 +211,20 @@ pub fn time_datetime_now(
 
     if let Value::Map(state) = &map_val {
         let mut state = state.borrow_mut();
+        let gc = vm.get_gc();
         state.entries.insert(
             "format".to_string(),
-            Value::BoundNativeMethod {
-                receiver: Box::new(map_val.clone()),
+            Value::BoundNativeMethod(gc.allocate(BoundNativeMethodState {
+                receiver: map_val.clone(),
                 function: time_instance_format,
-            },
+            })?),
         );
         state.entries.insert(
             "toISO".to_string(),
-            Value::BoundNativeMethod {
-                receiver: Box::new(map_val.clone()),
-                function: time_instance_format, // Reuse format for simplicity or add specific toISO if needed.
-                                                // Actually verification uses format("%Y-%m-%d") so format is needed.
-                                                // If toISO is called without args, format needs default?
-            },
+            Value::BoundNativeMethod(gc.allocate(BoundNativeMethodState {
+                receiver: map_val.clone(),
+                function: time_instance_format,
+            })?),
         );
     }
 

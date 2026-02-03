@@ -1,5 +1,5 @@
 use indexmap::IndexMap;
-use pleno_value::{ArrayState, MapState, RuntimeError, VMProvider, Value};
+use pleno_value::{ArrayState, BoundNativeMethodState, MapState, RuntimeError, VMProvider, Value};
 use std::rc::Rc;
 
 pub fn regex_constructor(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
@@ -24,33 +24,34 @@ pub fn regex_constructor(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Valu
     // Bind methods
     if let Value::Map(state) = &map_val {
         let mut state = state.borrow_mut();
+        let gc = vm.get_gc();
         state.entries.insert(
             "test".to_string(),
-            Value::BoundNativeMethod {
-                receiver: Box::new(map_val.clone()),
+            Value::BoundNativeMethod(gc.allocate(BoundNativeMethodState {
+                receiver: map_val.clone(),
                 function: regex_test,
-            },
+            })?),
         );
         state.entries.insert(
             "match".to_string(),
-            Value::BoundNativeMethod {
-                receiver: Box::new(map_val.clone()),
+            Value::BoundNativeMethod(gc.allocate(BoundNativeMethodState {
+                receiver: map_val.clone(),
                 function: regex_match,
-            },
+            })?),
         );
         state.entries.insert(
             "findAll".to_string(),
-            Value::BoundNativeMethod {
-                receiver: Box::new(map_val.clone()),
+            Value::BoundNativeMethod(gc.allocate(BoundNativeMethodState {
+                receiver: map_val.clone(),
                 function: regex_find_all,
-            },
+            })?),
         );
         state.entries.insert(
             "replace".to_string(),
-            Value::BoundNativeMethod {
-                receiver: Box::new(map_val.clone()),
+            Value::BoundNativeMethod(gc.allocate(BoundNativeMethodState {
+                receiver: map_val.clone(),
                 function: regex_replace,
-            },
+            })?),
         );
     }
 

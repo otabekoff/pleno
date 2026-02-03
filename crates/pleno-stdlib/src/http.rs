@@ -1,5 +1,8 @@
 use indexmap::IndexMap;
-use pleno_value::{MapState, NativeFunction, NativeResource, RuntimeError, VMProvider, Value};
+use pleno_value::{
+    BoundNativeMethodState, MapState, NativeFunction, NativeResource, RuntimeError, VMProvider,
+    Value,
+};
 use std::io::{BufRead, BufReader};
 use std::rc::Rc;
 
@@ -312,15 +315,22 @@ pub fn http_router(vm: &mut dyn VMProvider, _args: &[Value]) -> Result<Value, Ru
 
     if let Value::Map(ref map_ptr) = router_val {
         let mut map = map_ptr.borrow_mut();
-        let bind = |func: NativeFunction| Value::BoundNativeMethod {
-            receiver: Box::new(router_val.clone()),
-            function: func,
+        let bind = |vm: &mut dyn VMProvider, func: NativeFunction| {
+            Value::BoundNativeMethod(
+                vm.get_gc()
+                    .allocate(BoundNativeMethodState {
+                        receiver: router_val.clone(),
+                        function: func,
+                    })
+                    .unwrap(),
+            )
         };
-        map.entries.insert("get".to_string(), bind(router_get));
-        map.entries.insert("post".to_string(), bind(router_post));
-        map.entries.insert("put".to_string(), bind(router_put));
+        map.entries.insert("get".to_string(), bind(vm, router_get));
         map.entries
-            .insert("delete".to_string(), bind(router_delete));
+            .insert("post".to_string(), bind(vm, router_post));
+        map.entries.insert("put".to_string(), bind(vm, router_put));
+        map.entries
+            .insert("delete".to_string(), bind(vm, router_delete));
     }
 
     Ok(router_val)
@@ -398,10 +408,10 @@ pub fn http_server(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, Run
         let mut map = map_ptr.borrow_mut();
         map.entries.insert(
             "listen".to_string(),
-            Value::BoundNativeMethod {
-                receiver: Box::new(server_val.clone()),
+            Value::BoundNativeMethod(gc.allocate(BoundNativeMethodState {
+                receiver: server_val.clone(),
                 function: http_server_listen,
-            },
+            })?),
         );
     }
     Ok(server_val)
@@ -460,15 +470,14 @@ pub fn http_server_listen(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Val
             let mut state = r.borrow_mut();
             if let Some(inner) = state.inner.get_mut().as_mut() {
                 if let Some(l) = inner.downcast_mut::<mio::net::TcpListener>() {
-                    vm.register_io(
-                        l,
-                        mio::Interest::READABLE,
-                        Value::BoundNativeMethod {
-                            receiver: Box::new(this_server.clone()),
+                    let on_accept = {
+                        let gc = vm.get_gc();
+                        Value::BoundNativeMethod(gc.allocate(BoundNativeMethodState {
+                            receiver: this_server.clone(),
                             function: http_server_on_accept,
-                        },
-                        true,
-                    )?;
+                        })?)
+                    };
+                    vm.register_io(l, mio::Interest::READABLE, on_accept, true)?;
                 }
             }
         }
