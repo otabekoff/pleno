@@ -154,6 +154,7 @@ fn run_plm_core(args: &mut std::iter::Peekable<std::iter::Skip<std::env::Args>>)
         "remove" => handle_remove(args),
         "run" => handle_plm_run(args),
         "publish" => handle_plm_publish(args),
+        "search" => handle_plm_search(args),
         "build" => handle_build(args),
         "test" => {
             let mut test_path = "sources/tests".to_string();
@@ -180,6 +181,7 @@ fn run_plm_core(args: &mut std::iter::Peekable<std::iter::Skip<std::env::Args>>)
             println!("  remove <name>    Remove a dependency");
             println!("  run <script>     Run a script defined in pleno.toml");
             println!("  publish          Publish the current package");
+            println!("  search <query>   Search for packages in the registry");
             println!("  build            Build the current package");
             println!();
             println!("Options:");
@@ -1423,7 +1425,7 @@ fn handle_install(args: &mut std::iter::Peekable<std::iter::Skip<std::env::Args>
     };
 
     let registry_url = std::env::var("PLENO_REGISTRY")
-        .unwrap_or_else(|_| "https://registry.pleno.dev".to_string());
+        .unwrap_or_else(|_| "https://registry.pleno-lang.org".to_string());
     let manager = pleno_package::PackageManager::new("packages")
         .with_registry(registry_url)
         .with_offline(offline);
@@ -1559,10 +1561,74 @@ fn handle_plm_publish(_args: &mut std::iter::Peekable<std::iter::Skip<std::env::
             process::exit(1);
         }
     };
-    let manager = pleno_package::PackageManager::new("packages");
+    let registry_url = std::env::var("PLENO_REGISTRY")
+        .unwrap_or_else(|_| "https://registry.pleno-lang.org".to_string());
+    let manager = pleno_package::PackageManager::new("packages").with_registry(registry_url);
     if let Err(e) = manager.publish(&manifest) {
         eprintln!("Publish failed: {}", e);
         process::exit(1);
+    }
+    println!(
+        "Published {} v{}",
+        manifest.package.name, manifest.package.version
+    );
+}
+
+fn handle_plm_search(args: &mut std::iter::Peekable<std::iter::Skip<std::env::Args>>) {
+    let query = args.next();
+    let registry_url = std::env::var("PLENO_REGISTRY")
+        .unwrap_or_else(|_| "https://registry.pleno-lang.org".to_string());
+    let url = format!("{}/packages", registry_url);
+
+    println!("Searching for packages...");
+
+    let resp = match reqwest::blocking::get(&url) {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!("Failed to connect to registry: {}", e);
+            process::exit(1);
+        }
+    };
+
+    if !resp.status().is_success() {
+        eprintln!("Registry returned error: {}", resp.status());
+        process::exit(1);
+    }
+
+    let packages: Vec<serde_json::Value> = match resp.json() {
+        Ok(p) => p,
+        Err(e) => {
+            eprintln!("Failed to parse registry response: {}", e);
+            process::exit(1);
+        }
+    };
+
+    let filtered: Vec<_> = packages
+        .into_iter()
+        .filter(|pkg| {
+            if let Some(q) = &query {
+                let name = pkg["name"].as_str().unwrap_or("").to_lowercase();
+                let desc = pkg["description"].as_str().unwrap_or("").to_lowercase();
+                let q_lower = q.to_lowercase();
+                name.contains(&q_lower) || desc.contains(&q_lower)
+            } else {
+                true
+            }
+        })
+        .collect();
+
+    if filtered.is_empty() {
+        println!("No packages found.");
+        return;
+    }
+
+    println!("{:<20} {:<10} {:<40}", "NAME", "VERSION", "DESCRIPTION");
+    println!("{:-<20} {:-<10} {:-<40}", "", "", "");
+    for pkg in filtered {
+        let name = pkg["name"].as_str().unwrap_or("unknown");
+        let version = pkg["version"].as_str().unwrap_or("?.?.?");
+        let desc = pkg["description"].as_str().unwrap_or("");
+        println!("{:<20} {:<10} {:<40}", name, version, desc);
     }
 }
 

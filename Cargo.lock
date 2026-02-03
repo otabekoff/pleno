@@ -1382,6 +1382,7 @@ dependencies = [
  "pleno-stdlib",
  "pleno-value",
  "pleno-vm",
+ "reqwest",
  "serde_json",
 ]
 
