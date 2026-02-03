@@ -125,6 +125,37 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+  # Build VS Code Extension
+  vscode-extension:
+    name: Build VS Code Extension
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install dependencies
+        working-directory: ide/vscode
+        run: npm ci
+
+      - name: Build extension
+        working-directory: ide/vscode
+        run: npm run package
+
+      - name: Package VSIX
+        working-directory: ide/vscode
+        run: npx @vscode/vsce package --out pleno-language-${{ github.ref_name }}.vsix
+
+      - name: Upload to Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: ide/vscode/pleno-language-${{ github.ref_name }}.vsix
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
   # Finalize release (Checksums, GPG)
   finalize:
     name: Finalize Release
