@@ -129,46 +129,23 @@ python3 bench/run_bench.py --compare
 
 ---
 
-## 💡 Troubleshooting
-
-### "Unterminated string literal at start of file"
-
-This usually indicates a Lexer failure. Check if there are invisible BOM characters or encoding issues in the test file.
-
-### "Instruction pointer out of bounds"
-
-The compiler generated a jump to an invalid index. This is a compiler bug. Use `pleno compile --dump-bytecode` to find the invalid jump target.
-
-### "Stack Overflow (Recursive Calls)"
-
-Pleno VM has a default recursion limit of 1000 frames. If you hit this legitimately, you might need to use `loop` or increase the limit in `VMConfig`.
-
-9. Open a Pull Request
+## 🛠️ Development Workflow & Standards
 
 ### 🌿 Branch Management
 
-We maintain a strict branch hierarchy:
+We maintain a strict branch hierarchy to ensure `main` remains production-ready:
 
-- `main`: The "Source of Truth". Only contains stable, tested, and released code. Direct commits are forbidden; always use PRs.
-- `dev`: The integration branch. New features are merged here first for testing before moving to `main`.
-- `feature/*`: Short-lived branches for new functionality.
-- `fix/*`: Branches for bug fixes.
+- **`main`**: The "Source of Truth". Always stable. Direct commits are forbidden. Releases are tagged from this branch.
+- **`dev`**: The integration branch. All feature branches and fixes merge here first.
+- **`feature/*` / `fix/*`**: Short-lived branches for specific tasks.
 
-```mermaid
-gitGraph
-    commit
-    branch dev
-    checkout dev
-    commit
-    branch feature/async
-    checkout feature/async
-    commit
-    commit
-    checkout dev
-    merge feature/async
-    checkout main
-    merge dev tag: "v0.1.0"
-```
+**Workflow example:**
+
+1. Checkout `dev`: `git checkout dev && git pull`
+2. Create feature branch: `git checkout -b feature/new-cool-thing`
+3. Work, commit, push.
+4. Open PR to merge into `dev`.
+5. Periodically, `dev` is merged into `main` for release.
 
 ### 📝 Commit Message Convention
 
@@ -182,29 +159,26 @@ We follow [Conventional Commits](https://www.conventionalcommits.org/):
 [optional footer(s)]
 ```
 
-**Types:**
+**Common Types:**
 
 - `feat`: A new feature
 - `fix`: A bug fix
 - `docs`: Documentation only changes
-- `style`: Changes that do not affect the meaning of the code (white-space, formatting, etc.)
-- `refactor`: A code change that neither fixes a bug nor adds a feature
-- `perf`: A code change that improves performance
-- `test`: Adding missing tests or correcting existing tests
-- `chore`: Changes to the build process or auxiliary tools and libraries
-
-We use `husky` and `lint-staged` to enforce these conventions and run formatting/linting automatically on every commit.
+- `perf`: Performance improvements
+- `refactor`: Code change that neither fixes a bug nor adds a feature
+- `test`: Adding missing tests
+- `chore`: Build process or auxiliary tool changes
 
 ### 🏷️ Tag Management (Re-releasing)
 
-If a release fails (e.g., CI error during build) and you need to re-trigger the same version:
+To retag a version (e.g. `v0.1.0`) if a release failed:
 
 1. **Delete the local and remote tag:**
    ```bash
    git tag -d v0.1.0
    git push origin :refs/tags/v0.1.0
    ```
-2. **Commit your fixes** to `main`.
+2. **Commit fixes to `main` and push.**
 3. **Re-tag and push:**
    ```bash
    git tag v0.1.0
@@ -215,26 +189,31 @@ If a release fails (e.g., CI error during build) and you need to re-trigger the 
 
 ## 📦 Release Procedure
 
-We use **Semantic Versioning (SemVer) 2.0.0** for both the language and its tooling.
-
-### 🔢 Version Scheme
-
-- **MAJOR** (`x.0.0`): Breaking changes to the core language syntax, removed features, or major architectural shifts in the VM that break backward compatibility.
-- **MINOR** (`1.x.0`): New language features (new keywords, decorators, stdlib modules) that are backward compatible.
-- **PATCH** (`1.0.x`): Bug fixes, internal performance optimizations, and documentation updates.
-
-### 📜 Stability Guarantee
-
-- **Pre-v0.1.0**: The language is in active development. Minor versions may contain breaking changes.
-- **Post-v0.1.0**: We guarantee backward compatibility for all minor and patch releases.
+We use **Semantic Versioning (SemVer) 2.0.0**.
 
 1. Update version in root `Cargo.toml`.
 2. Run `make check` to ensure perfection.
 3. Update `CHANGELOG.md`.
 4. Create a signed tag: `git tag -s v0.x.x -m "Release v0.x.x"`.
-5. Push: `git push origin main --tags`.
+5. Push to `main`: `git push origin main --tags`.
 
-The CI pipeline will automatically build binaries for Linux, macOS (Intel/M1), and Windows.
+The CI pipeline will automatically build binaries for Linux, macOS, and Windows.
+
+---
+
+## 💡 Troubleshooting
+
+### General Build/CI Issues
+
+- **Clippy/Format Warnings**: Run `make check` locally. CI is set to fail on any warning.
+- **VM Panics**: Enable `RUST_BACKTRACE=1`. Check for `ip` (instruction pointer) out of bounds using `pleno compile --dump-bytecode`.
+- **Parsing Errors**: Use `pleno debug-ast --lexer-only` to verify tokens before investigating the parser.
+
+### Specific Error Messages
+
+- **"Unterminated string literal"**: Check for invisible BOM characters or encoding issues in `.pln` files.
+- **"Stack Overflow"**: Pleno has a 1000-frame recursion limit. Optimize to use loops or increase `VMConfig.max_frames`.
+- **"Instruction pointer out of bounds"**: Usually a compiler bug in jump target calculation. Check `Opcode::Jump` and `Opcode::JumpIfFalse`.
 
 ---
 
