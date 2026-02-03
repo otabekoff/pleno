@@ -116,17 +116,14 @@ jobs:
              fi
           fi
 
-      - name: Upload Release Artifacts
-        uses: softprops/action-gh-release@v1
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v4
         with:
-          files: |
+          name: artifacts-${{ matrix.job.target }}
+          path: |
             pleno-${{ github.ref_name }}-${{ matrix.job.target }}.*
             dist/*.deb
             *.sha256
-          generate_release_notes: true
-          prerelease: ${{ contains(github.ref_name, '-') }}
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   # Build VS Code Extension
   vscode-extension:
@@ -152,28 +149,37 @@ jobs:
         working-directory: ide/vscode
         run: npx @vscode/vsce package --out pleno-language-${{ github.ref_name }}.vsix
 
-      - name: Upload to Release
-        uses: softprops/action-gh-release@v1
+      - name: Upload VSIX
+        uses: actions/upload-artifact@v4
         with:
-          files: ide/vscode/pleno-language-${{ github.ref_name }}.vsix
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          name: artifacts-vscode
+          path: ide/vscode/pleno-language-${{ github.ref_name }}.vsix
 
-  # Finalize release (Checksums, GPG)
-  finalize:
-    name: Finalize Release
+  # Finalize and Push to Release
+  release:
+    name: GitHub Release
     runs-on: ubuntu-latest
-    needs: build
+    needs: [build, vscode-extension]
+    if: startsWith(github.ref, 'refs/tags/v')
     steps:
       - uses: actions/checkout@v4
 
       - name: Download all artifacts
         uses: actions/download-artifact@v4
+        with:
+          path: all-artifacts
+          pattern: artifacts-*
+          merge-multiple: true
+
+      - name: Display structure of downloaded files
+        run: ls -R all-artifacts
 
       - name: Generate Consolidated Checksums
         run: |
-          find . -maxdepth 2 -name "*.tar.gz" -o -name "*.zip" -o -name "*.deb" | xargs sha256sum > SHA256SUMS.txt
+          cd all-artifacts
+          find . -maxdepth 1 -type f -not -name "*.sha256" -not -name "SHA256SUMS.txt" | xargs sha256sum > SHA256SUMS.txt
           cat SHA256SUMS.txt
+          cd ..
 
       - name: GPG Signing
         if: env.GPG_PRIVATE_KEY != ''
@@ -186,17 +192,19 @@ jobs:
 
       - name: Sign Checksums
         if: env.GPG_PRIVATE_KEY != ''
-        run: gpg --clearsign SHA256SUMS.txt
+        run: |
+          cd all-artifacts
+          gpg --clearsign SHA256SUMS.txt
+          cd ..
 
-      - name: Upload Final Artifacts
+      - name: Upload Release Assets
         uses: softprops/action-gh-release@v1
         with:
-          files: |
-            SHA256SUMS.txt
-            SHA256SUMS.txt.asc
+          files: all-artifacts/*
+          generate_release_notes: true
+          prerelease: ${{ contains(github.ref_name, '-') }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        if: github.event_name == 'push' && contains(github.ref, 'refs/tags/')
 
   # Build and push Docker images
   docker:
