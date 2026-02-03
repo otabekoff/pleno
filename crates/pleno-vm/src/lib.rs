@@ -1,9 +1,10 @@
 use indexmap::{IndexMap, IndexSet};
 use pleno_bytecode::{Chunk, Opcode, ParamSpec};
 use pleno_value::{
-    ArrayState, CallOptions, Class, ClosureState, EnumType, EnumVariantDef, MapState, MethodOwner,
-    MultiWaiter, MultiWaiterMode, NativeFunction, Object, Range, RuntimeError, SetState,
-    ThunkState, TupleState, VMProvider, Value, ValueKey, gc::GcObject, nan_value::NanValue,
+    ArrayState, BoundMethodState, BoundNativeMethodState, CallOptions, Class, ClosureState,
+    EnumType, EnumVariantDef, MapState, MethodOwner, MultiWaiter, MultiWaiterMode, NativeFunction,
+    Object, Range, RuntimeError, SetState, StaticMethodState, ThunkState, TupleState, VMProvider,
+    Value, ValueKey, gc::GcObject, nan_value::NanValue,
 };
 // use std::collections::HashSet;
 use std::fs;
@@ -112,17 +113,13 @@ impl VMProvider for VM {
                     call_opts,
                 )?;
             }
-            Value::BoundMethod {
-                receiver,
-                function,
-                owner,
-                ..
-            } => {
+            Value::BoundMethod(m) => {
+                let m = m.borrow();
                 let mut call_opts = opts;
-                call_opts.current_owner = Some(owner);
+                call_opts.current_owner = Some(m.owner.clone());
                 self.call_function(
-                    *(function.clone()),
-                    Some(*(receiver.clone())),
+                    m.function.clone(),
+                    Some(m.receiver.clone()),
                     &args,
                     return_reg_idx,
                     false,
@@ -132,10 +129,11 @@ impl VMProvider for VM {
             Value::NativeFunction(f) => {
                 return f(self, &args);
             }
-            Value::BoundNativeMethod { receiver, function } => {
-                let mut final_args = vec![*receiver.clone()];
+            Value::BoundNativeMethod(m) => {
+                let m = m.borrow();
+                let mut final_args = vec![m.receiver.clone()];
                 final_args.extend(args);
-                let result = function(self, &final_args)?;
+                let result = (m.function)(self, &final_args)?;
                 return Ok(result);
             }
             Value::Map(map) => {
@@ -621,12 +619,7 @@ impl VM {
     }
 
     pub fn new() -> Self {
-        // FIXME: GC disabled due to memory corruption in NaN-boxing TAG_BOXED values.
-        // The issue is that complex Value variants (Partial, BoundMethod, etc.) stored via
-        // Box::into_raw/Rc::into_raw become corrupt during GC marking. This requires a
-        // fundamental redesign of how non-primitive values are stored in NaN-boxed registers.
-        // See: https://github.com/otabekoff/pleno/issues/XXX (TODO: file issue)
-        let gc = pleno_value::gc::GCManager::new(usize::MAX);
+        let gc = pleno_value::gc::GCManager::new(4 * 1024 * 1024);
         let globals = IndexMap::new();
         let modules = IndexMap::new();
 
@@ -2128,10 +2121,12 @@ impl VM {
                                         .and_then(|r| r("Result", &name))
                                         .unwrap();
                                     self.registers[base + a] =
-                                        NanValue::from_value(&Value::BoundNativeMethod {
-                                            receiver: Box::new(Value::Map(map.clone())),
-                                            function: func,
-                                        });
+                                        NanValue::from_value(&Value::BoundNativeMethod(
+                                            self.gc.allocate(BoundNativeMethodState {
+                                                receiver: Value::Map(map.clone()),
+                                                function: func,
+                                            })?,
+                                        ));
                                     continue;
                                 } else if (variant.as_str() == "Some" || variant.as_str() == "None")
                                     && self
@@ -2145,10 +2140,12 @@ impl VM {
                                         .and_then(|r| r("Option", &name))
                                         .unwrap();
                                     self.registers[base + a] =
-                                        NanValue::from_value(&Value::BoundNativeMethod {
-                                            receiver: Box::new(Value::Map(map.clone())),
-                                            function: func,
-                                        });
+                                        NanValue::from_value(&Value::BoundNativeMethod(
+                                            self.gc.allocate(BoundNativeMethodState {
+                                                receiver: Value::Map(map.clone()),
+                                                function: func,
+                                            })?,
+                                        ));
                                     continue;
                                 }
                             }
@@ -2160,10 +2157,12 @@ impl VM {
                             } else if let Some(func) =
                                 self.builtin_resolver.and_then(|r| r("Map", &name))
                             {
-                                Value::BoundNativeMethod {
-                                    receiver: Box::new(Value::Map(map.clone())),
-                                    function: func,
-                                }
+                                Value::BoundNativeMethod(self.gc.allocate(
+                                    BoundNativeMethodState {
+                                        receiver: Value::Map(map.clone()),
+                                        function: func,
+                                    },
+                                )?)
                             } else {
                                 return Err(self.handle_property_error(&name));
                             }
@@ -2172,16 +2171,18 @@ impl VM {
                             let et = enum_type.borrow();
                             if let Some(def) = et.variants.get(&name) {
                                 let val = if def.param_count == 0 {
-                                    Value::Variant {
+                                    Value::Variant(self.gc.allocate(pleno_value::VariantState {
                                         enum_type: enum_type.clone(),
                                         variant_name: Rc::new(name),
                                         data: Vec::new(),
-                                    }
+                                    })?)
                                 } else {
-                                    Value::VariantConstructor {
-                                        enum_type: enum_type.clone(),
-                                        variant_name: Rc::new(name),
-                                    }
+                                    Value::VariantConstructor(self.gc.allocate(
+                                        pleno_value::VariantConstructorState {
+                                            enum_type: enum_type.clone(),
+                                            variant_name: Rc::new(name),
+                                        },
+                                    )?)
                                 };
                                 self.registers[base + a] = NanValue::from_value(&val);
                                 continue;
@@ -2196,12 +2197,13 @@ impl VM {
                                         self.throw_runtime_error("static method access denied")
                                     );
                                 }
-                                self.registers[base + a] =
-                                    NanValue::from_value(&Value::StaticMethod {
-                                        function: Box::new(info.function.clone()),
+                                self.registers[base + a] = NanValue::from_value(
+                                    &Value::StaticMethod(self.gc.allocate(StaticMethodState {
+                                        function: info.function.clone(),
                                         owner: info.owner.clone(),
                                         visibility: info.visibility,
-                                    });
+                                    })?),
+                                );
                                 continue;
                             } else {
                                 return Err(RuntimeError::new(format!(
@@ -2260,12 +2262,12 @@ impl VM {
                                             self.throw_runtime_error("method access denied")
                                         );
                                     }
-                                    Value::BoundMethod {
-                                        receiver: Box::new(Value::Object(object.clone())),
-                                        function: Box::new(info.function.clone()),
+                                    Value::BoundMethod(self.gc.allocate(BoundMethodState {
+                                        receiver: Value::Object(object.clone()),
+                                        function: info.function.clone(),
                                         owner: info.owner.clone(),
                                         visibility: info.visibility,
-                                    }
+                                    })?)
                                 } else {
                                     return Err(self.handle_property_error(&name));
                                 }
@@ -2328,11 +2330,11 @@ impl VM {
                                         self.throw_runtime_error("static method access denied")
                                     );
                                 }
-                                Value::StaticMethod {
-                                    function: Box::new(info.function.clone()),
+                                Value::StaticMethod(self.gc.allocate(StaticMethodState {
+                                    function: info.function.clone(),
                                     owner: info.owner.clone(),
                                     visibility: info.visibility,
-                                }
+                                })?)
                             } else {
                                 return Err(self.handle_property_error(&name));
                             }
@@ -2342,10 +2344,12 @@ impl VM {
                                 .builtin_resolver
                                 .and_then(|r| r(other.type_name(), &name))
                             {
-                                Value::BoundNativeMethod {
-                                    receiver: Box::new(other),
-                                    function: func,
-                                }
+                                Value::BoundNativeMethod(self.gc.allocate(
+                                    BoundNativeMethodState {
+                                        receiver: other,
+                                        function: func,
+                                    },
+                                )?)
                             } else {
                                 // Specialized len/length checks for common types
                                 match &other {
@@ -2385,12 +2389,14 @@ impl VM {
                     };
                     let info = resolve_method(&superclass, &name)
                         .ok_or_else(|| RuntimeError::new("unknown super method"))?;
-                    self.registers[base + a] = NanValue::from_value(&Value::BoundMethod {
-                        receiver: Box::new(Value::Object(receiver)),
-                        function: Box::new(info.function.clone()),
-                        owner: info.owner.clone(),
-                        visibility: info.visibility,
-                    });
+                    self.registers[base + a] = NanValue::from_value(&Value::BoundMethod(
+                        self.gc.allocate(BoundMethodState {
+                            receiver: Value::Object(receiver),
+                            function: info.function.clone(),
+                            owner: info.owner.clone(),
+                            visibility: info.visibility,
+                        })?,
+                    ));
                 }
                 Opcode::CallSuper => {
                     // a = dest, b = this register, c = args register
@@ -3098,7 +3104,7 @@ impl VM {
                             'interface_loop: for interface_val in interfaces {
                                 let interface = match &interface_val {
                                     Value::Interface(i) => i.clone(),
-                                    Value::BoundInterface { interface, .. } => interface.clone(),
+                                    Value::BoundInterface(s) => s.borrow().interface.clone(),
                                     _ => {
                                         return Err(RuntimeError::new(
                                             "SetImplements: expected interface",
@@ -3434,10 +3440,12 @@ impl VM {
                                 }
                             }
 
-                            self.registers[base + a] = NanValue::from_value(&Value::BoundClass {
-                                class,
-                                type_args: args,
-                            });
+                            self.registers[base + a] = NanValue::from_value(&Value::BoundClass(
+                                self.gc.allocate(pleno_value::BoundClassState {
+                                    class,
+                                    type_args: args,
+                                })?,
+                            ));
                         }
                         Value::Interface(interface) => {
                             // Verify constraints
@@ -3491,16 +3499,20 @@ impl VM {
                             }
 
                             self.registers[base + a] =
-                                NanValue::from_value(&Value::BoundInterface {
-                                    interface,
-                                    type_args: args,
-                                });
+                                NanValue::from_value(&Value::BoundInterface(self.gc.allocate(
+                                    pleno_value::BoundInterfaceState {
+                                        interface,
+                                        type_args: args,
+                                    },
+                                )?));
                         }
-                        Value::BoundClass { class, .. } => {
-                            self.registers[base + a] = NanValue::from_value(&Value::BoundClass {
-                                class,
-                                type_args: args,
-                            });
+                        Value::BoundClass(inner) => {
+                            self.registers[base + a] = NanValue::from_value(&Value::BoundClass(
+                                self.gc.allocate(pleno_value::BoundClassState {
+                                    class: inner.borrow().class.clone(),
+                                    type_args: args,
+                                })?,
+                            ));
                         }
                         Value::Function(handle) => {
                             let handle_idx = handle;
@@ -3540,11 +3552,12 @@ impl VM {
                                 }
                             }
 
-                            self.registers[base + a] =
-                                NanValue::from_value(&Value::BoundFunction {
-                                    function: Box::new(Value::Function(handle)),
+                            self.registers[base + a] = NanValue::from_value(&Value::BoundFunction(
+                                self.gc.allocate(pleno_value::BoundFunctionState {
+                                    function: Value::Function(handle),
                                     type_args: args,
-                                });
+                                })?,
+                            ));
                         }
 
                         _ => return Err(RuntimeError::new("Specialize on non-class value")),
@@ -3785,11 +3798,13 @@ impl VM {
                     let enum_val = self.registers[base + b].to_value();
                     match enum_val {
                         Value::Enum(enum_type) => {
-                            self.registers[base + a] = NanValue::from_value(&Value::Variant {
-                                enum_type: enum_type.clone(),
-                                variant_name: Rc::new(variant_name),
-                                data: Vec::new(),
-                            });
+                            self.registers[base + a] = NanValue::from_value(&Value::Variant(
+                                self.gc.allocate(pleno_value::VariantState {
+                                    enum_type: enum_type.clone(),
+                                    variant_name: Rc::new(variant_name),
+                                    data: Vec::new(),
+                                })?,
+                            ));
                         }
                         _ => return Err(RuntimeError::new("ConstructVariant on non-enum value")),
                     }
@@ -3801,9 +3816,7 @@ impl VM {
                     };
                     let val = self.registers[base + b].to_value();
                     let is_match = match val {
-                        Value::Variant {
-                            variant_name: v, ..
-                        } => v.as_str() == variant_name,
+                        Value::Variant(s) => s.borrow().variant_name.as_str() == variant_name,
                         _ => false,
                     };
                     self.registers[base + a] = NanValue::from_bool(is_match);
@@ -3819,9 +3832,10 @@ impl VM {
                     let index = c;
                     let val = self.registers[base + b].to_value();
                     match val {
-                        Value::Variant { data, .. } => {
-                            if index < data.len() {
-                                self.registers[base + a] = NanValue::from_value(&data[index]);
+                        Value::Variant(s) => {
+                            let s = s.borrow();
+                            if index < s.data.len() {
+                                self.registers[base + a] = NanValue::from_value(&s.data[index]);
                             } else {
                                 return Err(RuntimeError::new("variant field index out of bounds"));
                             }
@@ -4052,11 +4066,13 @@ impl VM {
                         Value::Array(arr) => arr.borrow().elements.clone(),
                         _ => return Err(RuntimeError::new("Partial expects array of arguments")),
                     };
-                    self.registers[base + a] = NanValue::from_value(&Value::Partial {
-                        callee: Box::new(callee),
-                        args: args_meta,
-                        placeholders: Vec::new(),
-                    });
+                    self.registers[base + a] = NanValue::from_value(&Value::Partial(
+                        self.gc.allocate(pleno_value::PartialState {
+                            callee,
+                            args: args_meta,
+                            placeholders: Vec::new(),
+                        })?,
+                    ));
                 }
                 Opcode::Import => {
                     let module_name = match &function.chunk.constants[b] {
@@ -4285,14 +4301,26 @@ impl VM {
                     }
                     found
                 }
+                Value::BoundClass(s) => {
+                    let mut current = Some(s.borrow().class.clone());
+                    let mut found = false;
+                    while let Some(cls) = current {
+                        if cls.as_ptr() == target_class.as_ptr() {
+                            found = true;
+                            break;
+                        }
+                        current = cls.borrow().superclass.clone();
+                    }
+                    found
+                }
                 _ => false,
             },
-            Value::BoundClass {
-                class: target_class,
-                type_args: target_args,
-            } => match value {
+            Value::BoundClass(target) => match value {
                 Value::Object(obj) => {
                     let borrowed = obj.borrow();
+                    let target = target.borrow();
+                    let target_class = &target.class;
+                    let target_args = &target.type_args;
                     if let Some(instance_class) = &borrowed.class {
                         let mut current = Some(instance_class.clone());
                         let mut found = false;
@@ -4336,7 +4364,7 @@ impl VM {
                             for imp in &c.borrow().implements {
                                 let imp_iface = match imp {
                                     Value::Interface(i) => i,
-                                    Value::BoundInterface { interface, .. } => interface,
+                                    Value::BoundInterface(bi) => &bi.borrow().interface,
                                     _ => continue,
                                 };
                                 if imp_iface.borrow().name == iface.name {
@@ -4367,12 +4395,12 @@ impl VM {
                 }
                 _ => false,
             },
-            Value::BoundInterface {
-                interface: target_iface,
-                type_args: target_args,
-            } => match value {
+            Value::BoundInterface(target) => match value {
                 Value::Object(obj) => {
                     let obj = obj.borrow();
+                    let target = target.borrow();
+                    let target_iface = &target.interface;
+                    let target_args = &target.type_args;
                     let iface = target_iface.borrow();
 
                     if let Some(cls) = &obj.class {
@@ -4380,10 +4408,11 @@ impl VM {
                         while let Some(c) = current {
                             for imp in &c.borrow().implements {
                                 match imp {
-                                    Value::BoundInterface {
-                                        interface,
-                                        type_args,
-                                    } if interface.borrow().name == iface.name => {
+                                    Value::BoundInterface(bi)
+                                        if bi.borrow().interface.borrow().name == iface.name =>
+                                    {
+                                        let bi = bi.borrow();
+                                        let type_args = &bi.type_args;
                                         if type_args.len() != target_args.len() {
                                             continue;
                                         }
@@ -4412,6 +4441,7 @@ impl VM {
         }
     }
 
+    #[allow(clippy::cognitive_complexity, clippy::single_match)]
     fn check_type_compatible(&self, val_type: &Value, target_type: &Value) -> bool {
         if val_type == target_type {
             return true;
@@ -4457,8 +4487,9 @@ impl VM {
                     }
                     false
                 }
-                Value::BoundClass { class, .. } => {
-                    let mut current = Some(class.clone());
+                Value::BoundClass(bc) => {
+                    let bc = bc.borrow();
+                    let mut current = Some(bc.class.clone());
                     while let Some(cls) = current {
                         if cls.as_ptr() == target_class.as_ptr() {
                             return true;
@@ -4483,14 +4514,32 @@ impl VM {
                 false
             }
             Value::Interface(target_iface) => match val_type {
-                Value::Class(cls) | Value::BoundClass { class: cls, .. } => {
+                Value::Class(cls) => {
                     let iface = target_iface.borrow();
                     let mut current = Some(cls.clone());
                     while let Some(c) = current {
                         for imp in &c.borrow().implements {
                             let imp_iface = match imp {
                                 Value::Interface(i) => i.clone(),
-                                Value::BoundInterface { interface, .. } => interface.clone(),
+                                Value::BoundInterface(s) => s.borrow().interface.clone(),
+                                _ => continue,
+                            };
+                            if imp_iface.borrow().name == iface.name {
+                                return true;
+                            }
+                        }
+                        current = c.borrow().superclass.clone();
+                    }
+                    false
+                }
+                Value::BoundClass(state) => {
+                    let iface = target_iface.borrow();
+                    let mut current = Some(state.borrow().class.clone());
+                    while let Some(c) = current {
+                        for imp in &c.borrow().implements {
+                            let imp_iface = match imp {
+                                Value::Interface(i) => i.clone(),
+                                Value::BoundInterface(s) => s.borrow().interface.clone(),
                                 _ => continue,
                             };
                             if imp_iface.borrow().name == iface.name {
@@ -4520,49 +4569,82 @@ impl VM {
                 }
                 _ => false,
             },
-            Value::BoundInterface {
-                interface: target_iface,
-                type_args: target_args,
-            } => match val_type {
-                Value::BoundInterface {
-                    interface: instance_iface,
-                    type_args: instance_args,
-                } => {
-                    if instance_iface.as_ptr() != target_iface.as_ptr() {
+            Value::BoundInterface(target) => match val_type {
+                Value::BoundInterface(instance) => {
+                    let target = target.borrow();
+                    let instance = instance.borrow();
+                    if instance.interface.as_ptr() != target.interface.as_ptr() {
                         return false;
                     }
-                    if instance_args.len() != target_args.len() {
+                    if instance.type_args.len() != target.type_args.len() {
                         return false;
                     }
-                    for (a, b) in instance_args.iter().zip(target_args.iter()) {
+                    for (a, b) in instance.type_args.iter().zip(target.type_args.iter()) {
                         if !self.check_type_compatible(a, b) {
                             return false;
                         }
                     }
                     true
                 }
-                Value::Class(cls) | Value::BoundClass { class: cls, .. } => {
-                    let iface = target_iface.borrow();
+                Value::Class(cls) => {
+                    let target = target.borrow();
+                    let iface = target.interface.borrow();
+                    let target_args = &target.type_args;
+
                     let mut current = Some(cls.clone());
                     while let Some(c) = current {
                         for imp in &c.borrow().implements {
                             match imp {
-                                Value::BoundInterface {
-                                    interface,
-                                    type_args,
-                                } if interface.borrow().name == iface.name => {
-                                    if type_args.len() != target_args.len() {
-                                        continue;
-                                    }
-                                    let mut match_args = true;
-                                    for (a, b) in type_args.iter().zip(target_args.iter()) {
-                                        if !self.check_type_compatible(a, b) {
-                                            match_args = false;
-                                            break;
+                                Value::BoundInterface(s) => {
+                                    let s = s.borrow();
+                                    if s.interface.borrow().name == iface.name {
+                                        if s.type_args.len() != target_args.len() {
+                                            continue;
+                                        }
+                                        let mut match_args = true;
+                                        for (a, b) in s.type_args.iter().zip(target_args.iter()) {
+                                            if !self.check_type_compatible(a, b) {
+                                                match_args = false;
+                                                break;
+                                            }
+                                        }
+                                        if match_args {
+                                            return true;
                                         }
                                     }
-                                    if match_args {
-                                        return true;
+                                }
+                                _ => {}
+                            }
+                        }
+                        current = c.borrow().superclass.clone();
+                    }
+                    false
+                }
+                Value::BoundClass(state) => {
+                    let target = target.borrow();
+                    let iface = target.interface.borrow();
+                    let target_args = &target.type_args;
+
+                    let mut current = Some(state.borrow().class.clone());
+                    while let Some(c) = current {
+                        for imp in &c.borrow().implements {
+                            match imp {
+                                Value::BoundInterface(s) => {
+                                    let s = s.borrow();
+                                    if s.interface.borrow().name == iface.name {
+                                        if s.type_args.len() != target_args.len() {
+                                            continue;
+                                        }
+                                        let mut match_args = true;
+                                        for (a, b) in s.type_args.iter().zip(target_args.iter()) {
+                                            if !self.check_type_compatible(a, b) {
+                                                match_args = false;
+                                                break;
+                                            }
+                                        }
+                                        if match_args {
+                                            return true;
+                                        }
                                     }
                                 }
                                 _ => {}
@@ -4574,21 +4656,17 @@ impl VM {
                 }
                 _ => false,
             },
-            Value::BoundClass {
-                class: target_class,
-                type_args: target_args,
-            } => match val_type {
-                Value::BoundClass {
-                    class: instance_class,
-                    type_args: instance_args,
-                } => {
-                    if instance_class.as_ptr() != target_class.as_ptr() {
+            Value::BoundClass(target) => match val_type {
+                Value::BoundClass(instance) => {
+                    let target = target.borrow();
+                    let instance = instance.borrow();
+                    if instance.class.as_ptr() != target.class.as_ptr() {
                         return false;
                     }
-                    if instance_args.len() != target_args.len() {
+                    if instance.type_args.len() != target.type_args.len() {
                         return false;
                     }
-                    for (a, b) in instance_args.iter().zip(target_args.iter()) {
+                    for (a, b) in instance.type_args.iter().zip(target.type_args.iter()) {
                         if !self.check_type_compatible(a, b) {
                             return false;
                         }
@@ -4633,6 +4711,7 @@ impl VM {
         Ok(false)
     }
 
+    #[allow(clippy::cognitive_complexity)]
     fn call_function(
         &mut self,
         callee: Value,
@@ -4807,11 +4886,12 @@ impl VM {
                 self.registers[return_reg] = NanValue::from_value(&result);
                 Ok(())
             }
-            Value::BoundNativeMethod { receiver, function } => {
+            Value::BoundNativeMethod(state) => {
+                let state = state.borrow();
                 let prev_named = std::mem::replace(&mut self.current_named_args, named);
-                let mut merged_args = vec![*receiver.clone()];
+                let mut merged_args = vec![state.receiver.clone()];
                 merged_args.extend(positional);
-                let result = function(self, &merged_args);
+                let result = (state.function)(self, &merged_args);
                 self.current_named_args = prev_named;
                 let result = result?;
                 self.registers[return_reg] = NanValue::from_value(&result);
@@ -4852,7 +4932,10 @@ impl VM {
                     Err(RuntimeError::new("constructor not defined for named args"))
                 }
             }
-            Value::BoundClass { class, type_args } => {
+            Value::BoundClass(state) => {
+                let state = state.borrow();
+                let class = &state.class;
+                let type_args = &state.type_args;
                 let object = self
                     .gc
                     .allocate(Object::new(Some(class.clone()), Some(type_args.clone())))?;
@@ -4905,13 +4988,12 @@ impl VM {
                     CallOptions::new(),
                 )
             }
-            Value::BoundMethod {
-                receiver,
-                function,
-                owner,
-                ..
-            } => {
-                let func_val = *function.clone();
+            Value::BoundMethod(state) => {
+                let state = state.borrow();
+                let receiver = &state.receiver;
+                let function = &state.function;
+                let owner = &state.owner;
+                let func_val = function.clone();
                 let handle_idx = match func_val.clone() {
                     Value::Function(idx) => idx,
                     Value::Closure(c) => c.borrow().function,
@@ -4922,24 +5004,25 @@ impl VM {
                     .get(handle_idx)
                     .ok_or_else(|| RuntimeError::new("unknown function handle"))?;
                 let args = self.build_named_args(handle_idx, true, &positional, &named)?;
-                let mut final_args = vec![*receiver.clone()];
+                let mut final_args = vec![receiver.clone()];
                 final_args.extend(args);
                 self.call_function(
                     func_val,
-                    Some(*receiver.clone()),
+                    Some(receiver.clone()),
                     &final_args,
                     return_reg,
                     true,
                     CallOptions {
-                        current_owner: Some(owner),
+                        current_owner: Some(owner.clone()),
                         ..Default::default()
                     },
                 )
             }
-            Value::StaticMethod {
-                function, owner, ..
-            } => {
-                let func_val = *function.clone();
+            Value::StaticMethod(state) => {
+                let state = state.borrow();
+                let function = &state.function;
+                let owner = &state.owner;
+                let func_val = function.clone();
                 let handle_idx = match func_val.clone() {
                     Value::Function(idx) => idx,
                     Value::Closure(c) => c.borrow().function,
@@ -4953,7 +5036,7 @@ impl VM {
                     return_reg,
                     true,
                     CallOptions {
-                        current_owner: Some(owner),
+                        current_owner: Some(owner.clone()),
                         ..Default::default()
                     },
                 )
@@ -5192,21 +5275,16 @@ impl VM {
                     CallOptions::new(),
                 )?;
             }
-            Value::BoundFunction {
-                function,
-                type_args,
-                ..
-            } => {
-                // Type args are currently ignored during call as Pleno uses erasure or they are just for checking
-                // If reification is needed, we'd pass them to call_function
+            Value::BoundFunction(state) => {
+                let state = state.borrow();
                 self.call_function(
-                    *function.clone(),
+                    state.function.clone(),
                     None,
                     &args,
                     return_reg,
                     false,
                     CallOptions {
-                        type_args: type_args.clone(),
+                        type_args: state.type_args.clone(),
                         ..Default::default()
                     },
                 )?;
@@ -5236,10 +5314,11 @@ impl VM {
                     return Err(self.throw_runtime_error(&err.message));
                 }
             },
-            Value::BoundNativeMethod { receiver, function } => {
-                let mut merged_args = vec![*receiver.clone()];
+            Value::BoundNativeMethod(state) => {
+                let state = state.borrow();
+                let mut merged_args = vec![state.receiver.clone()];
                 merged_args.extend(args);
-                match function(self, &merged_args) {
+                match (state.function)(self, &merged_args) {
                     Ok(result) => {
                         if return_reg >= self.registers.len() {
                             self.registers.resize(return_reg + 1, NanValue::null());
@@ -5251,35 +5330,30 @@ impl VM {
                     }
                 }
             }
-            Value::BoundMethod {
-                receiver,
-                function,
-                owner,
-                ..
-            } => {
+            Value::BoundMethod(state) => {
+                let state = state.borrow();
                 self.call_function(
-                    *function.clone(),
-                    Some(*receiver.clone()),
+                    state.function.clone(),
+                    Some(state.receiver.clone()),
                     &args,
                     return_reg,
                     false,
                     CallOptions {
-                        current_owner: Some(owner),
+                        current_owner: Some(state.owner.clone()),
                         ..Default::default()
                     },
                 )?;
             }
-            Value::StaticMethod {
-                function, owner, ..
-            } => {
+            Value::StaticMethod(state) => {
+                let state = state.borrow();
                 self.call_function(
-                    *function.clone(),
+                    state.function.clone(),
                     None,
                     &args,
                     return_reg,
                     true,
                     CallOptions {
-                        current_owner: Some(owner),
+                        current_owner: Some(state.owner.clone()),
                         ..Default::default()
                     },
                 )?;
@@ -5310,7 +5384,10 @@ impl VM {
                     self.registers[return_reg] = NanValue::from_value(&val);
                 }
             }
-            Value::BoundClass { class, type_args } => {
+            Value::BoundClass(state) => {
+                let state = state.borrow();
+                let class = &state.class;
+                let type_args = &state.type_args;
                 if class.borrow().is_abstract {
                     return Err(RuntimeError::new(format!(
                         "cannot instantiate abstract class '{}'",
@@ -5339,27 +5416,22 @@ impl VM {
                     self.registers[return_reg] = NanValue::from_value(&val);
                 }
             }
-            Value::VariantConstructor {
-                enum_type,
-                variant_name,
-            } => {
+            Value::VariantConstructor(state) => {
+                let state = state.borrow();
                 let mut data = Vec::new();
                 data.extend(args);
-                let variant = Value::Variant {
-                    enum_type: enum_type.clone(),
-                    variant_name: Rc::clone(&variant_name),
+                let variant = Value::Variant(self.gc.allocate(pleno_value::VariantState {
+                    enum_type: state.enum_type.clone(),
+                    variant_name: Rc::clone(&state.variant_name),
                     data,
-                };
+                })?);
                 self.registers[return_reg] = NanValue::from_value(&variant);
             }
-            Value::Partial {
-                callee,
-                args: saved_args,
-                placeholders,
-            } => {
-                let mut merged_args = saved_args.clone();
+            Value::Partial(state) => {
+                let state = state.borrow();
+                let mut merged_args = state.args.clone();
                 let mut new_arg_idx = 0;
-                for &placeholder_idx in &placeholders {
+                for &placeholder_idx in &state.placeholders {
                     if new_arg_idx < args.len() {
                         merged_args[placeholder_idx] = args[new_arg_idx].clone();
                         new_arg_idx += 1;
@@ -5369,7 +5441,7 @@ impl VM {
                     merged_args.push(args[new_arg_idx].clone());
                     new_arg_idx += 1;
                 }
-                self.call_any_value(*callee.clone(), merged_args, return_reg)?;
+                self.call_any_value(state.callee.clone(), merged_args, return_reg)?;
             }
             Value::Map(map) => {
                 let callable = map.borrow().get("__call__").cloned();
@@ -5469,9 +5541,9 @@ impl VM {
     fn get_value_type_name_for_specialize(&self, val: &Value) -> String {
         match val {
             Value::Class(c) => c.borrow().name.to_string(),
-            Value::BoundClass { class, .. } => class.borrow().name.to_string(),
+            Value::BoundClass(s) => s.borrow().class.borrow().name.to_string(),
             Value::Interface(i) => i.borrow().name.to_string(),
-            Value::BoundInterface { interface, .. } => interface.borrow().name.to_string(),
+            Value::BoundInterface(s) => s.borrow().interface.borrow().name.to_string(),
             Value::Map(m) => {
                 if let Some(Value::String(s)) = m.borrow().get("__native_type") {
                     s.to_string()

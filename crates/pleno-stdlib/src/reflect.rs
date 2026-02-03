@@ -1,5 +1,7 @@
 use indexmap::{IndexMap, IndexSet};
-use pleno_value::{ArrayState, Class, MethodOwner, RuntimeError, VMProvider, Value};
+use pleno_value::{
+    ArrayState, BoundMethodState, Class, MethodOwner, RuntimeError, VMProvider, Value,
+};
 use std::rc::Rc;
 
 pub fn reflect_get_type_name(
@@ -191,12 +193,12 @@ pub fn reflect_call_method(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Va
             if let Some(class) = &obj_ref.class {
                 let class_ref = class.borrow();
                 if let Some(method) = class_ref.methods.get(name) {
-                    let bound = Value::BoundMethod {
-                        receiver: Box::new(Value::Object(obj.clone())),
-                        function: Box::new(method.function.clone()),
+                    let bound = Value::BoundMethod(vm.get_gc().allocate(BoundMethodState {
+                        receiver: Value::Object(obj.clone()),
+                        function: method.function.clone(),
                         owner: MethodOwner::Class(class.clone()),
                         visibility: method.visibility.clone(),
-                    };
+                    })?);
                     vm.call(bound, arg_list)
                 } else {
                     Err(RuntimeError::new("method not found on target"))

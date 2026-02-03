@@ -1,5 +1,7 @@
 use indexmap::IndexMap;
-use pleno_value::{DatabaseState, MapState, RuntimeError, VMProvider, Value};
+use pleno_value::{
+    BoundNativeMethodState, DatabaseState, MapState, RuntimeError, VMProvider, Value,
+};
 use rusqlite::{Connection, ToSql};
 use std::rc::Rc;
 
@@ -45,26 +47,27 @@ pub fn db_connect(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, Runt
     // Bind methods
     if let Value::Map(m) = &db_map {
         let mut b = m.borrow_mut();
+        let gc = vm.get_gc();
         b.entries.insert(
             "execute".to_string(),
-            Value::BoundNativeMethod {
-                receiver: Box::new(db_map.clone()),
+            Value::BoundNativeMethod(gc.allocate(BoundNativeMethodState {
+                receiver: db_map.clone(),
                 function: db_execute,
-            },
+            })?),
         );
         b.entries.insert(
             "query".to_string(),
-            Value::BoundNativeMethod {
-                receiver: Box::new(db_map.clone()),
+            Value::BoundNativeMethod(gc.allocate(BoundNativeMethodState {
+                receiver: db_map.clone(),
                 function: db_query,
-            },
+            })?),
         );
         b.entries.insert(
             "close".to_string(),
-            Value::BoundNativeMethod {
-                receiver: Box::new(db_map.clone()),
+            Value::BoundNativeMethod(gc.allocate(BoundNativeMethodState {
+                receiver: db_map.clone(),
                 function: db_close,
-            },
+            })?),
         );
     }
 

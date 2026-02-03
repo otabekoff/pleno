@@ -1,5 +1,7 @@
 use indexmap::IndexMap;
-use pleno_value::{MapState, RuntimeError, SandboxConfig, VMProvider, Value};
+use pleno_value::{
+    BoundNativeMethodState, MapState, RuntimeError, SandboxConfig, VMProvider, Value,
+};
 use std::rc::Rc;
 
 pub fn sandbox_new(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
@@ -80,10 +82,10 @@ pub fn sandbox_new(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, Run
     let gc = vm.get_gc();
     let sandbox_map = Value::Map(gc.allocate(MapState::new(sandbox_data))?);
 
-    let run_method = Value::BoundNativeMethod {
-        receiver: Box::new(sandbox_map.clone()),
+    let run_method = Value::BoundNativeMethod(gc.allocate(BoundNativeMethodState {
+        receiver: sandbox_map.clone(),
         function: sandbox_run,
-    };
+    })?);
 
     if let Value::Map(ref ptr) = sandbox_map {
         ptr.borrow_mut()

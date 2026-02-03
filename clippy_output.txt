@@ -1,0 +1,80 @@
+    Checking pleno-optimizer v0.1.0 (/home/otabek/Projects/plang/pleno/crates/pleno-optimizer)
+    Checking pleno-compiler v0.1.0 (/home/otabek/Projects/plang/pleno/crates/pleno-compiler)
+    Checking pleno-vm v0.1.0 (/home/otabek/Projects/plang/pleno/crates/pleno-vm)
+    Checking pleno-package v0.1.0 (/home/otabek/Projects/plang/pleno/crates/pleno-package)
+    Checking pleno-registry v0.1.0 (/home/otabek/Projects/plang/pleno/crates/pleno-registry)
+error: you seem to be trying to use `match` for destructuring a single pattern. Consider using `if let`
+    --> crates/pleno-vm/src/lib.rs:4597:29
+     |
+4597 | / ...                   match imp {
+4598 | | ...                       Value::BoundInterface(s) => {
+4599 | | ...                           let s = s.borrow();
+4600 | | ...                           if s.interface.borrow().name == iface.name {
+...    |
+4616 | | ...                       _ => {}
+4617 | | ...                   }
+     | |_______________________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#single_match
+     = note: `-D clippy::single-match` implied by `-D warnings`
+     = help: to override `-D warnings` add `#[allow(clippy::single_match)]`
+help: try
+     |
+4597 ~                             if let Value::BoundInterface(s) = imp {
+4598 +                                 let s = s.borrow();
+4599 +                                 if s.interface.borrow().name == iface.name {
+4600 +                                     if s.type_args.len() != target_args.len() {
+4601 +                                         continue;
+4602 +                                     }
+4603 +                                     let mut match_args = true;
+4604 +                                     for (a, b) in s.type_args.iter().zip(target_args.iter()) {
+4605 +                                         if !self.check_type_compatible(a, b) {
+4606 +                                             match_args = false;
+4607 +                                             break;
+4608 +                                         }
+4609 +                                     }
+4610 +                                     if match_args {
+4611 +                                         return true;
+4612 +                                     }
+4613 +                                 }
+4614 +                             }
+     |
+
+error: you seem to be trying to use `match` for destructuring a single pattern. Consider using `if let`
+    --> crates/pleno-vm/src/lib.rs:4631:29
+     |
+4631 | / ...                   match imp {
+4632 | | ...                       Value::BoundInterface(s) => {
+4633 | | ...                           let s = s.borrow();
+4634 | | ...                           if s.interface.borrow().name == iface.name {
+...    |
+4650 | | ...                       _ => {}
+4651 | | ...                   }
+     | |_______________________^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.92.0/index.html#single_match
+help: try
+     |
+4631 ~                             if let Value::BoundInterface(s) = imp {
+4632 +                                 let s = s.borrow();
+4633 +                                 if s.interface.borrow().name == iface.name {
+4634 +                                     if s.type_args.len() != target_args.len() {
+4635 +                                         continue;
+4636 +                                     }
+4637 +                                     let mut match_args = true;
+4638 +                                     for (a, b) in s.type_args.iter().zip(target_args.iter()) {
+4639 +                                         if !self.check_type_compatible(a, b) {
+4640 +                                             match_args = false;
+4641 +                                             break;
+4642 +                                         }
+4643 +                                     }
+4644 +                                     if match_args {
+4645 +                                         return true;
+4646 +                                     }
+4647 +                                 }
+4648 +                             }
+     |
+
+error: could not compile `pleno-vm` (lib) due to 2 previous errors
+warning: build failed, waiting for other jobs to finish...
+error: could not compile `pleno-vm` (lib test) due to 2 previous errors

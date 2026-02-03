@@ -158,34 +158,17 @@ pub enum Value {
     Class(GcRc<Class>),
     Interface(GcRc<Interface>),
     Function(usize),
-    BoundMethod {
-        receiver: Box<Value>,
-        function: Box<Value>,
-        owner: MethodOwner,
-        visibility: MethodVisibility,
-    },
-    StaticMethod {
-        function: Box<Value>,
-        owner: MethodOwner,
-        visibility: MethodVisibility,
-    },
+    BoundMethod(GcRc<BoundMethodState>),
+    StaticMethod(GcRc<StaticMethodState>),
     Closure(GcRc<ClosureState>),
     Thunk(GcRc<ThunkState>),
     NativeFunction(#[serde(skip, default = "default_native_function_val")] NativeFunction),
-    BoundNativeMethod {
-        receiver: Box<Value>,
-        #[serde(skip, default = "default_native_function_val")]
-        function: NativeFunction,
-    },
+    BoundNativeMethod(GcRc<BoundNativeMethodState>),
     Map(GcRc<MapState>),
     Array(GcRc<ArrayState>),
     Set(GcRc<SetState>),
     Object(GcRc<Object>),
-    Partial {
-        callee: Box<Value>,
-        args: Vec<Value>,
-        placeholders: Vec<usize>,
-    },
+    Partial(GcRc<PartialState>),
     /// Array operation that requires callback (map, filter, reduce)
     ArrayOp {
         kind: ArrayOpKind,
@@ -195,28 +178,12 @@ pub enum Value {
     Channel(GcRc<ChannelState>),
     Tuple(GcRc<TupleState>),
     Iterator(GcRc<IteratorState>),
-    BoundClass {
-        class: GcRc<Class>,
-        type_args: Vec<Value>,
-    },
+    BoundClass(GcRc<BoundClassState>),
     Enum(GcRc<EnumType>),
-    Variant {
-        enum_type: GcRc<EnumType>,
-        variant_name: Rc<String>,
-        data: Vec<Value>,
-    },
-    VariantConstructor {
-        enum_type: GcRc<EnumType>,
-        variant_name: Rc<String>,
-    },
-    BoundInterface {
-        interface: GcRc<Interface>,
-        type_args: Vec<Value>,
-    },
-    BoundFunction {
-        function: Box<Value>,
-        type_args: Vec<Value>,
-    },
+    Variant(GcRc<VariantState>),
+    VariantConstructor(GcRc<VariantConstructorState>),
+    BoundInterface(GcRc<BoundInterfaceState>),
+    BoundFunction(GcRc<BoundFunctionState>),
     File(GcRc<FileState>),
     Database(GcRc<DatabaseState>),
     Resource(GcRc<NativeResource>),
@@ -508,68 +475,27 @@ impl GcObject for Value {
             Value::Class(c) => gc.mark_object(&c.to_gc_object()),
             Value::Interface(i) => gc.mark_object(&i.to_gc_object()),
             Value::Function(_) => {}
-            Value::BoundMethod {
-                receiver, function, ..
-            } => {
-                receiver.mark(gc);
-                function.mark(gc);
-            }
-            Value::StaticMethod { function, .. } => function.mark(gc),
+            Value::BoundMethod(m) => gc.mark_object(&m.to_gc_object()),
+            Value::StaticMethod(m) => gc.mark_object(&m.to_gc_object()),
             Value::Closure(c) => gc.mark_object(&c.to_gc_object()),
             Value::Thunk(t) => gc.mark_object(&t.to_gc_object()),
-            Value::BoundNativeMethod { receiver, .. } => receiver.mark(gc),
+            Value::BoundNativeMethod(m) => gc.mark_object(&m.to_gc_object()),
             Value::Map(m) => gc.mark_object(&m.to_gc_object()),
             Value::Array(a) => gc.mark_object(&a.to_gc_object()),
             Value::Set(s) => gc.mark_object(&s.to_gc_object()),
             Value::Object(o) => gc.mark_object(&o.to_gc_object()),
-            Value::Partial { callee, args, .. } => {
-                // Defensive check: verify pointer alignment before marking
-                let ptr = callee.as_ref() as *const Value;
-                if ptr.align_offset(std::mem::align_of::<Value>()) == 0 {
-                    callee.mark(gc);
-                }
-                for v in args {
-                    v.mark(gc);
-                }
-            }
-            Value::BoundFunction {
-                function,
-                type_args,
-            } => {
-                function.mark(gc);
-                for arg in type_args {
-                    arg.mark(gc);
-                }
-            }
+            Value::Partial(p) => gc.mark_object(&p.to_gc_object()),
+            Value::BoundFunction(f) => gc.mark_object(&f.to_gc_object()),
             Value::ArrayOp { array, .. } => gc.mark_object(&array.to_gc_object()),
             Value::Mutex(m) => gc.mark_object(&m.to_gc_object()),
             Value::Channel(c) => gc.mark_object(&c.to_gc_object()),
             Value::Tuple(t) => gc.mark_object(&t.to_gc_object()),
             Value::Iterator(i) => gc.mark_object(&i.to_gc_object()),
-            Value::BoundClass { class, type_args } => {
-                gc.mark_object(&class.to_gc_object());
-                for arg in type_args {
-                    arg.mark(gc);
-                }
-            }
+            Value::BoundClass(c) => gc.mark_object(&c.to_gc_object()),
             Value::Enum(e) => gc.mark_object(&e.to_gc_object()),
-            Value::Variant { data, .. } => {
-                for val in data {
-                    val.mark(gc);
-                }
-            }
-            Value::VariantConstructor { enum_type, .. } => {
-                gc.mark_object(&enum_type.to_gc_object());
-            }
-            Value::BoundInterface {
-                interface,
-                type_args,
-            } => {
-                gc.mark_object(&interface.to_gc_object());
-                for arg in type_args {
-                    arg.mark(gc);
-                }
-            }
+            Value::Variant(v) => gc.mark_object(&v.to_gc_object()),
+            Value::VariantConstructor(v) => gc.mark_object(&v.to_gc_object()),
+            Value::BoundInterface(i) => gc.mark_object(&i.to_gc_object()),
             Value::File(f) => gc.mark_object(&f.to_gc_object()),
             Value::Database(d) => gc.mark_object(&d.to_gc_object()),
             Value::Resource(r) => gc.mark_object(&r.to_gc_object()),
@@ -580,9 +506,8 @@ impl GcObject for Value {
     }
 
     fn clear_refs(&mut self) {
-        if let Value::BoundNativeMethod { receiver, .. } = self {
-            receiver.clear_refs();
-        }
+        // GcRc's clear themselves when drop count hits 0 and they are swept.
+        // If we need manual clearing of cycles, we do it in their state structs.
     }
 }
 
@@ -767,6 +692,64 @@ pub struct Interface {
 
 impl GcObject for Interface {
     fn mark(&self, _gc: &mut MarkAndSweepGC) {}
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BoundClassState {
+    pub class: GcRc<Class>,
+    pub type_args: Vec<Value>,
+}
+
+impl GcObject for BoundClassState {
+    fn mark(&self, gc: &mut MarkAndSweepGC) {
+        gc.mark_object(&self.class.to_gc_object());
+        for arg in &self.type_args {
+            arg.mark(gc);
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VariantState {
+    pub enum_type: GcRc<EnumType>,
+    pub variant_name: Rc<String>,
+    pub data: Vec<Value>,
+}
+
+impl GcObject for VariantState {
+    fn mark(&self, gc: &mut MarkAndSweepGC) {
+        gc.mark_object(&self.enum_type.to_gc_object());
+        for arg in &self.data {
+            arg.mark(gc);
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VariantConstructorState {
+    pub enum_type: GcRc<EnumType>,
+    pub variant_name: Rc<String>,
+}
+
+impl GcObject for VariantConstructorState {
+    fn mark(&self, gc: &mut MarkAndSweepGC) {
+        gc.mark_object(&self.enum_type.to_gc_object());
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BoundInterfaceState {
+    pub interface: GcRc<Interface>,
+    pub type_args: Vec<Value>,
+}
+
+impl GcObject for BoundInterfaceState {
+    fn mark(&self, gc: &mut MarkAndSweepGC) {
+        gc.mark_object(&self.interface.to_gc_object());
+        for arg in &self.type_args {
+            arg.mark(gc);
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -999,6 +982,43 @@ impl MethodInfo {
     }
 }
 
+impl PartialEq for PartialState {
+    fn eq(&self, other: &Self) -> bool {
+        self.callee == other.callee
+            && self.args == other.args
+            && self.placeholders == other.placeholders
+    }
+}
+
+impl PartialEq for BoundMethodState {
+    fn eq(&self, other: &Self) -> bool {
+        self.receiver == other.receiver
+            && self.function == other.function
+            && self.owner == other.owner
+            && self.visibility == other.visibility
+    }
+}
+
+impl PartialEq for StaticMethodState {
+    fn eq(&self, other: &Self) -> bool {
+        self.function == other.function
+            && self.owner == other.owner
+            && self.visibility == other.visibility
+    }
+}
+
+impl PartialEq for BoundNativeMethodState {
+    fn eq(&self, other: &Self) -> bool {
+        self.receiver == other.receiver && (self.function as usize) == (other.function as usize)
+    }
+}
+
+impl PartialEq for BoundFunctionState {
+    fn eq(&self, other: &Self) -> bool {
+        self.function == other.function && self.type_args == other.type_args
+    }
+}
+
 impl PartialEq for Value {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
@@ -1012,60 +1032,16 @@ impl PartialEq for Value {
             (Value::Class(a), Value::Class(b)) => a.as_ptr() == b.as_ptr(),
             (Value::Interface(a), Value::Interface(b)) => a.as_ptr() == b.as_ptr(),
             (Value::Function(a), Value::Function(b)) => a == b,
-            (
-                Value::BoundMethod {
-                    receiver: ra,
-                    function: fa,
-                    owner: oa,
-                    visibility: va,
-                },
-                Value::BoundMethod {
-                    receiver: rb,
-                    function: fb,
-                    owner: ob,
-                    visibility: vb,
-                },
-            ) => ra == rb && fa == fb && oa == ob && va == vb,
-            (
-                Value::StaticMethod {
-                    function: fa,
-                    owner: oa,
-                    visibility: va,
-                },
-                Value::StaticMethod {
-                    function: fb,
-                    owner: ob,
-                    visibility: vb,
-                },
-            ) => fa == fb && oa == ob && va == vb,
+            (Value::BoundMethod(a), Value::BoundMethod(b)) => a == b,
+            (Value::StaticMethod(a), Value::StaticMethod(b)) => a == b,
             (Value::Closure(ca), Value::Closure(cb)) => ca == cb,
             (Value::NativeFunction(a), Value::NativeFunction(b)) => (*a as usize) == (*b as usize),
-            (
-                Value::BoundNativeMethod {
-                    receiver: ra,
-                    function: fa,
-                },
-                Value::BoundNativeMethod {
-                    receiver: rb,
-                    function: fb,
-                },
-            ) => ra == rb && (*fa as usize) == (*fb as usize),
+            (Value::BoundNativeMethod(a), Value::BoundNativeMethod(b)) => a == b,
             (Value::Map(a), Value::Map(b)) => a.as_ptr() == b.as_ptr(),
             (Value::Array(a), Value::Array(b)) => a.as_ptr() == b.as_ptr(),
             (Value::Set(a), Value::Set(b)) => a.as_ptr() == b.as_ptr(),
             (Value::Object(a), Value::Object(b)) => a.as_ptr() == b.as_ptr(),
-            (
-                Value::Partial {
-                    callee: ca,
-                    args: aa,
-                    placeholders: pa,
-                },
-                Value::Partial {
-                    callee: cb,
-                    args: ab,
-                    placeholders: pb,
-                },
-            ) => ca == cb && aa == ab && pa == pb,
+            (Value::Partial(a), Value::Partial(b)) => a == b,
             (
                 Value::ArrayOp {
                     kind: ka,
@@ -1080,51 +1056,16 @@ impl PartialEq for Value {
             (Value::Channel(a), Value::Channel(b)) => a.as_ptr() == b.as_ptr(),
             (Value::Tuple(a), Value::Tuple(b)) => a.as_ptr() == b.as_ptr(),
             (Value::Iterator(a), Value::Iterator(b)) => a.as_ptr() == b.as_ptr(),
-            (
-                Value::BoundClass {
-                    class: ca,
-                    type_args: ta,
-                },
-                Value::BoundClass {
-                    class: cb,
-                    type_args: tb,
-                },
-            ) => ca.as_ptr() == cb.as_ptr() && ta == tb,
-            (Value::Enum(a), Value::Enum(b)) => a.as_ptr() == b.as_ptr(),
-            (
-                Value::Variant {
-                    enum_type: ea,
-                    variant_name: va,
-                    data: da,
-                },
-                Value::Variant {
-                    enum_type: eb,
-                    variant_name: vb,
-                    data: db,
-                },
-            ) => ea.as_ptr() == eb.as_ptr() && va == vb && da == db,
-            (
-                Value::VariantConstructor {
-                    enum_type: ea,
-                    variant_name: va,
-                },
-                Value::VariantConstructor {
-                    enum_type: eb,
-                    variant_name: vb,
-                },
-            ) => ea.as_ptr() == eb.as_ptr() && va == vb,
-            (
-                Value::BoundFunction {
-                    function: fa,
-                    type_args: ta,
-                },
-                Value::BoundFunction {
-                    function: fb,
-                    type_args: tb,
-                },
-            ) => fa == fb && ta == tb,
-            (Value::Cell(a), Value::Cell(b)) => a.as_ptr() == b.as_ptr(),
-            (Value::File(a), Value::File(b)) => a.as_ptr() == b.as_ptr(),
+            (Value::BoundFunction(a), Value::BoundFunction(b)) => a == b,
+            (Value::BoundClass(a), Value::BoundClass(b)) => a == b,
+            (Value::Enum(a), Value::Enum(b)) => a == b,
+            (Value::Variant(a), Value::Variant(b)) => a == b,
+            (Value::VariantConstructor(a), Value::VariantConstructor(b)) => a == b,
+            (Value::BoundInterface(a), Value::BoundInterface(b)) => a == b,
+            (Value::Cell(a), Value::Cell(b)) => a == b,
+            (Value::File(a), Value::File(b)) => a == b,
+            (Value::Database(a), Value::Database(b)) => a == b,
+            (Value::Resource(a), Value::Resource(b)) => a == b,
             (Value::Char(a), Value::Char(b)) => a == b,
             _ => false,
         }
@@ -1157,7 +1098,10 @@ impl std::fmt::Display for Value {
                 Ok(())
             }
             Value::Class(c) => write!(f, "<class {}>", c.borrow().name),
-            Value::BoundClass { class, type_args } => {
+            Value::BoundClass(state) => {
+                let state = state.borrow();
+                let class = &state.class;
+                let type_args = &state.type_args;
                 write!(f, "<class {}", class.borrow().name)?;
                 if !type_args.is_empty() {
                     write!(f, "<")?;
@@ -1172,8 +1116,11 @@ impl std::fmt::Display for Value {
                 write!(f, ">")
             }
             Value::Interface(i) => write!(f, "<interface {}>", i.borrow().name),
-            Value::BoundFunction { type_args, .. } => {
-                write!(f, "<fn")?;
+            Value::BoundInterface(state) => {
+                let state = state.borrow();
+                let interface = &state.interface;
+                let type_args = &state.type_args;
+                write!(f, "<interface {}", interface.borrow().name)?;
                 if !type_args.is_empty() {
                     write!(f, "<")?;
                     for (i, arg) in type_args.iter().enumerate() {
@@ -1186,15 +1133,23 @@ impl std::fmt::Display for Value {
                 }
                 write!(f, ">")
             }
+            Value::BoundFunction(state) => {
+                let state = state.borrow();
+                write!(f, "<bound function {:?}>", state.function)
+            }
             Value::Function(_) => write!(f, "<fn>"),
-            Value::BoundMethod { owner, .. } => write!(f, "<method of {}>", owner.name()),
-            Value::StaticMethod { owner, .. } => {
-                write!(f, "<static method of {}>", owner.name())
+            Value::BoundMethod(state) => {
+                let state = state.borrow();
+                write!(f, "<method of {:?}>", state.owner)
+            }
+            Value::StaticMethod(state) => {
+                let state = state.borrow();
+                write!(f, "<static method of {:?}>", state.owner)
             }
             Value::Closure(c) => write!(f, "<closure {}>", c.borrow().function),
             Value::Thunk(_) => write!(f, "<thunk>"),
             Value::NativeFunction(_) => write!(f, "<native fn>"),
-            Value::BoundNativeMethod { .. } => write!(f, "<native method>"),
+            Value::BoundNativeMethod(_) => write!(f, "<native method>"),
             Value::Map(m) => {
                 write!(f, "{{")?;
                 let entries = &m.borrow().entries;
@@ -1241,7 +1196,7 @@ impl std::fmt::Display for Value {
                     write!(f, "<object>")
                 }
             }
-            Value::Partial { .. } => write!(f, "<partial>"),
+            Value::Partial(_) => write!(f, "<partial>"),
             Value::ArrayOp { kind, .. } => {
                 let name = match kind {
                     ArrayOpKind::Map => "map",
@@ -1272,15 +1227,17 @@ impl std::fmt::Display for Value {
             }
             Value::Iterator(_) => write!(f, "<iterator>"),
             Value::Enum(e) => write!(f, "<enum {}>", e.borrow().name),
-            Value::Variant {
-                enum_type,
-                variant_name,
-                data,
-            } => {
-                write!(f, "{}.{}", enum_type.borrow().name, variant_name)?;
-                if !data.is_empty() {
+            Value::Variant(state) => {
+                let state = state.borrow();
+                write!(
+                    f,
+                    "{}.{}",
+                    state.enum_type.borrow().name,
+                    state.variant_name
+                )?;
+                if !state.data.is_empty() {
                     write!(f, "(")?;
-                    for (i, v) in data.iter().enumerate() {
+                    for (i, v) in state.data.iter().enumerate() {
                         if i > 0 {
                             write!(f, ", ")?;
                         }
@@ -1290,27 +1247,14 @@ impl std::fmt::Display for Value {
                 }
                 Ok(())
             }
-            Value::VariantConstructor {
-                enum_type,
-                variant_name,
-            } => write!(
-                f,
-                "<{}.{} constructor>",
-                enum_type.borrow().name,
-                variant_name
-            ),
-            Value::BoundInterface {
-                interface,
-                type_args,
-            } => {
-                write!(f, "{}<", interface.borrow().name)?;
-                for (i, arg) in type_args.iter().enumerate() {
-                    if i > 0 {
-                        write!(f, ", ")?;
-                    }
-                    write!(f, "{}", arg)?;
-                }
-                write!(f, ">")
+            Value::VariantConstructor(state) => {
+                let state = state.borrow();
+                write!(
+                    f,
+                    "<{}.{} constructor>",
+                    state.enum_type.borrow().name,
+                    state.variant_name
+                )
             }
             Value::Cell(val) => write!(f, "<cell {}>", val.borrow().value),
             Value::Database(db) => write!(
@@ -1686,5 +1630,77 @@ impl GcObject for CellState {
 
     fn clear_refs(&mut self) {
         self.value = Value::Null;
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct PartialState {
+    pub callee: Value,
+    pub args: Vec<Value>,
+    pub placeholders: Vec<usize>,
+}
+
+impl GcObject for PartialState {
+    fn mark(&self, gc: &mut MarkAndSweepGC) {
+        self.callee.mark(gc);
+        for arg in &self.args {
+            arg.mark(gc);
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct BoundMethodState {
+    pub receiver: Value,
+    pub function: Value,
+    pub owner: MethodOwner,
+    pub visibility: MethodVisibility,
+}
+
+impl GcObject for BoundMethodState {
+    fn mark(&self, gc: &mut MarkAndSweepGC) {
+        self.receiver.mark(gc);
+        self.function.mark(gc);
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct StaticMethodState {
+    pub function: Value,
+    pub owner: MethodOwner,
+    pub visibility: MethodVisibility,
+}
+
+impl GcObject for StaticMethodState {
+    fn mark(&self, gc: &mut MarkAndSweepGC) {
+        self.function.mark(gc);
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct BoundNativeMethodState {
+    pub receiver: Value,
+    #[serde(skip, default = "default_native_function_val")]
+    pub function: NativeFunction,
+}
+
+impl GcObject for BoundNativeMethodState {
+    fn mark(&self, gc: &mut MarkAndSweepGC) {
+        self.receiver.mark(gc);
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct BoundFunctionState {
+    pub function: Value,
+    pub type_args: Vec<Value>,
+}
+
+impl GcObject for BoundFunctionState {
+    fn mark(&self, gc: &mut MarkAndSweepGC) {
+        self.function.mark(gc);
+        for arg in &self.type_args {
+            arg.mark(gc);
+        }
     }
 }

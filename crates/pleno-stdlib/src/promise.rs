@@ -1,6 +1,7 @@
 use indexmap::IndexMap;
 use pleno_value::{
-    ArrayState, MapState, MultiWaiter, MultiWaiterMode, RuntimeError, VMProvider, Value,
+    ArrayState, BoundNativeMethodState, MapState, MultiWaiter, MultiWaiterMode, RuntimeError,
+    VMProvider, Value,
 };
 // use std::collections::HashMap;
 use std::rc::Rc;
@@ -18,15 +19,16 @@ pub fn promise_constructor(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Va
     // We use BoundNativeMethod where the receiver is the promise itself (the map)
     // The native functions will extract the ID from the receiver and call vm.resolve_promise
 
-    let resolve_fn = Value::BoundNativeMethod {
-        receiver: Box::new(promise.clone()),
+    let gc = vm.get_gc();
+    let resolve_fn = Value::BoundNativeMethod(gc.allocate(BoundNativeMethodState {
+        receiver: promise.clone(),
         function: native_promise_resolve,
-    };
+    })?);
 
-    let reject_fn = Value::BoundNativeMethod {
-        receiver: Box::new(promise.clone()),
+    let reject_fn = Value::BoundNativeMethod(gc.allocate(BoundNativeMethodState {
+        receiver: promise.clone(),
         function: native_promise_reject,
-    };
+    })?);
 
     // Execute the executor immediately
     // If it throws, we catch it and reject the promise
