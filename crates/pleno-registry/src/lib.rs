@@ -1,11 +1,10 @@
 use axum::{
     Json, Router,
-    extract::{Path, Query, State},
-    http::Request,
+    extract::{Path, Query, Request, State},
     http::StatusCode,
     http::header::AUTHORIZATION,
     middleware::{self, Next},
-    response::IntoResponse,
+    response::{IntoResponse, Response},
     routing::{get, post},
 };
 use rusqlite::{Connection, params};
@@ -220,29 +219,31 @@ pub async fn publish_package(
     }
 }
 
-// Simple API Key authentication middleware
-pub async fn auth_middleware(
-    req: Request<axum::body::Body>,
-    next: Next,
-) -> Result<impl IntoResponse, StatusCode> {
-    let auth_header = req
+// Database-backed API Key authentication middleware
+pub async fn auth_middleware(State(state): State<AppState>, req: Request, next: Next) -> Response {
+    let token = req
         .headers()
         .get(AUTHORIZATION)
-        .and_then(|h| h.to_str().ok());
+        .and_then(|h| h.to_str().ok())
+        .and_then(|h| h.strip_prefix("Bearer "))
+        .map(|s| s.to_string());
 
-    match auth_header {
-        Some(auth) if auth.starts_with("Bearer ") => {
-            let token = &auth[7..];
-            // In a real app, check against DB. For now, check against env or hardcoded.
-            let valid_token = std::env::var("PLENO_ADMIN_TOKEN")
-                .unwrap_or_else(|_| "pleno_secret_token".to_string());
-            if token == valid_token {
-                Ok(next.run(req).await)
-            } else {
-                Err(StatusCode::UNAUTHORIZED)
-            }
-        }
-        _ => Err(StatusCode::UNAUTHORIZED),
+    let authenticated = if let Some(token) = token {
+        let db = state.db.lock().unwrap();
+        db.query_row(
+            "SELECT EXISTS(SELECT 1 FROM api_keys WHERE key = ?)",
+            params![token],
+            |row| row.get(0),
+        )
+        .unwrap_or(false)
+    } else {
+        false
+    };
+
+    if authenticated {
+        next.run(req).await
+    } else {
+        StatusCode::UNAUTHORIZED.into_response()
     }
 }
 
@@ -302,7 +303,10 @@ pub fn init_db(db: &Connection) {
 pub fn create_router(state: AppState) -> Router {
     let auth_router = Router::new()
         .route("/packages/:name", post(publish_package))
-        .layer(middleware::from_fn(auth_middleware))
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            auth_middleware,
+        ))
         .with_state(state.clone());
 
     Router::new()

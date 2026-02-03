@@ -152,8 +152,10 @@ pub fn db_query(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, Runtim
                                 Value::String(Rc::new(String::from_utf8_lossy(s).to_string()))
                             }
                             rusqlite::types::ValueRef::Blob(b) => {
-                                Value::String(Rc::new(hex::encode(b)))
-                            } // TODO: Byte array support?
+                                let elements =
+                                    b.iter().map(|&byte| Value::Int(byte as i64)).collect();
+                                Value::Array(gc.allocate(pleno_value::ArrayState::new(elements))?)
+                            }
                         };
                         row_map.insert(name.clone(), val);
                     }
@@ -193,6 +195,25 @@ fn translate_params(p: Option<&Value>) -> Result<Vec<Box<dyn ToSql>>, RuntimeErr
                 Value::Float(f) => out.push(Box::new(*f)),
                 Value::String(s) => out.push(Box::new(s.as_str().to_string())),
                 Value::Bool(b) => out.push(Box::new(*b)),
+                Value::Array(arr) => {
+                    let mut bytes = Vec::new();
+                    for v in &arr.borrow().elements {
+                        if let Value::Int(i) = v {
+                            if (0..=255).contains(i) {
+                                bytes.push(*i as u8);
+                            } else {
+                                return Err(RuntimeError::new(
+                                    "Array elements for BLOB must be between 0 and 255",
+                                ));
+                            }
+                        } else {
+                            return Err(RuntimeError::new(
+                                "Unsupported array element type for BLOB (must be Int)",
+                            ));
+                        }
+                    }
+                    out.push(Box::new(bytes));
+                }
                 _ => return Err(RuntimeError::new("Unsupported parameter type in SQL")),
             }
         }

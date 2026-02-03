@@ -1,0 +1,73 @@
+name: Nightly Build
+
+on:
+  schedule:
+    - cron: "0 0 * * *" # Run at midnight every day
+  workflow_dispatch: # Allow manual triggering
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: Build for ${{ matrix.job.target }}
+    runs-on: ${{ matrix.job.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        job:
+          - { target: x86_64-unknown-linux-gnu, os: ubuntu-latest }
+          - { target: aarch64-unknown-linux-gnu, os: ubuntu-latest }
+          - { target: x86_64-apple-darwin, os: macos-latest }
+          - { target: aarch64-apple-darwin, os: macos-latest }
+          - { target: x86_64-pc-windows-msvc, os: windows-latest }
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.job.target }}
+
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build
+        run: cargo build --release --workspace --target ${{ matrix.job.target }}
+
+      - name: Packaging
+        shell: bash
+        run: |
+          mkdir -p dist
+          DATE=$(date +%Y%m%d)
+          EXT=""
+          if [ "${{ runner.os }}" == "Windows" ]; then
+            EXT=".exe"
+          fi
+
+          # Copy binaries
+          cp target/${{ matrix.job.target }}/release/pleno$EXT dist/pleno$EXT
+          cp target/${{ matrix.job.target }}/release/plm$EXT dist/plm$EXT
+
+          # Archive
+          PACKAGE_NAME="pleno-nightly-$DATE-${{ matrix.job.target }}"
+          cd dist
+          if [ "${{ runner.os }}" == "Windows" ]; then
+            7z a -tzip ../$PACKAGE_NAME.zip *
+          else
+            tar -czf ../$PACKAGE_NAME.tar.gz .
+          fi
+          cd ..
+
+      - name: Create Nightly Release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: nightly-${{ github.sha }}
+          name: Nightly Build (${{ github.sha }})
+          body: "Automated nightly build for commit ${{ github.sha }}."
+          files: |
+            pleno-nightly-*
+          prerelease: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
