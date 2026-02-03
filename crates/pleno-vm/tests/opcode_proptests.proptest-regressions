@@ -5,3 +5,4 @@
 # It is recommended to check this file in to source control so that
 # everyone who runs the test benefits from these saved cases.
 cc b88ebaa11346bc8fbf297627ec53e487897f6c311b811de26d3e8eea0fb24d8e # shrinks to instructions = [Instruction(18)]
+cc bd4913665eac001f8b2766df25fbf7c2e5f267c9b004d835cba23789fac094a2 # shrinks to instructions = [Instruction(34845), Instruction(34848)]

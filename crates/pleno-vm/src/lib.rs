@@ -1344,7 +1344,11 @@ impl VM {
                 Opcode::Capture => {
                     let value = self.registers[base + b].to_value();
                     if let Value::Closure(state) = &self.registers[base + a].to_value() {
-                        state.borrow_mut().captures[c] = value;
+                        let mut state = state.borrow_mut();
+                        if c >= state.captures.len() {
+                            return Err(RuntimeError::new("capture index out of bounds"));
+                        }
+                        state.captures[c] = value;
                     } else {
                         return Err(RuntimeError::new("capture on non-closure"));
                     }
