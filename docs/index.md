@@ -16,6 +16,9 @@ hero:
     - theme: alt
       text: GitHub
       link: https://github.com/otabekoff/pleno
+    - theme: alt
+      text: Help wanted
+      link: /community
 
 features:
   - title: "🚀 High Performance"

@@ -102,7 +102,7 @@ We use **SemVer 0.1.0** for the current stage.
 If a release fails and you need to retag `v0.1.0`:
 
 1.  **Remove local tag**: `git tag -d v0.1.0`
-2.  **Remove remote tag**: `git push origin :refs/tags/v0.1.0`
+2.  **Remove remote tag**: `git push origin :refs/tags/v0.1.0
 3.  **Fix the issue** on `dev`, merge to `main`.
 4.  **Re-tag**: `git tag v0.1.0`
 5.  **Push**: `git push origin v0.1.0`
