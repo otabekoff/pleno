@@ -24,12 +24,44 @@ pub struct Breakpoint {
 }
 
 #[derive(Debug, Default)]
+pub struct VariableTracker {
+    next_id: u64,
+    id_to_value: HashMap<u64, Value>,
+}
+
+impl VariableTracker {
+    pub fn new() -> Self {
+        Self {
+            next_id: 1, // 0 is reserved for "no reference" in DAP
+            id_to_value: HashMap::new(),
+        }
+    }
+
+    pub fn track(&mut self, value: Value) -> u64 {
+        let id = self.next_id;
+        self.id_to_value.insert(id, value);
+        self.next_id += 1;
+        id
+    }
+
+    pub fn get(&self, id: u64) -> Option<&Value> {
+        self.id_to_value.get(&id)
+    }
+
+    pub fn clear(&mut self) {
+        self.id_to_value.clear();
+        self.next_id = 1;
+    }
+}
+
+#[derive(Debug, Default)]
 pub struct DebugContext {
     pub state: DebugState,
     pub breakpoints: HashMap<String, Vec<Breakpoint>>, // file -> breakpoints
     pub data_breakpoints: HashMap<String, Value>,      // variable name -> last seen value
     pub hit_counts: HashMap<(String, usize), usize>,   // (file, line) -> hits
     pub step_over_depth: Option<usize>,                // call stack depth
+    pub variable_tracker: VariableTracker,
 }
 
 impl DebugContext {

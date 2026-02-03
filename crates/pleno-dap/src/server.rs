@@ -290,6 +290,7 @@ impl<R: BufRead, W: Write> DapServer<R, W> {
                     return Ok(());
                 }
                 pleno_vm::ExecutionStatus::Paused => {
+                    vm.debug_context.variable_tracker.clear();
                     self.send_event(
                         "stopped".to_string(),
                         Some(serde_json::json!({
@@ -453,26 +454,28 @@ impl<R: BufRead, W: Write> DapServer<R, W> {
                                     .enumerate()
                                     .rev()
                                     .map(|(i, frame)| {
-                                        // We need function name and line info
-                                        let func_name =
-                                            vm.functions[frame.function_index].name.as_str();
+                                        let function = &vm.functions[frame.function_index];
+                                        let func_name = function.name.as_str();
                                         let line = if frame.ip > 0
-                                            && frame.ip
-                                                <= vm.functions[frame.function_index]
-                                                    .chunk
-                                                    .lines
-                                                    .len()
+                                            && frame.ip <= function.chunk.lines.len()
                                         {
-                                            vm.functions[frame.function_index].chunk.lines
-                                                [frame.ip - 1]
+                                            function.chunk.lines[frame.ip - 1]
                                         } else {
                                             0
                                         };
 
+                                        let mut source_json = serde_json::json!({});
+                                        if let Some(path) = &function.module_path {
+                                            source_json = serde_json::json!({
+                                                "name": std::path::Path::new(path.as_str()).file_name().and_then(|s| s.to_str()).unwrap_or("unknown"),
+                                                "path": path,
+                                            });
+                                        }
+
                                         serde_json::json!({
                                             "id": i,
                                             "name": func_name,
-                                             // Add source info if available
+                                            "source": source_json,
                                             "line": line,
                                             "column": 0
                                         })
@@ -496,11 +499,9 @@ impl<R: BufRead, W: Write> DapServer<R, W> {
                                     .and_then(|a| a.get("frameId"))
                                     .and_then(|v| v.as_u64())
                                     .unwrap_or(0);
-                                // For simplicity, variablesReference = frameId + 1 (0 is invalid)
-                                // We use (frameId + 1) * 10 + 1 for Locals
-                                // We use (frameId + 1) * 10 + 2 for Globals
-                                let locals_ref = (frame_id + 1) * 10 + 1;
-                                let globals_ref = (frame_id + 1) * 10 + 2;
+                                // Specially encoded IDs for top-level scopes
+                                let locals_ref = 1_000_000 + (frame_id + 1) * 10 + 1;
+                                let globals_ref = 1_000_000 + (frame_id + 1) * 10 + 2;
 
                                 self.send_response(
                                     &request,
@@ -522,47 +523,63 @@ impl<R: BufRead, W: Write> DapServer<R, W> {
                                     .and_then(|v| v.as_u64())
                                     .unwrap_or(0);
 
-                                let frame_idx = (var_ref / 10) - 1;
-                                let scope_type = var_ref % 10;
-
                                 let mut variables = Vec::new();
 
-                                if let Some(frame) = vm.frames.get(frame_idx as usize) {
-                                    if scope_type == 1 {
-                                        // Locals
-                                        let func = &vm.functions[frame.function_index];
-                                        let ip = frame.ip;
-                                        for local in &func.chunk.locals {
-                                            if ip >= local.start_ip && ip <= local.end_ip {
-                                                let val = vm.registers
-                                                    [frame.base + local.register as usize]
-                                                    .to_value();
-                                                variables.push(serde_json::json!({
-                                                    "name": local.name,
-                                                    "value": format!("{:?}", val),
-                                                    "variablesReference": 0 // 0 means not an object
-                                                }));
+                                if var_ref >= 1_000_000 {
+                                    let frame_idx = ((var_ref - 1_000_000) / 10) - 1;
+                                    let scope_type = var_ref % 10;
+
+                                    if let Some(frame) = vm.frames.get(frame_idx as usize) {
+                                        if scope_type == 1 {
+                                            // Locals
+                                            let func = &vm.functions[frame.function_index];
+                                            let ip = frame.ip;
+                                            let mut found_locals = Vec::new();
+
+                                            for local in &func.chunk.locals {
+                                                if ip >= local.start_ip && ip <= local.end_ip {
+                                                    let val = vm.registers
+                                                        [frame.base + local.register as usize]
+                                                        .to_value();
+                                                    found_locals.push((local.name.clone(), val));
+                                                }
+                                            }
+
+                                            let mut found_params = Vec::new();
+                                            for (i, param) in func.params.iter().enumerate() {
+                                                let val = vm.registers[frame.base + i].to_value();
+                                                found_params.push((param.name.clone(), val));
+                                            }
+
+                                            for (name, val) in found_locals {
+                                                variables.push(
+                                                    self.create_variable_json(vm, &name, val),
+                                                );
+                                            }
+                                            for (name, val) in found_params {
+                                                variables.push(
+                                                    self.create_variable_json(vm, &name, val),
+                                                );
+                                            }
+                                        } else if scope_type == 2 {
+                                            // Globals
+                                            let globals: Vec<_> = vm
+                                                .globals
+                                                .iter()
+                                                .map(|(k, v)| (k.clone(), v.clone()))
+                                                .collect();
+                                            for (name, val) in globals {
+                                                variables.push(
+                                                    self.create_variable_json(vm, &name, val),
+                                                );
                                             }
                                         }
-
-                                        // Also add parameters
-                                        for (i, param) in func.params.iter().enumerate() {
-                                            let val = vm.registers[frame.base + i].to_value();
-                                            variables.push(serde_json::json!({
-                                                "name": param.name,
-                                                "value": format!("{:?}", val),
-                                                "variablesReference": 0
-                                            }));
-                                        }
-                                    } else if scope_type == 2 {
-                                        // Globals
-                                        for (name, val) in &vm.globals {
-                                            variables.push(serde_json::json!({
-                                                "name": name,
-                                                "value": format!("{:?}", val),
-                                                "variablesReference": 0
-                                            }));
-                                        }
+                                    }
+                                } else {
+                                    // Structured value expansion
+                                    let children = vm.get_variable_children(var_ref);
+                                    for (name, val) in children {
+                                        variables.push(self.create_variable_json(vm, &name, val));
                                     }
                                 }
 
@@ -581,33 +598,22 @@ impl<R: BufRead, W: Write> DapServer<R, W> {
                                     .get("expression")
                                     .and_then(|v| v.as_str())
                                     .unwrap_or("");
-                                let _frame_id = args.get("frameId").and_then(|v| v.as_u64());
 
-                                // Use the VM's robust evaluation
-                                let mut found_val = vm.evaluate_expression(expression).ok();
-
-                                if found_val.is_none() {
-                                    // Check globals
-                                    found_val = vm.globals.get(expression).cloned();
-                                }
-
-                                if let Some(val) = found_val {
-                                    self.send_response(
-                                        &request,
-                                        true,
-                                        None,
-                                        Some(serde_json::json!({
-                                            "result": format!("{:?}", val),
-                                            "variablesReference": 0
-                                        })),
-                                    )?;
-                                } else {
-                                    self.send_response(
-                                        &request,
-                                        false,
-                                        Some("Variable not found".to_string()),
-                                        None,
-                                    )?;
+                                match vm.evaluate_expression(expression) {
+                                    Ok(val) => {
+                                        self.send_response(
+                                            &request,
+                                            true,
+                                            None,
+                                            Some(serde_json::json!({
+                                                "result": format!("{:?}", val),
+                                                "variablesReference": self.get_value_ref(vm, val)
+                                            })),
+                                        )?;
+                                    }
+                                    Err(e) => {
+                                        self.send_response(&request, false, Some(e.message), None)?;
+                                    }
                                 }
                             }
                             _ => {
@@ -623,5 +629,29 @@ impl<R: BufRead, W: Write> DapServer<R, W> {
                 }
             }
         }
+    }
+
+    fn get_value_ref(&self, vm: &mut VM, val: pleno_value::Value) -> u64 {
+        match val {
+            pleno_value::Value::Array(_)
+            | pleno_value::Value::Map(_)
+            | pleno_value::Value::Object(_)
+            | pleno_value::Value::Tuple(_) => vm.debug_context.variable_tracker.track(val),
+            _ => 0,
+        }
+    }
+
+    fn create_variable_json(
+        &self,
+        vm: &mut VM,
+        name: &str,
+        val: pleno_value::Value,
+    ) -> serde_json::Value {
+        let var_ref = self.get_value_ref(vm, val.clone());
+        serde_json::json!({
+            "name": name,
+            "value": format!("{:?}", val),
+            "variablesReference": var_ref
+        })
     }
 }
