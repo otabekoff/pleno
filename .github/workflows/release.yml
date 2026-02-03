@@ -10,9 +10,6 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
-  GPG_PRIVATE_KEY: ${{ secrets.GPG_PRIVATE_KEY }}
-  HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
-  DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
 
 jobs:
   build:
@@ -53,32 +50,6 @@ jobs:
 
       - name: Build
         run: cargo build --release --workspace --target ${{ matrix.job.target }}
-
-      - name: Code Signing (Windows)
-        if: runner.os == 'Windows' && secrets.WINDOWS_CERT_BASE64 != ''
-        shell: pwsh
-        run: |
-          $certPath = Join-Path $env:TEMP "cert.pfx"
-          [IO.File]::WriteAllBytes($certPath, [Convert]::FromBase64String($env:WINDOWS_CERT_BASE64))
-          & "C:\Program Files (x86)\Windows Kits\10\bin\10.0.19041.0\x64\signtool.exe" sign /f $certPath /p $env:WINDOWS_CERT_PASSWORD /t http://timestamp.digicert.com /v target/${{ matrix.job.target }}/release/pleno.exe
-          & "C:\Program Files (x86)\Windows Kits\10\bin\10.0.19041.0\x64\signtool.exe" sign /f $certPath /p $env:WINDOWS_CERT_PASSWORD /t http://timestamp.digicert.com /v target/${{ matrix.job.target }}/release/plm.exe
-        env:
-          WINDOWS_CERT_BASE64: ${{ secrets.WINDOWS_CERT_BASE64 }}
-          WINDOWS_CERT_PASSWORD: ${{ secrets.WINDOWS_CERT_PASSWORD }}
-
-      - name: Code Signing (macOS)
-        if: runner.os == 'macOS' && secrets.MACOS_CERTIFICATE != ''
-        run: |
-          echo "${{ secrets.MACOS_CERTIFICATE }}" | base64 --decode > certificate.p12
-          security create-keychain -p "${{ secrets.MACOS_KEYCHAIN_PASSWORD }}" build.keychain
-          security default-keychain -s build.keychain
-          security unlock-keychain -p "${{ secrets.MACOS_KEYCHAIN_PASSWORD }}" build.keychain
-          security import certificate.p12 -k build.keychain -P "${{ secrets.MACOS_CERTIFICATE_PASSWORD }}" -T /usr/bin/codesign
-          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "${{ secrets.MACOS_KEYCHAIN_PASSWORD }}" build.keychain
-          /usr/bin/codesign --force --s "Developer ID Application: ${{ secrets.MACOS_DEVELOPER_ID }}" target/${{ matrix.job.target }}/release/pleno
-          /usr/bin/codesign --force --s "Developer ID Application: ${{ secrets.MACOS_DEVELOPER_ID }}" target/${{ matrix.job.target }}/release/plm
-        env:
-          MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
 
       - name: Packaging
         shell: bash
@@ -174,30 +145,11 @@ jobs:
           pattern: artifacts-*
           merge-multiple: true
 
-      - name: Display structure of downloaded files
-        run: ls -R all-artifacts
-
       - name: Generate Consolidated Checksums
         run: |
           cd all-artifacts
           find . -maxdepth 1 -type f -not -name "*.sha256" -not -name "SHA256SUMS.txt" | xargs sha256sum > SHA256SUMS.txt
           cat SHA256SUMS.txt
-          cd ..
-
-      - name: GPG Signing
-        if: secrets.GPG_PRIVATE_KEY != ''
-        uses: crazy-max/ghaction-import-gpg@v6
-        with:
-          gpg_private_key: ${{ secrets.GPG_PRIVATE_KEY }}
-          passphrase: ${{ secrets.GPG_PASSPHRASE }}
-          git_user_signingkey: true
-          git_commit_gpgsign: true
-
-      - name: Sign Checksums
-        if: secrets.GPG_PRIVATE_KEY != ''
-        run: |
-          cd all-artifacts
-          gpg --clearsign SHA256SUMS.txt
           cd ..
 
       - name: Upload Release Assets
