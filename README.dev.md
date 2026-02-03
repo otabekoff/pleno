@@ -107,9 +107,14 @@ If a release fails and you need to retag `v0.1.0`:
 4.  **Re-tag**: `git tag v0.1.0`
 5.  **Push**: `git push origin v0.1.0`
 
-### Code Signing & Security
+### Trust & Security (Open Source Model)
+Pleno is a non-profit project. Instead of expensive commercial certificates, we use a **Community Trust Model**:
 
-Pleno binaries are signed to prevent "Unknown Publisher" warnings and improve security. See the **[Code Signing Guide](docs/security/signing.md)** for detailed instructions on obtaining and setting up certificates.
+- **Windows**: [SignPath.io](https://signpath.io/) (Free for OSS) or reputation building.
+- **macOS**: Distribution via **Homebrew** to bypass Gatekeeper.
+- **Linux**: **GPG signatures** and SHA256 checksums (Free).
+
+See the **[Security & Trust Guide](docs/security/signing.md)** for setup details.
 
 All releases include a `SHA256SUMS.txt` file. Verify with:
 `sha256sum -c SHA256SUMS.txt`

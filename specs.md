@@ -1,6 +1,6 @@
 # Pleno Programming Language
 
-## Complete Language Specification v2.0.0
+## Complete Language Specification
 
 **File Extension:** `.pln`  
 **Paradigms:** Object-Oriented, Functional, Procedural, Mixed  
