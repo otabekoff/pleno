@@ -1,64 +1,108 @@
 # std:time
 
-## Contents
+Date, time, and duration utilities.
 
-- [DateTime](#datetime)
-- [Duration](#duration)
-
-## DateTime
+## Import
 
 ```pleno
 import { DateTime, Duration } from "std:time";
 ```
 
-### Fields
+## DateTime
 
-#### 🔒 `timestamp: Int`
+Represents a point in time.
 
-### Methods
+### `now(): DateTime`
 
-#### `fn constructor(timestamp: Int)`
+Returns the current date and time.
 
-#### `static` `fn now() -> DateTime`
+```pleno
+let now = DateTime.now();
+print(now.format("%Y-%m-%d %H:%M:%S"));
+```
 
-#### `static` `fn now_ns() -> Int`
+### `now_ns(): Int`
 
-#### `static` `fn sleep(ms: Int)`
+Returns current time as nanoseconds since Unix epoch.
 
-#### `static` `fn parse(dateStr: String, fmt: String) -> DateTime`
+```pleno
+let nanos = DateTime.now_ns();
+```
 
-#### `fn format(fmt: String) -> String`
+### `sleep(ms: Int): Void`
 
-#### `fn add(duration: Duration) -> DateTime`
+Pauses execution for the specified milliseconds.
 
-#### `fn subtract(duration: Duration) -> DateTime`
+```pleno
+print("Starting...");
+DateTime.sleep(1000);  // Wait 1 second
+print("Done!");
+```
 
-#### `fn getTimestamp() -> Int`
+### `parse(dateStr: String, fmt: String): DateTime`
+
+Parses a date string using the specified format.
+
+```pleno
+let date = DateTime.parse("2026-02-03", "%Y-%m-%d");
+```
+
+### `format(fmt: String): String`
+
+Formats the DateTime as a string.
+
+| Specifier | Description    |
+| --------- | -------------- |
+| `%Y`      | 4-digit year   |
+| `%m`      | Month (01-12)  |
+| `%d`      | Day (01-31)    |
+| `%H`      | Hour (00-23)   |
+| `%M`      | Minute (00-59) |
+| `%S`      | Second (00-59) |
+
+```pleno
+let dt = DateTime.now();
+print(dt.format("%Y-%m-%d"));  // "2026-02-03"
+```
+
+### `add(duration: Duration): DateTime`
+
+Returns a new DateTime with the duration added.
+
+```pleno
+let tomorrow = DateTime.now().add(Duration.days(1));
+```
+
+### `subtract(duration: Duration): DateTime`
+
+Returns a new DateTime with the duration subtracted.
+
+```pleno
+let yesterday = DateTime.now().subtract(Duration.days(1));
+```
 
 ---
 
 ## Duration
 
+Represents a span of time.
+
+### Static Constructors
+
 ```pleno
-class Duration
+Duration.seconds(30);   // 30 seconds
+Duration.minutes(5);    // 5 minutes
+Duration.hours(2);      // 2 hours
+Duration.days(7);       // 7 days
 ```
 
-### Fields
+### `getSeconds(): Int`
 
-#### 🔒 `seconds: Int`
+Returns the duration in seconds.
 
-### Methods
-
-#### `fn constructor(seconds: Int)`
-
-#### `static` `fn seconds(s: Int) -> Duration`
-
-#### `static` `fn minutes(m: Int) -> Duration`
-
-#### `static` `fn hours(h: Int) -> Duration`
-
-#### `static` `fn days(d: Int) -> Duration`
-
-#### `fn getSeconds() -> Int`
+```pleno
+let d = Duration.hours(2);
+print(d.getSeconds());  // 7200
+```
 
 ---
