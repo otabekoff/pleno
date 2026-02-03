@@ -64,7 +64,7 @@ pub struct Function {
     pub module_path: Option<Rc<String>>,
     pub is_async: bool,
     pub is_pure: bool,
-    pub type_params: Vec<String>,
+    pub type_params: Vec<pleno_value::GenericParamMetadata>,
     pub type_constraints: IndexMap<String, Vec<String>>,
     pub annotations: Vec<pleno_value::RuntimeAnnotation>,
 }
@@ -402,6 +402,79 @@ impl Default for VM {
 }
 
 impl VM {
+    pub fn evaluate_condition(&mut self, condition: &str) -> Result<bool, RuntimeError> {
+        let val = self.evaluate_expression(condition)?;
+        Ok(crate::value_ops::is_truthy(&val))
+    }
+
+    pub fn evaluate_expression(&mut self, expression: &str) -> Result<Value, RuntimeError> {
+        if let Some(frame) = self.frames.last() {
+            let func = &self.functions[frame.function_index];
+            let ip = frame.ip;
+
+            // Check locals
+            for local in &func.chunk.locals {
+                if local.name == expression && ip >= local.start_ip && ip <= local.end_ip {
+                    return Ok(self.registers[frame.base + local.register as usize].to_value());
+                }
+            }
+
+            // Check params
+            for (i, param) in func.params.iter().enumerate() {
+                if param.name == expression {
+                    return Ok(self.registers[frame.base + i].to_value());
+                }
+            }
+        }
+
+        // Check globals
+        if let Some(val) = self.globals.get(expression) {
+            return Ok(val.clone());
+        }
+
+        // Basic literals
+        if let Ok(i) = expression.parse::<i64>() {
+            return Ok(Value::Int(i));
+        }
+        if let Ok(f) = expression.parse::<f64>() {
+            return Ok(Value::Float(f));
+        }
+        if expression == "true" {
+            return Ok(Value::Bool(true));
+        }
+        if expression == "false" {
+            return Ok(Value::Bool(false));
+        }
+        if expression == "null" {
+            return Ok(Value::Null);
+        }
+
+        Err(RuntimeError::new(format!(
+            "cannot evaluate expression: {}",
+            expression
+        )))
+    }
+
+    pub fn process_debug_log(&mut self, message: &str) {
+        let mut expanded = String::new();
+        let mut start = 0;
+        while let Some(open) = message[start..].find('{') {
+            expanded.push_str(&message[start..start + open]);
+            let actual_open = start + open;
+            if let Some(close) = message[actual_open..].find('}') {
+                let expr = &message[actual_open + 1..actual_open + close];
+                let val = self.evaluate_expression(expr).unwrap_or(Value::Null);
+                expanded.push_str(&format!("{:?}", val));
+                start = actual_open + close + 1;
+            } else {
+                expanded.push('{');
+                start = actual_open + 1;
+            }
+        }
+        expanded.push_str(&message[start..]);
+        log::info!("[DAP] {}", expanded);
+    }
+
     pub fn new() -> Self {
         let gc = pleno_value::gc::GCManager::new(1000);
         let globals = IndexMap::new();
@@ -821,28 +894,92 @@ impl VM {
         }
 
         loop {
-            let frame = self
-                .frames
-                .last_mut()
-                .ok_or_else(|| RuntimeError::new("no frame"))?;
-
-            let func_index = frame.function_index;
-            let ip = frame.ip;
-            let function = &self.functions[func_index];
-
-            if ip >= function.chunk.code.len() {
-                return Err(RuntimeError::new("instruction pointer out of bounds"));
-            }
-
-            let instruction = function.chunk.code[ip];
-            let opcode = instruction.opcode();
+            let (func_index, ip) = {
+                let frame = self
+                    .frames
+                    .last()
+                    .ok_or_else(|| RuntimeError::new("no frame"))?;
+                (frame.function_index, frame.ip)
+            };
 
             if self
                 .debug_context
                 .should_pause(func_index, ip, &self.functions)
             {
-                return Ok(Some(ExecutionStatus::Paused));
+                if let DebugState::Paused(_) = self.debug_context.state {
+                    return Ok(Some(ExecutionStatus::Paused));
+                }
+
+                let (path, line) = {
+                    let function = &self.functions[func_index];
+                    let line = function.chunk.lines[ip] as usize;
+                    (function.module_path.as_deref().map(|s| s.to_string()), line)
+                };
+
+                if let Some(p) = path {
+                    let hits = self
+                        .debug_context
+                        .hit_counts
+                        .entry((p.clone(), line))
+                        .or_insert(0);
+                    *hits += 1;
+                    let current_hits = *hits;
+
+                    let (condition, hit_condition, log_message) = {
+                        if let Some(bp) =
+                            self.debug_context
+                                .get_breakpoint(func_index, ip, &self.functions)
+                        {
+                            (
+                                bp.condition.clone(),
+                                bp.hit_condition.clone(),
+                                bp.log_message.clone(),
+                            )
+                        } else {
+                            (None, None, None)
+                        }
+                    };
+
+                    // 1. Condition
+                    let mut hit = if let Some(cond) = condition {
+                        self.evaluate_condition(&cond).unwrap_or(false)
+                    } else {
+                        true
+                    };
+
+                    // 2. Hit Condition
+                    if hit
+                        && let Some(hit_cond) = hit_condition
+                        && let Ok(target) = hit_cond.parse::<usize>()
+                    {
+                        hit = current_hits == target;
+                        // For now we only support numeric hit conditions like "5"
+                    }
+
+                    if hit {
+                        // 3. Log Message
+                        if let Some(log_msg) = log_message {
+                            self.process_debug_log(&log_msg);
+                            // Log messages don't pause execution
+                        } else {
+                            self.debug_context.state = DebugState::Paused(PauseReason::Breakpoint);
+                            return Ok(Some(ExecutionStatus::Paused));
+                        }
+                    }
+                }
             }
+
+            let frame = self
+                .frames
+                .last_mut()
+                .ok_or_else(|| RuntimeError::new("no frame"))?;
+
+            let function = &self.functions[frame.function_index];
+            if ip >= function.chunk.code.len() {
+                return Err(self.throw_runtime_error("program counter out of bounds"));
+            }
+            let instruction = function.chunk.code[ip];
+            let opcode = instruction.opcode();
 
             log::trace!("VM::run_step: ip={:04} {:?}", ip, opcode);
             frame.ip += 1;
@@ -2282,8 +2419,17 @@ impl VM {
                     }
                 }
                 Opcode::Add => {
-                    let left = self.registers[base + b].to_value();
-                    let right = self.registers[base + c].to_value();
+                    let left_nan = self.registers[base + b];
+                    let right_nan = self.registers[base + c];
+                    if (left_nan.is_f64() || left_nan.as_int().is_some())
+                        && (right_nan.is_f64() || right_nan.as_int().is_some())
+                    {
+                        self.registers[base + a] =
+                            crate::value_ops::add_nan(self, left_nan, right_nan)?;
+                        continue;
+                    }
+                    let left = left_nan.to_value();
+                    let right = right_nan.to_value();
                     if self.try_dispatch_operator(
                         base + a,
                         "+",
@@ -2292,12 +2438,20 @@ impl VM {
                     )? {
                         continue;
                     }
-                    let res = add_values(self, left, right)?;
+                    let res = crate::value_ops::add_values(self, left, right)?;
                     self.registers[base + a] = NanValue::from_value(&res);
                 }
                 Opcode::Sub => {
-                    let left = self.registers[base + b].to_value();
-                    let right = self.registers[base + c].to_value();
+                    let left_nan = self.registers[base + b];
+                    let right_nan = self.registers[base + c];
+                    if (left_nan.is_f64() || left_nan.as_int().is_some())
+                        && (right_nan.is_f64() || right_nan.as_int().is_some())
+                    {
+                        self.registers[base + a] = crate::value_ops::sub_nan(left_nan, right_nan)?;
+                        continue;
+                    }
+                    let left = left_nan.to_value();
+                    let right = right_nan.to_value();
                     if self.try_dispatch_operator(
                         base + a,
                         "-",
@@ -2306,12 +2460,20 @@ impl VM {
                     )? {
                         continue;
                     }
-                    let res = sub_values(left, right)?;
+                    let res = crate::value_ops::sub_values(left, right)?;
                     self.registers[base + a] = NanValue::from_value(&res);
                 }
                 Opcode::Mul => {
-                    let left = self.registers[base + b].to_value();
-                    let right = self.registers[base + c].to_value();
+                    let left_nan = self.registers[base + b];
+                    let right_nan = self.registers[base + c];
+                    if (left_nan.is_f64() || left_nan.as_int().is_some())
+                        && (right_nan.is_f64() || right_nan.as_int().is_some())
+                    {
+                        self.registers[base + a] = crate::value_ops::mul_nan(left_nan, right_nan)?;
+                        continue;
+                    }
+                    let left = left_nan.to_value();
+                    let right = right_nan.to_value();
                     if self.try_dispatch_operator(
                         base + a,
                         "*",
@@ -2320,12 +2482,20 @@ impl VM {
                     )? {
                         continue;
                     }
-                    let res = mul_values(left, right)?;
+                    let res = crate::value_ops::mul_values(left, right)?;
                     self.registers[base + a] = NanValue::from_value(&res);
                 }
                 Opcode::Div => {
-                    let left = self.registers[base + b].to_value();
-                    let right = self.registers[base + c].to_value();
+                    let left_nan = self.registers[base + b];
+                    let right_nan = self.registers[base + c];
+                    if (left_nan.is_f64() || left_nan.as_int().is_some())
+                        && (right_nan.is_f64() || right_nan.as_int().is_some())
+                    {
+                        self.registers[base + a] = crate::value_ops::div_nan(left_nan, right_nan)?;
+                        continue;
+                    }
+                    let left = left_nan.to_value();
+                    let right = right_nan.to_value();
                     if self.try_dispatch_operator(
                         base + a,
                         "/",
@@ -2334,12 +2504,20 @@ impl VM {
                     )? {
                         continue;
                     }
-                    let res = div_values(left, right)?;
+                    let res = crate::value_ops::div_values(left, right)?;
                     self.registers[base + a] = NanValue::from_value(&res);
                 }
                 Opcode::Mod => {
-                    let left = self.registers[base + b].to_value();
-                    let right = self.registers[base + c].to_value();
+                    let left_nan = self.registers[base + b];
+                    let right_nan = self.registers[base + c];
+                    if (left_nan.is_f64() || left_nan.as_int().is_some())
+                        && (right_nan.is_f64() || right_nan.as_int().is_some())
+                    {
+                        self.registers[base + a] = crate::value_ops::mod_nan(left_nan, right_nan)?;
+                        continue;
+                    }
+                    let left = left_nan.to_value();
+                    let right = right_nan.to_value();
                     if self.try_dispatch_operator(
                         base + a,
                         "%",
@@ -2348,40 +2526,59 @@ impl VM {
                     )? {
                         continue;
                     }
-                    let res = mod_values(left, right)?;
+                    let res = crate::value_ops::mod_values(left, right)?;
                     self.registers[base + a] = NanValue::from_value(&res);
                 }
                 Opcode::Neg => {
-                    let value = self.registers[base + b].to_value();
+                    let value_nan = self.registers[base + b];
+                    if value_nan.is_f64() || value_nan.as_int().is_some() {
+                        self.registers[base + a] = crate::value_ops::neg_nan(value_nan)?;
+                        continue;
+                    }
+                    let value = value_nan.to_value();
                     if self.try_dispatch_operator(base + a, "-", &value, &[])? {
                         continue;
                     }
-                    let res = neg_value(value)?;
+                    let res = crate::value_ops::neg_value(value)?;
                     self.registers[base + a] = NanValue::from_value(&res);
                 }
                 Opcode::Not => {
-                    let value = self.registers[base + b].to_value();
-                    if self.try_dispatch_operator(base + a, "!", &value, &[])? {
-                        continue;
-                    }
+                    let value_nan = self.registers[base + b];
                     self.registers[base + a] =
-                        NanValue::from_value(&Value::Bool(!is_truthy(&value)));
+                        NanValue::from_bool(!crate::value_ops::is_truthy_nan(value_nan));
                 }
                 Opcode::And => {
-                    let left = self.registers[base + b].to_value();
-                    let right = self.registers[base + c].to_value();
-                    self.registers[base + a] =
-                        NanValue::from_value(&Value::Bool(is_truthy(&left) && is_truthy(&right)));
+                    let left = self.registers[base + b];
+                    let right = self.registers[base + c];
+                    self.registers[base + a] = NanValue::from_bool(
+                        crate::value_ops::is_truthy_nan(left)
+                            && crate::value_ops::is_truthy_nan(right),
+                    );
                 }
                 Opcode::Or => {
-                    let left = self.registers[base + b].to_value();
-                    let right = self.registers[base + c].to_value();
-                    self.registers[base + a] =
-                        NanValue::from_value(&Value::Bool(is_truthy(&left) || is_truthy(&right)));
+                    let left = self.registers[base + b];
+                    let right = self.registers[base + c];
+                    self.registers[base + a] = NanValue::from_bool(
+                        crate::value_ops::is_truthy_nan(left)
+                            || crate::value_ops::is_truthy_nan(right),
+                    );
                 }
                 Opcode::Eq => {
-                    let left = self.registers[base + b].to_value();
-                    let right = self.registers[base + c].to_value();
+                    let left_nan = self.registers[base + b];
+                    let right_nan = self.registers[base + c];
+                    if (left_nan.is_f64() || left_nan.tag() < 7)
+                        && (right_nan.is_f64() || right_nan.tag() < 7)
+                    {
+                        let res = if left_nan.is_f64() && right_nan.is_f64() {
+                            left_nan.as_f64() == right_nan.as_f64()
+                        } else {
+                            left_nan == right_nan
+                        };
+                        self.registers[base + a] = NanValue::from_bool(res);
+                        continue;
+                    }
+                    let left = left_nan.to_value();
+                    let right = right_nan.to_value();
                     if self.try_dispatch_operator(
                         base + a,
                         "==",
@@ -2390,11 +2587,24 @@ impl VM {
                     )? {
                         continue;
                     }
-                    self.registers[base + a] = NanValue::from_value(&Value::Bool(left == right));
+                    self.registers[base + a] = NanValue::from_bool(left == right);
                 }
                 Opcode::Ne => {
-                    let left = self.registers[base + b].to_value();
-                    let right = self.registers[base + c].to_value();
+                    let left_nan = self.registers[base + b];
+                    let right_nan = self.registers[base + c];
+                    if (left_nan.is_f64() || left_nan.tag() < 7)
+                        && (right_nan.is_f64() || right_nan.tag() < 7)
+                    {
+                        let res = if left_nan.is_f64() && right_nan.is_f64() {
+                            left_nan.as_f64() != right_nan.as_f64()
+                        } else {
+                            left_nan != right_nan
+                        };
+                        self.registers[base + a] = NanValue::from_bool(res);
+                        continue;
+                    }
+                    let left = left_nan.to_value();
+                    let right = right_nan.to_value();
                     if self.try_dispatch_operator(
                         base + a,
                         "!=",
@@ -2403,11 +2613,20 @@ impl VM {
                     )? {
                         continue;
                     }
-                    self.registers[base + a] = NanValue::from_value(&Value::Bool(left != right));
+                    self.registers[base + a] = NanValue::from_bool(left != right);
                 }
                 Opcode::Lt | Opcode::Le | Opcode::Gt | Opcode::Ge => {
-                    let left = self.registers[base + b].to_value();
-                    let right = self.registers[base + c].to_value();
+                    let left_nan = self.registers[base + b];
+                    let right_nan = self.registers[base + c];
+                    if (left_nan.is_f64() || left_nan.as_int().is_some())
+                        && (right_nan.is_f64() || right_nan.as_int().is_some())
+                    {
+                        let res = crate::value_ops::compare_nan(opcode, left_nan, right_nan)?;
+                        self.registers[base + a] = NanValue::from_bool(res);
+                        continue;
+                    }
+                    let left = left_nan.to_value();
+                    let right = right_nan.to_value();
                     let op_str = match opcode {
                         Opcode::Lt => "<",
                         Opcode::Le => "<=",
@@ -2423,8 +2642,8 @@ impl VM {
                     )? {
                         continue;
                     }
-                    let result = compare_values(opcode, left, right)?;
-                    self.registers[base + a] = NanValue::from_value(&Value::Bool(result));
+                    let result = crate::value_ops::compare_values(opcode, left, right)?;
+                    self.registers[base + a] = NanValue::from_bool(result);
                 }
                 Opcode::Jump => {
                     let offset = decode_offset(instruction.b(), instruction.c());
@@ -2512,7 +2731,7 @@ impl VM {
                     if value.is_none() {
                         // Check function type parameters
                         for (i, param) in function.type_params.iter().enumerate() {
-                            if param == &name {
+                            if param.name == name {
                                 if i < frame.type_args.len() {
                                     value = Some(frame.type_args[i].clone());
                                 }
@@ -2526,7 +2745,7 @@ impl VM {
                         {
                             let cls = cls.borrow();
                             for (i, param) in cls.type_params.iter().enumerate() {
-                                if param == &name {
+                                if param.name == name {
                                     // First try to get from receiver (this)
                                     if let Value::Object(obj) =
                                         self.registers[frame.base].to_value()
@@ -2566,7 +2785,16 @@ impl VM {
                     };
                     let value = self.registers[base + a];
                     log::trace!("VM: SetGlobal '{}' => {:?}", name, value);
-                    self.globals.insert(name, value.to_value());
+                    let val_obj = value.to_value();
+
+                    // Data Breakpoint Check
+                    if self.debug_context.data_breakpoints.contains_key(&name) {
+                        self.globals.insert(name, val_obj);
+                        self.debug_context.state = DebugState::Paused(PauseReason::Breakpoint);
+                        return Ok(Some(ExecutionStatus::Paused));
+                    }
+
+                    self.globals.insert(name, val_obj);
                 }
                 Opcode::DefineClass => {
                     let name = match &function.chunk.constants[b] {
@@ -2888,8 +3116,30 @@ impl VM {
                             .elements
                             .iter()
                             .map(|v| match v {
-                                Value::String(s) => s.as_str().to_string(),
-                                _ => "unknown".to_string(),
+                                Value::String(s) => pleno_value::GenericParamMetadata {
+                                    name: s.as_str().to_string(),
+                                    variance: pleno_common::Variance::Invariant,
+                                },
+                                Value::Map(m) => {
+                                    let b = m.borrow();
+                                    let name = b
+                                        .entries
+                                        .get("name")
+                                        .and_then(|v| v.as_str())
+                                        .unwrap_or("unknown")
+                                        .to_string();
+                                    let variance = b
+                                        .entries
+                                        .get("variance")
+                                        .and_then(|v| v.as_int())
+                                        .map(|i| pleno_common::Variance::from_u8(i as u8))
+                                        .unwrap_or(pleno_common::Variance::Invariant);
+                                    pleno_value::GenericParamMetadata { name, variance }
+                                }
+                                _ => pleno_value::GenericParamMetadata {
+                                    name: "unknown".to_string(),
+                                    variance: pleno_common::Variance::Invariant,
+                                },
                             })
                             .collect::<Vec<_>>(),
                         _ => {
@@ -2990,7 +3240,8 @@ impl VM {
                                     )));
                                 }
 
-                                for (i, param_name) in class_borrow.type_params.iter().enumerate() {
+                                for (i, param) in class_borrow.type_params.iter().enumerate() {
+                                    let param_name = &param.name;
                                     if let Some(constraints) =
                                         class_borrow.type_constraints.get(param_name)
                                     {
@@ -3045,9 +3296,8 @@ impl VM {
                                     )));
                                 }
 
-                                for (i, param_name) in
-                                    interface_borrow.type_params.iter().enumerate()
-                                {
+                                for (i, param) in interface_borrow.type_params.iter().enumerate() {
+                                    let param_name = &param.name;
                                     if let Some(constraints) =
                                         interface_borrow.type_constraints.get(param_name)
                                     {
@@ -3077,7 +3327,7 @@ impl VM {
                                                     "Generic constraint failed: Type '{}' does not satisfy constraint '{}' for parameter '{}'",
                                                     arg_type_name,
                                                     constraint_name,
-                                                    param_name
+                                                    param.name
                                                 )));
                                             }
                                         }
@@ -3108,9 +3358,9 @@ impl VM {
                             }
 
                             // Verify constraints
-                            for (i, param_name) in func_proto.type_params.iter().enumerate() {
+                            for (i, param) in func_proto.type_params.iter().enumerate() {
                                 if let Some(constraints) =
-                                    func_proto.type_constraints.get(param_name)
+                                    func_proto.type_constraints.get(&param.name)
                                 {
                                     for constraint_name in constraints {
                                         let constraint_type =
@@ -3127,7 +3377,7 @@ impl VM {
                                                 "Generic constraint failed: Type '{}' does not satisfy constraint '{}' for parameter '{}' in function '{}'",
                                                 arg_type_name,
                                                 constraint_name,
-                                                param_name,
+                                                param.name,
                                                 func_proto.name
                                             )));
                                         }
@@ -3733,7 +3983,7 @@ impl VM {
 
         // Check function type parameters
         for (i, param) in function.type_params.iter().enumerate() {
-            if param == name {
+            if param.name == name {
                 if i < frame.type_args.len() {
                     return Some(frame.type_args[i].clone());
                 }
@@ -3745,7 +3995,7 @@ impl VM {
         if let Some(MethodOwner::Class(cls)) = &frame.current_owner {
             let cls = cls.borrow();
             for (i, param) in cls.type_params.iter().enumerate() {
-                if param == name {
+                if param.name == name {
                     // First try to get from receiver (this)
                     if frame.base < self.registers.len()
                         && let Value::Object(obj) = self.registers[frame.base].to_value()
@@ -4021,7 +4271,7 @@ impl VM {
                     // First check function's own type_params
                     let function = &self.functions[frame.function_index];
                     for (i, tp_name) in function.type_params.iter().enumerate() {
-                        if tp_name == s.as_str() && i < frame.type_args.len() {
+                        if tp_name.name == s.as_str() && i < frame.type_args.len() {
                             return self.check_type_compatible(val_type, &frame.type_args[i]);
                         }
                     }
@@ -4029,7 +4279,7 @@ impl VM {
                     if let Some(MethodOwner::Class(cls)) = &frame.current_owner {
                         let cls_ref = cls.borrow();
                         for (i, tp_name) in cls_ref.type_params.iter().enumerate() {
-                            if tp_name == s.as_str() && i < frame.type_args.len() {
+                            if tp_name.name == s.as_str() && i < frame.type_args.len() {
                                 return self.check_type_compatible(val_type, &frame.type_args[i]);
                             }
                         }

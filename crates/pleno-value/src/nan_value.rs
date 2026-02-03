@@ -63,7 +63,7 @@ impl NanValue {
     }
 
     #[inline]
-    fn tag(self) -> u64 {
+    pub fn tag(self) -> u64 {
         if self.is_f64() {
             0
         } else {

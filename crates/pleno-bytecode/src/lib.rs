@@ -162,6 +162,7 @@ pub struct Chunk {
     pub max_registers: usize,
     pub module_name: Option<String>,
     pub lines: Vec<u32>,
+    pub locals: Vec<LocalVarInfo>,
 }
 
 impl Default for Chunk {
@@ -180,8 +181,17 @@ impl Chunk {
             max_registers: 0,
             module_name: None,
             lines: Vec::new(),
+            locals: Vec::new(),
         }
     }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LocalVarInfo {
+    pub name: String,
+    pub register: u8,
+    pub start_ip: usize,
+    pub end_ip: usize,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -195,7 +205,7 @@ pub struct FunctionProto {
     pub is_inline: bool,
     pub is_hot: bool,
     pub no_optimize: bool,
-    pub type_params: Vec<String>,
+    pub type_params: Vec<pleno_value::GenericParamMetadata>,
     #[serde(default)]
     pub type_constraints: indexmap::IndexMap<String, Vec<String>>,
     #[serde(default)]

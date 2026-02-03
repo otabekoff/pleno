@@ -128,6 +128,9 @@ pub fn run_pleno() {
             let output = args.next();
             handle_doc(path.as_deref(), output.as_deref());
         }
+        "dap" => {
+            handle_dap(&mut args);
+        }
         _ => {
             run_file(&command, None, BuildProfile::Debug);
         }
@@ -1681,6 +1684,7 @@ fn handle_run(args: &mut std::iter::Peekable<std::iter::Skip<std::env::Args>>) {
     let mut allowed_read_paths = Vec::new();
     let mut allowed_write_paths = Vec::new();
     let mut sandbox_active = false;
+    let mut debug_mode = false;
 
     let iter = args.by_ref();
     while let Some(arg) = iter.next() {
@@ -1714,6 +1718,8 @@ fn handle_run(args: &mut std::iter::Peekable<std::iter::Skip<std::env::Args>>) {
                 allowed_write_paths.push(m);
                 sandbox_active = true;
             }
+        } else if arg == "--debug" {
+            debug_mode = true;
         } else if target.is_none() {
             target = Some(arg);
         }
@@ -1735,7 +1741,11 @@ fn handle_run(args: &mut std::iter::Peekable<std::iter::Skip<std::env::Args>>) {
             };
 
             if t.ends_with(".pln") {
-                run_file(&t, config, BuildProfile::Debug);
+                if debug_mode {
+                    handle_dap_for_file(&t);
+                } else {
+                    run_file(&t, config, BuildProfile::Debug);
+                }
             } else {
                 match Manifest::load_from_file("pleno.toml") {
                     Ok(manifest) => {
@@ -1866,4 +1876,26 @@ fn generate_index(output_dir: &Path, files: &[String]) -> Result<(), String> {
     index_path.push("README.md");
     fs::write(index_path, index).map_err(|e| e.to_string())?;
     Ok(())
+}
+
+fn handle_dap(_args: &mut std::iter::Peekable<std::iter::Skip<std::env::Args>>) {
+    let stdin = std::io::stdin();
+    let input = std::io::BufReader::new(stdin);
+    let output = std::io::stdout();
+    let mut server = pleno_dap::server::DapServer::new(input, output);
+    if let Err(e) = server.run() {
+        eprintln!("DAP server error: {e}");
+        std::process::exit(1);
+    }
+}
+
+fn handle_dap_for_file(_path: &str) {
+    let stdin = std::io::stdin();
+    let input = std::io::BufReader::new(stdin);
+    let output = std::io::stdout();
+    let mut server = pleno_dap::server::DapServer::new(input, output);
+    if let Err(e) = server.run() {
+        eprintln!("DAP server error: {e}");
+        std::process::exit(1);
+    }
 }
