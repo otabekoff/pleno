@@ -8,6 +8,33 @@ license.workspace = true
 name = "pleno"
 path = "src/main.rs"
 
+[[bin]]
+name = "plm"
+path = "src/bin/plm.rs"
+
+[package.metadata.deb]
+maintainer = "Otabek <otabek@plano.org>"
+copyright = "2026, Otabek"
+license-file = ["../../LICENSE", "0"]
+extended-description = """
+Pleno is a modern, high-performance programming language.
+This package contains the 'pleno' runner and 'plm' package manager.
+"""
+section = "devel"
+priority = "optional"
+assets = [
+    [
+        "target/release/pleno",
+        "usr/bin/pleno",
+        "755",
+    ],
+    [
+        "target/release/plm",
+        "usr/bin/plm",
+        "755",
+    ],
+]
+
 [dependencies]
 pleno-lexer = { workspace = true }
 pleno-parser = { workspace = true }
