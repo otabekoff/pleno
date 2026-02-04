@@ -1,0 +1,20 @@
+[package]
+name = "pleno-test-app"
+version = "0.1.0"
+main = "src/main.pln"
+
+[scripts]
+lint = "pleno lint ."
+build = "plm build"
+test = "plm test"
+repl = "pleno repl"
+fmt = "pleno format ."
+check = "pleno check src/main.pln"
+dev = "pleno run src/main.pln"
+
+[features]
+
+[dependencies."github.com/otabekoff/pleno-test-pkg"]
+git = "https://github.com/otabekoff/pleno-test-pkg"
+
+[dev-dependencies]

@@ -1,0 +1,39 @@
+import GC from "std:gc";
+fn allocate_heavy() {
+
+    print("Allocating objects...
+");
+    let arr = [];
+    for (let mut i = 0; i < 10000; i++) {
+        arr.push({"id": i, "data": "some data string to consume memory"});
+    }
+    print("Allocation done.
+");
+}
+
+print("Initial stats:
+");
+GC.report();
+
+allocate_heavy();
+
+print("Triggering GC after scope exit...
+");
+GC.collect();
+
+print("
+Stats after heavy allocation and collection:
+");
+GC.report();
+
+let stats = GC.stats();
+print("
+Programmatic stats access:
+");
+print("Collections: ", stats.collections, "
+");
+print("Peak Bytes:  ", stats.peak_bytes, "
+");
+print("Total Freed: ", stats.total_freed_bytes, "
+");
+

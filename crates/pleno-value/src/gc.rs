@@ -1,3 +1,4 @@
+use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 use std::cell::{Ref, RefCell, RefMut};
 use std::collections::HashSet;
@@ -207,10 +208,16 @@ pub struct GCManager {
     pub gc: MarkAndSweepGC,
     pub current_allocation: usize, // number of objects
     pub max_allocation: usize,     // max number of objects (0 = unlimited)
-    pub allocated_bytes: usize,    // total bytes allocated
+    pub allocated_bytes: usize,    // total bytes currently allocated
     pub peak_bytes: usize,         // peak bytes allocated
     pub max_bytes: usize,          // max bytes allowed (0 = unlimited)
     pub grace_bytes: usize,        // extra bytes allowed during emergency (e.g. error handling)
+
+    // Statistics tracking
+    pub total_collections: u64,
+    pub total_freed_bytes: usize,
+    pub total_freed_objects: usize,
+    pub last_collection_freed_bytes: usize,
 }
 
 impl GCManager {
@@ -223,6 +230,10 @@ impl GCManager {
             peak_bytes: 0,
             max_bytes: 0,
             grace_bytes: 0,
+            total_collections: 0,
+            total_freed_bytes: 0,
+            total_freed_objects: 0,
+            last_collection_freed_bytes: 0,
         }
     }
 
@@ -260,6 +271,9 @@ impl GCManager {
     }
 
     pub fn collect_garbage(&mut self, roots: &[&dyn GcObject]) {
+        let before_bytes = self.allocated_bytes;
+        let before_objects = self.current_allocation;
+
         self.gc.collect(roots);
         self.current_allocation = self.gc.get_heap_size();
 
@@ -268,14 +282,94 @@ impl GCManager {
         for obj in &self.gc.heap {
             total_bytes += obj.borrow().byte_size();
         }
+
         self.allocated_bytes = total_bytes;
+
+        // Update statistics
+        let freed_bytes = before_bytes.saturating_sub(total_bytes);
+        let freed_objects = before_objects.saturating_sub(self.current_allocation);
+
+        self.total_collections += 1;
+        self.total_freed_bytes += freed_bytes;
+        self.total_freed_objects += freed_objects;
+        self.last_collection_freed_bytes = freed_bytes;
+    }
+
+    pub fn report(&self) {
+        println!("--- Pleno GC Report ---");
+        println!("Collections:       {}", self.total_collections);
+        println!("Heap Size:         {} objects", self.current_allocation);
+        println!("Allocated:         {} bytes", self.allocated_bytes);
+        println!("Peak Usage:        {} bytes", self.peak_bytes);
+        println!(
+            "Total Freed:       {} bytes ({} objects)",
+            self.total_freed_bytes, self.total_freed_objects
+        );
+        println!(
+            "Last Freed:        {} bytes",
+            self.last_collection_freed_bytes
+        );
+        println!("-----------------------");
+    }
+
+    pub fn stats(&self) -> IndexMap<String, crate::Value> {
+        let mut stats = IndexMap::new();
+        stats.insert(
+            "collections".to_string(),
+            crate::Value::Int(self.total_collections as i64),
+        );
+        stats.insert(
+            "current_objects".to_string(),
+            crate::Value::Int(self.current_allocation as i64),
+        );
+        stats.insert(
+            "current_bytes".to_string(),
+            crate::Value::Int(self.allocated_bytes as i64),
+        );
+        stats.insert(
+            "peak_bytes".to_string(),
+            crate::Value::Int(self.peak_bytes as i64),
+        );
+        stats.insert(
+            "total_freed_bytes".to_string(),
+            crate::Value::Int(self.total_freed_bytes as i64),
+        );
+        stats.insert(
+            "total_freed_objects".to_string(),
+            crate::Value::Int(self.total_freed_objects as i64),
+        );
+        stats.insert(
+            "last_freed_bytes".to_string(),
+            crate::Value::Int(self.last_collection_freed_bytes as i64),
+        );
+        stats
     }
 
     pub fn collect_garbage_with<F>(&mut self, marker: F)
     where
         F: FnOnce(&mut MarkAndSweepGC),
     {
+        let before_bytes = self.allocated_bytes;
+        let before_objects = self.current_allocation;
+
         self.gc.collect_with(marker);
         self.current_allocation = self.gc.get_heap_size();
+
+        // Sum up the actual sizes of survivors
+        let mut total_bytes = 0;
+        for obj in &self.gc.heap {
+            total_bytes += obj.borrow().byte_size();
+        }
+
+        self.allocated_bytes = total_bytes;
+
+        // Update statistics
+        let freed_bytes = before_bytes.saturating_sub(total_bytes);
+        let freed_objects = before_objects.saturating_sub(self.current_allocation);
+
+        self.total_collections += 1;
+        self.total_freed_bytes += freed_bytes;
+        self.total_freed_objects += freed_objects;
+        self.last_collection_freed_bytes = freed_bytes;
     }
 }

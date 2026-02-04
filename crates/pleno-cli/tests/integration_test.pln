@@ -1,0 +1,14 @@
+/// Minimal test case to verify basic functionality.
+/// Run tests with `plm test`.
+
+#[test]
+fn test_addition() {
+    assert(1 + 1 == 2, "Math should work");
+}
+
+#[test]
+fn test_template() {
+    let x = 10;
+    let y = 20;
+    assert(x + y == 30, "Complex math should also work");
+}
