@@ -391,11 +391,18 @@ impl<'a> Resolver<'a> {
                     }
                 }
 
-                // Direct git/path dependency - skip registry lookup
                 if let Some(git_url) = &detail.git {
                     if resolved.contains_key(name) {
                         continue;
                     }
+
+                    // Check lockfile for current commit SHA
+                    let sha = lockfile
+                        .packages
+                        .iter()
+                        .find(|p| p.name == *name)
+                        .and_then(|p| p.commit.clone());
+
                     let version = if let Some(tag) = &detail.tag {
                         Version::parse(tag.strip_prefix('v').unwrap_or(tag))
                             .unwrap_or(Version::new(0, 0, 0))
@@ -403,8 +410,7 @@ impl<'a> Resolver<'a> {
                         Version::new(0, 0, 0)
                     };
                     let source = format!("git+{}", git_url);
-                    resolved.insert(name.clone(), (version, source, None));
-                    // For git deps, we don't recursively resolve sub-dependencies (no manifest fetch)
+                    resolved.insert(name.clone(), (version, source, sha));
                     continue;
                 }
 
