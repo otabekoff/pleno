@@ -1,0 +1,5 @@
+[[package]]
+name = "github.com/otabekoff/pleno-test-pkg"
+version = "0.0.0"
+source = "git+https://github.com/otabekoff/pleno-test-pkg"
+commit = "eff77d408d4a21ed029acff4fe29bb8fa6b479c3"

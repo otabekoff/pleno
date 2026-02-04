@@ -1,0 +1,18 @@
+/// This is the entry point of your Pleno application.
+///
+/// You can run this file using `plm run dev` (defined in pleno.toml)
+/// or explicitly with `pleno run src/main.pln`.
+
+fn main() {
+    // Single-line comment: Define a variable
+    let world = "world!";
+
+    /*
+     * Multi-line comment:
+     * Print the hello message to the standard output.
+     */
+    print("Hello, ", world);
+}
+
+// Run the main function
+main();

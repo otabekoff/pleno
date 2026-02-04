@@ -1,0 +1,19 @@
+# Pleno
+.pleno_cache/
+packages/
+.logs/
+target/
+
+# System
+.DS_Store
+Thumbs.db
+
+# IDEs
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+.idea/
+.project
+.settings/

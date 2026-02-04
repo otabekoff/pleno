@@ -149,60 +149,67 @@ impl Registry for GitHubResolver {
     }
 
     fn fetch_manifest(&self, name: &str, version: &Version) -> Result<Manifest, PackageError> {
-        let (url, sub_path) = self.get_repo_url(name);
-        let tag = format!("v{}", version);
-        let mut path_in_repo = "pleno.toml".to_string();
-        if let Some(sub) = sub_path {
-            path_in_repo = format!("{}/pleno.toml", sub);
+        if !name.starts_with("github.com/") {
+            return Err(PackageError::Io(std::io::Error::other(
+                "Not a GitHub package",
+            )));
         }
 
-        let output = std::process::Command::new("git")
-            .args(["archive", "--remote", &url, &tag, &path_in_repo])
-            .output()?;
+        let parts: Vec<&str> = name.split('/').collect();
+        if parts.len() < 3 {
+            return Err(PackageError::Io(std::io::Error::other(format!(
+                "Invalid GitHub package name: {}",
+                name
+            ))));
+        }
 
-        if !output.status.success() {
-            let tag = version.to_string();
-            let output = std::process::Command::new("git")
-                .args(["archive", "--remote", &url, &tag, &path_in_repo])
-                .output()?;
-
-            if !output.status.success() {
-                return Err(PackageError::Io(std::io::Error::other(format!(
-                    "Could not fetch {} from {} at tag {}",
-                    path_in_repo, url, version
-                ))));
-            }
-
-            let mut archive = tar::Archive::new(&output.stdout[..]);
-            for entry in archive.entries()? {
-                let mut entry = entry?;
-                if entry.path()?.to_string_lossy().ends_with("pleno.toml") {
-                    let mut content = String::new();
-                    use std::io::Read;
-                    entry.read_to_string(&mut content)?;
-                    let manifest: Manifest =
-                        toml::from_str(&content).map_err(PackageError::TomlParse)?;
-                    return Ok(manifest);
-                }
-            }
+        let user = parts[1];
+        let repo = parts[2];
+        let sub_path = if parts.len() > 3 {
+            Some(parts[3..].join("/"))
         } else {
-            let mut archive = tar::Archive::new(&output.stdout[..]);
-            for entry in archive.entries()? {
-                let mut entry = entry?;
-                if entry.path()?.to_string_lossy().ends_with("pleno.toml") {
-                    let mut content = String::new();
-                    use std::io::Read;
-                    entry.read_to_string(&mut content)?;
+            None
+        };
+
+        // Try 'vX.Y.Z' and 'X.Y.Z' tags
+        let tags = vec![format!("v{}", version), version.to_string()];
+        let mut last_error = None;
+
+        for tag in tags {
+            let mut url = format!(
+                "https://raw.githubusercontent.com/{}/{}/{}/pleno.toml",
+                user, repo, tag
+            );
+            if let Some(sub) = &sub_path {
+                url = format!(
+                    "https://raw.githubusercontent.com/{}/{}/{}/{}/pleno.toml",
+                    user, repo, tag, sub
+                );
+            }
+
+            match reqwest::blocking::get(&url) {
+                Ok(resp) if resp.status().is_success() => {
+                    let content = resp
+                        .text()
+                        .map_err(|e| PackageError::Io(std::io::Error::other(e)))?;
                     let manifest: Manifest =
                         toml::from_str(&content).map_err(PackageError::TomlParse)?;
                     return Ok(manifest);
                 }
+                Ok(resp) => {
+                    last_error = Some(format!("HTTP error {}: {}", resp.status(), url));
+                }
+                Err(e) => {
+                    last_error = Some(format!("Request failed: {}", e));
+                }
             }
         }
 
-        Err(PackageError::Io(std::io::Error::other(
-            "pleno.toml not found in archive",
-        )))
+        Err(PackageError::Io(std::io::Error::other(format!(
+            "Could not fetch pleno.toml from GitHub for {}: {}",
+            name,
+            last_error.unwrap_or_default()
+        ))))
     }
 
     fn publish(&self, _package: PublishPackage, _token: &str) -> Result<(), PackageError> {
@@ -368,23 +375,53 @@ impl<'a> Resolver<'a> {
         stack.push(manifest.package.name.clone());
 
         for (name, dep) in &manifest.dependencies {
+            // Handle git/path dependencies directly without registry lookup
+            if let Dependency::Detailed(detail) = dep {
+                // Check if optional and enabled
+                if detail.optional.unwrap_or(false) {
+                    let mut enabled = false;
+                    for (f_name, f_deps) in &manifest.features {
+                        if active_features.contains(f_name) && f_deps.contains(name) {
+                            enabled = true;
+                            break;
+                        }
+                    }
+                    if !enabled {
+                        continue;
+                    }
+                }
+
+                // Direct git/path dependency - skip registry lookup
+                if let Some(git_url) = &detail.git {
+                    if resolved.contains_key(name) {
+                        continue;
+                    }
+                    let version = if let Some(tag) = &detail.tag {
+                        Version::parse(tag.strip_prefix('v').unwrap_or(tag))
+                            .unwrap_or(Version::new(0, 0, 0))
+                    } else {
+                        Version::new(0, 0, 0)
+                    };
+                    let source = format!("git+{}", git_url);
+                    resolved.insert(name.clone(), (version, source, None));
+                    // For git deps, we don't recursively resolve sub-dependencies (no manifest fetch)
+                    continue;
+                }
+
+                if let Some(path_src) = &detail.path {
+                    if resolved.contains_key(name) {
+                        continue;
+                    }
+                    let version = Version::new(0, 0, 0);
+                    resolved.insert(name.clone(), (version, path_src.clone(), None));
+                    continue;
+                }
+            }
+
             let req = match dep {
                 Dependency::Version(v_str) => VersionReq::parse(v_str)
                     .map_err(|_| PackageError::InvalidVersionReq(v_str.clone()))?,
                 Dependency::Detailed(detail) => {
-                    // Check if optional and enabled
-                    if detail.optional.unwrap_or(false) {
-                        let mut enabled = false;
-                        for (f_name, f_deps) in &manifest.features {
-                            if active_features.contains(f_name) && f_deps.contains(name) {
-                                enabled = true;
-                                break;
-                            }
-                        }
-                        if !enabled {
-                            continue;
-                        }
-                    }
                     let v_str = detail.version.as_deref().unwrap_or("*");
                     VersionReq::parse(v_str)
                         .map_err(|_| PackageError::InvalidVersionReq(v_str.to_string()))?
@@ -811,13 +848,36 @@ pub struct CompositeRegistry<'a> {
 
 impl<'a> Registry for CompositeRegistry<'a> {
     fn query(&self, name: &str, req: &VersionReq) -> Result<Vec<Version>, PackageError> {
-        let mut versions = self.local.query(name, req)?;
-        if let Some(remote) = &self.remote {
-            versions.extend(remote.query(name, req)?);
+        let mut versions = vec![];
+
+        // 1. Try local cache
+        if let Ok(v) = self.local.query(name, req) {
+            versions.extend(v);
         }
-        if name.starts_with("github.com/") {
-            versions.extend(self.github.query(name, req)?);
+
+        // 2. Try remote registry (proxy)
+        if let Some(remote) = &self.remote
+            && let Ok(v) = remote.query(name, req)
+        {
+            versions.extend(v);
         }
+
+        // 3. Try GitHub direct if applicable
+        if name.starts_with("github.com/")
+            && let Ok(v) = self.github.query(name, req)
+        {
+            versions.extend(v);
+        }
+
+        if versions.is_empty() {
+            // Re-run the most likely to give a good error if we really found nothing
+            if name.starts_with("github.com/") {
+                return self.github.query(name, req);
+            } else if let Some(remote) = &self.remote {
+                return remote.query(name, req);
+            }
+        }
+
         versions.sort();
         versions.dedup();
         Ok(versions)
@@ -828,34 +888,42 @@ impl<'a> Registry for CompositeRegistry<'a> {
         name: &str,
         version: &Version,
     ) -> Result<(String, Option<String>), PackageError> {
+        // Priority: Local > GitHub (if github package) > Remote
         if let Ok(source) = self.local.fetch_source(name, version) {
             return Ok(source);
         }
+
         if name.starts_with("github.com/")
             && let Ok(source) = self.github.fetch_source(name, version)
         {
             return Ok(source);
         }
+
         if let Some(remote) = &self.remote {
             return remote.fetch_source(name, version);
         }
+
         Err(PackageError::Io(std::io::Error::other(
             "Package not found in any registry",
         )))
     }
 
     fn fetch_manifest(&self, name: &str, version: &Version) -> Result<Manifest, PackageError> {
+        // Priority: Local > GitHub (if github package) > Remote
         if let Ok(manifest) = self.local.fetch_manifest(name, version) {
             return Ok(manifest);
         }
+
         if name.starts_with("github.com/")
             && let Ok(manifest) = self.github.fetch_manifest(name, version)
         {
             return Ok(manifest);
         }
+
         if let Some(remote) = &self.remote {
             return remote.fetch_manifest(name, version);
         }
+
         Err(PackageError::Io(std::io::Error::other(
             "Manifest not found in any registry",
         )))

@@ -19,3 +19,17 @@ pub fn gc_is_enabled(_vm: &mut dyn VMProvider, _args: &[Value]) -> Result<Value,
     // GC cannot currently be disabled, so always return true
     Ok(Value::Bool(true))
 }
+
+/// Print a GC health report to stdout
+pub fn gc_report(vm: &mut dyn VMProvider, _args: &[Value]) -> Result<Value, RuntimeError> {
+    vm.get_gc().report();
+    Ok(Value::Null)
+}
+
+/// Get detailed GC statistics as a Map
+pub fn gc_stats(vm: &mut dyn VMProvider, _args: &[Value]) -> Result<Value, RuntimeError> {
+    let stats = vm.get_gc().stats();
+    Ok(Value::Map(
+        vm.get_gc().allocate(pleno_value::MapState::new(stats))?,
+    ))
+}

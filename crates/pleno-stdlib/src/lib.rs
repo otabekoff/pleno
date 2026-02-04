@@ -471,6 +471,8 @@ pub fn register(vm: &mut dyn VMProvider) {
         "isEnabled".to_string(),
         Value::NativeFunction(gc::gc_is_enabled),
     );
+    gc_module.insert("report".to_string(), Value::NativeFunction(gc::gc_report));
+    gc_module.insert("stats".to_string(), Value::NativeFunction(gc::gc_stats));
     modules.insert(
         "std:gc".to_string(),
         Value::Map(gc.allocate(MapState::new(gc_module)).unwrap()),
