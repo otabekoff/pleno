@@ -47,6 +47,17 @@ struct FunctionDeclarationConfig {
     is_async: bool,
     is_abstract: bool,
     doc: Option<String>,
+    member_start: Option<usize>,
+}
+
+struct AccessorDeclarationConfig {
+    kind: pleno_ast::FunctionKind,
+    visibility: Option<pleno_ast::Visibility>,
+    is_static: bool,
+    is_abstract: bool,
+    annotations: Vec<pleno_ast::Annotation>,
+    doc: Option<String>,
+    start_pos: usize,
 }
 
 impl Parser {
@@ -271,6 +282,7 @@ impl Parser {
                         is_async: true,
                         is_abstract: false,
                         doc,
+                        member_start: None,
                     })?;
                     Ok(self.wrap_stmt(
                         StmtKind::Fn {
@@ -635,6 +647,7 @@ impl Parser {
             is_async: false,
             is_abstract: false,
             doc,
+            member_start: None,
         })?;
         Ok(self.wrap_stmt(
             StmtKind::Fn {
@@ -872,6 +885,7 @@ impl Parser {
         while !self.is_at_end() && !matches!(self.peek_kind(), TokenKind::RBrace) {
             let member_doc = self.token_docs.get(&self.index).cloned();
             let member_annotations = self.parse_annotations()?;
+            let member_start = self.peek().span.start;
             let decl = self.parse_function_decl(FunctionDeclarationConfig {
                 kind: pleno_ast::FunctionKind::Method,
                 allow_modifiers: true,
@@ -881,6 +895,7 @@ impl Parser {
                 is_async: false,
                 is_abstract: false,
                 doc: member_doc,
+                member_start: Some(member_start),
             })?;
             methods.push(decl);
         }
@@ -941,6 +956,7 @@ impl Parser {
         let mut methods = Vec::new();
         let mut properties = Vec::new();
         while !self.check(&TokenKind::RBrace) && !self.is_at_end() {
+            let member_start = self.peek().span.start;
             let member_doc = self.token_docs.get(&self.index).cloned();
             let member_annotations = self.parse_annotations()?;
 
@@ -983,14 +999,15 @@ impl Parser {
                 self.peek_n_kind(2),
                 "get",
             ) {
-                methods.push(self.parse_accessor_decl(
-                    pleno_ast::FunctionKind::Getter,
+                methods.push(self.parse_accessor_decl(AccessorDeclarationConfig {
+                    kind: pleno_ast::FunctionKind::Getter,
                     visibility,
                     is_static,
-                    true, // is_abstract (always true for interfaces)
-                    member_annotations,
-                    member_doc,
-                )?);
+                    is_abstract: true, // always true for interfaces
+                    annotations: member_annotations,
+                    doc: member_doc,
+                    start_pos: member_start,
+                })?);
                 continue;
             }
             if is_accessor(
@@ -999,14 +1016,15 @@ impl Parser {
                 self.peek_n_kind(2),
                 "set",
             ) {
-                methods.push(self.parse_accessor_decl(
-                    pleno_ast::FunctionKind::Setter,
+                methods.push(self.parse_accessor_decl(AccessorDeclarationConfig {
+                    kind: pleno_ast::FunctionKind::Setter,
                     visibility,
                     is_static,
-                    true, // is_abstract
-                    member_annotations,
-                    member_doc,
-                )?);
+                    is_abstract: true,
+                    annotations: member_annotations,
+                    doc: member_doc,
+                    start_pos: member_start,
+                })?);
                 continue;
             }
             if matches!(self.peek_kind(), TokenKind::KeywordProperty) {
@@ -1016,6 +1034,7 @@ impl Parser {
                     true, // is_abstract
                     member_annotations,
                     member_doc,
+                    member_start,
                 )?);
                 continue;
             }
@@ -1033,6 +1052,7 @@ impl Parser {
                         is_async,
                         is_abstract: true, // Always abstract in interface
                         doc: member_doc,
+                        member_start: Some(member_start),
                     },
                     false, // Already consumed fn
                 )?);
@@ -1052,6 +1072,7 @@ impl Parser {
                                 is_async,
                                 is_abstract: true,
                                 doc: member_doc,
+                                member_start: None,
                             },
                             false,
                         )?);
@@ -1190,6 +1211,7 @@ impl Parser {
 
         let mut methods = Vec::new();
         while !self.check(&TokenKind::RBrace) && !self.is_at_end() {
+            let member_start = self.peek().span.start;
             let member_doc = self.token_docs.get(&self.index).cloned();
             let member_annotations = self.parse_annotations()?;
             let mut visibility = None;
@@ -1230,6 +1252,7 @@ impl Parser {
                 is_async: false, // For now enums don't have async methods easily
                 is_abstract: false,
                 doc: member_doc,
+                member_start: Some(member_start),
             })?;
             decl.is_static = is_static;
             methods.push(decl);
@@ -1531,6 +1554,7 @@ impl Parser {
         let mut properties = Vec::new();
         let mut nested_classes = Vec::new();
         while !self.is_at_end() && !matches!(self.peek_kind(), TokenKind::RBrace) {
+            let member_start = self.peek().span.start;
             let member_doc = self.token_docs.get(&self.index).cloned();
             let member_annotations = self.parse_annotations()?;
             let mut visibility = None;
@@ -1648,7 +1672,7 @@ impl Parser {
                     None
                 };
                 let body = Box::new(self.parse_block_stmt()?);
-                let method_span = Span::new(self.peek().span.start, self.previous_span().end);
+                let method_span = Span::new(member_start, self.previous_span().end);
                 methods.push(pleno_ast::FunctionDecl {
                     span: method_span,
                     name: format!("operator{}", op_symbol),
@@ -1683,6 +1707,7 @@ impl Parser {
                             is_async,
                             is_abstract: is_abstract_member,
                             doc: member_doc,
+                            member_start: Some(member_start),
                         },
                         false,
                     )?);
@@ -1702,6 +1727,7 @@ impl Parser {
                                     is_async,
                                     is_abstract: is_abstract_member,
                                     doc: member_doc,
+                                    member_start: Some(member_start),
                                 },
                                 false,
                             )?);
@@ -1719,14 +1745,15 @@ impl Parser {
                 self.peek_n_kind(2),
                 "get",
             ) {
-                methods.push(self.parse_accessor_decl(
-                    pleno_ast::FunctionKind::Getter,
+                methods.push(self.parse_accessor_decl(AccessorDeclarationConfig {
+                    kind: pleno_ast::FunctionKind::Getter,
                     visibility,
                     is_static,
-                    is_abstract_member,
-                    member_annotations,
-                    member_doc,
-                )?);
+                    is_abstract: is_abstract_member,
+                    annotations: member_annotations,
+                    doc: member_doc,
+                    start_pos: member_start,
+                })?);
                 continue;
             }
             if is_accessor(
@@ -1735,14 +1762,15 @@ impl Parser {
                 self.peek_n_kind(2),
                 "set",
             ) {
-                methods.push(self.parse_accessor_decl(
-                    pleno_ast::FunctionKind::Setter,
+                methods.push(self.parse_accessor_decl(AccessorDeclarationConfig {
+                    kind: pleno_ast::FunctionKind::Setter,
                     visibility,
                     is_static,
-                    is_abstract_member,
-                    member_annotations,
-                    member_doc,
-                )?);
+                    is_abstract: is_abstract_member,
+                    annotations: member_annotations,
+                    doc: member_doc,
+                    start_pos: member_start,
+                })?);
                 continue;
             }
             if matches!(self.peek_kind(), TokenKind::KeywordProperty) {
@@ -1752,6 +1780,7 @@ impl Parser {
                     is_abstract_member,
                     member_annotations,
                     member_doc,
+                    member_start,
                 )?);
                 continue;
             }
@@ -1779,7 +1808,7 @@ impl Parser {
                 let params = self.parse_param_list()?;
                 self.expect(TokenKind::RParen, "Expected ')' after parameters")?;
                 let body = Box::new(self.parse_block_stmt()?);
-                let constructor_span = Span::new(self.peek().span.start, self.previous_span().end);
+                let constructor_span = Span::new(member_start, self.previous_span().end);
                 methods.push(pleno_ast::FunctionDecl {
                     span: constructor_span,
                     name,
@@ -1798,6 +1827,7 @@ impl Parser {
                 });
                 continue;
             }
+            let name_token = self.peek().clone();
             let name = match self.advance().kind.clone() {
                 TokenKind::Ident(value) => value,
                 other => {
@@ -1807,6 +1837,7 @@ impl Parser {
                     ));
                 }
             };
+            let name_span = name_token.span;
 
             let ty = if self.matches(&TokenKind::Colon) {
                 Some(self.parse_type()?)
@@ -1821,7 +1852,7 @@ impl Parser {
             };
 
             self.expect(TokenKind::Semicolon, "Expected ';' after field declaration")?;
-            let field_span = Span::new(self.peek().span.start, self.previous_span().end);
+            let field_span = Span::new(member_start, self.previous_span().end);
             fields.push(pleno_ast::FieldDecl {
                 span: field_span,
                 name,
@@ -1866,8 +1897,8 @@ impl Parser {
         is_abstract: bool,
         annotations: Vec<pleno_ast::Annotation>,
         doc: Option<String>,
+        start_pos: usize,
     ) -> Result<pleno_ast::PropertyDecl, ParseError> {
-        let start_span = self.peek_span();
         self.advance(); // consume 'property'
         let name_span = self.peek_span();
         let name = match self.advance().kind.clone() {
@@ -1988,9 +2019,9 @@ impl Parser {
 
         self.expect(TokenKind::RBrace, "Expected '}' after property body")?;
 
-        let property_span = Span::new(start_span.start, self.previous_span().end);
+        let end_pos = self.previous_span().end;
         Ok(pleno_ast::PropertyDecl {
-            span: property_span,
+            span: Span::new(start_pos, end_pos),
             name,
             name_span,
             ty,
@@ -2125,7 +2156,7 @@ impl Parser {
             (None, false)
         };
         let decl_end = self.previous_span().end;
-        let decl_span = Span::new(name_start, decl_end);
+        let decl_span = Span::new(config.member_start.unwrap_or(name_start), decl_end);
         Ok(pleno_ast::FunctionDecl {
             span: decl_span,
             name,
@@ -2146,15 +2177,16 @@ impl Parser {
 
     fn parse_accessor_decl(
         &mut self,
-        kind: pleno_ast::FunctionKind,
-        visibility: Option<pleno_ast::Visibility>,
-        is_static: bool,
-        is_abstract: bool,
-        annotations: Vec<pleno_ast::Annotation>,
-        doc: Option<String>,
+        config: AccessorDeclarationConfig,
     ) -> Result<pleno_ast::FunctionDecl, ParseError> {
-        let accessor_token = self.advance().clone(); // get/set
-        let accessor_start = accessor_token.span.start;
+        let _accessor_token = self.advance().clone(); // get/set
+        let kind = config.kind;
+        let visibility = config.visibility;
+        let is_static = config.is_static;
+        let is_abstract = config.is_abstract;
+        let annotations = config.annotations;
+        let doc = config.doc;
+        let start_pos = config.start_pos;
         let name_token = self.advance().clone();
         let name = match name_token.kind {
             TokenKind::Ident(value) => value,
@@ -2191,7 +2223,7 @@ impl Parser {
             Box::new(self.parse_block_stmt()?)
         };
         let decl_end = self.previous_span().end;
-        let decl_span = Span::new(accessor_start, decl_end);
+        let decl_span = Span::new(start_pos, decl_end);
         Ok(pleno_ast::FunctionDecl {
             span: decl_span,
             name,
@@ -2337,6 +2369,9 @@ impl Parser {
                 ));
             }
             if !self.matches(&TokenKind::Comma) {
+                break;
+            }
+            if self.check(&TokenKind::RParen) {
                 break;
             }
         }
@@ -2876,6 +2911,9 @@ impl Parser {
                             if !self.matches(&TokenKind::Comma) {
                                 break;
                             }
+                            if self.check(&TokenKind::RParen) {
+                                break;
+                            }
                         }
                     }
                     self.expect(
@@ -3027,6 +3065,9 @@ impl Parser {
                         while !matches!(self.peek_kind(), TokenKind::RParen) {
                             items.push(self.parse_expr()?);
                             if !self.matches(&TokenKind::Comma) {
+                                break;
+                            }
+                            if matches!(self.peek_kind(), TokenKind::RParen) {
                                 break;
                             }
                         }
@@ -3538,6 +3579,9 @@ impl Parser {
                             if !self.matches(&TokenKind::Comma) {
                                 break;
                             }
+                            if matches!(self.peek_kind(), TokenKind::RParen) {
+                                break;
+                            }
                         }
                     }
                     self.expect(TokenKind::RParen, "Expected ')' after variant pattern")?;
@@ -3628,6 +3672,9 @@ impl Parser {
                         patterns.push((field_name, pattern));
 
                         if !self.matches(&TokenKind::Comma) {
+                            break;
+                        }
+                        if matches!(self.peek_kind(), TokenKind::RBrace) {
                             break;
                         }
                     }

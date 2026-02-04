@@ -4,17 +4,18 @@ version = "0.1.0"
 main = "src/main.pln"
 
 [scripts]
-lint = "pleno lint ."
-build = "plm build"
-test = "plm test"
-repl = "pleno repl"
-fmt = "pleno format ."
 check = "pleno check src/main.pln"
+fmt = "pleno format ."
+test = "plm test"
 dev = "pleno run src/main.pln"
+build = "plm build"
+repl = "pleno repl"
+lint = "pleno lint ."
 
 [features]
 
 [dependencies."github.com/otabekoff/pleno-test-pkg"]
 git = "https://github.com/otabekoff/pleno-test-pkg"
+tag = "0.1.1"
 
 [dev-dependencies]
