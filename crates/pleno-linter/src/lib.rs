@@ -390,11 +390,43 @@ impl<'a> LintVisitor<'a> {
 
     fn visit_stmt(&mut self, stmt: &Stmt) {
         match &stmt.kind {
-            StmtKind::Let { name, value, .. } => {
+            StmtKind::Module {
+                name,
+                name_span,
+                body,
+                ..
+            } => {
+                let (line, col) = position_from_offset(self.source, name_span.start);
+                self.scope_tracker.declare(name.clone(), line, col);
+                if let Some(stmts) = body {
+                    self.scope_tracker.enter_scope();
+                    for s in stmts {
+                        self.visit_stmt(s);
+                    }
+                    self.check_unused_in_current_scope();
+                    self.scope_tracker.exit_scope();
+                }
+            }
+            StmtKind::MacroDecl {
+                name,
+                name_span,
+                body,
+                ..
+            } => {
+                let (line, col) = position_from_offset(self.source, name_span.start);
+                self.scope_tracker.declare(name.clone(), line, col);
+                self.visit_stmt(body);
+            }
+            StmtKind::Let {
+                name,
+                name_span,
+                value,
+                ..
+            } => {
                 if let Some(v) = value {
                     self.visit_expr(v);
                 }
-                let (line, col) = position_from_offset(self.source, stmt.span.start);
+                let (line, col) = position_from_offset(self.source, name_span.start);
                 // Check for shadowing before declaring
                 if self.config.warn_shadowed_vars {
                     // Find where it was declared in outer scope
@@ -427,6 +459,19 @@ impl<'a> LintVisitor<'a> {
                 }
                 self.scope_tracker.declare(name.clone(), line, col);
             }
+            StmtKind::AssignProperty { object, value, .. } => {
+                self.visit_expr(object);
+                self.visit_expr(value);
+            }
+            StmtKind::AssignIndex {
+                collection,
+                index,
+                value,
+            } => {
+                self.visit_expr(collection);
+                self.visit_expr(index);
+                self.visit_expr(value);
+            }
             StmtKind::Assign { name, value } => {
                 self.visit_expr(value);
                 if self.config.no_undef && !self.scope_tracker.is_declared(name) {
@@ -452,20 +497,122 @@ impl<'a> LintVisitor<'a> {
                 self.scope_tracker.exit_scope();
             }
             StmtKind::Fn {
-                name, params, body, ..
+                name,
+                name_span,
+                params,
+                body,
+                ..
             } => {
-                let (line, col) = position_from_offset(self.source, stmt.span.start);
+                let (line, col) = position_from_offset(self.source, name_span.start);
                 self.scope_tracker.declare(name.clone(), line, col);
 
                 self.scope_tracker.enter_scope();
                 for param in params {
-                    let (pl, pc) = position_from_offset(self.source, stmt.span.start); // Simplification: use fn start
+                    let (pl, pc) = position_from_offset(self.source, param.name_span.start);
                     self.scope_tracker.declare(param.name.clone(), pl, pc);
                     if let Some(def) = &param.default {
                         self.visit_expr(def);
                     }
                 }
                 self.visit_stmt(body);
+                self.check_unused_in_current_scope();
+                self.scope_tracker.exit_scope();
+            }
+            StmtKind::Import { kind, .. } => {
+                let (line, col) = position_from_offset(self.source, stmt.span.start);
+                match kind {
+                    ImportKind::Module { alias } => {
+                        if let Some(name) = alias {
+                            self.scope_tracker.declare(name.clone(), line, col);
+                        }
+                    }
+                    ImportKind::Names(items) => {
+                        for item in items {
+                            let name = item.alias.as_ref().unwrap_or(&item.name);
+                            self.scope_tracker.declare(name.clone(), line, col);
+                        }
+                    }
+                    ImportKind::Star { alias } => {
+                        self.scope_tracker.declare(alias.clone(), line, col);
+                    }
+                }
+            }
+            StmtKind::CFor {
+                init,
+                condition,
+                step,
+                body,
+            } => {
+                self.scope_tracker.enter_scope();
+                if let Some(i) = init {
+                    self.visit_stmt(i);
+                }
+                if let Some(c) = condition {
+                    self.visit_expr(c);
+                }
+                if let Some(s) = step {
+                    self.visit_stmt(s);
+                }
+                self.visit_stmt(body);
+                self.check_unused_in_current_scope();
+                self.scope_tracker.exit_scope();
+            }
+            StmtKind::DoWhile { body, condition } => {
+                self.visit_stmt(body);
+                self.visit_expr(condition);
+            }
+            StmtKind::Throw(expr) => self.visit_expr(expr),
+            StmtKind::Labeled { stmt: inner, .. } => self.visit_stmt(inner),
+            StmtKind::Export(inner) => self.visit_stmt(inner),
+            StmtKind::TypeAlias {
+                name, name_span, ..
+            } => {
+                let (line, col) = position_from_offset(self.source, name_span.start);
+                self.scope_tracker.declare(name.clone(), line, col);
+            }
+            StmtKind::Extend { methods, .. } => {
+                for method in methods {
+                    self.visit_fn_decl(method);
+                }
+            }
+            StmtKind::Enum(enum_decl) => {
+                let (line, col) = position_from_offset(self.source, enum_decl.name_span.start);
+                self.scope_tracker
+                    .declare(enum_decl.name.clone(), line, col);
+
+                self.scope_tracker.enter_scope();
+                for variant in &enum_decl.variants {
+                    let (vl, vc) = position_from_offset(self.source, variant.name_span.start);
+                    self.scope_tracker.declare(variant.name.clone(), vl, vc);
+                }
+                for method in &enum_decl.methods {
+                    self.visit_fn_decl(method);
+                }
+                self.check_unused_in_current_scope();
+                self.scope_tracker.exit_scope();
+            }
+            StmtKind::Interface {
+                name,
+                name_span,
+                methods,
+                properties,
+                ..
+            } => {
+                let (line, col) = position_from_offset(self.source, name_span.start);
+                self.scope_tracker.declare(name.clone(), line, col);
+
+                self.scope_tracker.enter_scope();
+                for prop in properties {
+                    if let Some(getter) = &prop.getter {
+                        self.visit_fn_decl(getter);
+                    }
+                    if let Some(setter) = &prop.setter {
+                        self.visit_fn_decl(setter);
+                    }
+                }
+                for method in methods {
+                    self.visit_fn_decl(method);
+                }
                 self.check_unused_in_current_scope();
                 self.scope_tracker.exit_scope();
             }
@@ -507,11 +654,12 @@ impl<'a> LintVisitor<'a> {
             StmtKind::Expr(expr) => self.visit_expr(expr),
             StmtKind::Class {
                 name,
+                name_span,
                 methods,
                 fields,
                 ..
             } => {
-                let (line, col) = position_from_offset(self.source, stmt.span.start);
+                let (line, col) = position_from_offset(self.source, name_span.start);
                 self.scope_tracker.declare(name.clone(), line, col);
 
                 self.scope_tracker.enter_scope();
@@ -525,18 +673,7 @@ impl<'a> LintVisitor<'a> {
                     }
                 }
                 for method in methods {
-                    // Method parameters and body
-                    self.scope_tracker.enter_scope();
-                    for param in &method.params {
-                        let (pl, pc) = position_from_offset(self.source, stmt.span.start);
-                        self.scope_tracker.declare(param.name.clone(), pl, pc);
-                        if let Some(def) = &param.default {
-                            self.visit_expr(def);
-                        }
-                    }
-                    self.visit_stmt(&method.body);
-                    self.check_unused_in_current_scope();
-                    self.scope_tracker.exit_scope();
+                    self.visit_fn_decl(method);
                 }
 
                 self.scope_tracker.exit_scope();
@@ -644,10 +781,102 @@ impl<'a> LintVisitor<'a> {
                     self.visit_expr(eb);
                 }
             }
-            _ => {
-                // ... handle other complex expressions as needed ...
+            ExprKind::Literal(_) => {}
+            ExprKind::ArrayLiteral(elements)
+            | ExprKind::TupleLiteral(elements)
+            | ExprKind::SetLiteral(elements) => {
+                for e in elements {
+                    self.visit_expr(e);
+                }
+            }
+            ExprKind::MapLiteral(items) => {
+                for item in items {
+                    match item {
+                        MapItem::Entry(_, value) => self.visit_expr(value),
+                        MapItem::Spread(expr) => self.visit_expr(expr),
+                    }
+                }
+            }
+            ExprKind::NamedTupleLiteral(items) => {
+                for (_, value) in items {
+                    self.visit_expr(value);
+                }
+            }
+            ExprKind::Range { start, end, .. } => {
+                if let Some(s) = start {
+                    self.visit_expr(s);
+                }
+                if let Some(e) = end {
+                    self.visit_expr(e);
+                }
+            }
+            ExprKind::Index { collection, index } | ExprKind::SafeIndex { collection, index } => {
+                self.visit_expr(collection);
+                self.visit_expr(index);
+            }
+            ExprKind::Slice {
+                collection,
+                start,
+                end,
+            } => {
+                self.visit_expr(collection);
+                if let Some(s) = start {
+                    self.visit_expr(s);
+                }
+                if let Some(e) = end {
+                    self.visit_expr(e);
+                }
+            }
+            ExprKind::Pipeline { left, right } => {
+                self.visit_expr(left);
+                self.visit_expr(right);
+            }
+            ExprKind::AssertNotNull(expr)
+            | ExprKind::Spread(expr)
+            | ExprKind::Paren(expr)
+            | ExprKind::MacroSplice(expr) => {
+                self.visit_expr(expr);
+            }
+            ExprKind::Await { expr } => {
+                self.visit_expr(expr);
+            }
+            ExprKind::Is { left, .. } => {
+                self.visit_expr(left);
+            }
+            ExprKind::Specialize { left, .. } => {
+                self.visit_expr(left);
+            }
+            ExprKind::InterpolatedString(parts) => {
+                for part in parts {
+                    self.visit_expr(part);
+                }
+            }
+            ExprKind::MacroCall { args, .. } => {
+                for arg in args {
+                    match arg {
+                        CallArg::Positional(e) | CallArg::Named(_, e) | CallArg::Spread(e) => {
+                            self.visit_expr(e);
+                        }
+                        CallArg::Placeholder => {}
+                    }
+                }
+            }
+            ExprKind::This | ExprKind::Super | ExprKind::Underscore => {}
+        }
+    }
+
+    fn visit_fn_decl(&mut self, decl: &FunctionDecl) {
+        self.scope_tracker.enter_scope();
+        for param in &decl.params {
+            let (pl, pc) = position_from_offset(self.source, param.name_span.start);
+            self.scope_tracker.declare(param.name.clone(), pl, pc);
+            if let Some(def) = &param.default {
+                self.visit_expr(def);
             }
         }
+        self.visit_stmt(&decl.body);
+        self.check_unused_in_current_scope();
+        self.scope_tracker.exit_scope();
     }
 
     fn visit_pattern(&mut self, pattern: &Pattern) {
