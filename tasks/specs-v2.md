@@ -6,6 +6,26 @@
 **Typing:** Dynamic with optional static typing and gradual typing support  
 **Design Philosophy:** Clarity, Safety, Expressiveness, Modern Best Practices
 
+
+
+
+
+
+[Performance Features Debt](./tasks/performance_features_debt.md)
+
+## 18. Performance
+
+- [ ] 19.1 JIT (Deferred)
+- [ ] 19.2 Memory Hints (Deferred)
+
+## 19. Security
+
+- [ ] 20.2 Sandboxing (Deferred)
+- [ ] 
+   - JIT compilation (major undertaking)
+   - Generational GC (complex implementation)
+   - Object pooling
+   - 
 ## 19. Performance Features
 
 ### 19.1 JIT Compilation
@@ -48,16 +68,6 @@ fn criticalPath() {
 
 ---
 
-[Performance Features Debt](./tasks/performance_features_debt.md)
-
-## 18. Performance
-
-- [ ] 19.1 JIT (Deferred)
-- [ ] 19.2 Memory Hints (Deferred)
-
-## 19. Security
-
-- [ ] 20.2 Sandboxing (Deferred)
 
 
 # Security Features Technical Debt
@@ -122,23 +132,6 @@ Audited specs.md section 19 (Performance Features) against actual implementation
 ### Annotations (`pleno-compiler/src/lib.rs`)
 - `@pure` - sets `is_pure` flag on functions, checked at runtime
 - Other annotations are parsed into `RuntimeAnnotation` structs but not used for optimization
-
-## Recommendations
-
-1. **Remove from v1 specs** or **mark as "Future"**:
-   - JIT compilation (major undertaking)
-   - Generational GC (complex implementation)
-   - Object pooling
-
-2. **Could implement for v1**:
-   - `@inline` hint for small functions
-   - Dead code elimination in compiler
-   - `@no_optimize` for debugging
-
-3. **Already working**:
-   - `@pure` annotation
-   - Basic Mark-and-Sweep GC
-   - Reference counting via `Rc`
 
 
 

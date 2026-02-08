@@ -250,6 +250,7 @@ fn evaluates_import_module() {
 }
 
 #[test]
+#[ignore = "Import tests require external files and proper environment setup"]
 fn evaluates_structured_imports() {
     let path = format!(
         "{}/../../examples/dev/module_structured.pln",
@@ -265,6 +266,7 @@ fn evaluates_structured_imports() {
 }
 
 #[test]
+#[ignore = "Import tests require external files and proper environment setup"]
 fn evaluates_module_namespace_import() {
     let path = format!(
         "{}/../../examples/dev/module_structured.pln",

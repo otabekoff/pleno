@@ -1,0 +1,35 @@
+// Test for @no_optimize, DCE, and @inline
+@inline
+fn add_one(x) {
+    return x + 1;
+}
+@no_optimize
+fn slow_fn() {
+    // This should not be constant-folded or unrolled
+
+    let x = 1 + 2;
+    for (let mut i = 0; i < 3; i++) {
+        print(i);
+    }
+}
+fn main() {
+    // Unused variable - should be removed by DCE
+
+    let unused_var = 42;
+    // Unreachable code - should be removed
+    if (false) {
+
+        print("This is unreachable");
+        let unreachable_var = 100;
+    }
+    // Inlining test
+
+    let val = 10;
+    let result = add_one(val);
+    print("Result (should be 11): ", result);
+
+    slow_fn();
+}
+
+main();
+
