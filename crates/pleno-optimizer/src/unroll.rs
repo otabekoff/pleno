@@ -82,12 +82,34 @@ impl LoopUnroller {
                     // Infinite loop, don't unroll
                 }
             }
-            StmtKind::Fn { body, .. } => {
-                self.unroll_stmt(body);
+            StmtKind::Fn {
+                body, annotations, ..
+            } => {
+                if !annotations.iter().any(|a| a.name == "no_optimize") {
+                    self.unroll_stmt(body);
+                }
             }
-            StmtKind::Class { methods, .. } => {
+            StmtKind::Class {
+                methods,
+                annotations,
+                ..
+            } => {
+                if annotations.iter().any(|a| a.name == "no_optimize") {
+                    return;
+                }
                 for m in methods {
                     self.unroll_stmt(&mut m.body);
+                }
+            }
+            StmtKind::Enum(enum_decl) => {
+                if !enum_decl
+                    .annotations
+                    .iter()
+                    .any(|a| a.name == "no_optimize")
+                {
+                    for m in &mut enum_decl.methods {
+                        self.unroll_stmt(&mut m.body);
+                    }
                 }
             }
             StmtKind::If {

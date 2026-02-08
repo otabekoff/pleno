@@ -99,8 +99,12 @@ impl ConstantFolder {
                 methods,
                 properties,
                 nested_classes,
+                annotations,
                 ..
             } => {
+                if annotations.iter().any(|a| a.name == "no_optimize") {
+                    return;
+                }
                 for m in methods {
                     self.fold_stmt(&mut m.body);
                 }
@@ -133,8 +137,23 @@ impl ConstantFolder {
                     }
                 }
             }
-            StmtKind::Fn { body, .. } => {
-                self.fold_stmt(body);
+            StmtKind::Fn {
+                body, annotations, ..
+            } => {
+                if !annotations.iter().any(|a| a.name == "no_optimize") {
+                    self.fold_stmt(body);
+                }
+            }
+            StmtKind::Enum(enum_decl) => {
+                if !enum_decl
+                    .annotations
+                    .iter()
+                    .any(|a| a.name == "no_optimize")
+                {
+                    for method in &mut enum_decl.methods {
+                        self.fold_stmt(&mut method.body);
+                    }
+                }
             }
             StmtKind::Try {
                 try_branch,
