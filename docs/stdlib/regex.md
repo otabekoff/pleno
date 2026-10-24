@@ -10,16 +10,25 @@ import { Regex } from "std:regex";
 
 ## Creating a Regex
 
+`Regex(pattern)` creates a regex object. Write patterns as raw strings, `r"..."`, so backslashes reach the regex engine unchanged.
+
 ```pleno
-let pattern = Regex("\\d+");        // Matches one or more digits
-let email = Regex("[a-z]+@[a-z]+\\.com", "i");  // Case-insensitive
+import { Regex } from "std:regex";
+
+let digits = Regex(r"\d+");                     // One or more digits
+let email = Regex(r"(?i)[a-z]+@[a-z]+\.com");   // Case-insensitive
+print(digits.pattern);  // \d+
 ```
 
 ### Flags
 
-- `"i"` - Case-insensitive matching
-- `"g"` - Global matching (find all)
-- `"m"` - Multiline mode
+Set flags inside the pattern:
+
+- `(?i)` - Case-insensitive matching
+- `(?m)` - Multiline mode: `^` and `$` match at line breaks
+- `(?s)` - `.` also matches newlines
+
+`match` returns the first match. `findAll` and `replace` work on all matches, so no global flag is needed.
 
 ## Methods
 
@@ -28,9 +37,11 @@ let email = Regex("[a-z]+@[a-z]+\\.com", "i");  // Case-insensitive
 Returns `true` if the pattern matches anywhere in the input string.
 
 ```pleno
-let pattern = Regex("\\d+");
-pattern.test("abc123");  // true
-pattern.test("abc");     // false
+import { Regex } from "std:regex";
+
+let pattern = Regex(r"\d+");
+print(pattern.test("abc123"));  // true
+print(pattern.test("abc"));     // false
 ```
 
 ### `match(input: String): Match?`
@@ -38,12 +49,14 @@ pattern.test("abc");     // false
 Returns the first match or `null` if no match found.
 
 ```pleno
-let pattern = Regex("(\\w+)@(\\w+)");
+import { Regex } from "std:regex";
+
+let pattern = Regex(r"(\w+)@(\w+)");
 let m = pattern.match("contact@pleno.dev");
 if (m != null) {
-    print(m.value);     // "contact@pleno"
-    print(m.groups[0]); // "contact"
-    print(m.groups[1]); // "pleno"
+    print(m.value);     // contact@pleno
+    print(m.groups[0]); // contact
+    print(m.groups[1]); // pleno
 }
 ```
 
@@ -52,20 +65,24 @@ if (m != null) {
 Returns an array of all matches.
 
 ```pleno
-let pattern = Regex("\\d+");
+import { Regex } from "std:regex";
+
+let pattern = Regex(r"\d+");
 let matches = pattern.findAll("a1b2c3");
-// matches[0].value == "1"
-// matches[1].value == "2"
-// matches[2].value == "3"
+print(matches.length);    // 3
+print(matches[0].value);  // 1
+print(matches[2].value);  // 3
 ```
 
 ### `replace(input: String, replacement: String): String`
 
-Replaces all matches with the replacement string.
+Replaces all matches with the replacement string. `$1`, `$2`, ... in the replacement insert capture groups.
 
 ```pleno
-let pattern = Regex("\\s+");
-pattern.replace("hello   world", " ");  // "hello world"
+import { Regex } from "std:regex";
+
+print(Regex(r"\s+").replace("hello   world", " "));         // hello world
+print(Regex(r"(\w+)@(\w+)").replace("ann@site", "$2 at $1"));  // site at ann
 ```
 
 ### `split(input: String): String[]`
@@ -73,26 +90,53 @@ pattern.replace("hello   world", " ");  // "hello world"
 Splits the input string by the pattern.
 
 ```pleno
-let pattern = Regex(",\\s*");
-pattern.split("a, b,  c");  // ["a", "b", "c"]
+import { Regex } from "std:regex";
+
+let pattern = Regex(r",\s*");
+print(pattern.split("a, b,  c"));  // [a, b, c]
 ```
 
-## Match Class
+## Static Functions
+
+### `Regex.isMatch(pattern: String, input: String): Bool`
+
+Checks a pattern without creating a regex object.
+
+```pleno
+import { Regex } from "std:regex";
+
+print(Regex.isMatch(r"^\d+$", "123"));  // true
+```
+
+### `Regex.replace(pattern: String, input: String, replacement: String): String`
+
+Replaces all matches without creating a regex object.
+
+```pleno
+import { Regex } from "std:regex";
+
+print(Regex.replace("o", "foo", "0"));  // f00
+```
+
+## Match Object
 
 The `Match` object returned by `match()` and `findAll()` contains:
 
-| Property | Type       | Description             |
-| -------- | ---------- | ----------------------- |
-| `value`  | `String`   | The matched text        |
-| `index`  | `Int`      | Start position in input |
-| `groups` | `String[]` | Captured groups         |
+| Property   | Type       | Description                                |
+| ---------- | ---------- | ------------------------------------------ |
+| `value`    | `String`   | The matched text                           |
+| `index`    | `Int`      | Start position in input, in bytes          |
+| `groups`   | `String[]` | Captured groups                            |
+| `group(i)` | `String?`  | Group `i`; `group(0)` is the whole match   |
+
+A match can also be read like an array: `m[0]` is the whole match, `m[1]` the first group, and `m.length` the number of entries.
 
 ```pleno
-let m = Regex("(\\d{4})-(\\d{2})-(\\d{2})").match("2026-02-03");
-print(m.value);     // "2026-02-03"
-print(m.groups[0]); // "2026"
-print(m.groups[1]); // "02"
-print(m.groups[2]); // "03"
-```
+import { Regex } from "std:regex";
 
----
+let m = Regex(r"(\d{4})-(\d{2})-(\d{2})").match("2026-02-03");
+print(m.value);     // 2026-02-03
+print(m.groups[0]); // 2026
+print(m.group(2));  // 02
+print(m[3]);        // 03
+```

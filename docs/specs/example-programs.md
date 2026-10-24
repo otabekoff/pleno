@@ -1,6 +1,6 @@
 # Example Programs
 
-### 18.1 Hello World
+## Hello World
 
 ```pleno
 fn main() {
@@ -10,10 +10,13 @@ fn main() {
 main();
 ```
 
-### 18.2 Web Server
+## Web Server
 
-```pleno
+The server keeps running until you stop it.
+
+```pleno norun
 import { Server, Router } from "std:http";
+import { JSON } from "std:json";
 
 let router = Router();
 
@@ -23,7 +26,7 @@ router.get("/", fn(req, res) {
 
 router.get("/users/:id", fn(req, res) {
     let userId = req.params.id;
-    res.json({ id: userId, name: "User " + userId });
+    res.json({ "id": userId, "name": "User " + userId });
 });
 
 router.post("/users", fn(req, res) {
@@ -38,39 +41,40 @@ server.listen(8080, fn() {
 });
 ```
 
-### 18.3 Todo CLI Application
+## Todo CLI Application
 
 ```pleno
 import { File } from "std:io";
 import { JSON } from "std:json";
+import { Process } from "std:process";
 
+// Todos are maps, because JSON.stringify writes class instances as null.
 class TodoManager {
-    private todos: Array<Todo> = [];
+    private todos: Array = [];
     private file: String = "todos.json";
-    
+
     constructor() {
         this.load();
     }
-    
+
     fn add(title: String) {
-        let todo = Todo(title);
-        this.todos.push(todo);
+        this.todos.push({ "title": title, "completed": false });
         this.save();
         print("Added: " + title);
     }
-    
+
     fn list() {
         if (this.todos.isEmpty()) {
             print("No todos yet!");
             return;
         }
-        
+
         for (index, todo in this.todos) {
-            let status = todo.completed ? "[✓]" : "[ ]";
+            let status = todo.completed ? "[x]" : "[ ]";
             print(`${index + 1}. ${status} ${todo.title}`);
         }
     }
-    
+
     fn complete(index: Int) {
         if (index >= 0 && index < this.todos.length) {
             this.todos[index].completed = true;
@@ -78,7 +82,7 @@ class TodoManager {
             print("Completed: " + this.todos[index].title);
         }
     }
-    
+
     fn remove(index: Int) {
         if (index >= 0 && index < this.todos.length) {
             let removed = this.todos.remove(index);
@@ -86,11 +90,11 @@ class TodoManager {
             print("Removed: " + removed.title);
         }
     }
-    
+
     private fn save() {
         File.write(this.file, JSON.stringify(this.todos));
     }
-    
+
     private fn load() {
         if (File.exists(this.file)) {
             let content = File.read(this.file);
@@ -99,23 +103,14 @@ class TodoManager {
     }
 }
 
-class Todo {
-    public title: String;
-    public completed: Bool = false;
-    
-    constructor(title: String) {
-        this.title = title;
-    }
-}
-
 fn main(args: String[]) {
     let manager = TodoManager();
-    
+
     if (args.length == 0) {
-        print("Usage: todo [add|list|complete|remove] ...");
+        print("Usage: pleno run todo.pln [add|list|complete|remove] ...");
         return;
     }
-    
+
     match (args[0]) {
         case "add" => {
             if (args.length > 1) {
@@ -136,4 +131,16 @@ fn main(args: String[]) {
         case _ => print("Unknown command")
     }
 }
+
+// Process.args() is [pleno, run, todo.pln, ...]; the command starts at index 3.
+main(Process.args()[3..]);
+```
+
+Run it with a command:
+
+```sh
+pleno run todo.pln add Buy some milk
+pleno run todo.pln list
+pleno run todo.pln complete 1
+pleno run todo.pln remove 1
 ```

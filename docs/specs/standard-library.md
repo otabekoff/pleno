@@ -1,28 +1,29 @@
 # Standard Library Highlights
 
-### 13.1 String Operations
+## String Operations
 
 ```pleno
 let str = "Hello, World!";
 
-str.length;                    // 13
-str.toUpperCase();             // "HELLO, WORLD!"
-str.toLowerCase();             // "hello, world!"
-str.trim();                    // Remove whitespace
-str.split(",");                // ["Hello", " World!"]
-str.contains("World");         // true
-str.startsWith("Hello");       // true
-str.endsWith("!");             // true
-str.replace("World", "Pleno"); // "Hello, Pleno!"
-str.substring(0, 5);           // "Hello"
-str.charAt(0);                 // "H"
-str.indexOf("o");              // 4
-str.repeat(3);                 // "Hello, World!Hello, World!Hello, World!"
+print(str.length);                    // 13
+print(str.toUpperCase());             // HELLO, WORLD!
+print(str.toLowerCase());             // hello, world!
+print("  padded  ".trim());           // padded
+print(str.split(","));                // [Hello,  World!]
+print(str.contains("World"));         // true
+print(str.startsWith("Hello"));       // true
+print(str.endsWith("!"));             // true
+print(str.replace("World", "Pleno")); // Hello, Pleno!
+print(str.substring(0, 5));           // Hello
+print(str.charAt(0));                 // H
+print(str.indexOf("o"));              // 4
+print("ab".repeat(3));                // ababab
 
 // String interpolation
 let name = "Alice";
 let age = 30;
 let message = `Hello, ${name}! You are ${age} years old.`;
+print(message);  // Hello, Alice! You are 30 years old.
 
 // Multi-line strings
 let multiline = `
@@ -32,7 +33,7 @@ let multiline = `
 `;
 ```
 
-### 13.2 Math Operations
+## Math Operations
 
 ```pleno
 import { Math } from "std:math";
@@ -51,118 +52,126 @@ Math.PI;                // 3.141592653589793
 Math.E;                 // 2.718281828459045
 ```
 
-### 13.3 File I/O
+## File I/O
 
 ```pleno
-import { File, FileMode } from "std:io";
+import { File } from "std:io";
 
-// Read entire file
+// Write a file, then read it back
+File.write("data.txt", "line 1
+line 2");
 let content = File.read("data.txt");
 
 // Read lines
 let lines = File.readLines("data.txt");
 for (line in lines) {
-    print(line);
+    print(line);  // line 1, then line 2
 }
 
-// Write to file
-File.write("output.txt", "Hello, World!");
-
-// Append to file
-File.append("log.txt", "New log entry\n");
+// Append to a file
+File.append("log.txt", "New log entry
+");
 
 // File operations
-File.exists("data.txt");       // Check if exists
-File.delete("temp.txt");       // Delete file
-File.copy("src.txt", "dst.txt"); // Copy file
-File.move("old.txt", "new.txt"); // Move/rename file
+print(File.exists("data.txt"));     // true
+File.copy("data.txt", "copy.txt");  // Copy file
+File.move("copy.txt", "new.txt");   // Move or rename file
 
-// Working with file handles
-let file = File.open("data.txt", FileMode.Read);
+// Working with file handles: mode "r" (read), "w" (write) or "a" (append)
+let file = File.open("data.txt", "r");
 try {
-    let content = file.read();
-    print(content);
+    print(file.read());
 } finally {
     file.close();
 }
+
+// Delete files
+File.delete("data.txt");
+File.delete("log.txt");
+File.delete("new.txt");
 ```
 
 ::: warning Planned
 A `with (file = File.open(...)) { ... }` statement that closes the file automatically is planned. Until then, close files in a `finally` block as above.
 :::
 
-### 13.4 Directory Operations
+## Directory Operations
 
 ```pleno
-import { Directory } from "std:io";
+import { Directory, File } from "std:io";
 
-Directory.create("new_folder");
-Directory.exists("folder");
-Directory.delete("old_folder");
-Directory.list(".");              // List files and folders
-Directory.listFiles(".");         // List only files
-Directory.listDirectories(".");   // List only directories
+Directory.create("box");
+print(Directory.exists("box"));       // true
+File.write("box/a.txt", "a");
+Directory.create("box/inner");
+
+print(Directory.list("box"));             // [a.txt, inner]
+print(Directory.listFiles("box"));        // [a.txt]
+print(Directory.listDirectories("box"));  // [inner]
+Directory.delete("box/inner");            // Delete an empty folder
 
 // Recursive operations
 Directory.createRecursive("path/to/nested/folder");
-Directory.deleteRecursive("folder_with_contents");
+Directory.deleteRecursive("path");
+Directory.deleteRecursive("box");
 ```
 
-### 13.5 JSON Handling
+## JSON Handling
 
 ```pleno
 import { JSON } from "std:json";
 
 // Parse JSON
 let data = JSON.parse(`{"name": "Alice", "age": 30}`);
-print(data.name);  // "Alice"
+print(data.name);  // Alice
 
 // Stringify to JSON
-let obj = { name: "Bob", age: 25, active: true };
-let jsonStr = JSON.stringify(obj);
-// '{"name":"Bob","age":25,"active":true}'
+let obj = { "name": "Bob", "age": 25, "active": true };
+print(JSON.stringify(obj));
+// {"name":"Bob","age":25,"active":true}
 
-// Pretty print
-let prettyJson = JSON.stringify(obj, indent: 2);
+// Pretty print, indented by 2 spaces
+print(JSON.stringifyPretty(obj, indent: 2));
 ```
 
-### 13.6 HTTP Client
+## HTTP Client
 
-```pleno
+Requests are blocking and need no `await`. `get`, `post`, `put`, `patch` and `delete` return the response body. `request` returns a map with `status`, `ok`, `headers` and `body`. See [std:http](/stdlib/http).
+
+```pleno norun
 import { HTTP } from "std:http";
+import { JSON } from "std:json";
 
 // GET request
-async fn fetchData() {
-    let response = await HTTP.get("https://api.example.com/data");
+fn fetchData() {
+    let response = HTTP.request("GET", "https://api.example.com/data");
 
     if (response.status == 200) {
-        let data = JSON.parse(response.body);
-        return data;
+        return JSON.parse(response.body);
     } else {
-        throw Error("Request failed: " + response.status);
+        throw Error("Request failed: " + response.status.toString());
     }
 }
 
-// POST request
-async fn createUser(user: User) {
-    let response = await HTTP.post(
+// POST request with headers
+fn createUser(user: Map) {
+    let response = HTTP.request(
+        "POST",
         "https://api.example.com/users",
-        body: JSON.stringify(user),
-        headers: {
-            "Content-Type": "application/json"
-        }
+        JSON.stringify(user),
+        { "Content-Type": "application/json" }
     );
-
     return JSON.parse(response.body);
 }
 
 // Other methods
-await HTTP.put(url, body: data);
-await HTTP.delete(url);
-await HTTP.patch(url, body: data);
+let url = "https://api.example.com/users/1";
+HTTP.put(url, `{"name": "Ann"}`);
+HTTP.patch(url, `{"name": "Ann"}`);
+HTTP.delete(url);
 ```
 
-### 13.7 Date & Time
+## Date & Time
 
 ```pleno
 import { DateTime, Duration } from "std:time";
@@ -176,6 +185,7 @@ print(now.format("%Y-%m-%d %H:%M:%S"));
 
 // Parsing
 let parsed = DateTime.parse("2026-01-22", "%Y-%m-%d");
+print(parsed.year);                // 2026
 
 // Duration
 let duration = Duration.hours(2);
@@ -187,7 +197,7 @@ if (now.isAfter(past)) {
 }
 ```
 
-### 13.8 Regular Expressions
+## Regular Expressions
 
 ```pleno
 import { Regex } from "std:regex";
@@ -201,29 +211,35 @@ if (pattern.test("123")) {
 
 // Find matches
 let matches = pattern.findAll("abc 123 def 456");
-// Two Match objects; matches[0].value is "123".
+print(matches.length);    // 2
+print(matches[0].value);  // 123
 
 // Replace
-let result = pattern.replace("abc 123 def", "XXX");
-// "abc XXX def"
+print(pattern.replace("abc 123 def", "XXX"));  // abc XXX def
 
 // Capture groups
 let emailPattern = Regex(r"(\w+)@(\w+\.\w+)");
 let found = emailPattern.match("user@example.com");
 if (found) {
-    print(found.group(1));  // "user"
-    print(found.group(2));  // "example.com"
+    print(found.group(1));  // user
+    print(found.group(2));  // example.com
 }
 ```
 
-### 13.9 Low-level Networking
+## Low-level Networking
+
+`listen` and `connect` only check that an address can be bound or reached; the socket is closed right away. See [std:net](/stdlib/net).
 
 ```pleno
 import { Net } from "std:net";
 
-// TCP Listener
-let listener = Net.listen("127.0.0.1:8080");
+// TCP listener on any free port
+let listener = Net.listen("127.0.0.1:0");
 
-// TCP Connection
-let connection = Net.connect("google.com:80");
+// TCP connection; throws if it fails
+try {
+    Net.connect("127.0.0.1:1");
+} catch (e) {
+    print("Cannot connect: " + e.message);
+}
 ```

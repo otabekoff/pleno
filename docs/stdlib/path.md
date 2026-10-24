@@ -4,8 +4,25 @@ Cross-platform path manipulation utilities.
 
 ## Import
 
+Import the `Path` namespace, or import single functions:
+
 ```pleno
 import { Path } from "std:path";
+import { join, basename } from "std:path";
+
+print(basename(join("docs", "intro.md")));  // intro.md
+```
+
+## Constants
+
+### `separator`
+
+The platform path separator: `"/"` on Linux and macOS, `"\"` on Windows.
+
+```pleno
+import { Path } from "std:path";
+
+print(Path.separator);
 ```
 
 ## Functions
@@ -15,37 +32,46 @@ import { Path } from "std:path";
 Joins path segments using the platform separator.
 
 ```pleno
+import { Path } from "std:path";
+
 let fullPath = Path.join("home", "user", "docs");
-// Linux: "home/user/docs"
-// Windows: "home\\user\\docs"
+print(fullPath);
+// Linux: home/user/docs
+// Windows: home\user\docs
 ```
 
 ### `dirname(path: String): String`
 
-Returns the directory portion of a path.
+Returns the directory portion of a path. A bare file name gives `"."`.
 
 ```pleno
-Path.dirname("/home/user/file.txt");  // "/home/user"
-Path.dirname("file.txt");              // "."
+import { Path } from "std:path";
+
+print(Path.dirname("/home/user/file.txt"));  // /home/user
+print(Path.dirname("file.txt"));             // .
 ```
 
 ### `basename(path: String): String`
 
-Returns the filename portion of a path.
+Returns the last component of a path.
 
 ```pleno
-Path.basename("/home/user/file.txt");  // "file.txt"
-Path.basename("/home/user/");          // "user"
+import { Path } from "std:path";
+
+print(Path.basename("/home/user/file.txt"));  // file.txt
+print(Path.basename("/home/user/"));          // user
 ```
 
 ### `extname(path: String): String`
 
-Returns the file extension (including the dot).
+Returns the file extension (including the dot), or `""` if there is none.
 
 ```pleno
-Path.extname("file.txt");     // ".txt"
-Path.extname("archive.tar.gz"); // ".gz"
-Path.extname("noext");        // ""
+import { Path } from "std:path";
+
+print(Path.extname("file.txt"));        // .txt
+print(Path.extname("archive.tar.gz"));  // .gz
+print(Path.extname("noext") == "");     // true
 ```
 
 ### `exists(path: String): Bool`
@@ -53,8 +79,12 @@ Path.extname("noext");        // ""
 Checks if a path exists on the filesystem.
 
 ```pleno
+import { Path } from "std:path";
+
 if (Path.exists("config.json")) {
     print("Config found");
+} else {
+    print("No config");
 }
 ```
 
@@ -63,8 +93,15 @@ if (Path.exists("config.json")) {
 Returns `true` if the path is a regular file.
 
 ```pleno
-Path.isFile("main.pln");  // true
-Path.isFile("src");       // false (directory)
+import { Path } from "std:path";
+import { File, Directory } from "std:io";
+
+File.write("main.pln", "print(1);");
+Directory.create("src");
+print(Path.isFile("main.pln"));  // true
+print(Path.isFile("src"));       // false
+File.delete("main.pln");
+Directory.delete("src");
 ```
 
 ### `isDir(path: String): Bool`
@@ -72,17 +109,26 @@ Path.isFile("src");       // false (directory)
 Returns `true` if the path is a directory.
 
 ```pleno
-Path.isDir("src");        // true
-Path.isDir("main.pln");   // false (file)
+import { Path } from "std:path";
+import { File, Directory } from "std:io";
+
+File.write("main.pln", "print(1);");
+Directory.create("src");
+print(Path.isDir("src"));       // true
+print(Path.isDir("main.pln"));  // false
+File.delete("main.pln");
+Directory.delete("src");
 ```
 
 ### `resolve(path: String): String`
 
-Resolves a path to an absolute path.
+Resolves a path to an absolute path. Existing paths are resolved through the filesystem (symlinks are followed). Paths that don't exist are joined to the current working directory.
 
 ```pleno
-Path.resolve("./src/main.pln");
-// "/home/user/project/src/main.pln"
+import { Path } from "std:path";
+
+print(Path.resolve("src/main.pln"));
+// e.g. /home/user/project/src/main.pln
 ```
 
 ---

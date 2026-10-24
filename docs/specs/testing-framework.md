@@ -1,6 +1,6 @@
 # Testing Framework
 
-Pleno includes a built-in testing framework in `std:test`.
+Pleno includes a built-in testing framework in `std:test`. See [std:test](/stdlib/test) for the full API.
 
 ## Quick Start
 
@@ -18,7 +18,7 @@ describe("Math operations", fn() {
 });
 ```
 
-Run with:
+`describe` prints the suite name and runs its function right away. `test` runs one test and prints `✓ name` or `✗ name` with the error. A test file is an ordinary program, so `pleno run` works on it too. Run all test files with:
 
 ```bash
 pleno test tests/
@@ -28,72 +28,97 @@ pleno test tests/
 
 ### Test Suites
 
-Group related tests with `describe`:
+Group related tests with `describe`. Suites can be nested.
 
 ```pleno
+import { describe, test, assert } from "std:test";
+
 describe("Calculator", fn() {
     describe("add", fn() {
-        test("positive numbers", fn() { /* ... */ });
-        test("negative numbers", fn() { /* ... */ });
+        test("positive numbers", fn() {
+            assert.equal(2 + 3, 5);
+        });
+        test("negative numbers", fn() {
+            assert.equal(-2 + -3, -5);
+        });
     });
 
     describe("divide", fn() {
-        test("whole numbers", fn() { /* ... */ });
-        test("by zero throws", fn() { /* ... */ });
+        test("fractions", fn() {
+            assert.equal(10 / 4, 2.5);
+        });
+        test("by zero throws", fn() {
+            assert.throws(fn() {
+                let x = 1 / 0;
+            });
+        });
     });
 });
 ```
 
+`/` returns a Float, and `assert.equal` does not treat a Float and an Int as equal: `assert.equal(10 / 2, 5)` fails, `assert.equal(10 / 2, 5.0)` passes.
+
 ### Lifecycle Hooks
 
-```pleno
-import { describe, test, beforeEach, assert } from "std:test";
+`beforeEach` and `afterEach` run before and after each test in the current suite. Call them inside `describe`.
 
-describe("Database", fn() {
-    let db;
+```pleno
+import { describe, test, beforeEach, afterEach, assert } from "std:test";
+
+describe("Store", fn() {
+    let mut items = [];
 
     beforeEach(fn() {
-        db = Database.connect("test");
+        items = [];
+        items.push("seed");
     });
 
     afterEach(fn() {
-        db.close();
+        items.clear();
     });
 
-    test("insert works", fn() {
-        db.insert({ "name": "Alice" });
-        assert.equal(db.count(), 1);
+    test("starts with one item", fn() {
+        assert.lengthOf(items, 1);
+    });
+
+    test("push adds an item", fn() {
+        items.push("Alice");
+        assert.equal(items, ["seed", "Alice"]);
     });
 });
 ```
 
 ## Assertions
 
-| Assertion                     | Description   |
-| ----------------------------- | ------------- |
-| `assert.equal(a, b)`          | Deep equality |
-| `assert.notEqual(a, b)`       | Not equal     |
-| `assert.true(val)`            | Is true       |
-| `assert.false(val)`           | Is false      |
-| `assert.null(val)`            | Is null       |
-| `assert.notNull(val)`         | Not null      |
-| `assert.throws(fn)`           | Throws error  |
-| `assert.contains(coll, item)` | Contains item |
-| `assert.lengthOf(coll, n)`    | Has length n  |
+Import `assert` from `std:test` to get these functions. Without the import, `assert` is the global function `assert(condition, message?)`.
+
+| Assertion                     | Description                                       |
+| ----------------------------- | ------------------------------------------------- |
+| `assert.equal(a, b)`          | Deep equality                                     |
+| `assert.notEqual(a, b)`       | Not equal                                         |
+| `assert.isTrue(val)`          | Is true (alias `assert.true`)                     |
+| `assert.isFalse(val)`         | Is false (alias `assert.false`)                   |
+| `assert.isNull(val)`          | Is null (alias `assert.null`)                     |
+| `assert.notNull(val)`         | Not null                                          |
+| `assert.throws(fn)`           | Throws error                                      |
+| `assert.contains(coll, item)` | String has substring, array has item, map has key |
+| `assert.lengthOf(coll, n)`    | Has length n                                      |
 
 ### Examples
 
 ```pleno
+import { assert } from "std:test";
+
 // Equality
 assert.equal([1, 2, 3], [1, 2, 3]);
 assert.equal({ "a": 1 }, { "a": 1 });
 
 // Boolean
-assert.true(5 > 3);
-assert.false(2 > 5);
+assert.isTrue(5 > 3);
+assert.isFalse(2 > 5);
 
 // Null checks
-assert.null(null);
+assert.isNull(null);
 assert.notNull("hello");
 
 // Exceptions
@@ -109,16 +134,27 @@ assert.lengthOf([1, 2, 3], 3);
 
 ## Async Tests
 
+A test body can be an `async fn`. Its result is reported when it finishes, so it may appear after tests that started later, and a failed assertion after an `await` fails the run like any other:
+
 ```pleno
-describe("API", fn() {
-    test("fetch works", async fn() {
-        let data = await fetchData("https://api.example.com");
-        assert.notNull(data);
-    });
+import { test, assert } from "std:test";
+import { sleep } from "std:time";
+
+async fn fetchData(name: String): String {
+    await sleep(10);
+    return "data for " + name;
+}
+
+test("fetch works", async fn() {
+    assert.equal(await fetchData("users"), "data for users");
 });
 ```
 
+`afterEach` hooks run when the body returns its promise, not when the async work ends.
+
 ## Test Organization
+
+`pleno test` with no path runs every `.pln` file in `tests/` (or `sources/tests/`), including subfolders.
 
 ```
 project/
@@ -136,32 +172,35 @@ project/
 ## CLI Options
 
 ```bash
-# Run all tests
+# Run all tests in tests/
+pleno test
+
+# Run all tests in a folder
 pleno test tests/
 
-# Run specific file
+# Run one file
 pleno test tests/unit/math_test.pln
 
-# Run with pattern
-pleno test tests/ --filter "Calculator"
-
-# Coverage report
-pleno test --coverage tests/
-
-# Verbose output
-pleno test --verbose tests/
+# Print the results as JSON
+pleno test --json tests/
 ```
+
+Each file counts as one result. A file fails if any test in it fails or if it throws.
 
 ## Output
 
 ```
-Calculator
+Running tests/calc_test.pln ... Calculator
   add
     ✓ positive numbers
     ✓ negative numbers
   divide
-    ✓ whole numbers
+    ✓ fractions
     ✓ by zero throws
+PASSED
 
-4 passing (15ms)
+Test Summary:
+  Passed: 1
+  Failed: 0
+  Total:  1
 ```

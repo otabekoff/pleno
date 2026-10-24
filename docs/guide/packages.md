@@ -37,7 +37,7 @@ http-utils = { git = "https://github.com/user/http-utils", tag = "v1.2.0" }
 
 Installed packages go into `packages/`. Import them by name:
 
-```pleno
+```pleno norun
 import { hello } from "greet";
 print(hello("Ada"));
 ```

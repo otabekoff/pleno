@@ -1,48 +1,73 @@
 # Memory Management & Performance
 
-Pleno uses automatic memory management with garbage collection, plus optional hints for performance optimization.
+Pleno manages memory automatically. Optional annotations let the compiler check how values are passed.
 
 ## Memory Model
 
-- **Garbage Collection**: Automatic memory reclamation
-- **Reference Counting**: RC for value types with cycle detection
-- **Value Semantics**: Primitives copied by value
+- **Reference counting**: Heap values (arrays, maps, objects, closures) are reference counted.
+- **Garbage collection**: A mark-based collector frees reference cycles. `std:gc` exposes it.
+- **Value semantics**: Primitives are copied by value.
 
 ## Ownership Hints (Optional)
 
-Pleno supports optional ownership annotations for performance-critical code:
+Pleno supports optional ownership annotations. The compiler checks them; they do not change how values are stored at runtime.
 
 ```pleno
-// Move semantics (transfer ownership)
+// Move: the caller cannot use the value afterwards
 fn takeOwnership(value: move String) {
-    // value is moved, original is invalidated
+    print("got " + value);
 }
 
-// Borrow (read-only reference)
+// Borrow: the parameter cannot be reassigned
 fn borrowValue(value: &String) {
-    // value is borrowed, cannot be modified
+    print(value.length);
 }
 
-// Mutable borrow
+// Mutable borrow: the caller must pass a `let mut` binding
 fn borrowMutable(value: &mut String) {
-    // value can be modified
+    print(value + "!");
 }
+
+let name = "Ada";
+takeOwnership(name);
+// print(name);         // compile error: use of moved value
+
+borrowValue("Ada");      // 3
+
+let mut label = "Ada";
+borrowMutable(label);    // Ada!
+// borrowMutable(name); // compile error: cannot take mutable reference to immutable binding
 ```
+
+Assigning to a `&mut` parameter does not change the caller's variable.
 
 ## Lazy Evaluation
 
-Defer computation until the value is actually needed:
+`let lazy` defers computation until the value is first used. Later uses reuse the result.
 
 ```pleno
-// Lazy value - computed on first access
-let lazy expensiveResult = computeExpensiveValue();
-print(expensiveResult);  // Computation happens here
+fn computeExpensiveValue(): Int {
+    print("computing");
+    return 42;
+}
 
-// Lazy sequences (infinite streams)
-let squares = (0..)
-    .map(fn(x) => x * x)
-    .filter(fn(x) => x % 2 == 0)
-    .take(10);  // Only computes 10 items
+let lazy expensiveResult = computeExpensiveValue();
+print("before");
+print(expensiveResult);  // prints "computing", then 42
+print(expensiveResult);  // 42, without computing again
+```
+
+Ranges have no `map`, `filter` or `take` methods. To take items from an unbounded range, loop and `break`:
+
+```pleno
+let mut squares = [];
+for (x in 0..) {
+    if (squares.length == 5) { break; }
+    if (x % 2 == 0) {
+        squares.push(x * x);
+    }
+}
+print(squares);  // [0, 4, 16, 36, 64]
 ```
 
 ## Memory Pooling
@@ -65,8 +90,8 @@ class GameObject {
     }
 }
 
-// Objects are recycled from the pool
-let obj = GameObject();  // May reuse existing allocation
+// Allocated as usual for now
+let obj = GameObject();
 ```
 
 ## Const & Immutability
@@ -79,14 +104,22 @@ const deep config = {
     "ports": [8080, 8443]
 };
 
-// config.host = "remote";      // ERROR: Cannot mutate
-// config.ports.push(9000);     // ERROR: Cannot mutate nested
+try {
+    config.host = "remote";
+} catch (e) {
+    print(e.message);  // cannot modify immutable map
+}
+
+try {
+    config.ports.push(9000);
+} catch (e) {
+    print(e.message);  // cannot modify immutable array
+}
 ```
 
 ## Performance Tips
 
 1. **Use `const`** for data that won't change
-2. **Prefer lazy evaluation** for expensive computations
-3. **Use pooling** for frequently allocated objects
-4. **Avoid closures in hot loops** when possible
-5. **Batch I/O operations** instead of many small ones
+2. **Use `let lazy`** for expensive values that may not be needed
+3. **Avoid closures in hot loops** when possible
+4. **Batch I/O operations** instead of many small ones

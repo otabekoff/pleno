@@ -21,6 +21,8 @@ fn divide(a: Float, b: Float): Result<Float, String> {
     }
     return Ok(a / b);
 }
+
+print(divide(10.0, 4.0).unwrap());  // 2.5
 ```
 
 ### `Err<E>(error: E): Result<T, E>`
@@ -29,16 +31,26 @@ Creates a failure result containing `error`.
 
 ```pleno
 let result = Err("File not found");
+print(result.isErr());  // true
 ```
 
 ### Result Methods
 
+- `isOk()` returns `true` for `Ok`.
+- `isErr()` returns `true` for `Err`.
+- `unwrap()` returns the value, or throws `called unwrap on Err`.
+- `unwrapOr(default)` returns the value, or `default` for `Err`.
+- `expect(message)` returns the value, or throws `message`.
+
 ```pleno
-result.isOk();           // true if Ok
-result.isErr();          // true if Err
-result.unwrap();         // Get value or panic
-result.unwrapOr(default); // Get value or default
-result.expect("msg");    // Get value or panic with message
+let good = Ok(42);
+let bad = Err("timeout");
+
+print(good.isOk());        // true
+print(bad.isErr());        // true
+print(good.unwrap());      // 42
+print(bad.unwrapOr(0));    // 0
+print(good.expect("no value"));  // 42
 ```
 
 ---
@@ -52,12 +64,17 @@ The `Option<T>` type represents an optional value.
 Creates an option containing a value.
 
 ```pleno
-fn findUser(id: Int): Option<User> {
-    if (users.has(id)) {
-        return Some(users.get(id));
+let users = ["Ada", "Grace"];
+
+fn findUser(id: Int): Option<String> {
+    if (id >= 0 && id < users.length) {
+        return Some(users[id]);
     }
     return None;
 }
+
+print(findUser(0).unwrapOr("nobody"));  // Ada
+print(findUser(9).unwrapOr("nobody"));  // nobody
 ```
 
 ### `None: Option<T>`
@@ -66,15 +83,26 @@ Represents the absence of a value.
 
 ```pleno
 let empty: Option<String> = None;
+print(empty.isNone());  // true
 ```
 
 ### Option Methods
 
+- `isSome()` returns `true` if there is a value.
+- `isNone()` returns `true` if there is no value.
+- `unwrap()` returns the value, or throws `called unwrap on None`.
+- `unwrapOr(default)` returns the value, or `default` for `None`.
+- `expect(message)` returns the value, or throws `message`.
+
 ```pleno
-option.isSome();         // true if has value
-option.isNone();         // true if empty
-option.unwrap();         // Get value or panic
-option.unwrapOr(default); // Get value or default
+let name = Some("Ada");
+let missing: Option<String> = None;
+
+print(name.isSome());               // true
+print(missing.isNone());            // true
+print(name.unwrap());               // Ada
+print(missing.unwrapOr("unknown")); // unknown
+print(name.expect("no name"));      // Ada
 ```
 
 ---

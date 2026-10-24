@@ -8,13 +8,17 @@ TOML parsing and serialization.
 import { TOML } from "std:toml";
 ```
 
+`parse` and `stringify` can also be imported directly.
+
 ## Functions
 
 ### `parse(toml: String): Map`
 
-Parses a TOML string into a Pleno value.
+Parses a TOML string into a Map. TOML dates and times become strings. Invalid TOML throws an error.
 
 ```pleno
+import { TOML } from "std:toml";
+
 let config = TOML.parse(`
 [database]
 host = "localhost"
@@ -24,23 +28,31 @@ port = 5432
 workers = 4
 `);
 
-print(config.database.host);  // "localhost"
+print(config.database.host);  // localhost
 print(config.server.workers); // 4
 ```
 
 ### `stringify(value: Any): String`
 
-Converts a Pleno value to a TOML string.
+Converts a Map to a TOML string. Nested maps become tables. TOML has no null, so `null` values and functions throw an error.
 
 ```pleno
+import { TOML } from "std:toml";
+
 let config = {
+    "title": "app",
     "database": {
         "host": "localhost",
         "port": 5432
     }
 };
 
-let toml = TOML.stringify(config);
+print(TOML.stringify(config));
+// title = "app"
+//
+// [database]
+// host = "localhost"
+// port = 5432
 ```
 
 ---

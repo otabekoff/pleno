@@ -8,13 +8,17 @@ Built-in testing framework for unit and integration tests.
 import { describe, test, beforeEach, afterEach, assert } from "std:test";
 ```
 
+`assert` here is an object of assertion functions. Without the import, `assert` is the global function `assert(condition, message?)`, which throws when the condition is falsy.
+
 ## Test Structure
 
 ### `describe(name: String, fn: Function): Void`
 
-Creates a test suite that groups related tests.
+Creates a test suite that groups related tests. It prints the suite name and runs `fn` right away. Suites can be nested.
 
 ```pleno
+import { describe, test, assert } from "std:test";
+
 describe("Calculator", fn() {
     test("addition works", fn() {
         assert.equal(1 + 1, 2);
@@ -28,9 +32,11 @@ describe("Calculator", fn() {
 
 ### `test(name: String, fn: Function): Void`
 
-Defines an individual test case.
+Defines and runs one test case. A passing test prints `✓ name`. A failing test prints `✗ name` and the error message. The other tests still run, and the file fails at the end.
 
 ```pleno
+import { test, assert } from "std:test";
+
 test("strings concatenate", fn() {
     assert.equal("hello" + " world", "hello world");
 });
@@ -40,26 +46,44 @@ test("strings concatenate", fn() {
 
 ### `beforeEach(fn: Function): Void`
 
-Runs before each test in the current suite.
+Runs before each test in the current suite, including tests in nested suites. Call it inside `describe`.
 
 ```pleno
-describe("Database", fn() {
+import { describe, test, beforeEach, assert } from "std:test";
+
+describe("Counter", fn() {
+    let mut items = [];
+
     beforeEach(fn() {
-        // Setup test database
+        items = [];
     });
 
-    test("insert works", fn() { /* ... */ });
-    test("delete works", fn() { /* ... */ });
+    test("starts empty", fn() {
+        assert.lengthOf(items, 0);
+    });
+
+    test("push adds an item", fn() {
+        items.push(1);
+        assert.lengthOf(items, 1);
+    });
 });
 ```
 
 ### `afterEach(fn: Function): Void`
 
-Runs after each test in the current suite.
+Runs after each test in the current suite. Call it inside `describe`.
 
 ```pleno
-afterEach(fn() {
-    // Cleanup resources
+import { describe, test, afterEach, assert } from "std:test";
+
+describe("Cleanup", fn() {
+    afterEach(fn() {
+        print("cleaned up");
+    });
+
+    test("runs first", fn() {
+        assert.isTrue(true);
+    });
 });
 ```
 
@@ -67,13 +91,18 @@ afterEach(fn() {
 
 ## Assertions
 
+Each assertion throws an error when it fails.
+
 ### `assert.equal(actual, expected)`
 
-Asserts deep equality.
+Asserts deep equality. Arrays and maps are compared element by element.
 
 ```pleno
-assert.equal([1, 2], [1, 2]);  // ✓
-assert.equal(42, 42);          // ✓
+import { assert } from "std:test";
+
+assert.equal([1, 2], [1, 2]);
+assert.equal({ "a": [1] }, { "a": [1] });
+assert.equal(42, 42);
 ```
 
 ### `assert.notEqual(a, b)`
@@ -81,31 +110,39 @@ assert.equal(42, 42);          // ✓
 Asserts values are not equal.
 
 ```pleno
-assert.notEqual(1, 2);  // ✓
+import { assert } from "std:test";
+
+assert.notEqual(1, 2);
 ```
 
-### `assert.true(value)`
+### `assert.isTrue(value)`
 
-Asserts value is `true`.
+Asserts value is `true`. Alias: `assert.true`.
 
 ```pleno
-assert.true(5 > 3);  // ✓
+import { assert } from "std:test";
+
+assert.isTrue(5 > 3);
 ```
 
-### `assert.false(value)`
+### `assert.isFalse(value)`
 
-Asserts value is `false`.
+Asserts value is `false`. Alias: `assert.false`.
 
 ```pleno
-assert.false(3 > 5);  // ✓
+import { assert } from "std:test";
+
+assert.isFalse(3 > 5);
 ```
 
-### `assert.null(value)`
+### `assert.isNull(value)`
 
-Asserts value is `null`.
+Asserts value is `null`. Alias: `assert.null`.
 
 ```pleno
-assert.null(null);  // ✓
+import { assert } from "std:test";
+
+assert.isNull(null);
 ```
 
 ### `assert.notNull(value)`
@@ -113,7 +150,9 @@ assert.null(null);  // ✓
 Asserts value is not `null`.
 
 ```pleno
-assert.notNull("hello");  // ✓
+import { assert } from "std:test";
+
+assert.notNull("hello");
 ```
 
 ### `assert.throws(fn: Function)`
@@ -121,28 +160,35 @@ assert.notNull("hello");  // ✓
 Asserts that the function throws an error.
 
 ```pleno
+import { assert } from "std:test";
+
 assert.throws(fn() {
     throw Error("expected");
-});  // ✓
+});
 ```
 
 ### `assert.contains(collection, item)`
 
-Asserts collection contains item.
+Asserts that a string contains a substring, an array contains an item, or a map has a key.
 
 ```pleno
-assert.contains([1, 2, 3], 2);          // ✓
-assert.contains("hello", "ell");         // ✓
-assert.contains({ "a": 1 }, "a");        // ✓
+import { assert } from "std:test";
+
+assert.contains([1, 2, 3], 2);
+assert.contains("hello", "ell");
+assert.contains({ "a": 1 }, "a");
 ```
 
 ### `assert.lengthOf(collection, length: Int)`
 
-Asserts collection has specific length.
+Asserts that a string, array, or map has a specific length. For strings, the length is in bytes.
 
 ```pleno
-assert.lengthOf([1, 2, 3], 3);   // ✓
-assert.lengthOf("hello", 5);     // ✓
+import { assert } from "std:test";
+
+assert.lengthOf([1, 2, 3], 3);
+assert.lengthOf("hello", 5);
+assert.lengthOf({ "a": 1 }, 1);
 ```
 
 ---
@@ -150,8 +196,7 @@ assert.lengthOf("hello", 5);     // ✓
 ## Running Tests
 
 ```bash
-pleno test tests/            # Run all tests in directory
-pleno test my_test.pln       # Run specific test file
+pleno test                   # Run all .pln files in tests/
+pleno test tests/            # Run all tests in a directory
+pleno test my_test.pln       # Run a specific test file
 ```
-
----

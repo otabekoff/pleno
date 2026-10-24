@@ -8,11 +8,13 @@ Cryptographic functions for hashing, encryption, and JWT handling.
 import { Crypto } from "std:crypto";
 ```
 
+The functions can also be imported one by one, e.g. `import { hash, hmac } from "std:crypto"`.
+
 ## Hashing
 
 ### `hash(algorithm: String, data: String): String`
 
-Computes a cryptographic hash of the data.
+Computes a cryptographic hash of the data and returns it as lowercase hex.
 
 | Algorithm  | Output        |
 | ---------- | ------------- |
@@ -20,16 +22,21 @@ Computes a cryptographic hash of the data.
 | `"sha512"` | 128 hex chars |
 
 ```pleno
-let hash = Crypto.hash("sha256", "password123");
-// "ef92b778bafe771e89245b89ecbc08a44a4e16...
+import { Crypto } from "std:crypto";
+
+let hash = Crypto.hash("sha256", "hello");
+print(hash);  // 2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824
 ```
 
 ### `hmac(algorithm: String, key: String, data: String): String`
 
-Computes HMAC (Hash-based Message Authentication Code).
+Computes an HMAC (Hash-based Message Authentication Code) and returns it as hex. Only `"sha256"` is supported.
 
 ```pleno
+import { Crypto } from "std:crypto";
+
 let signature = Crypto.hmac("sha256", "secret-key", "message");
+print(signature.length);  // 64
 ```
 
 ---
@@ -38,25 +45,35 @@ let signature = Crypto.hmac("sha256", "secret-key", "message");
 
 ### `encrypt(algo: String, key: String, iv: String, data: String): String`
 
-Encrypts data using the specified algorithm. Returns Base64-encoded ciphertext.
+Encrypts data using the specified algorithm. The key and IV are hex strings. Returns Base64-encoded ciphertext.
 
 | Algorithm       | Key Length        | IV Length         |
 | --------------- | ----------------- | ----------------- |
 | `"aes-256-cbc"` | 32 bytes (64 hex) | 16 bytes (32 hex) |
 
 ```pleno
+import { Crypto } from "std:crypto";
+
 let key = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 let iv = "0123456789abcdef0123456789abcdef";
 let encrypted = Crypto.encrypt("aes-256-cbc", key, iv, "secret message");
+print(encrypted);  // IFL3l4O5UHCPSKn2OAPp2g==
 ```
+
+Use a random key and a new random IV for real data. The fixed values here are only for the example.
 
 ### `decrypt(algo: String, key: String, iv: String, ciphertext: String): String`
 
-Decrypts Base64-encoded ciphertext.
+Decrypts Base64-encoded ciphertext. Throws if the key, IV, or data is wrong.
 
 ```pleno
+import { Crypto } from "std:crypto";
+
+let key = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+let iv = "0123456789abcdef0123456789abcdef";
+let encrypted = Crypto.encrypt("aes-256-cbc", key, iv, "secret message");
 let decrypted = Crypto.decrypt("aes-256-cbc", key, iv, encrypted);
-// "secret message"
+print(decrypted);  // secret message
 ```
 
 ---
@@ -65,23 +82,32 @@ let decrypted = Crypto.decrypt("aes-256-cbc", key, iv, encrypted);
 
 ### `jwtSign(payload: Map, secret: String): String`
 
-Creates a signed JWT using HS256 algorithm.
+Creates a JWT signed with HS256.
 
 ```pleno
+import { Crypto } from "std:crypto";
+
 let token = Crypto.jwtSign({
     "sub": "user123",
     "exp": 1735689600
 }, "my-secret");
-// "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+print(token);  // eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 ```
 
 ### `jwtVerify(token: String, secret: String): Map`
 
-Verifies and decodes a JWT. Throws on invalid signature.
+Verifies the signature of a JWT and returns its payload. Throws on an invalid signature or format. It does not check claims such as `exp`; check them yourself.
 
 ```pleno
-let payload = Crypto.jwtVerify(token, "my-secret");
-print(payload.sub);  // "user123"
-```
+import { Crypto } from "std:crypto";
 
----
+let token = Crypto.jwtSign({ "sub": "user123" }, "my-secret");
+let payload = Crypto.jwtVerify(token, "my-secret");
+print(payload.sub);  // user123
+
+try {
+    Crypto.jwtVerify(token, "wrong-secret");
+} catch (e) {
+    print("invalid token");
+}
+```
