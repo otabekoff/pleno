@@ -304,6 +304,10 @@ pub fn http_router(vm: &mut dyn VMProvider, _args: &[Value]) -> Result<Value, Ru
         "DELETE".to_string(),
         Value::Map(gc.allocate(MapState::new(IndexMap::new()))?),
     );
+    methods_map.insert(
+        "PATCH".to_string(),
+        Value::Map(gc.allocate(MapState::new(IndexMap::new()))?),
+    );
 
     let routes_storage = Value::Map(gc.allocate(MapState::new(methods_map))?);
 
@@ -331,6 +335,8 @@ pub fn http_router(vm: &mut dyn VMProvider, _args: &[Value]) -> Result<Value, Ru
         map.entries.insert("put".to_string(), bind(vm, router_put));
         map.entries
             .insert("delete".to_string(), bind(vm, router_delete));
+        map.entries
+            .insert("patch".to_string(), bind(vm, router_patch));
     }
 
     Ok(router_val)
@@ -388,6 +394,9 @@ fn router_put(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeE
 }
 fn router_delete(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
     add_route(vm, args, "DELETE")
+}
+fn router_patch(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    add_route(vm, args, "PATCH")
 }
 
 // --- Server ---
@@ -507,8 +516,8 @@ pub fn http_server_on_accept(
         let mut state = r.borrow_mut();
         if let Some(inner) = state.inner.get_mut().as_mut() {
             if let Some(listener) = inner.downcast_mut::<mio::net::TcpListener>() {
-                while let Ok((mut stream, _)) = listener.accept() {
-                    handle_request(vm, &mut stream, router_ref.as_ref())?;
+                while let Ok((stream, _)) = listener.accept() {
+                    handle_request(vm, stream, router_ref.as_ref())?;
                 }
             }
         }
@@ -517,86 +526,312 @@ pub fn http_server_on_accept(
     Ok(Value::Null)
 }
 
-fn handle_request(
-    vm: &mut dyn VMProvider,
-    stream: &mut mio::net::TcpStream,
-    router_ref: Option<&Value>,
-) -> Result<(), RuntimeError> {
-    use std::io::Write;
-    let mut reader = BufReader::new(&mut *stream);
+/// Request body size limit, to keep a single client from exhausting memory.
+const MAX_BODY_BYTES: usize = 10 * 1024 * 1024;
+
+struct HttpRequest {
+    method: String,
+    path: String,
+    query: IndexMap<String, String>,
+    headers: IndexMap<String, String>,
+    body: String,
+}
+
+/// Reads one HTTP/1.1 request; `None` if the client sent nothing usable.
+fn read_request(stream: &mut std::net::TcpStream) -> Option<HttpRequest> {
+    use std::io::Read;
+    let mut reader = BufReader::new(stream);
     let mut request_line = String::new();
-    if reader.read_line(&mut request_line).is_err() || request_line.is_empty() {
-        return Ok(());
-    }
+    reader.read_line(&mut request_line).ok()?;
+    let mut parts = request_line.split_whitespace();
+    let method = parts.next()?.to_uppercase();
+    let target = parts.next()?;
 
-    let parts: Vec<&str> = request_line.split_whitespace().collect();
-    if parts.len() < 2 {
-        return Ok(());
-    }
-    let method = parts[0];
-    let path = parts[1];
-
-    // Headers lookup (simplified)
+    let mut headers = IndexMap::new();
     loop {
         let mut line = String::new();
-        if reader.read_line(&mut line).is_err() || line.trim().is_empty() {
+        if reader.read_line(&mut line).ok()? == 0 || line.trim().is_empty() {
             break;
         }
-    }
-
-    // Dispatch to Router
-    let mut handler = None;
-    if let Some(Value::Map(router)) = router_ref
-        && let Some(Value::Map(routes_store)) = router.borrow().entries.get("_routes")
-        && let Some(Value::Map(method_routes)) = routes_store.borrow().entries.get(method)
-    {
-        handler = method_routes.borrow().entries.get(path).cloned();
-    }
-
-    let response = if let Some(h) = handler {
-        let gc = vm.get_gc();
-        let mut req_data = IndexMap::new();
-        req_data.insert(
-            "method".to_string(),
-            Value::String(Rc::new(method.to_string())),
-        );
-        req_data.insert("path".to_string(), Value::String(Rc::new(path.to_string())));
-        let req = Value::Map(gc.allocate(MapState::new(req_data)).unwrap());
-
-        let res_data = IndexMap::new();
-        let res = Value::Map(gc.allocate(MapState::new(res_data)).unwrap());
-
-        match vm.call(h, vec![req, res]) {
-            Ok(val) => {
-                if let Value::Map(m) = val {
-                    let b = m.borrow();
-                    let body = b
-                        .entries
-                        .get("body")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or("")
-                        .to_string();
-                    let status = b
-                        .entries
-                        .get("status")
-                        .and_then(|v| v.as_int())
-                        .unwrap_or(200);
-                    format!("HTTP/1.1 {} OK\r\n\r\n{}", status, body)
-                } else if let Value::String(s) = val {
-                    format!("HTTP/1.1 200 OK\r\n\r\n{}", s.as_str())
-                } else {
-                    "HTTP/1.1 200 OK\r\n\r\n".to_string()
-                }
-            }
-            Err(e) => format!(
-                "HTTP/1.1 500 Internal Server Error\r\n\r\nError: {}",
-                e.message
-            ),
+        if let Some((name, value)) = line.split_once(':') {
+            headers.insert(name.trim().to_lowercase(), value.trim().to_string());
         }
-    } else {
-        "HTTP/1.1 404 Not Found\r\n\r\nNot Found".to_string()
+    }
+
+    let length = headers
+        .get("content-length")
+        .and_then(|v| v.parse::<usize>().ok())
+        .unwrap_or(0)
+        .min(MAX_BODY_BYTES);
+    let mut body = vec![0; length];
+    reader.read_exact(&mut body).ok()?;
+
+    let (path, query_string) = target.split_once('?').unwrap_or((target, ""));
+    let query = query_string
+        .split('&')
+        .filter(|pair| !pair.is_empty())
+        .map(|pair| {
+            let (key, value) = pair.split_once('=').unwrap_or((pair, ""));
+            (key.to_string(), value.to_string())
+        })
+        .collect();
+
+    Some(HttpRequest {
+        method,
+        path: path.to_string(),
+        query,
+        headers,
+        body: String::from_utf8_lossy(&body).into_owned(),
+    })
+}
+
+/// Matches a route pattern such as `/users/:id` against a request path,
+/// returning the captured parameters.
+fn match_route(pattern: &str, path: &str) -> Option<IndexMap<String, String>> {
+    let pattern_parts: Vec<&str> = pattern.trim_end_matches('/').split('/').collect();
+    let path_parts: Vec<&str> = path.trim_end_matches('/').split('/').collect();
+    if pattern_parts.len() != path_parts.len() {
+        return None;
+    }
+    let mut params = IndexMap::new();
+    for (expected, actual) in pattern_parts.iter().zip(&path_parts) {
+        if let Some(name) = expected.strip_prefix(':') {
+            params.insert(name.to_string(), actual.to_string());
+        } else if expected != actual {
+            return None;
+        }
+    }
+    Some(params)
+}
+
+fn string_map(
+    vm: &mut dyn VMProvider,
+    entries: &IndexMap<String, String>,
+) -> Result<Value, RuntimeError> {
+    let map = entries
+        .iter()
+        .map(|(k, v)| (k.clone(), Value::String(Rc::new(v.clone()))))
+        .collect();
+    Ok(Value::Map(vm.get_gc().allocate(MapState::new(map))?))
+}
+
+/// The `res` object passed to handlers: `status(code)`, `header(name, value)`,
+/// `send(body)` and `json(value)`. `status` and `header` return `res` for chaining.
+fn new_response(vm: &mut dyn VMProvider) -> Result<Value, RuntimeError> {
+    let headers = Value::Map(vm.get_gc().allocate(MapState::new(IndexMap::new()))?);
+    let mut entries = IndexMap::new();
+    entries.insert("statusCode".to_string(), Value::Int(200));
+    entries.insert("body".to_string(), Value::Null);
+    entries.insert("headers".to_string(), headers);
+    let res = Value::Map(vm.get_gc().allocate(MapState::new(entries))?);
+    for (name, function) in [
+        ("status", response_status as NativeFunction),
+        ("header", response_header),
+        ("send", response_send),
+        ("json", response_json),
+    ] {
+        let method = Value::BoundNativeMethod(vm.get_gc().allocate(BoundNativeMethodState {
+            receiver: res.clone(),
+            function,
+        })?);
+        if let Value::Map(m) = &res {
+            m.borrow_mut().entries.insert(name.to_string(), method);
+        }
+    }
+    Ok(res)
+}
+
+fn response_map(args: &[Value]) -> Result<&pleno_value::gc::GcRc<MapState>, RuntimeError> {
+    match args.first() {
+        Some(Value::Map(m)) => Ok(m),
+        _ => Err(RuntimeError::new("expected response object")),
+    }
+}
+
+fn response_status(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    let code = match args.get(1) {
+        Some(Value::Int(code)) => *code,
+        _ => return Err(RuntimeError::new("res.status(code) expects an integer")),
+    };
+    response_map(args)?
+        .borrow_mut()
+        .entries
+        .insert("statusCode".to_string(), Value::Int(code));
+    Ok(args[0].clone())
+}
+
+fn response_header(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    let (Some(Value::String(name)), Some(value)) = (args.get(1), args.get(2)) else {
+        return Err(RuntimeError::new(
+            "res.header(name, value) expects a name and value",
+        ));
+    };
+    let headers = response_map(args)?.borrow().entries.get("headers").cloned();
+    if let Some(Value::Map(headers)) = headers {
+        headers
+            .borrow_mut()
+            .entries
+            .insert(name.to_string(), Value::String(Rc::new(value.to_string())));
+    }
+    Ok(args[0].clone())
+}
+
+fn response_send(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    let body = args.get(1).map(|v| v.to_string()).unwrap_or_default();
+    response_map(args)?
+        .borrow_mut()
+        .entries
+        .insert("body".to_string(), Value::String(Rc::new(body)));
+    Ok(args[0].clone())
+}
+
+fn response_json(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    let json = crate::json::value_to_json_string(args.get(1).unwrap_or(&Value::Null))?;
+    let content_type = [
+        args[0].clone(),
+        Value::String(Rc::new("Content-Type".to_string())),
+        Value::String(Rc::new("application/json".to_string())),
+    ];
+    response_header(vm, &content_type)?;
+    response_send(vm, &[args[0].clone(), Value::String(Rc::new(json))])
+}
+
+fn reason_phrase(status: i64) -> &'static str {
+    match status {
+        200 => "OK",
+        201 => "Created",
+        204 => "No Content",
+        301 => "Moved Permanently",
+        302 => "Found",
+        304 => "Not Modified",
+        400 => "Bad Request",
+        401 => "Unauthorized",
+        403 => "Forbidden",
+        404 => "Not Found",
+        405 => "Method Not Allowed",
+        500 => "Internal Server Error",
+        _ => "",
+    }
+}
+
+fn write_response(
+    stream: &mut std::net::TcpStream,
+    status: i64,
+    headers: &[(String, String)],
+    body: &str,
+) {
+    use std::io::Write;
+    let mut response = format!("HTTP/1.1 {} {}\r\n", status, reason_phrase(status));
+    let has_content_type = headers
+        .iter()
+        .any(|(name, _)| name.eq_ignore_ascii_case("content-type"));
+    if !has_content_type {
+        response.push_str("Content-Type: text/plain; charset=utf-8\r\n");
+    }
+    for (name, value) in headers {
+        response.push_str(&format!("{name}: {value}\r\n"));
+    }
+    response.push_str(&format!(
+        "Content-Length: {}\r\nConnection: close\r\n\r\n{}",
+        body.len(),
+        body
+    ));
+    stream.write_all(response.as_bytes()).ok();
+    stream.flush().ok();
+}
+
+fn handle_request(
+    vm: &mut dyn VMProvider,
+    stream: mio::net::TcpStream,
+    router_ref: Option<&Value>,
+) -> Result<(), RuntimeError> {
+    // Serve each connection with blocking I/O; the listener stays on the event loop.
+    let mut stream: std::net::TcpStream = stream.into();
+    stream.set_nonblocking(false).ok();
+    stream
+        .set_read_timeout(Some(std::time::Duration::from_secs(5)))
+        .ok();
+
+    let Some(request) = read_request(&mut stream) else {
+        return Ok(());
     };
 
-    stream.write_all(response.as_bytes()).ok();
+    // Find the first route for this method whose pattern matches the path.
+    let mut matched = None;
+    if let Some(Value::Map(router)) = router_ref
+        && let Some(Value::Map(routes_store)) = router.borrow().entries.get("_routes")
+        && let Some(Value::Map(method_routes)) = routes_store.borrow().entries.get(&request.method)
+    {
+        for (pattern, handler) in &method_routes.borrow().entries {
+            if let Some(params) = match_route(pattern, &request.path) {
+                matched = Some((handler.clone(), params));
+                break;
+            }
+        }
+    }
+
+    let Some((handler, params)) = matched else {
+        write_response(&mut stream, 404, &[], "Not Found");
+        return Ok(());
+    };
+
+    let mut req_data = IndexMap::new();
+    req_data.insert(
+        "method".to_string(),
+        Value::String(Rc::new(request.method.clone())),
+    );
+    req_data.insert(
+        "path".to_string(),
+        Value::String(Rc::new(request.path.clone())),
+    );
+    req_data.insert("params".to_string(), string_map(vm, &params)?);
+    req_data.insert("query".to_string(), string_map(vm, &request.query)?);
+    req_data.insert("headers".to_string(), string_map(vm, &request.headers)?);
+    req_data.insert("body".to_string(), Value::String(Rc::new(request.body)));
+    let req = Value::Map(vm.get_gc().allocate(MapState::new(req_data))?);
+    let res = new_response(vm)?;
+
+    match vm.call(handler, vec![req, res.clone()]) {
+        Ok(returned) => {
+            let Value::Map(res_map) = &res else {
+                unreachable!("response is a map")
+            };
+            let res_map = res_map.borrow();
+            let status = res_map
+                .entries
+                .get("statusCode")
+                .and_then(|v| v.as_int())
+                .unwrap_or(200);
+            let headers: Vec<(String, String)> = match res_map.entries.get("headers") {
+                Some(Value::Map(h)) => h
+                    .borrow()
+                    .entries
+                    .iter()
+                    .map(|(k, v)| (k.clone(), v.to_string()))
+                    .collect(),
+                _ => Vec::new(),
+            };
+            // A handler may also just return its body instead of calling `res.send`.
+            let body = match (res_map.entries.get("body"), &returned) {
+                (Some(Value::String(body)), _) => body.to_string(),
+                (_, Value::String(body)) => body.to_string(),
+                _ => String::new(),
+            };
+            write_response(&mut stream, status, &headers, &body);
+        }
+        Err(e) => {
+            let message = e
+                .message
+                .strip_prefix("uncaught exception: ")
+                .unwrap_or(&e.message);
+            eprintln!("{} {}: {}", request.method, request.path, message);
+            write_response(
+                &mut stream,
+                500,
+                &[],
+                &format!("Internal Server Error: {message}"),
+            );
+        }
+    }
     Ok(())
 }

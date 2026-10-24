@@ -8,6 +8,16 @@ pub struct DapServer<R, W> {
     output: W,
     seq: i64,
     breakpoints: std::collections::HashMap<String, Vec<pleno_vm::Breakpoint>>,
+    /// A launched program waiting for `configurationDone` before it runs.
+    pending_launch: Option<VM>,
+    configuration_done: bool,
+}
+
+/// Breakpoint paths from the client and the VM's script path must compare equal.
+fn normalize_path(path: &str) -> String {
+    std::fs::canonicalize(path)
+        .map(|p| p.to_string_lossy().into_owned())
+        .unwrap_or_else(|_| path.to_string())
 }
 
 impl<R: BufRead, W: Write> DapServer<R, W> {
@@ -17,6 +27,8 @@ impl<R: BufRead, W: Write> DapServer<R, W> {
             output,
             seq: 1,
             breakpoints: std::collections::HashMap::new(),
+            pending_launch: None,
+            configuration_done: false,
         }
     }
 
@@ -115,12 +127,35 @@ impl<R: BufRead, W: Write> DapServer<R, W> {
                     "supportsHitConditionalBreakpoints": false,
                     "supportsEvaluateForHovers": true,
                     "supportsDataBreakpoints": true,
+                    "supportsTerminateRequest": true,
+                    "exceptionBreakpointFilters": [],
                 });
                 self.send_response(&request, true, None, Some(body))?;
                 self.send_event("initialized".to_string(), None)?;
             }
             "launch" => {
                 self.handle_launch(request)?;
+            }
+            "configurationDone" => {
+                self.send_response(&request, true, None, None)?;
+                self.configuration_done = true;
+                self.start_pending_launch()?;
+            }
+            "setExceptionBreakpoints" => {
+                self.send_response(
+                    &request,
+                    true,
+                    None,
+                    Some(serde_json::json!({ "breakpoints": [] })),
+                )?;
+            }
+            "threads" => {
+                self.send_response(
+                    &request,
+                    true,
+                    None,
+                    Some(serde_json::json!({ "threads": [{"id": 1, "name": "main"}] })),
+                )?;
             }
             "setBreakpoints" => {
                 let args = request.arguments.as_ref().unwrap();
@@ -155,7 +190,8 @@ impl<R: BufRead, W: Write> DapServer<R, W> {
                     });
                 }
 
-                self.breakpoints.insert(source.to_string(), vm_bps.clone());
+                self.breakpoints
+                    .insert(normalize_path(source), vm_bps.clone());
 
                 let response_bps: Vec<serde_json::Value> = vm_bps
                     .into_iter()
@@ -213,15 +249,61 @@ impl<R: BufRead, W: Write> DapServer<R, W> {
                     })),
                 )?;
             }
-            "disconnect" => {
+            "disconnect" | "terminate" => {
                 self.send_response(&request, true, None, None)?;
                 return Ok(());
             }
             _ => {
-                self.send_response(&request, false, Some("Not implemented".to_string()), None)?;
+                let message = format!("Unsupported request: {}", request.command);
+                self.send_response(&request, false, Some(message), None)?;
             }
         }
         Ok(())
+    }
+
+    /// Runs a launched program once the client has finished configuring
+    /// breakpoints (`configurationDone`).
+    fn start_pending_launch(&mut self) -> Result<()> {
+        if !self.configuration_done {
+            return Ok(());
+        }
+        if let Some(mut vm) = self.pending_launch.take() {
+            for (source, bps) in &self.breakpoints {
+                vm.debug_context
+                    .set_breakpoints(source.clone(), bps.clone());
+            }
+            self.debug_execution_loop(&mut vm)?;
+            self.send_event("terminated".to_string(), None)?;
+        }
+        Ok(())
+    }
+
+    /// Sends program output captured by the VM to the client.
+    fn flush_output(&mut self, vm: &mut VM) -> Result<()> {
+        let text = vm.output.as_mut().map(std::mem::take).unwrap_or_default();
+        if !text.is_empty() {
+            self.send_event(
+                "output".to_string(),
+                Some(serde_json::json!({ "category": "stdout", "output": text })),
+            )?;
+        }
+        Ok(())
+    }
+
+    /// Reports a runtime error to the client and ends the session.
+    fn report_error(&mut self, vm: &mut VM, error: pleno_value::RuntimeError) -> Result<()> {
+        self.flush_output(vm)?;
+        self.send_event(
+            "output".to_string(),
+            Some(serde_json::json!({
+                "category": "stderr",
+                "output": format!("Error: {}\n", error.message)
+            })),
+        )?;
+        self.send_event(
+            "exited".to_string(),
+            Some(serde_json::json!({"exitCode": 1})),
+        )
     }
 
     fn handle_launch(&mut self, request: Request) -> Result<()> {
@@ -231,29 +313,32 @@ impl<R: BufRead, W: Write> DapServer<R, W> {
             .and_then(|v| v.as_str())
             .ok_or_else(|| anyhow::anyhow!("Missing program path"))?;
 
-        let source = std::fs::read_to_string(program)?;
-
-        // Lex
-        let tokens =
-            pleno_lexer::lex(&source).map_err(|e| anyhow::anyhow!("Lexing failed: {:?}", e))?;
-
-        // Parse
-        let mut program_ast = pleno_parser::Parser::new(tokens, &source)
-            .parse_program()
-            .map_err(|e| anyhow::anyhow!("Parsing failed: {:?}", e))?;
-
-        // Compile
-        let mut compiler = pleno_compiler::Compiler::new(source);
-        let chunk = compiler
-            .compile(&mut program_ast)
-            .map_err(|e| anyhow::anyhow!("Compilation failed: {:?}", e))?;
+        let compiled = std::fs::read_to_string(program)
+            .map_err(|e| format!("Cannot read {program}: {e}"))
+            .and_then(|source| {
+                let tokens = pleno_lexer::lex(&source)
+                    .map_err(|e| format!("Syntax error: {}", e.message))?;
+                let mut program_ast = pleno_parser::Parser::new(tokens, &source)
+                    .parse_program()
+                    .map_err(|e| format!("Syntax error: {}", e.message))?;
+                pleno_compiler::Compiler::new(source)
+                    .compile(&mut program_ast)
+                    .map_err(|e| format!("Compile error: {}", e.diagnostic.message))
+            });
+        let chunk = match compiled {
+            Ok(chunk) => chunk,
+            Err(message) => {
+                self.send_response(&request, false, Some(message), None)?;
+                return Ok(());
+            }
+        };
 
         let mut vm = VM::new();
-        for (source, bps) in &self.breakpoints {
-            vm.debug_context
-                .set_breakpoints(source.clone(), bps.clone());
-        }
-        vm.load_script(chunk);
+        pleno_stdlib::register(&mut vm);
+        // Capture program output so it is sent as DAP events, not mixed into
+        // the protocol stream on stdout.
+        vm.output = Some(String::new());
+        vm.load_script_with_path(chunk, Some(normalize_path(program)));
 
         self.send_response(&request, true, None, None)?;
         self.send_event(
@@ -261,28 +346,20 @@ impl<R: BufRead, W: Write> DapServer<R, W> {
             Some(serde_json::json!({"name": program})),
         )?;
 
-        self.debug_execution_loop(&mut vm)?;
-
-        self.send_event("terminated".to_string(), None)?;
-        Ok(())
+        self.pending_launch = Some(vm);
+        self.start_pending_launch()
     }
 
     fn debug_execution_loop(&mut self, vm: &mut VM) -> Result<()> {
-        let mut status = vm
-            .run_debug()
-            .map_err(|e| anyhow::anyhow!("VM Error: {:?}", e))?;
+        let mut status = match vm.run_debug() {
+            Ok(status) => status,
+            Err(error) => return self.report_error(vm, error),
+        };
 
         loop {
+            self.flush_output(vm)?;
             match status {
-                pleno_vm::ExecutionStatus::Finished(val) => {
-                    let message = format!("Program exited with: {:?}", val);
-                    self.send_event(
-                        "output".to_string(),
-                        Some(serde_json::json!({
-                            "category": "stdout",
-                            "output": message
-                        })),
-                    )?;
+                pleno_vm::ExecutionStatus::Finished(_) => {
                     self.send_event(
                         "exited".to_string(),
                         Some(serde_json::json!({"exitCode": 0})),
@@ -308,36 +385,51 @@ impl<R: BufRead, W: Write> DapServer<R, W> {
 
                         match request.command.as_str() {
                             "continue" => {
-                                status = vm
-                                    .run_debug()
-                                    .map_err(|e| anyhow::anyhow!("VM Error: {:?}", e))?;
                                 self.send_response(&request, true, None, None)?;
+                                status = match vm.run_debug() {
+                                    Ok(status) => status,
+                                    Err(error) => return self.report_error(vm, error),
+                                };
                                 break;
                             }
                             "next" => {
-                                status = vm
-                                    .step_over()
-                                    .map_err(|e| anyhow::anyhow!("VM Error: {:?}", e))?;
                                 self.send_response(&request, true, None, None)?;
+                                status = match vm.step_over() {
+                                    Ok(status) => status,
+                                    Err(error) => return self.report_error(vm, error),
+                                };
                                 break;
                             }
                             "stepIn" => {
-                                status = vm
-                                    .step_into()
-                                    .map_err(|e| anyhow::anyhow!("VM Error: {:?}", e))?;
                                 self.send_response(&request, true, None, None)?;
+                                status = match vm.step_into() {
+                                    Ok(status) => status,
+                                    Err(error) => return self.report_error(vm, error),
+                                };
                                 break;
                             }
                             "stepOut" => {
-                                status = vm
-                                    .step_out()
-                                    .map_err(|e| anyhow::anyhow!("VM Error: {:?}", e))?;
                                 self.send_response(&request, true, None, None)?;
+                                status = match vm.step_out() {
+                                    Ok(status) => status,
+                                    Err(error) => return self.report_error(vm, error),
+                                };
                                 break;
                             }
                             "disconnect" | "terminate" => {
                                 self.send_response(&request, true, None, None)?;
                                 return Ok(());
+                            }
+                            "configurationDone" | "pause" => {
+                                self.send_response(&request, true, None, None)?;
+                            }
+                            "setExceptionBreakpoints" => {
+                                self.send_response(
+                                    &request,
+                                    true,
+                                    None,
+                                    Some(serde_json::json!({ "breakpoints": [] })),
+                                )?;
                             }
                             "threads" => {
                                 self.send_response(
@@ -385,9 +477,9 @@ impl<R: BufRead, W: Write> DapServer<R, W> {
                                     });
                                 }
 
-                                self.breakpoints.insert(source.to_string(), vm_bps.clone());
-                                vm.debug_context
-                                    .set_breakpoints(source.to_string(), vm_bps.clone());
+                                let source = normalize_path(source);
+                                self.breakpoints.insert(source.clone(), vm_bps.clone());
+                                vm.debug_context.set_breakpoints(source, vm_bps.clone());
 
                                 let response_bps: Vec<serde_json::Value> = vm_bps
                                     .into_iter()
@@ -448,6 +540,7 @@ impl<R: BufRead, W: Write> DapServer<R, W> {
                                 )?;
                             }
                             "stackTrace" => {
+                                let top = vm.frames.len().saturating_sub(1);
                                 let stack_frames: Vec<serde_json::Value> = vm
                                     .frames
                                     .iter()
@@ -456,13 +549,14 @@ impl<R: BufRead, W: Write> DapServer<R, W> {
                                     .map(|(i, frame)| {
                                         let function = &vm.functions[frame.function_index];
                                         let func_name = function.name.as_str();
-                                        let line = if frame.ip > 0
-                                            && frame.ip <= function.chunk.lines.len()
-                                        {
-                                            function.chunk.lines[frame.ip - 1]
+                                        // The paused frame is about to run `ip`; callers have
+                                        // already run their call instruction at `ip - 1`.
+                                        let ip = if i == top {
+                                            frame.ip
                                         } else {
-                                            0
+                                            frame.ip.saturating_sub(1)
                                         };
+                                        let line = function.chunk.lines.get(ip).copied().unwrap_or(0);
 
                                         let mut source_json = serde_json::json!({});
                                         if let Some(path) = &function.module_path {
@@ -617,12 +711,8 @@ impl<R: BufRead, W: Write> DapServer<R, W> {
                                 }
                             }
                             _ => {
-                                self.send_response(
-                                    &request,
-                                    false,
-                                    Some("Not implemented".to_string()),
-                                    None,
-                                )?;
+                                let message = format!("Unsupported request: {}", request.command);
+                                self.send_response(&request, false, Some(message), None)?;
                             }
                         }
                     }
