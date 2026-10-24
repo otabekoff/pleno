@@ -33,7 +33,8 @@ def main():
     args = sys.argv[1:]
     pleno = args.pop(0) if args and not args[0].endswith(".md") and not os.path.isdir(args[0]) else "pleno"
     paths = args or ["docs"]
-    pleno = shutil.which(pleno) or os.path.abspath(pleno)
+    # Absolute, because each example runs in its own temporary folder.
+    pleno = os.path.abspath(shutil.which(pleno) or pleno)
 
     passed = failed = skipped = 0
     for path in markdown_files(paths):
