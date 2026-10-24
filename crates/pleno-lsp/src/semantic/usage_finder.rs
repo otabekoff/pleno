@@ -231,10 +231,8 @@ pub fn find_declaration(program: &Program, pos: usize) -> Option<Span> {
                     return Some(*name_span);
                 }
             }
-            StmtKind::Enum(e) => {
-                if e.name_span.contains(pos) {
-                    return Some(e.name_span);
-                }
+            StmtKind::Enum(e) if e.name_span.contains(pos) => {
+                return Some(e.name_span);
             }
             _ => {}
         }

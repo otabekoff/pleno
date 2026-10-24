@@ -1469,6 +1469,7 @@ dependencies = [
  "pleno-compiler",
  "pleno-lexer",
  "pleno-parser",
+ "pleno-stdlib",
  "pleno-value",
  "pleno-vm",
  "serde",
@@ -1680,6 +1681,7 @@ dependencies = [
  "reqwest",
  "serde_json",
  "sha2",
+ "toml",
 ]
 
 [[package]]

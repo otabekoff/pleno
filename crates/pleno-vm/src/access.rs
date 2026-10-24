@@ -14,6 +14,18 @@ pub fn resolve_method(class: &GcRc<Class>, name: &str) -> Option<MethodInfo> {
         .and_then(|superclass| resolve_method(superclass, name))
 }
 
+/// The constructor that runs for `class`: its own, or the nearest inherited one.
+pub fn resolve_constructor(class: &GcRc<Class>) -> Option<MethodInfo> {
+    if let Some(info) = class.borrow().constructor.clone() {
+        return Some(info);
+    }
+    class
+        .borrow()
+        .superclass
+        .as_ref()
+        .and_then(resolve_constructor)
+}
+
 pub fn resolve_enum_method(enum_type: &GcRc<EnumType>, name: &str) -> Option<MethodInfo> {
     enum_type.borrow().methods.get(name).cloned()
 }
@@ -107,7 +119,7 @@ pub fn can_access_method(
             MethodOwner::Class(owner_class) => {
                 current_class.map(|c| c == owner_class).unwrap_or(false)
             }
-            MethodOwner::Enum(_) | MethodOwner::Interface(_) => {
+            MethodOwner::Enum(_) | MethodOwner::Interface(_) | MethodOwner::Builtin(_) => {
                 // For enums/interfaces, we check module parity for private access
                 method
                     .module
@@ -120,7 +132,7 @@ pub fn can_access_method(
             MethodOwner::Class(owner_class) => current_class
                 .map(|c| is_subclass_of(c, owner_class))
                 .unwrap_or(false),
-            MethodOwner::Enum(_) | MethodOwner::Interface(_) => {
+            MethodOwner::Enum(_) | MethodOwner::Interface(_) | MethodOwner::Builtin(_) => {
                 // Enums/interfaces don't have subclassing for methods, so protected behaves like internal/private
                 method
                     .module
@@ -192,8 +204,9 @@ pub fn parse_method_info(
     module: Option<&Rc<String>>,
 ) -> Result<MethodInfo, RuntimeError> {
     match value {
-        Value::Function(handle) => Ok(MethodInfo {
-            function: Value::Function(handle),
+        // A closure is a method that captures variables from its enclosing scope.
+        function @ (Value::Function(_) | Value::Closure(_)) => Ok(MethodInfo {
+            function,
             visibility: MethodVisibility::Public,
             owner: owner.clone(),
             module: module.cloned(),

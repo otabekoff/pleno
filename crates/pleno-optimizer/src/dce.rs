@@ -1,3 +1,4 @@
+use pleno_ast::visitor::{walk_expr, walk_stmt, Visitor};
 use pleno_ast::*;
 use std::collections::HashSet;
 
@@ -21,190 +22,13 @@ impl DeadCodeEliminator {
     pub fn eliminate_program(&mut self, program: &mut Program) {
         // Pass 1: Collect usages
         self.used_names.clear();
-        for stmt in &program.statements {
-            self.collect_usages_stmt(stmt);
-        }
+        let mut collector = UsageCollector {
+            used_names: &mut self.used_names,
+        };
+        collector.visit_program(program);
 
         // Pass 2: Eliminate
         self.eliminate_stmts(&mut program.statements);
-    }
-
-    fn collect_usages_stmt(&mut self, stmt: &Stmt) {
-        match &stmt.kind {
-            StmtKind::Block(stmts) => {
-                for s in stmts {
-                    self.collect_usages_stmt(s);
-                }
-            }
-            StmtKind::Let { value: Some(v), .. } => {
-                self.collect_usages_expr(v);
-            }
-            StmtKind::Assign { value, .. } => {
-                self.collect_usages_expr(value);
-            }
-            StmtKind::If {
-                condition,
-                then_branch,
-                else_branch,
-            } => {
-                self.collect_usages_expr(condition);
-                self.collect_usages_stmt(then_branch);
-                if let Some(eb) = else_branch {
-                    self.collect_usages_stmt(eb);
-                }
-            }
-            StmtKind::While { condition, body } => {
-                self.collect_usages_expr(condition);
-                self.collect_usages_stmt(body);
-            }
-            StmtKind::For { iterable, body, .. } => {
-                self.collect_usages_expr(iterable);
-                self.collect_usages_stmt(body);
-            }
-            StmtKind::CFor {
-                init,
-                condition,
-                step,
-                body,
-            } => {
-                if let Some(init) = init {
-                    self.collect_usages_stmt(init);
-                }
-                if let Some(cond) = condition {
-                    self.collect_usages_expr(cond);
-                }
-                if let Some(step) = step {
-                    self.collect_usages_stmt(step);
-                }
-                self.collect_usages_stmt(body);
-            }
-            StmtKind::Fn { body, .. } => {
-                self.collect_usages_stmt(body);
-            }
-            StmtKind::Class {
-                methods,
-                properties,
-                nested_classes,
-                ..
-            } => {
-                for m in methods {
-                    self.collect_usages_stmt(&m.body);
-                }
-                for p in properties {
-                    if let Some(g) = &p.getter {
-                        self.collect_usages_stmt(&g.body);
-                    }
-                    if let Some(s) = &p.setter {
-                        self.collect_usages_stmt(&s.body);
-                    }
-                }
-                for n in nested_classes {
-                    self.collect_usages_stmt(n);
-                }
-            }
-            StmtKind::Enum(enum_decl) => {
-                for m in &enum_decl.methods {
-                    self.collect_usages_stmt(&m.body);
-                }
-            }
-            StmtKind::Try {
-                try_branch,
-                catch_branches,
-                finally_branch,
-            } => {
-                self.collect_usages_stmt(try_branch);
-                for catch in catch_branches {
-                    self.collect_usages_stmt(&catch.body);
-                }
-                if let Some(fb) = finally_branch {
-                    self.collect_usages_stmt(fb);
-                }
-            }
-            StmtKind::Throw(expr) | StmtKind::Expr(expr) | StmtKind::Return(Some(expr)) => {
-                self.collect_usages_expr(expr);
-            }
-            StmtKind::Export(inner) => self.collect_usages_stmt(inner),
-            StmtKind::Labeled { stmt: inner, .. } => self.collect_usages_stmt(inner),
-            _ => {}
-        }
-    }
-
-    fn collect_usages_expr(&mut self, expr: &Expr) {
-        match &expr.kind {
-            ExprKind::Ident(name) => {
-                self.used_names.insert(name.clone());
-            }
-            ExprKind::Binary { left, right, .. } => {
-                self.collect_usages_expr(left);
-                self.collect_usages_expr(right);
-            }
-            ExprKind::Unary { expr: inner, .. } => self.collect_usages_expr(inner),
-            ExprKind::Call { callee, args } | ExprKind::SafeCall { callee, args } => {
-                self.collect_usages_expr(callee);
-                for arg in args {
-                    match arg {
-                        CallArg::Positional(e) | CallArg::Named(_, e) | CallArg::Spread(e) => {
-                            self.collect_usages_expr(e);
-                        }
-                        CallArg::Placeholder => {}
-                    }
-                }
-            }
-            ExprKind::Property { object, .. } | ExprKind::SafeProperty { object, .. } => {
-                self.collect_usages_expr(object);
-            }
-            ExprKind::Index { collection, index } | ExprKind::SafeIndex { collection, index } => {
-                self.collect_usages_expr(collection);
-                self.collect_usages_expr(index);
-            }
-            ExprKind::ArrayLiteral(items)
-            | ExprKind::TupleLiteral(items)
-            | ExprKind::SetLiteral(items) => {
-                for item in items {
-                    self.collect_usages_expr(item);
-                }
-            }
-            ExprKind::MapLiteral(items) => {
-                for item in items {
-                    match item {
-                        MapItem::Entry(_, v) => {
-                            self.collect_usages_expr(v);
-                        }
-                        MapItem::Spread(e) => self.collect_usages_expr(e),
-                    }
-                }
-            }
-            ExprKind::Lambda { body, .. } => {
-                self.collect_usages_expr(body);
-            }
-            ExprKind::If {
-                condition,
-                then_branch,
-                else_branch,
-            } => {
-                self.collect_usages_expr(condition);
-                self.collect_usages_expr(then_branch);
-                if let Some(eb) = else_branch {
-                    self.collect_usages_expr(eb);
-                }
-            }
-            ExprKind::Await { expr: inner }
-            | ExprKind::Spread(inner)
-            | ExprKind::Paren(inner)
-            | ExprKind::AssertNotNull(inner) => {
-                self.collect_usages_expr(inner);
-            }
-            ExprKind::Pipeline { left, right } => {
-                self.collect_usages_expr(left);
-                self.collect_usages_expr(right);
-            }
-            ExprKind::InterpolatedString(parts) => {
-                for part in parts {
-                    self.collect_usages_expr(part);
-                }
-            }
-            _ => {}
-        }
     }
 
     fn eliminate_stmts(&mut self, stmts: &mut Vec<Stmt>) {
@@ -215,8 +39,15 @@ impl DeadCodeEliminator {
             let stmt = &mut stmts[i];
 
             // Special check for unused variable removal
-            if let StmtKind::Let { name, .. } = &stmt.kind {
-                if !self.used_names.contains(name) {
+            if let StmtKind::Let {
+                name, value, ty, ..
+            } = &stmt.kind
+            {
+                // A type annotation is checked at runtime, so a typed `let` must stay.
+                if !self.used_names.contains(name)
+                    && ty.is_none()
+                    && value.as_ref().is_none_or(is_side_effect_free)
+                {
                     stmts.remove(i);
                     continue;
                 }
@@ -338,5 +169,47 @@ impl DeadCodeEliminator {
             }
             _ => {}
         }
+    }
+}
+
+/// Records every name that is read, assigned or exported anywhere in the program.
+struct UsageCollector<'a> {
+    used_names: &'a mut HashSet<String>,
+}
+
+impl<'ast> Visitor<'ast> for UsageCollector<'_> {
+    fn visit_stmt(&mut self, stmt: &'ast Stmt) {
+        match &stmt.kind {
+            StmtKind::Assign { name, .. } => {
+                self.used_names.insert(name.clone());
+            }
+            StmtKind::ExportList(names) => {
+                for export in names {
+                    self.used_names.insert(export.name.clone());
+                }
+            }
+            _ => {}
+        }
+        walk_stmt(self, stmt);
+    }
+
+    fn visit_expr(&mut self, expr: &'ast Expr) {
+        if let ExprKind::Ident(name) = &expr.kind {
+            self.used_names.insert(name.clone());
+        }
+        walk_expr(self, expr);
+    }
+}
+
+/// An unused `let` can only be dropped when evaluating its initializer cannot
+/// have observable effects.
+fn is_side_effect_free(expr: &Expr) -> bool {
+    match &expr.kind {
+        ExprKind::Literal(_) | ExprKind::Ident(_) | ExprKind::Lambda { .. } => true,
+        ExprKind::Paren(inner) => is_side_effect_free(inner),
+        ExprKind::ArrayLiteral(items) | ExprKind::TupleLiteral(items) => {
+            items.iter().all(is_side_effect_free)
+        }
+        _ => false,
     }
 }

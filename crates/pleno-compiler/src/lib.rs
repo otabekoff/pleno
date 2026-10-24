@@ -1,3 +1,5 @@
+mod prelude;
+
 use indexmap::IndexMap;
 use pleno_ast::{
     BinaryOp, Expr, ExprKind, FieldDecl, FunctionDecl, FunctionKind, Literal, MapItem, Pattern,
@@ -96,6 +98,9 @@ pub struct Compiler {
     boxed_vars: Vec<HashSet<String>>,
     finally_stack: Vec<Option<Stmt>>,
     optional_chain_jumps: Vec<usize>,
+    /// Set while a postfix operation (property, index, call) compiles its object,
+    /// so a `?.` inside that object continues the same chain.
+    in_postfix_chain: bool,
     expr_depth: usize,
     pub is_async: bool,
     pub profile: BuildProfile,
@@ -144,6 +149,7 @@ impl Compiler {
             boxed_vars: vec![HashSet::new()],
             finally_stack: Vec::new(),
             optional_chain_jumps: Vec::new(),
+            in_postfix_chain: false,
             expr_depth: 0,
             is_async: false,
             profile: BuildProfile::Debug,
@@ -162,6 +168,7 @@ impl Compiler {
     }
 
     pub fn compile(&mut self, program: &mut Program) -> Result<Chunk, CompileError> {
+        prelude::add_error_class(program);
         pleno_optimizer::optimize(program);
         self.module_mode = false;
         self.module_exports.clear();
@@ -193,6 +200,7 @@ impl Compiler {
     }
 
     pub fn compile_module(&mut self, program: &mut Program) -> Result<Chunk, CompileError> {
+        prelude::add_error_class(program);
         pleno_optimizer::optimize(program);
         self.module_mode = true;
         self.module_exports.clear();
@@ -582,9 +590,19 @@ impl Compiler {
                 }
                 Ok(())
             }
-            StmtKind::Class { name, .. } => {
-                // Dead Code Elimination: Only compile if referenced
-                if !self.referenced_entities.contains(name) && self.is_top_level {
+            StmtKind::Class {
+                name,
+                annotations,
+                implements,
+                ..
+            } => {
+                // Dead Code Elimination: skip unreferenced classes, unless defining the
+                // class has effects (decorators, interface conformance checks).
+                if !self.referenced_entities.contains(name)
+                    && self.is_top_level
+                    && annotations.is_empty()
+                    && implements.is_empty()
+                {
                     return Ok(());
                 }
 
@@ -623,8 +641,12 @@ impl Compiler {
                         ownership: param.ownership.clone(),
                     })
                     .collect::<Vec<_>>();
-                // Dead Code Elimination: Only compile if referenced
-                if !self.referenced_entities.contains(name) && self.is_top_level {
+                // Dead Code Elimination: skip unreferenced functions, unless they are
+                // annotated (a decorator may register them or have other effects).
+                if !self.referenced_entities.contains(name)
+                    && self.is_top_level
+                    && annotations.is_empty()
+                {
                     return Ok(());
                 }
 
@@ -1068,11 +1090,21 @@ impl Compiler {
         self.expr_depth += 1;
         let is_postfix = Self::is_postfix_op(&expr.kind);
         let start_jumps = self.optional_chain_jumps.len();
+        // Only the first operand compiled by a postfix operation (its object or
+        // callee) continues the chain; arguments and indices start a fresh one.
+        let parent_is_postfix = std::mem::take(&mut self.in_postfix_chain);
+        self.in_postfix_chain = is_postfix;
 
-        let reg = self.compile_expr_internal(expr)?;
+        let result = self.compile_expr_internal(expr);
+        self.in_postfix_chain = false;
         self.expr_depth -= 1;
+        let reg = result?;
 
-        if self.optional_chain_jumps.len() > start_jumps && (!is_postfix || self.expr_depth == 0) {
+        // A `?.` short-circuit skips to the end of its chain: the outermost postfix
+        // operation, not the whole enclosing expression (e.g. `a?.b ?? c`).
+        if self.optional_chain_jumps.len() > start_jumps
+            && (!is_postfix || !parent_is_postfix || self.expr_depth == 0)
+        {
             // Patch all optional chain jumps to this point
             let jumps_to_patch: Vec<usize> =
                 self.optional_chain_jumps.drain(start_jumps..).collect();
@@ -2663,7 +2695,8 @@ impl Compiler {
         instance_fields: Option<&[FieldDecl]>,
     ) -> Result<u8, CompileError> {
         let captures = self.analyze_captures(decl, is_method);
-        let mut compiler = Compiler::new(String::new());
+        // The function's instructions map back to lines of the same source.
+        let mut compiler = Compiler::new(self.source.clone());
         compiler.is_top_level = false;
         compiler.is_async = decl.is_async;
         compiler.push_scope();
@@ -2730,26 +2763,9 @@ impl Compiler {
                 } else if let Some((idx, _)) = compiler.captures.get(ty_name) {
                     compiler.emit(Opcode::LoadCapture, type_reg, *idx as u8, 0);
                 } else {
-                    let ty_idx = compiler.add_constant(Value::String(Rc::new(ty_name.clone())));
-                    let is_builtin = matches!(
-                        ty_name.as_str(),
-                        "Int"
-                            | "Float"
-                            | "String"
-                            | "Bool"
-                            | "Array"
-                            | "Map"
-                            | "Set"
-                            | "Any"
-                            | "Null"
-                            | "Tuple"
-                            | "Char"
-                    );
-                    if is_builtin {
-                        compiler.emit(Opcode::LoadConst, type_reg, ty_idx, 0);
-                    } else {
-                        compiler.emit(Opcode::GetGlobal, type_reg, ty_idx, 0);
-                    }
+                    let reified = compiler.emit_reified_type(ty_name)?;
+                    compiler.emit(Opcode::Move, type_reg, reified, 0);
+                    compiler.free_temp(reified);
                 }
 
                 let result_reg = compiler.registers.allocate()?;
@@ -2850,10 +2866,7 @@ impl Compiler {
         let mut runtime_annotations = Vec::new();
         for anno in &decl.annotations {
             if anno.name != "pure" && anno.name != "native" {
-                match self.compile_annotation(anno) {
-                    Ok(a) => runtime_annotations.push(a),
-                    Err(e) => return Err(e),
-                }
+                runtime_annotations.push(self.compile_annotation(anno)?);
             }
         }
 
@@ -2925,56 +2938,74 @@ impl Compiler {
                 continue;
             }
 
-            // Compile decorator expression
-            // If no args: load(name)
-            // If args: call(name, args) -> returns decorator function
-            let decorator_reg = if annotation.args.is_empty() {
-                let expr = pleno_ast::Expr {
-                    kind: pleno_ast::ExprKind::Ident(annotation.name.clone()),
-                    span: pleno_ast::Span::new(0, 0),
-                };
-                self.compile_expr(&expr)?
-            } else {
-                // Call the decorator factory
-                let callee = pleno_ast::Expr {
-                    kind: pleno_ast::ExprKind::Ident(annotation.name.clone()),
-                    span: pleno_ast::Span::new(0, 0),
-                };
-                let args: Vec<pleno_ast::CallArg> = annotation
-                    .args
-                    .iter()
-                    .map(|arg| pleno_ast::CallArg::Positional(arg.clone()))
-                    .collect();
-
-                let expr = pleno_ast::Expr {
-                    kind: pleno_ast::ExprKind::Call {
-                        callee: Box::new(callee),
-                        args,
-                    },
-                    span: pleno_ast::Span::new(0, 0),
-                };
-                self.compile_expr(&expr)?
-            };
-
-            // Now call the decorator with the function/class as argument
-            // decorated = decorator(target)
-            let args_reg = self.registers.allocate()?;
-            self.emit(Opcode::NewArray, args_reg, 0, 0);
-            self.emit(Opcode::ArrayAppend, args_reg, dest, 0);
-
-            let new_dest = self.registers.allocate()?;
-            self.emit(Opcode::Call, new_dest, decorator_reg, args_reg);
-
-            self.free_temp(args_reg);
-            self.free_temp(decorator_reg);
-
-            // Move result back to dest
-            self.emit(Opcode::Move, dest, new_dest, 0);
-            self.free_temp(new_dest);
+            self.emit_decorator(annotation, dest)?;
         }
 
         compiler.pop_scope();
         Ok(dest)
+    }
+
+    /// Applies `@name` or `@name(args)` to the function or class in `target`
+    /// when `name` refers to a callable at runtime; other annotations are
+    /// metadata only. A decorator that returns null leaves the target unchanged.
+    fn emit_decorator(
+        &mut self,
+        annotation: &pleno_ast::Annotation,
+        target: u8,
+    ) -> Result<(), CompileError> {
+        let no_span = Span::new(0, 0);
+        let name = Expr::new(ExprKind::Ident(annotation.name.clone()), no_span);
+        let callee_reg = self.compile_expr(&name)?;
+
+        let fn_type_idx = self.add_constant(Value::String(Rc::new("() => Any".to_string())));
+        let fn_type_reg = self.registers.allocate()?;
+        self.emit(Opcode::LoadConst, fn_type_reg, fn_type_idx, 0);
+        let is_callable_reg = self.registers.allocate()?;
+        self.emit(Opcode::Is, is_callable_reg, callee_reg, fn_type_reg);
+        let skip_jump = self.emit_jump(Opcode::JumpIfNot, is_callable_reg);
+        self.free_temp(fn_type_reg);
+        self.free_temp(is_callable_reg);
+
+        // `@factory(args)` first calls the factory to get the decorator.
+        let decorator_reg = if annotation.args.is_empty() {
+            callee_reg
+        } else {
+            let call = Expr::new(
+                ExprKind::Call {
+                    callee: Box::new(name),
+                    args: annotation
+                        .args
+                        .iter()
+                        .map(|arg| pleno_ast::CallArg::Positional(arg.clone()))
+                        .collect(),
+                },
+                no_span,
+            );
+            self.compile_expr(&call)?
+        };
+
+        let args_reg = self.registers.allocate()?;
+        self.emit(Opcode::NewArray, args_reg, 0, 0);
+        self.emit(Opcode::ArrayAppend, args_reg, target, 0);
+        let result_reg = self.registers.allocate()?;
+        self.emit(Opcode::Call, result_reg, decorator_reg, args_reg);
+        self.free_temp(args_reg);
+
+        let is_null_reg = self.registers.allocate()?;
+        self.emit(Opcode::LoadNull, is_null_reg, 0, 0);
+        self.emit(Opcode::Eq, is_null_reg, result_reg, is_null_reg);
+        let keep_jump = self.emit_jump(Opcode::JumpIf, is_null_reg);
+        self.emit(Opcode::Move, target, result_reg, 0);
+        self.patch_jump(keep_jump)?;
+        self.free_temp(is_null_reg);
+        self.free_temp(result_reg);
+
+        self.patch_jump(skip_jump)?;
+        if decorator_reg != callee_reg {
+            self.free_temp(decorator_reg);
+        }
+        self.free_temp(callee_reg);
+        Ok(())
     }
 
     fn compile_lambda(
@@ -3208,8 +3239,11 @@ impl Compiler {
     ) -> Result<(), CompileError> {
         let class_reg = self.registers.allocate()?;
 
-        // Resolve target class
-        if let Some(local) = self.resolve_local(target) {
+        // Resolve target class; built-in types are passed by name.
+        if BUILTIN_EXTENSION_TYPES.contains(&target) {
+            let name_idx = self.add_constant(Value::String(std::rc::Rc::new(target.to_string())));
+            self.emit(Opcode::LoadConst, class_reg, name_idx, 0);
+        } else if let Some(local) = self.resolve_local(target) {
             self.emit(Opcode::Move, class_reg, local.reg, 0);
         } else {
             let name_idx = self.add_constant(Value::String(std::rc::Rc::new(target.to_string())));
@@ -3300,12 +3334,38 @@ impl Compiler {
 
         let mut methods_to_compile = methods.clone();
         if !methods_to_compile.iter().any(|m| m.name == "constructor") {
+            // A subclass without a constructor forwards its arguments to the parent:
+            // `constructor(...args) { super(...args); }`.
+            let (params, body) = if superclass.is_some() {
+                let no_span = Span::new(0, 0);
+                let args_ident = Expr::new(ExprKind::Ident("__args".to_string()), no_span);
+                let super_call = Expr::new(
+                    ExprKind::Call {
+                        callee: Box::new(Expr::new(ExprKind::Super, no_span)),
+                        args: vec![pleno_ast::CallArg::Spread(args_ident)],
+                    },
+                    no_span,
+                );
+                let params = vec![pleno_ast::Param {
+                    span: no_span,
+                    name: "__args".to_string(),
+                    name_span: no_span,
+                    ty: None,
+                    default: None,
+                    is_variadic: true,
+                    is_keyword_only: false,
+                    ownership: pleno_ast::Ownership::None,
+                }];
+                (params, vec![Stmt::new(StmtKind::Expr(super_call), no_span)])
+            } else {
+                (Vec::new(), Vec::new())
+            };
             methods_to_compile.push(FunctionDecl {
                 span: Span::new(0, 0),
                 name: "constructor".to_string(),
                 name_span: Span::new(0, 0),
-                params: Vec::new(),
-                body: Box::new(Stmt::new(StmtKind::Block(Vec::new()), Span::new(0, 0))),
+                params,
+                body: Box::new(Stmt::new(StmtKind::Block(body), Span::new(0, 0))),
                 return_ty: None,
                 generics: Vec::new(),
                 annotations: Vec::new(),
@@ -3582,10 +3642,11 @@ impl Compiler {
             }
         }
 
-        // NOTE: Annotations are now stored as metadata via SetAnnotations opcode.
-        // The decorator call pattern (calling annotation as function) is disabled.
-        // If decorator functionality is needed in the future, add a separate mechanism.
-        // for annotation in annotations.iter().rev() { ... }
+        // Annotations are stored as metadata via SetAnnotations; those naming a
+        // function are also applied as class decorators.
+        for annotation in annotations.iter().rev() {
+            self.emit_decorator(annotation, class_reg)?;
+        }
 
         for nested in nested_classes {
             if let StmtKind::Class {
@@ -3688,6 +3749,28 @@ impl Compiler {
                 variant_name_idx,
                 param_count as u8,
             );
+            if let Some(value) = &variant.value {
+                let constant = match &value.kind {
+                    ExprKind::Literal(lit) => literal_value(lit),
+                    ExprKind::Unary {
+                        op: pleno_ast::UnaryOp::Negate,
+                        expr,
+                    } => match &expr.kind {
+                        ExprKind::Literal(Literal::Int(i)) => Some(Value::Int(-i)),
+                        ExprKind::Literal(Literal::Float(f)) => Some(Value::Float(-f)),
+                        _ => None,
+                    },
+                    _ => None,
+                }
+                .ok_or_else(|| self.error("enum variant values must be literals", value.span))?;
+                let value_idx = self.add_constant(constant);
+                self.emit(
+                    Opcode::SetVariantValue,
+                    enum_reg,
+                    variant_name_idx,
+                    value_idx,
+                );
+            }
         }
 
         for method in &decl.methods {
@@ -3917,7 +4000,58 @@ impl Compiler {
                     self.collect_idents(nested, used, scope);
                 }
             }
+            StmtKind::Try {
+                try_branch,
+                catch_branches,
+                finally_branch,
+            } => {
+                self.collect_idents(try_branch, used, scope);
+                for catch in catch_branches {
+                    scope.push(HashSet::from([catch.name.clone()]));
+                    self.collect_idents(&catch.body, used, scope);
+                    scope.pop();
+                }
+                if let Some(finally_branch) = finally_branch {
+                    self.collect_idents(finally_branch, used, scope);
+                }
+            }
+            StmtKind::Throw(expr) => self.collect_idents_expr(expr, used, scope),
+            StmtKind::DoWhile { body, condition } => {
+                self.collect_idents(body, used, scope);
+                self.collect_idents_expr(condition, used, scope);
+            }
+            StmtKind::Labeled { stmt, .. } | StmtKind::Export(stmt) => {
+                self.collect_idents(stmt, used, scope);
+            }
+            StmtKind::Enum(decl) => {
+                if let Some(s) = scope.last_mut() {
+                    s.insert(decl.name.clone());
+                }
+                self.collect_method_idents(&decl.methods, used, scope);
+            }
+            StmtKind::Extend { methods, .. } => {
+                self.collect_method_idents(methods, used, scope);
+            }
             _ => {}
+        }
+    }
+
+    fn collect_method_idents(
+        &self,
+        methods: &[pleno_ast::FunctionDecl],
+        used: &mut HashMap<String, bool>,
+        scope: &mut Vec<HashSet<String>>,
+    ) {
+        for method in methods {
+            scope.push(HashSet::from(["this".to_string()]));
+            for p in &method.params {
+                if let Some(d) = &p.default {
+                    self.collect_idents_expr(d, used, scope);
+                }
+                scope.last_mut().unwrap().insert(p.name.clone());
+            }
+            self.collect_idents(&method.body, used, scope);
+            scope.pop();
         }
     }
 
@@ -4093,6 +4227,19 @@ impl Compiler {
                 }
             }
             ExprKind::SafeProperty { object, .. } => self.collect_idents_expr(object, used, scope),
+            ExprKind::SafeIndex { collection, index } => {
+                self.collect_idents_expr(collection, used, scope);
+                self.collect_idents_expr(index, used, scope);
+            }
+            ExprKind::Is { left, .. } | ExprKind::Specialize { left, .. } => {
+                self.collect_idents_expr(left, used, scope);
+            }
+            ExprKind::Spread(inner) => self.collect_idents_expr(inner, used, scope),
+            ExprKind::NamedTupleLiteral(items) => {
+                for (_, item) in items {
+                    self.collect_idents_expr(item, used, scope);
+                }
+            }
             _ => {}
         }
     }
@@ -4293,6 +4440,12 @@ impl Compiler {
                 if let Some(sub) = substitutions.get(name) {
                     *expr = sub.clone();
                 }
+            }
+            // `${param}` splices the argument; `${expr}` splices the expanded expression.
+            ExprKind::MacroSplice(inner) => {
+                let mut spliced = (**inner).clone();
+                self.expand_expr(&mut spliced, substitutions);
+                *expr = spliced;
             }
             ExprKind::Unary { expr, .. } => {
                 self.expand_expr(expr, substitutions);
@@ -4515,268 +4668,11 @@ impl Compiler {
     }
 
     fn collect_references(&self, stmts: &[Stmt]) -> HashSet<String> {
-        let mut referenced = HashSet::new();
+        let mut collector = prelude::ReferenceCollector::default();
         for stmt in stmts {
-            self.collect_stmt_refs(stmt, &mut referenced);
+            pleno_ast::visitor::Visitor::visit_stmt(&mut collector, stmt);
         }
-        referenced
-    }
-
-    fn collect_stmt_refs(&self, stmt: &Stmt, referenced: &mut HashSet<String>) {
-        match &stmt.kind {
-            StmtKind::Expr(expr) => self.collect_expr_refs(expr, referenced),
-            StmtKind::Export(stmt) => {
-                match &stmt.kind {
-                    StmtKind::Let { name, .. }
-                    | StmtKind::Fn { name, .. }
-                    | StmtKind::Class { name, .. } => {
-                        referenced.insert(name.clone());
-                    }
-                    _ => {}
-                }
-                self.collect_stmt_refs(stmt, referenced);
-            }
-            StmtKind::ExportList(items) => {
-                for item in items {
-                    referenced.insert(item.name.clone());
-                }
-            }
-            StmtKind::Let {
-                value: Some(value), ..
-            } => {
-                self.collect_expr_refs(value, referenced);
-            }
-            StmtKind::If {
-                condition,
-                then_branch,
-                else_branch,
-            } => {
-                self.collect_expr_refs(condition, referenced);
-                self.collect_stmt_refs(then_branch, referenced);
-                if let Some(eb) = else_branch {
-                    self.collect_stmt_refs(eb, referenced);
-                }
-            }
-            StmtKind::While { condition, body } => {
-                self.collect_expr_refs(condition, referenced);
-                self.collect_stmt_refs(body, referenced);
-            }
-            StmtKind::Block(stmts) => {
-                for s in stmts {
-                    self.collect_stmt_refs(s, referenced);
-                }
-            }
-            StmtKind::Fn { body, .. } => {
-                self.collect_stmt_refs(body, referenced);
-            }
-            StmtKind::Class {
-                methods,
-                superclass,
-                ..
-            } => {
-                if let Some(superclass) = superclass {
-                    referenced.insert(superclass.clone());
-                }
-                for method in methods {
-                    self.collect_stmt_refs(&method.body, referenced);
-                }
-            }
-            StmtKind::Return(Some(expr)) => self.collect_expr_refs(expr, referenced),
-            StmtKind::For { iterable, body, .. } => {
-                self.collect_expr_refs(iterable, referenced);
-                self.collect_stmt_refs(body, referenced);
-            }
-            StmtKind::CFor {
-                init,
-                condition,
-                step,
-                body,
-            } => {
-                if let Some(init) = init {
-                    self.collect_stmt_refs(init, referenced);
-                }
-                if let Some(condition) = condition {
-                    self.collect_expr_refs(condition, referenced);
-                }
-                if let Some(step) = step {
-                    self.collect_stmt_refs(step, referenced);
-                }
-                self.collect_stmt_refs(body, referenced);
-            }
-            StmtKind::DoWhile { body, condition } => {
-                self.collect_stmt_refs(body, referenced);
-                self.collect_expr_refs(condition, referenced);
-            }
-            StmtKind::Try {
-                try_branch,
-                catch_branches,
-                finally_branch,
-            } => {
-                self.collect_stmt_refs(try_branch, referenced);
-                for catch in catch_branches {
-                    self.collect_stmt_refs(&catch.body, referenced);
-                }
-                if let Some(finally) = finally_branch {
-                    self.collect_stmt_refs(finally, referenced);
-                }
-            }
-            StmtKind::Throw(expr) => self.collect_expr_refs(expr, referenced),
-            StmtKind::Labeled { stmt, .. } => self.collect_stmt_refs(stmt, referenced),
-            _ => {}
-        }
-    }
-
-    fn collect_expr_refs(&self, expr: &Expr, referenced: &mut HashSet<String>) {
-        // println!("Compiler::collect_expr_refs: testing {:?}", expr.kind);
-        match &expr.kind {
-            ExprKind::Ident(name) => {
-                referenced.insert(name.clone());
-            }
-            ExprKind::Call { callee, args } => {
-                self.collect_expr_refs(callee, referenced);
-                for arg in args {
-                    match arg {
-                        pleno_ast::CallArg::Positional(e) => self.collect_expr_refs(e, referenced),
-                        pleno_ast::CallArg::Named(_, e) => self.collect_expr_refs(e, referenced),
-                        pleno_ast::CallArg::Spread(e) => self.collect_expr_refs(e, referenced),
-                        _ => {}
-                    }
-                }
-            }
-            ExprKind::Binary { left, right, .. } => {
-                self.collect_expr_refs(left, referenced);
-                self.collect_expr_refs(right, referenced);
-            }
-            ExprKind::Unary { expr, .. } => self.collect_expr_refs(expr, referenced),
-            ExprKind::Property { object, .. } => self.collect_expr_refs(object, referenced),
-            ExprKind::Index { collection, index } => {
-                self.collect_expr_refs(collection, referenced);
-                self.collect_expr_refs(index, referenced);
-            }
-            ExprKind::ArrayLiteral(exprs) => {
-                for e in exprs {
-                    self.collect_expr_refs(e, referenced);
-                }
-            }
-            ExprKind::MapLiteral(items) => {
-                for item in items {
-                    match item {
-                        pleno_ast::MapItem::Entry(_, value) => {
-                            self.collect_expr_refs(value, referenced)
-                        }
-                        pleno_ast::MapItem::Spread(expr) => {
-                            self.collect_expr_refs(expr, referenced)
-                        }
-                    }
-                }
-            }
-            ExprKind::Lambda { body, .. } => {
-                let body_stmt = match &body.kind {
-                    ExprKind::Block(stmts) => Stmt {
-                        kind: StmtKind::Block(stmts.clone()),
-                        span: body.span,
-                        leading_blank_lines: 0,
-                        trailing_comment: None,
-                    },
-                    _ => Stmt {
-                        kind: StmtKind::Return(Some((**body).clone())),
-                        span: body.span,
-                        leading_blank_lines: 0,
-                        trailing_comment: None,
-                    },
-                };
-                self.collect_stmt_refs(&body_stmt, referenced)
-            }
-            ExprKind::Await { expr } => self.collect_expr_refs(expr, referenced),
-            ExprKind::Paren(expr) => self.collect_expr_refs(expr, referenced),
-            ExprKind::If {
-                condition,
-                then_branch,
-                else_branch,
-            } => {
-                self.collect_expr_refs(condition, referenced);
-                self.collect_expr_refs(then_branch, referenced);
-                if let Some(eb) = else_branch {
-                    self.collect_expr_refs(eb, referenced);
-                }
-            }
-            ExprKind::Match { expr, arms } => {
-                self.collect_expr_refs(expr, referenced);
-                for arm in arms {
-                    if let Some(guard) = &arm.guard {
-                        self.collect_expr_refs(guard, referenced);
-                    }
-                    self.collect_expr_refs(&arm.body, referenced);
-                }
-            }
-            ExprKind::Is { left, .. } => self.collect_expr_refs(left, referenced),
-            ExprKind::SafeCall { callee, args } => {
-                self.collect_expr_refs(callee, referenced);
-                for arg in args {
-                    match arg {
-                        pleno_ast::CallArg::Positional(e) => self.collect_expr_refs(e, referenced),
-                        pleno_ast::CallArg::Named(_, e) => self.collect_expr_refs(e, referenced),
-                        pleno_ast::CallArg::Spread(e) => self.collect_expr_refs(e, referenced),
-                        _ => {}
-                    }
-                }
-            }
-            ExprKind::SafeProperty { object, .. } => self.collect_expr_refs(object, referenced),
-            ExprKind::AssertNotNull(expr) => self.collect_expr_refs(expr, referenced),
-            ExprKind::Pipeline { left, right } => {
-                self.collect_expr_refs(left, referenced);
-                self.collect_expr_refs(right, referenced);
-            }
-            ExprKind::InterpolatedString(parts) => {
-                for part in parts {
-                    self.collect_expr_refs(part, referenced);
-                }
-            }
-            ExprKind::TupleLiteral(exprs) => {
-                for e in exprs {
-                    self.collect_expr_refs(e, referenced);
-                }
-            }
-            ExprKind::NamedTupleLiteral(items) => {
-                for (_, e) in items {
-                    self.collect_expr_refs(e, referenced);
-                }
-            }
-            ExprKind::Specialize { left, type_args } => {
-                self.collect_expr_refs(left, referenced);
-                for arg in type_args {
-                    referenced.insert(arg.clone());
-                }
-            }
-            ExprKind::SetLiteral(exprs) => {
-                for e in exprs {
-                    self.collect_expr_refs(e, referenced);
-                }
-            }
-            ExprKind::Slice {
-                collection,
-                start,
-                end,
-            } => {
-                self.collect_expr_refs(collection, referenced);
-                if let Some(s) = start {
-                    self.collect_expr_refs(s, referenced);
-                }
-                if let Some(e) = end {
-                    self.collect_expr_refs(e, referenced);
-                }
-            }
-            ExprKind::Spread(expr) => self.collect_expr_refs(expr, referenced),
-            ExprKind::Range { start, end, .. } => {
-                if let Some(s) = start {
-                    self.collect_expr_refs(s, referenced);
-                }
-                if let Some(e) = end {
-                    self.collect_expr_refs(e, referenced);
-                }
-            }
-            _ => {}
-        }
+        collector.names
     }
 
     fn push_loop(&mut self, continue_target: Option<usize>) {
@@ -4885,7 +4781,11 @@ impl Compiler {
 
     fn emit_reified_type(&mut self, ty_name: &str) -> Result<u8, CompileError> {
         let ty_name = ty_name.trim();
-        if let Some(start_idx) = ty_name.find('<') {
+        // Built-in generic collections are checked from the annotation text by the VM.
+        let builtin_generic = ty_name
+            .split_once('<')
+            .is_some_and(|(base, _)| matches!(base.trim(), "Array" | "Map" | "Set"));
+        if let Some(start_idx) = ty_name.find('<').filter(|_| !builtin_generic) {
             let base_name = ty_name[..start_idx].trim();
             let args_str = &ty_name[start_idx + 1..ty_name.len() - 1]; // Assuming it ends with >
             let args = self.split_aware(args_str, ',');
@@ -5618,6 +5518,22 @@ impl Compiler {
         Ok(reg)
     }
 }
+
+fn literal_value(lit: &Literal) -> Option<Value> {
+    Some(match lit {
+        Literal::Int(i) => Value::Int(*i),
+        Literal::Float(f) => Value::Float(*f),
+        Literal::String(s) => Value::String(Rc::new(s.clone())),
+        Literal::Bool(b) => Value::Bool(*b),
+        Literal::Char(c) => Value::Char(*c),
+        Literal::Null => Value::Null,
+    })
+}
+
+/// Built-in types that `extend` can add methods to.
+const BUILTIN_EXTENSION_TYPES: &[&str] = &[
+    "String", "Int", "Float", "Bool", "Char", "Array", "Map", "Set", "Tuple",
+];
 
 struct RegisterAllocator {
     free: Vec<u8>,

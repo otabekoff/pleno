@@ -73,10 +73,20 @@ pub fn add_values(
             res.push(*b_char);
             Ok(Value::String(Rc::new(res)))
         }
-        _ => Err(RuntimeError::new(
-            "invalid operands for + (use .toString() for string concatenation)",
-        )),
+        (a, b) => Err(RuntimeError::new(format!(
+            "invalid operands for +: {} and {} (use .toString() for string concatenation)",
+            a.type_name(),
+            b.type_name()
+        ))),
     }
+}
+
+fn operand_error(op: &str, a: &Value, b: &Value) -> RuntimeError {
+    RuntimeError::new(format!(
+        "invalid operands for {op}: {} and {}",
+        a.type_name(),
+        b.type_name()
+    ))
 }
 
 pub fn sub_values(a: Value, b: Value) -> Result<Value, RuntimeError> {
@@ -88,7 +98,7 @@ pub fn sub_values(a: Value, b: Value) -> Result<Value, RuntimeError> {
         (Value::Float(a), Value::Float(b)) => Ok(Value::Float(a - b)),
         (Value::Int(a), Value::Float(b)) => Ok(Value::Float(a as f64 - b)),
         (Value::Float(a), Value::Int(b)) => Ok(Value::Float(a - b as f64)),
-        _ => Err(RuntimeError::new("invalid operands for -")),
+        (a, b) => Err(operand_error("-", &a, &b)),
     }
 }
 
@@ -101,7 +111,7 @@ pub fn mul_values(a: Value, b: Value) -> Result<Value, RuntimeError> {
         (Value::Float(a), Value::Float(b)) => Ok(Value::Float(a * b)),
         (Value::Int(a), Value::Float(b)) => Ok(Value::Float(a as f64 * b)),
         (Value::Float(a), Value::Int(b)) => Ok(Value::Float(a * b as f64)),
-        _ => Err(RuntimeError::new("invalid operands for *")),
+        (a, b) => Err(operand_error("*", &a, &b)),
     }
 }
 
@@ -113,7 +123,7 @@ pub fn div_values(a: Value, b: Value) -> Result<Value, RuntimeError> {
         (Value::Float(a), Value::Float(b)) => Ok(Value::Float(a / b)),
         (Value::Int(a), Value::Float(b)) => Ok(Value::Float(a as f64 / b)),
         (Value::Float(a), Value::Int(b)) => Ok(Value::Float(a / b as f64)),
-        _ => Err(RuntimeError::new("invalid operands for /")),
+        (a, b) => Err(operand_error("/", &a, &b)),
     }
 }
 
@@ -125,7 +135,7 @@ pub fn mod_values(a: Value, b: Value) -> Result<Value, RuntimeError> {
         (Value::Float(a), Value::Float(b)) => Ok(Value::Float(a % b)),
         (Value::Int(a), Value::Float(b)) => Ok(Value::Float(a as f64 % b)),
         (Value::Float(a), Value::Int(b)) => Ok(Value::Float(a % b as f64)),
-        _ => Err(RuntimeError::new("invalid operands for %")),
+        (a, b) => Err(operand_error("%", &a, &b)),
     }
 }
 
@@ -173,7 +183,7 @@ pub fn compare_values(opcode: Opcode, left: Value, right: Value) -> Result<bool,
                 _ => return Err(RuntimeError::new("invalid comparison opcode")),
             })
         }
-        _ => Err(RuntimeError::new("invalid operands for comparison")),
+        (a, b) => Err(operand_error("comparison", &a, &b)),
     }
 }
 

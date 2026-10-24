@@ -374,15 +374,11 @@ pub fn io_open(
     };
 
     match mode {
-        "r" => {
-            if !vm.is_read_allowed(path) {
-                return Err(RuntimeError::new("SecurityError: Read access denied"));
-            }
+        "r" if !vm.is_read_allowed(path) => {
+            return Err(RuntimeError::new("SecurityError: Read access denied"));
         }
-        "w" | "a" => {
-            if !vm.is_write_allowed(path) {
-                return Err(RuntimeError::new("SecurityError: Write access denied"));
-            }
+        "w" | "a" if !vm.is_write_allowed(path) => {
+            return Err(RuntimeError::new("SecurityError: Write access denied"));
         }
         _ => {}
     }
@@ -397,9 +393,14 @@ pub fn io_open(
                 .map_err(|e| RuntimeError::new(e.to_string()))?,
         ),
         "r" => {
-            return Err(RuntimeError::new(
-                "read mode not supported for File objects yet",
-            ));
+            if !std::path::Path::new(path).is_file() {
+                return Err(RuntimeError::new(format!("file not found: {path}")));
+            }
+            return Ok(Value::File(vm.get_gc().allocate(FileState {
+                inner: RefCell::new(None),
+                name: format!("<file {}>", path),
+                read_path: Some(path.to_string()),
+            })?));
         }
         _ => return Err(RuntimeError::new("invalid mode")),
     };
@@ -407,6 +408,7 @@ pub fn io_open(
     Ok(Value::File(vm.get_gc().allocate(FileState {
         inner: RefCell::new(Some(inner)),
         name: format!("<file {}>", path),
+        read_path: None,
     })?))
 }
 
@@ -422,6 +424,7 @@ pub fn io_stdout(
     Ok(Value::File(vm.get_gc().allocate(FileState {
         inner: RefCell::new(Some(Box::new(std::io::stdout()))),
         name: "<stdout>".to_string(),
+        read_path: None,
     })?))
 }
 
@@ -437,6 +440,7 @@ pub fn io_stderr(
     Ok(Value::File(vm.get_gc().allocate(FileState {
         inner: RefCell::new(Some(Box::new(std::io::stderr()))),
         name: "<stderr>".to_string(),
+        read_path: None,
     })?))
 }
 

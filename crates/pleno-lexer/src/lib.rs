@@ -107,8 +107,74 @@ pub enum TokenKind {
     Comment(String, CommentKind),
     PlusPlus,
     MinusMinus,
+    PlusEqual,
+    MinusEqual,
+    StarEqual,
+    SlashEqual,
+    PercentEqual,
     Ampersand,
     Eof,
+}
+
+impl TokenKind {
+    /// The source spelling of a keyword token, or `None` for non-keywords.
+    pub fn keyword_text(&self) -> Option<&'static str> {
+        Some(match self {
+            TokenKind::KeywordLet => "let",
+            TokenKind::KeywordMut => "mut",
+            TokenKind::KeywordConst => "const",
+            TokenKind::KeywordFn => "fn",
+            TokenKind::KeywordReturn => "return",
+            TokenKind::KeywordIf => "if",
+            TokenKind::KeywordElse => "else",
+            TokenKind::KeywordWhile => "while",
+            TokenKind::KeywordFor => "for",
+            TokenKind::KeywordIn => "in",
+            TokenKind::KeywordOut => "out",
+            TokenKind::KeywordBreak => "break",
+            TokenKind::KeywordContinue => "continue",
+            TokenKind::KeywordExtends => "extends",
+            TokenKind::KeywordStatic => "static",
+            TokenKind::KeywordPublic => "public",
+            TokenKind::KeywordPrivate => "private",
+            TokenKind::KeywordProtected => "protected",
+            TokenKind::KeywordInternal => "internal",
+            TokenKind::KeywordImport => "import",
+            TokenKind::KeywordFrom => "from",
+            TokenKind::KeywordAs => "as",
+            TokenKind::KeywordExport => "export",
+            TokenKind::KeywordModule => "module",
+            TokenKind::KeywordClass => "class",
+            TokenKind::KeywordThrow => "throw",
+            TokenKind::KeywordTry => "try",
+            TokenKind::KeywordCatch => "catch",
+            TokenKind::KeywordFinally => "finally",
+            TokenKind::KeywordMatch => "match",
+            TokenKind::KeywordCase => "case",
+            TokenKind::KeywordNew => "new",
+            TokenKind::KeywordThis => "this",
+            TokenKind::KeywordSuper => "super",
+            TokenKind::KeywordAsync => "async",
+            TokenKind::KeywordAwait => "await",
+            TokenKind::KeywordDo => "do",
+            TokenKind::KeywordAbstract => "abstract",
+            TokenKind::KeywordEnum => "enum",
+            TokenKind::KeywordType => "type",
+            TokenKind::KeywordIs => "is",
+            TokenKind::KeywordInterface => "interface",
+            TokenKind::KeywordExtend => "extend",
+            TokenKind::KeywordImplements => "implements",
+            TokenKind::KeywordProperty => "property",
+            TokenKind::KeywordGet => "get",
+            TokenKind::KeywordSet => "set",
+            TokenKind::KeywordDeep => "deep",
+            TokenKind::KeywordOperator => "operator",
+            TokenKind::KeywordMacro => "macro",
+            TokenKind::KeywordLazy => "lazy",
+            TokenKind::KeywordMove => "move",
+            _ => return None,
+        })
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -187,6 +253,12 @@ pub fn lex(source: &str) -> Result<Vec<Token>, LexError> {
                         kind: TokenKind::PlusPlus,
                         span: Span::new(start, end),
                     }
+                } else if matches!(chars.peek(), Some((_, '='))) {
+                    let end = chars.next().map(|(idx, _)| idx + 1).unwrap_or(start + 2);
+                    Token {
+                        kind: TokenKind::PlusEqual,
+                        span: Span::new(start, end),
+                    }
                 } else {
                     token_simple(TokenKind::Plus, start)
                 }
@@ -204,12 +276,38 @@ pub fn lex(source: &str) -> Result<Vec<Token>, LexError> {
                         kind: TokenKind::MinusMinus,
                         span: Span::new(start, end),
                     }
+                } else if matches!(chars.peek(), Some((_, '='))) {
+                    let end = chars.next().map(|(idx, _)| idx + 1).unwrap_or(start + 2);
+                    Token {
+                        kind: TokenKind::MinusEqual,
+                        span: Span::new(start, end),
+                    }
                 } else {
                     token_simple(TokenKind::Minus, start)
                 }
             }
-            '*' => token_simple(TokenKind::Star, start),
-            '%' => token_simple(TokenKind::Percent, start),
+            '*' => {
+                if matches!(chars.peek(), Some((_, '='))) {
+                    let end = chars.next().map(|(idx, _)| idx + 1).unwrap_or(start + 2);
+                    Token {
+                        kind: TokenKind::StarEqual,
+                        span: Span::new(start, end),
+                    }
+                } else {
+                    token_simple(TokenKind::Star, start)
+                }
+            }
+            '%' => {
+                if matches!(chars.peek(), Some((_, '='))) {
+                    let end = chars.next().map(|(idx, _)| idx + 1).unwrap_or(start + 2);
+                    Token {
+                        kind: TokenKind::PercentEqual,
+                        span: Span::new(start, end),
+                    }
+                } else {
+                    token_simple(TokenKind::Percent, start)
+                }
+            }
             '/' => {
                 if matches!(chars.peek(), Some((_, '/'))) {
                     chars.next();
@@ -253,6 +351,12 @@ pub fn lex(source: &str) -> Result<Vec<Token>, LexError> {
                     let end = chars.peek().map(|(idx, _)| *idx).unwrap_or(source.len());
                     Token {
                         kind: TokenKind::Comment(content, CommentKind::Block),
+                        span: Span::new(start, end),
+                    }
+                } else if matches!(chars.peek(), Some((_, '='))) {
+                    let end = chars.next().map(|(idx, _)| idx + 1).unwrap_or(start + 2);
+                    Token {
+                        kind: TokenKind::SlashEqual,
                         span: Span::new(start, end),
                     }
                 } else {

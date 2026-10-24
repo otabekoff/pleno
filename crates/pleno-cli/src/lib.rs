@@ -8,6 +8,28 @@ use chrono::Datelike;
 use pleno_compiler::BuildProfile;
 use pleno_package::{Dependency, DependencyDetail, Manifest};
 
+/// Stack size for the thread that runs the CLI. Parsing, optimizing and
+/// compiling deeply nested code recurses, which can exceed the 1 MB default
+/// main-thread stack on Windows.
+const MAIN_STACK_SIZE: usize = 64 * 1024 * 1024;
+
+/// Runs `entry` on a thread with a large stack and exits with its status.
+pub fn run_with_large_stack(entry: fn()) {
+    let worker = std::thread::Builder::new()
+        .name("pleno-main".to_string())
+        .stack_size(MAIN_STACK_SIZE)
+        .spawn(entry);
+    match worker.map(|handle| handle.join()) {
+        Ok(Ok(())) => {}
+        // The panic message has already been printed by the panic hook.
+        Ok(Err(_)) => process::exit(101),
+        Err(err) => {
+            eprintln!("failed to start pleno: {err}");
+            process::exit(1);
+        }
+    }
+}
+
 pub fn run_pleno() {
     let mut args = env::args().skip(1).peekable();
 
