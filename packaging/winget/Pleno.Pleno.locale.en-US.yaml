@@ -1,23 +1,30 @@
-# yaml-language-server: $schema=https://aka.ms/winget-manifest.defaultLocale.1.4.0.schema.json
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.defaultLocale.1.6.0.schema.json
 PackageIdentifier: Pleno.Pleno
-PackageVersion: 0.1.0
+PackageVersion: 0.2.0
 PackageLocale: en-US
 Publisher: Otabek Ismoilov
 PublisherUrl: https://github.com/otabekoff
 PublisherSupportUrl: https://github.com/otabekoff/pleno/issues
+Author: Otabek Ismoilov
 PackageName: Pleno
 PackageUrl: https://pleno.mohirlab.uz/
 License: MIT
 LicenseUrl: https://github.com/otabekoff/pleno/blob/main/LICENSE
-ShortDescription: Modern programming language with clarity, safety, and expressiveness
-Description: |
-  Pleno is a modern programming language designed for clarity, safety, 
-  and expressiveness. It combines the best features from multiple 
-  programming paradigms while maintaining simplicity and consistency.
+ShortDescription: A readable programming language with optional checked types and async built in
+Description: |-
+  Pleno is a dynamically typed programming language with optional type annotations that are
+  checked when the program runs, classes and pattern matching, and async built in. This package
+  installs the compiler and runtime (pleno), the package manager (plm), the language server
+  (pleno-lsp), the debug adapter (pleno-dap) and the REPL (pleno-repl).
+Moniker: pleno
 Tags:
   - programming-language
-  - pleno
   - compiler
   - interpreter
+  - language-server
+ReleaseNotesUrl: https://github.com/otabekoff/pleno/releases/tag/v0.2.0
+Documentations:
+  - DocumentLabel: Documentation
+    DocumentUrl: https://pleno.mohirlab.uz/
 ManifestType: defaultLocale
-ManifestVersion: 1.4.0
+ManifestVersion: 1.6.0

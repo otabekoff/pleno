@@ -479,6 +479,15 @@ src/main.pln:3:5: <span class="err">error:</span> undefined variable 'prnt'</pre
   gap: 32px;
 }
 
+.tools-text {
+  text-align: center;
+}
+
+.tools-text p {
+  margin-left: auto;
+  margin-right: auto;
+}
+
 .tools-text code {
   font-family: var(--vp-font-family-mono);
   font-size: 0.88em;
