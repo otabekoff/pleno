@@ -251,6 +251,12 @@
   background-color: var(--vp-code-block-bg);
 }
 
+/* The default theme gives every block a 16px vertical margin, which inside a
+   code group shows as empty space under the code. */
+.vp-doc .vp-code-group div[class*='language-'] {
+  margin: 0 !important;
+}
+
 .vp-doc div[class*='language-'] > span.lang {
   font-family: var(--vp-font-family-mono);
   font-size: 11px;

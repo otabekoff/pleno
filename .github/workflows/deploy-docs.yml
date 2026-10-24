@@ -1,7 +1,6 @@
-# Builds the docs (with the playground's WebAssembly) on every pull request and push; from `main`
-# it deploys to Netlify (pleno.mohirlab.uz) and points the old GitHub Pages URL at the new domain.
-#
-# Repository secrets: NETLIFY_AUTH_TOKEN (personal access token), NETLIFY_SITE_ID
+# Builds the docs (with the playground's WebAssembly) on every pull request and push, and from
+# `main` deploys them to GitHub Pages, served at pleno.mohirlab.uz (the custom domain is set in the
+# repository's Pages settings; DNS: CNAME pleno -> otabekoff.github.io).
 name: Docs
 
 on:
@@ -54,49 +53,12 @@ jobs:
       - name: Build with VitePress
         run: bun run docs:build
 
-      - name: Upload site
-        if: github.event_name != 'pull_request'
-        uses: actions/upload-artifact@v4
-        with:
-          name: site
-          path: docs/.vitepress/dist
-          retention-days: 7
-
-      # Served for the root and, as 404.html, for every old deep link
-      - name: Prepare GitHub Pages redirect
-        if: github.event_name != 'pull_request'
-        run: cp .github/pages-redirect/index.html .github/pages-redirect/404.html
-
       - if: github.event_name != 'pull_request'
         uses: actions/upload-pages-artifact@v3
         with:
-          path: .github/pages-redirect
+          path: docs/.vitepress/dist
 
-  deploy-netlify:
-    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
-    needs: build
-    runs-on: ubuntu-latest
-    environment:
-      name: production
-      url: https://pleno.mohirlab.uz
-    steps:
-      - name: Download site
-        uses: actions/download-artifact@v4
-        with:
-          name: site
-          path: dist
-
-      # The commit message goes through env, never straight into the script, so it can't inject shell
-      - name: Deploy to Netlify
-        run: |
-          npx --yes netlify-cli@27 deploy --prod --no-build --dir dist --message "${GITHUB_SHA::7}: ${COMMIT_MESSAGE%%$'\n'*}"
-        env:
-          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
-          NETLIFY_SITE_ID: ${{ secrets.NETLIFY_SITE_ID }}
-          COMMIT_MESSAGE: ${{ github.event.head_commit.message || 'manual deploy' }}
-
-  # The old URL (otabekoff.github.io/pleno/) forwards every path to pleno.mohirlab.uz
-  deploy-pages-redirect:
+  deploy:
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     needs: build
     runs-on: ubuntu-latest
@@ -105,8 +67,7 @@ jobs:
       id-token: write
     environment:
       name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
+      url: https://pleno.mohirlab.uz
     steps:
       - name: Deploy to GitHub Pages
-        id: deployment
         uses: actions/deploy-pages@v4
