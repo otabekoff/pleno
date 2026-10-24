@@ -11,7 +11,7 @@ title: Tutorial
 
 Fifteen short lessons, each with code to edit and run right here in your browser. No installation needed. If you already know JavaScript, TypeScript or Python, most of it will feel familiar.
 
-<a class="start" href="./hello">Start with lesson 1 →</a>
+<a class="pl-btn pl-btn-primary start" href="./hello">Start with lesson 1</a>
 
 <ol class="lessons">
   <li><a href="./hello"><span class="n">01</span>Hello, Pleno</a></li>

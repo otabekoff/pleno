@@ -35,51 +35,51 @@ Each instruction is 4 bytes:
 ### Core Opcodes
 
 #### Register and Constants
-- `Move`           (R[A] = R[B]) ✅
-- `LoadConst`      (R[A] = Constants[B]) ✅
-- `LoadNull`       (R[A] = null) ✅
-- `LoadTrue`       (R[A] = true) ✅
-- `LoadFalse`      (R[A] = false) ✅
+- `Move`           (R[A] = R[B])
+- `LoadConst`      (R[A] = Constants[B])
+- `LoadNull`       (R[A] = null)
+- `LoadTrue`       (R[A] = true)
+- `LoadFalse`      (R[A] = false)
 
 #### Arithmetic
-- `Add` `Sub` `Mul` `Div` `Mod` ✅
-- `Neg` ✅
+- `Add` `Sub` `Mul` `Div` `Mod`
+- `Neg`
 
 #### Comparison
-- `Eq` `Ne` `Lt` `Le` `Gt` `Ge` ✅
+- `Eq` `Ne` `Lt` `Le` `Gt` `Ge`
 
 #### Logical
-- `Not` ✅
-- `And` `Or` (compiled via jumps for short-circuit) ✅
+- `Not`
+- `And` `Or` (compiled via jumps for short-circuit)
 
 #### Control Flow
-- `Jump offset` ✅
-- `JumpIf offset`    (if R[A] then PC += offset) ✅
-- `JumpIfNot offset` (if !R[A] then PC += offset) ✅
+- `Jump offset`
+- `JumpIf offset`    (if R[A] then PC += offset)
+- `JumpIfNot offset` (if !R[A] then PC += offset)
 
 #### Variables
-- `GetGlobal` (R[A] = Globals[Constants[B]]) ✅
-- `SetGlobal` (Globals[Constants[B]] = R[A]) ✅
+- `GetGlobal` (R[A] = Globals[Constants[B]])
+- `SetGlobal` (Globals[Constants[B]] = R[A])
 
 #### Calls
-- `Call (R[A] = R[B](R[C]...R[C+N]))` ✅
-- `Return`  (return R[A]) ✅
-- `Closure` (R[A] = closure(proto[B])) ✅
+- `Call (R[A] = R[B](R[C]...R[C+N]))`
+- `Return`  (return R[A])
+- `Closure` (R[A] = closure(proto[B]))
 
 #### Objects and Collections
-- `GetProperty` (R[A] = R[B][Constants[C]]) ✅
-- `SetProperty` (R[B][Constants[C]] = R[A]) ✅
-- `GetIndex`    (R[A] = R[B][R[C]]) ✅
-- `SetIndex`    (R[B][R[C]] = R[A]) ✅
-- `NewArray`    (R[A] = []) ✅
-- `NewMap`      (R[A] = {}) ✅
-- `ArrayAppend` (R[A].push(R[B])) ✅
+- `GetProperty` (R[A] = R[B][Constants[C]])
+- `SetProperty` (R[B][Constants[C]] = R[A])
+- `GetIndex`    (R[A] = R[B][R[C]])
+- `SetIndex`    (R[B][R[C]] = R[A])
+- `NewArray`    (R[A] = [])
+- `NewMap`      (R[A] = {})
+- `ArrayAppend` (R[A].push(R[B]))
 
 #### Advanced
-- `Import`   (R[A] = import(Constants[B])) ✅
-- `Throw`    (throw R[A]) ✅
-- `TypeOf`   (R[A] = typeof(R[B])) ✅
-- `Is`       (R[A] = R[B] is Type[C]) ✅
+- `Import`   (R[A] = import(Constants[B]))
+- `Throw`    (throw R[A])
+- `TypeOf`   (R[A] = typeof(R[B]))
+- `Is`       (R[A] = R[B] is Type[C])
 
 #### Fast Paths (Optional v0.1)
 - `LoadInt`  (R[A] = smallint(B))

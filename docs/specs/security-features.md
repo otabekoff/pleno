@@ -1,4 +1,4 @@
-# Security Features ✅
+# Security Features
 
 Pleno provides a multi-layered security model including memory safety, strict encapsulation, and resource-bounded sandboxing.
 

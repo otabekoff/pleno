@@ -5,6 +5,8 @@
 import { computed, ref, watch } from 'vue'
 import { useData, useRouter, withBase } from 'vitepress'
 import CodeRunner from './CodeRunner.vue'
+import PlIcon from './PlIcon.vue'
+import PlSelect from './PlSelect.vue'
 import { steps } from '../tutorial-steps'
 
 const { frontmatter, page } = useData()
@@ -12,6 +14,7 @@ const router = useRouter()
 const runner = ref<InstanceType<typeof CodeRunner>>()
 const showingSolution = ref(false)
 
+const options = steps.map((s, i) => ({ value: s.slug, label: s.title, hint: String(i + 1) }))
 const index = computed(() => steps.findIndex((s) => page.value.relativePath === `tutorial/${s.slug}.md`))
 const step = computed(() => steps[index.value])
 const prev = computed(() => steps[index.value - 1])
@@ -36,65 +39,71 @@ function go(slug: string) {
   <div class="tutorial">
     <article class="lesson">
       <header class="lesson-head">
-        <select
+        <PlSelect
           class="step-select"
-          aria-label="Choose a lesson"
-          @change="go(($event.target as HTMLSelectElement).value)"
-        >
-          <option v-for="(s, i) in steps" :key="s.slug" :value="s.slug" :selected="s.slug === step?.slug">{{ i + 1 }}. {{ s.title }}</option>
-        </select>
-        <span class="progress">{{ index + 1 }} / {{ steps.length }}</span>
+          :model-value="step?.slug ?? ''"
+          :options="options"
+          label="Lesson"
+          @update:model-value="go"
+        />
+        <span class="progress-text">{{ index + 1 }} of {{ steps.length }}</span>
       </header>
-      <div class="progress-bar"><span :style="{ width: `${((index + 1) / steps.length) * 100}%` }" /></div>
+      <div class="progress" role="progressbar" :aria-valuenow="index + 1" aria-valuemin="1" :aria-valuemax="steps.length">
+        <span :style="{ width: `${((index + 1) / steps.length) * 100}%` }" />
+      </div>
 
       <div class="vp-doc lesson-body">
         <slot />
       </div>
 
       <footer class="lesson-foot">
-        <a v-if="prev" class="nav prev" :href="withBase(`/tutorial/${prev.slug}`)">← {{ prev.title }}</a>
+        <a v-if="prev" class="pl-btn pl-btn-ghost nav" :href="withBase(`/tutorial/${prev.slug}`)" :aria-label="`Previous: ${prev.title}`">
+          <PlIcon name="chevron-left" />
+          <span class="nav-text">{{ prev.title }}</span>
+        </a>
         <span v-else />
-        <button v-if="solution" class="show-me" @click="toggleSolution">
-          {{ showingSolution ? 'Reset' : 'Show me' }}
-        </button>
-        <a v-if="next" class="nav next" :href="withBase(`/tutorial/${next.slug}`)">{{ next.title }} →</a>
+        <div class="foot-right">
+          <button v-if="solution" type="button" class="pl-btn pl-btn-secondary" @click="toggleSolution">
+            <PlIcon :name="showingSolution ? 'reset' : 'eye'" />
+            {{ showingSolution ? 'Reset' : 'Show me' }}
+          </button>
+          <a v-if="next" class="pl-btn pl-btn-primary" :href="withBase(`/tutorial/${next.slug}`)" :aria-label="`Next: ${next.title}`">
+            <span class="nav-text">{{ next.title }}</span>
+            <PlIcon name="chevron-right" />
+          </a>
+        </div>
       </footer>
     </article>
 
     <div class="workspace">
-      <CodeRunner
-        ref="runner"
-        :code="code"
-        :filename="`${step?.slug ?? 'lesson'}.pln`"
-        height="calc(100vh - var(--vp-nav-height) - var(--vp-layout-top-height, 0px) - 300px)"
-      />
+      <CodeRunner ref="runner" :code="code" :filename="`${step?.slug ?? 'lesson'}.pln`" height="var(--editor-height)" />
     </div>
   </div>
 </template>
 
 <style scoped>
 .tutorial {
+  --editor-height: 360px;
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 24px;
   max-width: 1440px;
   margin: 0 auto;
-  padding: 24px;
+  padding: 20px 24px 40px;
 }
 
 @media (min-width: 1024px) {
   .tutorial {
+    --editor-height: calc(100vh - var(--vp-nav-height) - var(--vp-layout-top-height, 0px) - 250px);
     grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr);
+    gap: 32px;
     height: calc(100vh - var(--vp-nav-height) - var(--vp-layout-top-height, 0px));
     padding: 24px 32px;
   }
 
   .lesson {
     overflow-y: auto;
-    padding-right: 12px;
-  }
-
-  .workspace {
-    overflow-y: auto;
+    padding-right: 16px;
   }
 }
 
@@ -112,35 +121,28 @@ function go(slug: string) {
 
 .step-select {
   flex: 1;
-  min-width: 0;
-  padding: 8px 14px;
-  border: 1px solid var(--vp-c-border);
-  border-radius: 999px;
-  background: var(--vp-c-bg-soft);
-  color: var(--vp-c-text-1);
-  font-family: var(--pl-font-display);
-  font-size: 15px;
-  font-weight: 600;
+  max-width: 340px;
+}
+
+.progress-text {
+  margin-left: auto;
+  font-size: 13px;
+  color: var(--vp-c-text-3);
+  font-variant-numeric: tabular-nums;
 }
 
 .progress {
-  font-family: var(--vp-font-family-mono);
-  font-size: 13px;
-  color: var(--vp-c-text-3);
-}
-
-.progress-bar {
-  height: 3px;
-  margin: 14px 0 8px;
-  border-radius: 3px;
-  background: var(--vp-c-divider);
+  height: 2px;
+  margin: 14px 0 4px;
+  border-radius: 2px;
+  background-color: var(--vp-c-divider);
   overflow: hidden;
 }
 
-.progress-bar span {
+.progress span {
   display: block;
   height: 100%;
-  background: var(--pl-gradient);
+  background-color: var(--vp-c-brand-3);
   transition: width 0.3s;
 }
 
@@ -149,8 +151,8 @@ function go(slug: string) {
 }
 
 .lesson-body :deep(h1) {
+  margin-top: 20px;
   font-size: 28px;
-  margin-top: 16px;
 }
 
 .lesson-foot {
@@ -163,28 +165,35 @@ function go(slug: string) {
   border-top: 1px solid var(--vp-c-divider);
 }
 
+.foot-right {
+  display: flex;
+  gap: 8px;
+}
+
 .nav {
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--vp-c-brand-1);
+  padding-left: 8px;
+  min-width: 0;
 }
 
-.nav:hover {
-  text-decoration: underline;
-  text-underline-offset: 3px;
+.nav-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.show-me {
-  padding: 7px 18px;
-  border-radius: 999px;
-  font-size: 14px;
-  font-weight: 600;
-  color: #fff;
-  background: var(--pl-gradient);
-}
+@media (max-width: 640px) {
+  .nav-text {
+    display: none;
+  }
 
-.show-me:hover {
-  filter: brightness(1.08);
+  .nav {
+    width: 40px;
+    padding: 0;
+  }
+
+  .foot-right .pl-btn-primary {
+    width: 40px;
+    padding: 0;
+  }
 }
 
 .workspace {

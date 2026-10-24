@@ -1,16 +1,26 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import PlIcon from './PlIcon.vue'
 
-const commands = {
-  unix: 'curl -fsSL https://raw.githubusercontent.com/otabekoff/pleno/main/scripts/install.sh | sh',
-  windows: 'irm https://raw.githubusercontent.com/otabekoff/pleno/main/scripts/install.ps1 | iex',
+const platforms = {
+  unix: {
+    label: 'macOS / Linux',
+    prompt: '$',
+    command: 'curl -fsSL https://raw.githubusercontent.com/otabekoff/pleno/main/scripts/install.sh | sh',
+  },
+  windows: {
+    label: 'Windows',
+    prompt: '>',
+    command: 'irm https://raw.githubusercontent.com/otabekoff/pleno/main/scripts/install.ps1 | iex',
+  },
 } as const
 
-type Platform = keyof typeof commands
+type Platform = keyof typeof platforms
 
 const platform = ref<Platform>('unix')
 const copied = ref(false)
-const command = computed(() => commands[platform.value])
+const current = computed(() => platforms[platform.value])
+let timer: ReturnType<typeof setTimeout> | undefined
 
 onMounted(() => {
   if (navigator.userAgent.includes('Windows')) platform.value = 'windows'
@@ -18,130 +28,136 @@ onMounted(() => {
 
 async function copy() {
   try {
-    await navigator.clipboard.writeText(command.value)
+    await navigator.clipboard.writeText(current.value.command)
     copied.value = true
-    setTimeout(() => (copied.value = false), 1500)
+    clearTimeout(timer)
+    timer = setTimeout(() => (copied.value = false), 1600)
   } catch {
-    // Clipboard access can be denied; the command is still selectable.
+    // Clipboard access can be denied; the command can still be selected.
   }
 }
 </script>
 
 <template>
-  <div class="home-install">
-    <div class="tabs" role="tablist" aria-label="Operating system">
+  <div class="install">
+    <div class="head">
+      <div class="segmented" role="tablist" aria-label="Operating system">
+        <button
+          v-for="(info, key) in platforms"
+          :key="key"
+          type="button"
+          role="tab"
+          :aria-selected="platform === key"
+          :class="{ active: platform === key }"
+          @click="platform = key"
+        >
+          {{ info.label }}
+        </button>
+      </div>
       <button
-        role="tab"
-        :aria-selected="platform === 'unix'"
-        :class="{ active: platform === 'unix' }"
-        @click="platform = 'unix'"
+        type="button"
+        class="pl-btn pl-btn-ghost pl-btn-sm copy"
+        :aria-label="copied ? 'Copied' : 'Copy the install command'"
+        @click="copy"
       >
-        macOS / Linux
-      </button>
-      <button
-        role="tab"
-        :aria-selected="platform === 'windows'"
-        :class="{ active: platform === 'windows' }"
-        @click="platform = 'windows'"
-      >
-        Windows
+        <PlIcon :name="copied ? 'check' : 'copy'" :size="14" />
+        <span>{{ copied ? 'Copied' : 'Copy' }}</span>
       </button>
     </div>
-    <div class="command">
-      <span class="prompt" aria-hidden="true">{{ platform === 'windows' ? '>' : '$' }}</span>
-      <code>{{ command }}</code>
-      <button class="copy" :aria-label="copied ? 'Copied' : 'Copy command'" @click="copy">
-        {{ copied ? 'Copied' : 'Copy' }}
-      </button>
+    <div class="command" role="tabpanel">
+      <span class="prompt" aria-hidden="true">{{ current.prompt }}</span>
+      <code>{{ current.command }}</code>
     </div>
   </div>
 </template>
 
 <style scoped>
-/* Centered under the hero on narrow screens, left-aligned beside the logo
-   on wide ones, and never wider than the screen. */
-.home-install {
-  /* The hero's columns are minmax(0, ...), so a percentage cannot widen
-     the page; the long command scrolls inside the box instead. */
+.install {
   width: 100%;
-  max-width: 640px;
-  margin: 28px auto 0;
+  max-width: 560px;
+  overflow: hidden;
+  border: 1px solid var(--vp-c-border);
+  border-radius: var(--pl-radius-lg);
+  background-color: var(--vp-code-block-bg);
+  text-align: left;
 }
 
-.tabs {
+.head {
   display: flex;
-  justify-content: center;
-  gap: 4px;
-  margin-bottom: 8px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 6px 6px 8px;
+  border-bottom: 1px solid var(--vp-c-divider);
+  background-color: var(--vp-c-bg);
 }
 
-@media (min-width: 960px) {
-  .home-install {
-    margin: 28px 0 0;
-  }
-
-  .tabs {
-    justify-content: flex-start;
-  }
+.segmented {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  border-radius: var(--pl-radius);
+  background-color: var(--vp-c-bg-soft);
 }
 
-.tabs button {
-  padding: 2px 10px;
-  border-radius: 999px;
+.segmented button {
+  height: 26px;
+  padding: 0 10px;
+  border-radius: var(--pl-radius-sm);
   font-size: 13px;
   font-weight: 500;
   color: var(--vp-c-text-2);
-  transition: color 0.2s, background-color 0.2s;
+  transition: color 0.15s, background-color 0.15s, box-shadow 0.15s;
 }
 
-.tabs button:hover {
+.segmented button:hover {
   color: var(--vp-c-text-1);
 }
 
-.tabs button.active {
-  color: var(--vp-c-brand-1);
-  background-color: var(--vp-c-brand-soft);
+.segmented button.active {
+  color: var(--vp-c-text-1);
+  background-color: var(--vp-c-bg);
+  box-shadow: 0 0 0 1px var(--vp-c-border);
+}
+
+.dark .segmented button.active {
+  background-color: var(--vp-c-bg-elv);
+}
+
+.copy {
+  color: var(--vp-c-text-2);
 }
 
 .command {
   display: flex;
-  max-width: 100%;
-  text-align: left;
   align-items: center;
   gap: 10px;
-  padding: 10px 10px 10px 16px;
-  border: 1px solid var(--vp-c-divider);
-  border-radius: 12px;
-  background-color: var(--vp-c-bg-soft);
+  height: 46px;
+  padding: 0 16px;
   font-family: var(--vp-font-family-mono);
   font-size: 13px;
 }
 
 .prompt {
-  color: var(--vp-c-brand-1);
+  flex-shrink: 0;
+  color: var(--vp-c-text-3);
   user-select: none;
 }
 
+/* The long command scrolls sideways without showing a scrollbar; the fade
+   at the right edge says there is more. */
 .command code {
   flex: 1;
   min-width: 0;
   overflow-x: auto;
   white-space: nowrap;
   color: var(--vp-c-text-1);
+  scrollbar-width: none;
+  -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 40px), transparent);
+  mask-image: linear-gradient(to right, #000 calc(100% - 40px), transparent);
 }
 
-.copy {
-  flex-shrink: 0;
-  padding: 4px 12px;
-  border-radius: 8px;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--vp-c-white);
-  background: var(--pleno-gradient);
-  transition: opacity 0.2s;
-}
-
-.copy:hover {
-  opacity: 0.85;
+.command code::-webkit-scrollbar {
+  display: none;
 }
 </style>

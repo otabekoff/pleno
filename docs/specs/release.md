@@ -29,12 +29,12 @@ winget install Pleno.Pleno
 ```
 
 **Installer should include:**
-- ✅ Pleno compiler/interpreter
-- ✅ Standard library
-- ✅ PLM package manager
-- ✅ VS Code extension
-- ✅ Add to PATH automatically
-- ✅ File association (.pln files)
+- Pleno compiler/interpreter
+- Standard library
+- PLM package manager
+- VS Code extension
+- Add to PATH automatically
+- File association (.pln files)
 
 #### **macOS**
 ```bash
@@ -49,9 +49,9 @@ sudo port install pleno
 ```
 
 **Include in package:**
-- ✅ Universal binary (Intel + Apple Silicon)
-- ✅ Code signing & notarization
-- ✅ Automatic PATH configuration
+- Universal binary (Intel + Apple Silicon)
+- Code signing & notarization
+- Automatic PATH configuration
 
 #### **Linux**
 ```bash
@@ -162,13 +162,13 @@ pleno-1.0.0-linux-x86_64/
 
 | Platform | Architecture | Priority |
 |----------|-------------|----------|
-| Linux | x86_64 | ⭐⭐⭐ High |
-| Linux | aarch64 (ARM64) | ⭐⭐ Medium |
-| macOS | x86_64 (Intel) | ⭐⭐⭐ High |
-| macOS | aarch64 (Apple Silicon) | ⭐⭐⭐ High |
-| Windows | x86_64 | ⭐⭐⭐ High |
-| Windows | aarch64 (ARM) | ⭐ Low |
-| FreeBSD | x86_64 | ⭐ Low |
+| Linux | x86_64 | High |
+| Linux | aarch64 (ARM64) | Medium |
+| macOS | x86_64 (Intel) | High |
+| macOS | aarch64 (Apple Silicon) | High |
+| Windows | x86_64 | High |
+| Windows | aarch64 (ARM) | Low |
+| FreeBSD | x86_64 | Low |
 
 ---
 
@@ -357,11 +357,11 @@ https://packages.pleno-lang.org/
 ```
 
 **Like npm, crates.io, PyPI:**
-- ✅ Searchable package index
-- ✅ Package versioning (SemVer)
-- ✅ Dependency resolution
-- ✅ Package statistics
-- ✅ Documentation hosting
+- Searchable package index
+- Package versioning (SemVer)
+- Dependency resolution
+- Package statistics
+- Documentation hosting
 
 ### **Publishing Packages**
 
@@ -420,12 +420,12 @@ code --install-extension pleno-language-<version>.vsix
 After installing it, run **Pleno: Install or Update Toolchain** to download `pleno`, `pleno-lsp` and `pleno-dap`.
 
 **Extension features:**
-- ✅ Syntax highlighting
-- ✅ IntelliSense (autocomplete)
-- ✅ Error checking
-- ✅ Debugging support
-- ✅ Code formatting
-- ✅ Snippets
+- Syntax highlighting
+- IntelliSense (autocomplete)
+- Error checking
+- Debugging support
+- Code formatting
+- Snippets
 
 ### **Other Editor Support**
 
@@ -553,29 +553,29 @@ pleno install nightly     # Bleeding edge
 ## 11. Recommended Distribution Priority
 
 ### **Phase 1: MVP (Month 1-3)**
-1. ✅ GitHub releases with binaries
-2. ✅ Official install script
-3. ✅ Basic documentation site
-4. ✅ Cargo (for Rust developers)
+1. GitHub releases with binaries
+2. Official install script
+3. Basic documentation site
+4. Cargo (for Rust developers)
 
 ### **Phase 2: Early Adopters (Month 4-6)**
-5. ✅ Homebrew (macOS)
-6. ✅ Docker images
-7. ✅ VS Code extension
-8. ✅ PLM package registry (basic)
+5. Homebrew (macOS)
+6. Docker images
+7. VS Code extension
+8. PLM package registry (basic)
 
 ### **Phase 3: Broader Adoption (Month 7-12)**
-9. ✅ Debian/Ubuntu packages
-10. ✅ Chocolatey (Windows)
-11. ✅ Snap/Flatpak
-12. ✅ AUR (Arch Linux)
-13. ✅ Full PLM registry with search
+9. Debian/Ubuntu packages
+10. Chocolatey (Windows)
+11. Snap/Flatpak
+12. AUR (Arch Linux)
+13. Full PLM registry with search
 
 ### **Phase 4: Ecosystem Growth (Year 2+)**
-14. ✅ All major package managers
-15. ✅ Cloud platform support (AWS Lambda, etc.)
-16. ✅ Enterprise support
-17. ✅ Commercial distributions
+14. All major package managers
+15. Cloud platform support (AWS Lambda, etc.)
+16. Enterprise support
+17. Commercial distributions
 
 ---
 

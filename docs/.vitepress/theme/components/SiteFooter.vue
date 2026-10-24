@@ -53,7 +53,7 @@ const href = (link: string) => (link.startsWith('http') ? link : withBase(link))
     <div class="inner">
       <div class="brand">
         <img :src="withBase('/logo.svg')" alt="" width="28" height="28" />
-        <span class="name pl-gradient-text">Pleno</span>
+        <span class="name">Pleno</span>
         <p>Code that says what it means.</p>
       </div>
       <nav v-for="column in columns" :key="column.title" class="column" :aria-label="column.title">

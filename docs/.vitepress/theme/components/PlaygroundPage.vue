@@ -3,13 +3,17 @@
 // run, and share. Everything runs in the browser.
 import { onBeforeUnmount, onMounted, ref } from 'vue'
 import CodeRunner from './CodeRunner.vue'
+import PlIcon from './PlIcon.vue'
+import PlSelect from './PlSelect.vue'
 import { decodeCode, encodeCode } from '../runner/run'
 import { examples } from '../playground-examples'
 
+const options = examples.map((e) => ({ value: e.name, label: e.name }))
 const code = ref(examples[0].code)
-const selected = ref(examples[0].name)
+const selected = ref<string>(examples[0].name)
 const shared = ref(false)
 let latest = code.value
+let timer: ReturnType<typeof setTimeout> | undefined
 
 function openLink() {
   const match = location.hash.match(/^#code=(.+)$/)
@@ -42,7 +46,8 @@ async function share() {
   try {
     await navigator.clipboard.writeText(url)
     shared.value = true
-    setTimeout(() => (shared.value = false), 1800)
+    clearTimeout(timer)
+    timer = setTimeout(() => (shared.value = false), 1800)
   } catch {
     // The link is in the address bar either way.
   }
@@ -56,15 +61,16 @@ async function share() {
         <h1 class="pl-display">Playground</h1>
         <p>Pleno compiled to WebAssembly, running in your browser. Nothing is sent to a server.</p>
       </div>
-      <label class="picker">
-        <span>Example</span>
-        <select :value="selected" @change="choose(($event.target as HTMLSelectElement).value)">
-          <option v-if="!selected" value="" disabled>Shared code</option>
-          <option v-for="example in examples" :key="example.name" :value="example.name">
-            {{ example.name }}
-          </option>
-        </select>
-      </label>
+      <div class="picker">
+        <span class="picker-label" aria-hidden="true">Example</span>
+        <PlSelect
+          :model-value="selected"
+          :options="options"
+          label="Example"
+          placeholder="Shared code"
+          @update:model-value="choose"
+        />
+      </div>
     </header>
     <CodeRunner
       :code="code"
@@ -74,7 +80,10 @@ async function share() {
       @change="latest = $event"
     >
       <template #actions>
-        <button class="share" @click="share">{{ shared ? 'Link copied' : 'Share' }}</button>
+        <button type="button" class="pl-btn pl-btn-ghost pl-btn-sm" @click="share">
+          <PlIcon :name="shared ? 'check' : 'link'" :size="14" />
+          {{ shared ? 'Link copied' : 'Share' }}
+        </button>
       </template>
     </CodeRunner>
     <p class="note">
@@ -86,14 +95,14 @@ async function share() {
 
 <style scoped>
 .playground {
-  max-width: 1400px;
+  max-width: 1440px;
   margin: 0 auto;
   padding: 32px 24px 48px;
 }
 
 @media (min-width: 768px) {
   .playground {
-    padding: 40px 48px 64px;
+    padding: 40px 48px 56px;
   }
 }
 
@@ -108,12 +117,13 @@ async function share() {
 
 .head h1 {
   margin: 0;
-  font-size: 32px;
+  font-size: 28px;
   font-weight: 700;
 }
 
 .head p {
   margin: 6px 0 0;
+  font-size: 15px;
   color: var(--vp-c-text-2);
 }
 
@@ -121,31 +131,15 @@ async function share() {
   display: flex;
   align-items: center;
   gap: 10px;
+}
+
+.picker :deep(.pl-select) {
+  width: 220px;
+}
+
+.picker-label {
   font-size: 13px;
   color: var(--vp-c-text-2);
-}
-
-.picker select {
-  padding: 6px 12px;
-  border: 1px solid var(--vp-c-border);
-  border-radius: 999px;
-  background: var(--vp-c-bg-soft);
-  color: var(--vp-c-text-1);
-  font-size: 14px;
-}
-
-.share {
-  padding: 4px 12px;
-  border: 1px solid var(--vp-c-border);
-  border-radius: 999px;
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--vp-c-text-1);
-  transition: border-color 0.2s;
-}
-
-.share:hover {
-  border-color: var(--vp-c-brand-2);
 }
 
 .note {

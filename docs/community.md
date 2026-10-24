@@ -140,20 +140,20 @@ Welcome.
 
 Join the growing Pleno community! Whether you're a beginner or an experienced language enthusiast, there are many ways to get involved.
 
-### 💬 Communication Channels
+### Communication Channels
 
 - **Discord**: [Join our Discord server](https://discord.gg/pleno) to chat with the team and other developers.
 - **GitHub Discussions**: [Ask questions and share ideas](https://github.com/otabekoff/pleno/discussions) on our GitHub repository.
 - **Twitter/X**: Follow [@PlenoLang](https://twitter.com/PlenoLang) for the latest updates.
 
-### 🤝 Contributing
+### Contributing
 
 Pleno is an open-source project and we love contributions! Check out our [Contributing Guide](/guide/contributing) to get started.
 
 - **Report Bugs**: [Open an issue](https://github.com/otabekoff/pleno/issues) on GitHub.
 - **Source Code**: Explore the codebase on [GitHub](https://github.com/otabekoff/pleno).
 
-### ✨ Built with Pleno
+### Built with Pleno
 
 A showcase of projects created by our community.
 

@@ -1,21 +1,21 @@
-/* Page background: a faint dot grid with a gradient glow at the top. */
+/* The page keeps its scrollbar space even while the search dialog locks
+   scrolling, so opening search does not shift the layout. */
+html {
+  scrollbar-gutter: stable;
+}
+
 body {
   background-color: var(--vp-c-bg);
-  background-image:
-    radial-gradient(ellipse 70% 40% at 50% -10%, var(--pl-glow), transparent 70%),
-    radial-gradient(var(--pl-dot) 1px, transparent 1px);
-  background-size: 100% 100%, 22px 22px;
-  background-attachment: fixed;
 }
 
 ::selection {
-  background: rgba(127, 82, 255, 0.32);
+  background: rgba(127, 82, 255, 0.24);
 }
 
-/* Scrollbars: thin, rounded, with a gradient thumb. */
+/* Scrollbars: thin, neutral, darker on hover. */
 * {
   scrollbar-width: thin;
-  scrollbar-color: rgba(127, 82, 255, 0.45) transparent;
+  scrollbar-color: var(--vp-c-border) transparent;
 }
 
 ::-webkit-scrollbar {
@@ -23,33 +23,27 @@ body {
   height: 10px;
 }
 
-::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-::-webkit-scrollbar-thumb {
-  border: 3px solid transparent;
-  border-radius: 999px;
-  background: linear-gradient(180deg, var(--pl-magenta), var(--pl-violet)) padding-box;
-  opacity: 0.6;
-}
-
-::-webkit-scrollbar-thumb:hover {
-  border-width: 2px;
-}
-
+::-webkit-scrollbar-track,
 ::-webkit-scrollbar-corner {
   background: transparent;
 }
 
-/* Headings use the display font. */
+::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 10px;
+  background-color: var(--vp-c-border);
+  background-clip: padding-box;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background-color: var(--pl-border-strong);
+}
+
+/* Headings: Inter, tighter tracking. */
 .vp-doc h1,
 .vp-doc h2,
 .vp-doc h3,
-.VPHero .name,
-.VPHero .text,
 .pl-display {
-  font-family: var(--pl-font-display);
   letter-spacing: -0.02em;
 }
 
@@ -60,10 +54,11 @@ body {
   color: transparent;
 }
 
-/* Focus rings that match the brand. */
+/* One focus ring for every control. */
 :focus-visible {
   outline: 2px solid var(--vp-c-brand-2);
   outline-offset: 2px;
+  border-radius: var(--pl-radius-sm);
 }
 
 /* Pleno's operators (=>, |>, ==) are shown as typed, never as ligatures. */
@@ -73,4 +68,21 @@ kbd,
 .cm-editor {
   font-variant-ligatures: none;
   font-feature-settings: 'liga' 0, 'calt' 0;
+}
+
+/* Static Pleno code (editor/pleno-tokens.ts) uses the same colors as the editor. */
+.tok-keyword { color: var(--pl-tok-keyword); }
+.tok-type { color: var(--pl-tok-type); }
+.tok-string { color: var(--pl-tok-string); }
+.tok-number { color: var(--pl-tok-number); }
+.tok-comment { color: var(--pl-tok-comment); }
+.tok-function { color: var(--pl-tok-function); }
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+  }
 }

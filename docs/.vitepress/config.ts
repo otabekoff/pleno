@@ -14,7 +14,13 @@ const BASE = '/'
 // Modules the browser build cannot use; examples importing them stay offline.
 const OFFLINE_MODULES = /from\s+"std:(io|path|os|process|http|net|db|dotenv)"/
 
-// Pleno code blocks get an "Open in playground" link carrying their source.
+const PLAY_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4.5v15l12-7.5z"/></svg>'
+
+// Hides the announcement bar before the first paint when it was dismissed
+// (see theme/components/AnnouncementBar.vue), so the layout does not jump.
+const BANNER_SCRIPT = `try{if(localStorage.getItem('pleno-announcement-1.0-road')==='dismissed')document.documentElement.classList.add('pl-banner-dismissed')}catch(e){}`
+
+// Pleno code blocks get a "Run" link to the playground carrying their source.
 // ```pleno norun marks a fragment that cannot run by itself (see
 // scripts/check-doc-examples.py), and gets no link.
 function playgroundLinks(md: any) {
@@ -29,7 +35,7 @@ function playgroundLinks(md: any) {
     if (lang !== 'pleno' && lang !== 'pln') return html
     if (norun || OFFLINE_MODULES.test(token.content)) return html
     const code = Buffer.from(token.content, 'utf-8').toString('base64url')
-    const link = `<a class="pl-run-link" href="${BASE}playground#code=${code}">Open in playground</a>`
+    const link = `<a class="pl-run-link" href="${BASE}playground#code=${code}" title="Open in the playground">${PLAY_ICON}Run</a>`
     return html.replace(/<\/div>\s*$/, `${link}</div>`)
   }
 }
@@ -44,7 +50,10 @@ export default defineConfig({
   ignoreDeadLinks: [/^https?:\/\/localhost/],
   lastUpdated: true,
   appearance: 'dark',
-  head: [['link', { rel: 'icon', href: `${BASE}logo.svg` }]],
+  head: [
+    ['link', { rel: 'icon', href: `${BASE}logo.svg` }],
+    ['script', {}, BANNER_SCRIPT],
+  ],
   themeConfig: {
     search: {
       provider: 'local',
@@ -70,7 +79,7 @@ export default defineConfig({
       { text: 'Playground', link: '/playground' },
       { text: 'Blog', link: '/blog/', activeMatch: '/blog/' },
       {
-        text: 'v0.1',
+        text: 'v0.2',
         items: [
           {
             items: [
@@ -270,8 +279,9 @@ export default defineConfig({
   markdown: {
     config: playgroundLinks,
     theme: {
-      light: 'light-plus',
-      dark: 'dark-plus'
+      // The same palette as the editor (--pl-tok-* in theme/styles/vars.css).
+      light: 'github-light',
+      dark: 'github-dark'
     },
     languages: [
       {

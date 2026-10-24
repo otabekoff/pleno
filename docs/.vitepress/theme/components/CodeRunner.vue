@@ -1,9 +1,13 @@
 <script setup lang="ts">
 // An editor with a Run button and an output panel. Pleno runs in the browser
-// (WebAssembly in a Web Worker); nothing is sent to a server.
+// (WebAssembly in a Web Worker); nothing is sent to a server. Until
+// CodeMirror loads, the same code is shown highlighted with matching
+// metrics, so the switch is not visible.
 import { onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
 import type { EditorView } from '@codemirror/view'
 import { runPleno, type RunResult } from '../runner/run'
+import PlCode from './PlCode.vue'
+import PlIcon from './PlIcon.vue'
 
 const props = withDefaults(
   defineProps<{
@@ -14,10 +18,8 @@ const props = withDefaults(
     layout?: 'stack' | 'split'
     /** Title in the editor's header bar. */
     filename?: string
-    /** Run once when the component appears. */
-    autoRun?: boolean
   }>(),
-  { height: '300px', layout: 'stack', filename: 'main.pln', autoRun: false },
+  { height: '300px', layout: 'stack', filename: 'main.pln' },
 )
 
 const emit = defineEmits<{ (e: 'change', code: string): void }>()
@@ -26,6 +28,7 @@ const host = ref<HTMLElement>()
 const view = shallowRef<EditorView>()
 const running = ref(false)
 const result = ref<RunResult | null>(null)
+const isMac = ref(false)
 
 function currentCode(): string {
   return view.value?.state.doc.toString() ?? props.code
@@ -52,6 +55,7 @@ function setCode(code: string) {
 defineExpose({ run, setCode, getCode: currentCode })
 
 onMounted(async () => {
+  isMac.value = /Mac|iPhone|iPad/.test(navigator.platform)
   const [{ EditorState }, viewModule, commands, language, lang] = await Promise.all([
     import('@codemirror/state'),
     import('@codemirror/view'),
@@ -88,7 +92,6 @@ onMounted(async () => {
       ],
     }),
   })
-  if (props.autoRun) run()
 })
 
 watch(
@@ -103,31 +106,41 @@ onBeforeUnmount(() => view.value?.destroy())
 
 <template>
   <div class="code-runner" :class="layout">
-    <div class="panel editor-panel">
-      <div class="bar">
-        <span class="dots" aria-hidden="true"><i /><i /><i /></span>
+    <section class="pane editor-pane" aria-label="Code">
+      <header class="bar">
         <span class="filename">{{ filename }}</span>
-        <slot name="actions" />
-        <button class="run" :disabled="running" title="Run (Ctrl+Enter)" @click="run">
-          <span class="play" aria-hidden="true">▶</span>
-          {{ running ? 'Running…' : 'Run' }}
-        </button>
-      </div>
+        <div class="actions">
+          <slot name="actions" />
+          <button
+            class="pl-btn pl-btn-primary pl-btn-sm run"
+            type="button"
+            :disabled="running"
+            :title="`Run (${isMac ? '⌘' : 'Ctrl'}+Enter)`"
+            @click="run"
+          >
+            <PlIcon :name="running ? 'spinner' : 'play'" :size="12" />
+            Run
+          </button>
+        </div>
+      </header>
       <div ref="host" class="editor" :style="{ height }">
-        <!-- Shown until the editor loads, and to search engines. -->
-        <pre v-if="!view" class="fallback">{{ code }}</pre>
+        <PlCode v-if="!view" class="fallback" :code="code" line-numbers />
       </div>
-    </div>
-    <div class="panel output-panel" :class="{ failed: result && !result.ok }">
-      <div class="bar">
-        <span class="filename">Output</span>
-        <span v-if="result" class="status">
-          {{ result.ok ? 'Done' : 'Error' }} · {{ result.elapsed }} ms
+    </section>
+    <section class="pane output-pane" :class="{ failed: result && !result.ok }" aria-label="Output">
+      <header class="bar">
+        <span class="label">Output</span>
+        <span v-if="result" class="status" :class="result.ok ? 'ok' : 'error'">
+          <PlIcon :name="result.ok ? 'check' : 'x'" :size="13" />
+          {{ result.ok ? 'Finished' : 'Failed' }} in {{ result.elapsed }} ms
         </span>
-      </div>
+      </header>
       <div class="output" :style="layout === 'split' ? { height } : undefined" aria-live="polite">
         <p v-if="!result" class="hint">
-          {{ running ? 'Starting Pleno…' : 'Press Run or Ctrl+Enter. The code runs in your browser.' }}
+          <template v-if="running">Starting Pleno…</template>
+          <template v-else>
+            Press <kbd>Run</kbd> or <kbd>{{ isMac ? '⌘' : 'Ctrl' }}</kbd> <kbd>Enter</kbd>. The code runs in your browser.
+          </template>
         </p>
         <template v-else>
           <pre v-if="result.output" class="stdout">{{ result.output }}</pre>
@@ -135,14 +148,20 @@ onBeforeUnmount(() => view.value?.destroy())
           <p v-if="!result.output && !result.error" class="hint">The program printed nothing.</p>
         </template>
       </div>
-    </div>
+    </section>
   </div>
 </template>
 
 <style scoped>
 .code-runner {
   display: grid;
-  gap: 12px;
+  grid-template-columns: minmax(0, 1fr);
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--vp-c-border);
+  border-radius: var(--pl-radius-lg);
+  background-color: var(--vp-code-block-bg);
+  box-shadow: var(--pl-shadow-panel);
   text-align: left;
 }
 
@@ -150,90 +169,84 @@ onBeforeUnmount(() => view.value?.destroy())
   .code-runner.split {
     grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
   }
+
+  .split .output-pane {
+    border-top: none;
+    border-left: 1px solid var(--vp-c-divider);
+  }
 }
 
-.panel {
+.pane {
   min-width: 0;
-  border: 1px solid var(--pl-panel-border);
-  border-radius: var(--pl-radius);
-  background: var(--pl-panel);
-  backdrop-filter: blur(10px);
-  overflow: hidden;
-  box-shadow: 0 10px 40px -20px rgba(0, 0, 0, 0.45);
+}
+
+.output-pane {
+  border-top: 1px solid var(--vp-c-divider);
 }
 
 .bar {
   display: flex;
   align-items: center;
   gap: 10px;
-  height: 40px;
-  padding: 0 8px 0 14px;
+  height: 44px;
+  padding: 0 8px 0 16px;
   border-bottom: 1px solid var(--vp-c-divider);
-  font-size: 12px;
-  color: var(--vp-c-text-2);
+  background-color: var(--vp-c-bg);
+  font-size: 13px;
 }
-
-.dots {
-  display: inline-flex;
-  gap: 6px;
-}
-
-.dots i {
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  background: var(--vp-c-default-3);
-}
-
-.dots i:nth-child(1) { background: #ef4857; }
-.dots i:nth-child(2) { background: #d211ec; }
-.dots i:nth-child(3) { background: #7f52ff; }
 
 .filename {
   font-family: var(--vp-font-family-mono);
-  margin-right: auto;
+  font-size: 12.5px;
+  color: var(--vp-c-text-2);
+}
+
+.label {
+  font-weight: 500;
+  color: var(--vp-c-text-2);
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
 }
 
 .status {
-  font-family: var(--vp-font-family-mono);
-  color: var(--vp-c-text-3);
-}
-
-.run {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 5px 14px;
-  border-radius: 999px;
-  font-size: 13px;
-  font-weight: 600;
-  color: #fff;
-  background: var(--pl-gradient);
-  transition: filter 0.2s, opacity 0.2s;
+  margin-left: auto;
+  padding-right: 8px;
+  font-size: 12px;
+  color: var(--vp-c-text-3);
 }
 
-.run:hover {
-  filter: brightness(1.1);
+.status.ok .pl-icon {
+  color: var(--vp-c-green-1);
 }
 
-.run:disabled {
-  opacity: 0.6;
-  cursor: progress;
+.status.error .pl-icon {
+  color: var(--vp-c-danger-1);
 }
 
-.play {
-  font-size: 10px;
-}
-
+/* The editor and its first paint share these metrics. */
 .editor {
+  --pl-code-size: 13.5px;
+  --pl-code-line: 1.65;
   overflow: auto;
-  font-size: 13.5px;
+}
+
+.fallback {
+  padding: 12px 0;
 }
 
 .editor :deep(.cm-editor) {
   height: 100%;
   background: transparent;
   color: var(--vp-c-text-1);
+  font-size: var(--pl-code-size);
 }
 
 .editor :deep(.cm-editor.cm-focused) {
@@ -242,7 +255,15 @@ onBeforeUnmount(() => view.value?.destroy())
 
 .editor :deep(.cm-scroller) {
   font-family: var(--vp-font-family-mono);
-  line-height: 1.65;
+  line-height: var(--pl-code-line);
+}
+
+.editor :deep(.cm-content) {
+  padding: 12px 0;
+}
+
+.editor :deep(.cm-line) {
+  padding: 0 16px 0 4px;
 }
 
 .editor :deep(.cm-gutters) {
@@ -251,37 +272,37 @@ onBeforeUnmount(() => view.value?.destroy())
   color: var(--vp-c-text-3);
 }
 
-.editor :deep(.cm-activeLine),
+.editor :deep(.cm-lineNumbers .cm-gutterElement) {
+  min-width: 2ch;
+  box-sizing: content-box;
+  padding: 0 12px 0 16px;
+}
+
+.editor :deep(.cm-activeLine) {
+  background: color-mix(in srgb, var(--vp-c-text-1) 4%, transparent);
+}
+
 .editor :deep(.cm-activeLineGutter) {
-  background: color-mix(in srgb, var(--vp-c-brand-1) 7%, transparent);
+  background: transparent;
+  color: var(--vp-c-text-1);
 }
 
 .editor :deep(.cm-cursor) {
-  border-left-color: var(--vp-c-brand-1);
+  border-left: 2px solid var(--vp-c-brand-1);
 }
 
 .editor :deep(.cm-selectionBackground),
 .editor :deep(.cm-focused .cm-selectionBackground) {
-  background: rgba(127, 82, 255, 0.28) !important;
+  background: rgba(127, 82, 255, 0.24) !important;
 }
 
 .editor :deep(.cm-matchingBracket) {
-  background: rgba(127, 82, 255, 0.22);
+  background: rgba(127, 82, 255, 0.2);
   outline: none;
 }
 
-.fallback {
-  margin: 0;
-  padding: 4px 16px;
-  font-family: var(--vp-font-family-mono);
-  font-size: 13.5px;
-  line-height: 1.65;
-  white-space: pre;
-  color: var(--vp-c-text-2);
-}
-
 .output {
-  min-height: 72px;
+  min-height: 84px;
   max-height: 360px;
   overflow: auto;
   padding: 12px 16px;
@@ -294,20 +315,33 @@ onBeforeUnmount(() => view.value?.destroy())
   line-height: 1.6;
   white-space: pre-wrap;
   word-break: break-word;
+  color: var(--vp-c-text-1);
+}
+
+.stdout + .stderr {
+  margin-top: 8px;
 }
 
 .stderr {
-  margin-top: 8px !important;
-  color: var(--vp-c-danger-1);
-}
-
-.failed {
-  border-color: color-mix(in srgb, var(--vp-c-danger-1) 35%, transparent);
+  color: var(--vp-c-danger-1) !important;
 }
 
 .hint {
   margin: 0;
   font-size: 13px;
+  line-height: 1.6;
   color: var(--vp-c-text-3);
+}
+
+kbd {
+  display: inline-block;
+  padding: 0 5px;
+  border: 1px solid var(--vp-c-border);
+  border-radius: 4px;
+  font-family: var(--vp-font-family-base);
+  font-size: 11px;
+  line-height: 17px;
+  color: var(--vp-c-text-2);
+  background-color: var(--vp-c-bg);
 }
 </style>
