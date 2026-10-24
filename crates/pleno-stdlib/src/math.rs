@@ -341,9 +341,9 @@ pub fn math_random_int(
         _ => return Err(pleno_value::RuntimeError::new("Expected integer max")),
     };
 
-    if min >= max {
+    if min > max {
         return Err(pleno_value::RuntimeError::new(
-            "Math.randomInt: min must be less than max",
+            "Math.randomInt: min must not be greater than max",
         ));
     }
 

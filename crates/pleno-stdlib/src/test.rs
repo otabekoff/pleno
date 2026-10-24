@@ -1,6 +1,8 @@
+use indexmap::IndexMap;
 use pleno_common::style::{self, Stream};
-use pleno_value::{RuntimeError, VMProvider, Value};
+use pleno_value::{BoundNativeMethodState, MapState, RuntimeError, VMProvider, Value};
 use std::cell::RefCell;
+use std::rc::Rc;
 
 thread_local! {
     static CONTEXT: RefCell<TestContext> = RefCell::new(TestContext::default());
@@ -36,7 +38,7 @@ pub fn test_describe(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, R
 
     let depth = CONTEXT.with(|ctx| ctx.borrow().suites.len());
     let indent = "  ".repeat(depth);
-    println!("{}{}", indent, name);
+    vm.print(&format!("{}{}\n", indent, name));
 
     CONTEXT.with(|ctx| {
         ctx.borrow_mut().suites.push(SuiteState {
@@ -91,29 +93,21 @@ pub fn test_test(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, Runti
 
     // Execute the test function
     let result = match vm.call(args[1].clone(), vec![]) {
+        // An async test reports when its promise settles. The program waits
+        // for pending promises before it ends, so the runner still counts it.
+        Ok(promise) if is_pending_promise(&promise) => {
+            let label = test_label(vm, &indent, name)?;
+            let passed = bound(vm, &label, async_test_passed)?;
+            let failed = bound(vm, &label, async_test_failed)?;
+            crate::promise::register_callback(vm, &promise, passed, failed, 0)?;
+            Ok(promise)
+        }
         Ok(_) => {
-            println!(
-                "{}{} {}",
-                indent,
-                style::green(Stream::Stdout, "\u{2713}"),
-                name
-            );
+            report_pass(vm, &indent, name);
             Ok(Value::Null)
         }
         Err(e) => {
-            // Other tests still run; the runner fails the file at the end.
-            CONTEXT.with(|ctx| ctx.borrow_mut().failures += 1);
-            println!(
-                "{}{} {}",
-                indent,
-                style::red(Stream::Stdout, "\u{2717}"),
-                name
-            );
-            let message = e
-                .message
-                .strip_prefix("uncaught exception: ")
-                .unwrap_or(&e.message);
-            println!("{}  {}", indent, message);
+            report_failure(vm, &indent, name, &e.message);
             Ok(Value::Null)
         }
     };
@@ -126,6 +120,90 @@ pub fn test_test(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, Runti
     }
 
     result
+}
+
+fn report_pass(vm: &mut dyn VMProvider, indent: &str, name: &str) {
+    let mark = style::green(Stream::Stdout, "\u{2713}");
+    vm.print(&format!("{indent}{mark} {name}\n"));
+}
+
+/// Counts a failed test, which fails the file at the end; other tests still run.
+fn report_failure(vm: &mut dyn VMProvider, indent: &str, name: &str, message: &str) {
+    CONTEXT.with(|ctx| ctx.borrow_mut().failures += 1);
+    let mark = style::red(Stream::Stdout, "\u{2717}");
+    let message = message
+        .strip_prefix("uncaught exception: ")
+        .unwrap_or(message);
+    vm.print(&format!("{indent}{mark} {name}\n{indent}  {message}\n"));
+}
+
+fn is_pending_promise(value: &Value) -> bool {
+    match value {
+        Value::Map(map) => {
+            let map = map.borrow();
+            map.get("id").is_some()
+                && map.get("variant").and_then(|v| v.as_str()) == Some("Pending")
+        }
+        _ => false,
+    }
+}
+
+/// The name and indentation of an async test, kept for when it settles.
+fn test_label(vm: &mut dyn VMProvider, indent: &str, name: &str) -> Result<Value, RuntimeError> {
+    let mut label = IndexMap::new();
+    label.insert(
+        "indent".to_string(),
+        Value::String(Rc::new(indent.to_string())),
+    );
+    label.insert("name".to_string(), Value::String(Rc::new(name.to_string())));
+    Ok(Value::Map(vm.get_gc().allocate(MapState::new(label))?))
+}
+
+fn bound(
+    vm: &mut dyn VMProvider,
+    receiver: &Value,
+    function: pleno_value::NativeFunction,
+) -> Result<Value, RuntimeError> {
+    Ok(Value::BoundNativeMethod(vm.get_gc().allocate(
+        BoundNativeMethodState {
+            receiver: receiver.clone(),
+            function,
+        },
+    )?))
+}
+
+fn label_parts(label: &Value) -> (String, String) {
+    let Value::Map(map) = label else {
+        return (String::new(), String::new());
+    };
+    let map = map.borrow();
+    let text = |key: &str| {
+        map.get(key)
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string()
+    };
+    (text("indent"), text("name"))
+}
+
+fn async_test_passed(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    let (indent, name) = label_parts(&args[0]);
+    report_pass(vm, &indent, &name);
+    Ok(Value::Null)
+}
+
+fn async_test_failed(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    let (indent, name) = label_parts(&args[0]);
+    let message = match args.get(1) {
+        Some(Value::Map(error)) => {
+            let message = error.borrow().get("message").map(|m| m.to_string());
+            message.unwrap_or_else(|| Value::Map(error.clone()).to_string())
+        }
+        Some(other) => other.to_string(),
+        None => String::new(),
+    };
+    report_failure(vm, &indent, &name, &message);
+    Ok(Value::Null)
 }
 
 pub fn test_before_each(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {

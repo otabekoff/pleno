@@ -102,7 +102,11 @@ pub enum MultiWaiterMode {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MultiWaiter {
     pub promise_id: u64,
+    /// The promises still being waited on.
     pub dependencies: Vec<u64>,
+    /// For `All`: the index in `results` of each dependency.
+    pub slots: Vec<usize>,
+    /// For `All`: how many of `results` are filled in.
     pub resolved_count: usize,
     pub results: Vec<Value>,
     pub mode: MultiWaiterMode,
