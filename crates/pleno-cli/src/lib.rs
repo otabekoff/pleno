@@ -1293,7 +1293,7 @@ This project includes a `pleno.toml` file with standard scripts for your conveni
 
 ## Documentation
 
-For more information about the Pleno programming language, please visit the [official documentation](https://pleno-lang.org/docs). // Replace with actual URL if different
+For more information about the Pleno programming language, please visit the [official documentation](https://otabekoff.github.io/pleno/).
 "#,
             name
         );
@@ -1680,11 +1680,11 @@ fn handle_install(args: &mut std::iter::Peekable<std::iter::Skip<std::env::Args>
         }
     };
 
-    let registry_url = std::env::var("PLENO_REGISTRY")
-        .unwrap_or_else(|_| "https://registry.pleno-lang.org".to_string());
-    let manager = pleno_package::PackageManager::new("packages")
-        .with_registry(registry_url)
-        .with_offline(offline);
+    // Without PLENO_REGISTRY, packages come from local, path and Git sources.
+    let mut manager = pleno_package::PackageManager::new("packages").with_offline(offline);
+    if let Ok(registry_url) = std::env::var("PLENO_REGISTRY") {
+        manager = manager.with_registry(registry_url);
+    }
 
     if let Some(pkg) = pkg_name {
         let (name, source) = if let Some(pos) = pkg.rfind('@') {
@@ -1841,8 +1841,7 @@ fn handle_plm_publish(_args: &mut std::iter::Peekable<std::iter::Skip<std::env::
             process::exit(1);
         }
     };
-    let registry_url = std::env::var("PLENO_REGISTRY")
-        .unwrap_or_else(|_| "https://registry.pleno-lang.org".to_string());
+    let registry_url = required_registry_url();
     let manager = pleno_package::PackageManager::new("packages").with_registry(registry_url);
     if let Err(e) = manager.publish(&manifest) {
         eprintln!("Publish failed: {}", e);
@@ -1854,10 +1853,21 @@ fn handle_plm_publish(_args: &mut std::iter::Peekable<std::iter::Skip<std::env::
     );
 }
 
+/// The registry URL from `PLENO_REGISTRY`. There is no default: no public
+/// registry exists yet, and a guessed domain could be taken by anyone.
+fn required_registry_url() -> String {
+    std::env::var("PLENO_REGISTRY").unwrap_or_else(|_| {
+        eprintln!(
+            "{} no package registry is configured. Set PLENO_REGISTRY to the registry's URL.",
+            style::red(Stream::Stderr, "Error:")
+        );
+        process::exit(1);
+    })
+}
+
 fn handle_plm_search(args: &mut std::iter::Peekable<std::iter::Skip<std::env::Args>>) {
     let query = args.next();
-    let registry_url = std::env::var("PLENO_REGISTRY")
-        .unwrap_or_else(|_| "https://registry.pleno-lang.org".to_string());
+    let registry_url = required_registry_url();
     let url = format!("{}/packages", registry_url);
 
     println!("Searching for packages...");

@@ -85,10 +85,12 @@ pleno run hello.pln
 
 ## 📖 Documentation
 
+- [Documentation website](https://otabekoff.github.io/pleno/)
 - [Language Specification](notes/specs.md)
 - [Architecture](ARCHITECTURE.md)
 - [Roadmap to 1.0](tasks/v1.md)
-- [Contributing](CONTRIBUTING.md)
+- [Changelog](CHANGELOG.md)
+- [Contributing](CONTRIBUTING.md), [Governance](GOVERNANCE.md), [Getting help](SUPPORT.md)
 - [Development Guide](README.dev.md)
 
 ## 🔏 Code signing policy

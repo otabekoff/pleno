@@ -15,9 +15,11 @@ We currently provide security updates for the following versions:
 
 **DO NOT open a public GitHub issue for security vulnerabilities.**
 
-If you discover a security vulnerability, please report it privately via email to:
+If you discover a security vulnerability, report it privately through GitHub:
 
-**security@pleno-lang.org**
+**[Report a vulnerability](https://github.com/otabekoff/pleno/security/advisories/new)**
+
+Only the maintainers can see the report.
 
 Please include the following in your report:
 
@@ -44,7 +46,7 @@ Please include the following in your report:
 
 ### Out of Scope
 
-- Infrastructure issues on `pleno-lang.org`.
+- Issues in the documentation website (`otabekoff.github.io/pleno`), which is static.
 - Vulnerabilities in third-party dependencies (unless they impact Pleno-specific logic).
 - Social engineering attacks.
 
