@@ -40,3 +40,30 @@ export function getPlenoLspPath(context: vscode.ExtensionContext): string {
     }
     return 'pleno-lsp';
 }
+
+/**
+ * Finds the `pleno-dap` debug adapter: the `pleno.dap.path` setting, then
+ * `PATH`, then a local release build. Returns undefined when it is not installed.
+ */
+export function getPlenoDapPath(context: vscode.ExtensionContext): string | undefined {
+    const config = vscode.workspace.getConfiguration('pleno');
+    const customDapPath = config.get<string>('dap.path');
+    if (customDapPath) {
+        return customDapPath;
+    }
+
+    const command = process.platform === 'win32' ? 'where' : 'which';
+    try {
+        execSync(`${command} pleno-dap`);
+        return 'pleno-dap';
+    } catch {
+        const exe = process.platform === 'win32' ? 'pleno-dap.exe' : 'pleno-dap';
+        const localDap = context.asAbsolutePath(
+            path.join('..', '..', 'target', 'release', exe)
+        );
+        if (fs.existsSync(localDap)) {
+            return localDap;
+        }
+    }
+    return undefined;
+}

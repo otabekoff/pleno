@@ -946,33 +946,72 @@ impl<'a> Registry for CompositeRegistry<'a> {
     }
 }
 
+/// The local registry is a directory of packages laid out as
+/// `<root>/<name>/<version>/` with a `pleno.toml` in each version. The root is
+/// `$PLENO_LOCAL_REGISTRY`, or `~/.pleno/registry` by default.
+pub fn local_registry_root() -> PathBuf {
+    if let Some(root) = std::env::var_os("PLENO_LOCAL_REGISTRY") {
+        return PathBuf::from(root);
+    }
+    dirs::home_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join(".pleno")
+        .join("registry")
+}
+
+impl PackageManager {
+    fn local_package_dir(&self, name: &str, version: &Version) -> Option<PathBuf> {
+        let dir = local_registry_root().join(name).join(version.to_string());
+        dir.join("pleno.toml").is_file().then_some(dir)
+    }
+}
+
 impl Registry for PackageManager {
-    fn query(&self, _name: &str, _req: &VersionReq) -> Result<Vec<Version>, PackageError> {
-        // Mock local registry: only has version 0.1.0
-        Ok(vec![Version::new(0, 1, 0)])
+    fn query(&self, name: &str, req: &VersionReq) -> Result<Vec<Version>, PackageError> {
+        let Ok(entries) = std::fs::read_dir(local_registry_root().join(name)) else {
+            return Ok(Vec::new());
+        };
+        let mut versions: Vec<Version> = entries
+            .filter_map(|entry| entry.ok())
+            .filter_map(|entry| Version::parse(&entry.file_name().to_string_lossy()).ok())
+            .filter(|version| {
+                req.matches(version) && self.local_package_dir(name, version).is_some()
+            })
+            .collect();
+        versions.sort();
+        Ok(versions)
     }
 
     fn fetch_source(
         &self,
-        _name: &str,
-        _version: &Version,
+        name: &str,
+        version: &Version,
     ) -> Result<(String, Option<String>), PackageError> {
-        // Mock local source: doesn't know where to fetch from
-        Err(PackageError::Io(std::io::Error::other(
-            "Local registry fetch not implemented",
-        )))
+        let dir = self.local_package_dir(name, version).ok_or_else(|| {
+            PackageError::Io(std::io::Error::other(format!(
+                "{name} {version} is not in the local registry"
+            )))
+        })?;
+        Ok((dir.to_string_lossy().into_owned(), None))
     }
 
-    fn fetch_manifest(&self, _name: &str, _version: &Version) -> Result<Manifest, PackageError> {
-        Err(PackageError::Io(std::io::Error::other(
-            "Local registry manifest fetch not implemented",
-        )))
+    fn fetch_manifest(&self, name: &str, version: &Version) -> Result<Manifest, PackageError> {
+        let dir = self.local_package_dir(name, version).ok_or_else(|| {
+            PackageError::Io(std::io::Error::other(format!(
+                "{name} {version} is not in the local registry"
+            )))
+        })?;
+        Manifest::load_from_file(dir.join("pleno.toml"))
     }
 
-    fn publish(&self, _package: PublishPackage, _token: &str) -> Result<(), PackageError> {
-        Err(PackageError::Io(std::io::Error::other(
-            "Local registry does not support publishing",
-        )))
+    fn publish(&self, package: PublishPackage, _token: &str) -> Result<(), PackageError> {
+        Err(PackageError::Io(std::io::Error::other(format!(
+            "The local registry is a directory: copy the package to {}",
+            local_registry_root()
+                .join(&package.name)
+                .join(&package.version)
+                .display()
+        ))))
     }
 }
 
@@ -1048,7 +1087,10 @@ impl PackageManager {
 
             let file_name = source.split('/').next_back().unwrap_or("pleno.toml");
             std::fs::write(dest.join(file_name), bytes)?;
-        } else if source.starts_with("./") || source.starts_with("../") || source.starts_with("/") {
+        } else if source.starts_with("./")
+            || source.starts_with("../")
+            || Path::new(source).is_absolute()
+        {
             let src_path = PathBuf::from(source);
             self.copy_dir(&src_path, &dest)?;
         } else {
