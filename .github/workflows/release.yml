@@ -281,19 +281,35 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+  # The formula installs the prebuilt archives, with checksums from SHA256SUMS.txt.
   publish-homebrew:
     name: Update Homebrew
     runs-on: ubuntu-latest
-    needs: [build, check-secrets]
+    needs: [publish-github, check-secrets]
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && !contains(github.ref_name, '-') && needs.check-secrets.outputs.has-homebrew == 'true'
     steps:
       - uses: actions/checkout@v4
 
-      - name: Update Homebrew Formula
-        uses: mislav/bump-homebrew-formula-action@v3
-        with:
-          formula-name: pleno
-          homebrew-tap: otabekoff/homebrew-tap
-          download-url: https://github.com/${{ github.repository }}/archive/refs/tags/${{ github.ref_name }}.tar.gz
+      - name: Write the formula
         env:
-          COMMITTER_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          gh release download "$TAG" --pattern SHA256SUMS.txt --dir release
+          bash scripts/homebrew-formula.sh "${TAG#v}" release/SHA256SUMS.txt > pleno.rb
+          cat pleno.rb
+
+      - name: Push it to the tap
+        env:
+          TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          git clone --depth 1 "https://x-access-token:${TAP_TOKEN}@github.com/otabekoff/homebrew-tap.git" tap
+          cp pleno.rb tap/Formula/pleno.rb
+          cd tap
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Formula/pleno.rb
+          git diff --cached --quiet && exit 0
+          git commit -m "pleno ${TAG#v}"
+          git push
