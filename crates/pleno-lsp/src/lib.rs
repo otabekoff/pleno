@@ -1331,6 +1331,18 @@ fn extract_symbols(program: &Program, file_path: &Path) -> Vec<Symbol> {
                     children: vec![],
                 });
             }
+            StmtKind::LetPattern { pattern, .. } => {
+                for (name, span) in pattern.bindings() {
+                    symbols.push(Symbol {
+                        name: name.to_string(),
+                        kind: SymbolKind::Variable,
+                        span,
+                        detail: Some(format!("let {name}")),
+                        file_path: file_path.to_path_buf(),
+                        children: vec![],
+                    });
+                }
+            }
             _ => {}
         }
     }
@@ -1472,6 +1484,12 @@ fn collect_from_stmt(stmt: &pleno_ast::Stmt, source: &str, tokens: &mut Vec<Sema
             if let Some(v) = value {
                 collect_from_expr(v, source, tokens);
             }
+        }
+        StmtKind::LetPattern { pattern, value, .. } => {
+            for (_, span) in pattern.bindings() {
+                add_token_from_span(span, source, 4, 1, tokens); // variable, declaration
+            }
+            collect_from_expr(value, source, tokens);
         }
         StmtKind::Block(stmts) => {
             for s in stmts {

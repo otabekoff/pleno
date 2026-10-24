@@ -82,7 +82,7 @@ impl Inliner {
                     self.inline_stmt(s);
                 }
             }
-            StmtKind::Let { value: Some(v), .. } => {
+            StmtKind::Let { value: Some(v), .. } | StmtKind::LetPattern { value: v, .. } => {
                 self.inline_expr(v);
             }
             StmtKind::Assign { value, .. } => {

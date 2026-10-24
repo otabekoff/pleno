@@ -1,0 +1,133 @@
+// Destructuring in `let`: tuples, arrays, nesting, `_`, rest elements,
+// tuple type annotations and the errors for a value of the wrong shape.
+
+fn check(condition: Bool, message: String) {
+    if (!condition) {
+        throw "FAILED: " + message;
+    }
+}
+
+fn errorOf(f) {
+    try {
+        f();
+    } catch (e) {
+        // Shape errors are runtime errors; annotation errors are thrown strings.
+        if (e is String) {
+            return e;
+        }
+        return e.message;
+    }
+    return "no error";
+}
+
+// Tuples
+let pair = (1, "one");
+let (n, word) = pair;
+check(n == 1 && word == "one", "tuple destructuring");
+
+let (a, (b, c)) = (1, (2, 3));
+check(a + b + c == 6, "nested tuple");
+
+let (_, middle, _) = ("x", "y", "z");
+check(middle == "y", "underscore skips elements");
+
+let (single,) = (42,);
+check(single == 42, "one-element tuple");
+
+let point = (x: 3, y: 4);
+let (px, py) = point;
+check(px * px + py * py == 25, "named tuple by position");
+
+// Mutable bindings
+let mut (lo, hi) = (10, 1);
+if (lo > hi) {
+    let (newLo, newHi) = (hi, lo);
+    lo = newLo;
+    hi = newHi;
+}
+check(lo == 1 && hi == 10, "let mut swap");
+
+// Arrays
+let [first, second] = [1, 2];
+check(first == 1 && second == 2, "array destructuring");
+
+let [head, ...tail] = [1, 2, 3, 4];
+check(head == 1 && tail.length == 3 && tail[2] == 4, "rest element");
+
+let [only, ...empty] = ["just one"];
+check(only == "just one" && empty.length == 0, "empty rest");
+
+let [x0, ...] = [7, 8, 9];
+check(x0 == 7, "bare rest ignores the remaining elements");
+
+let [(k1, v1), (k2, v2)] = [("a", 1), ("b", 2)];
+check(k1 + k2 == "ab" && v1 + v2 == 3, "tuples inside an array");
+
+let ([p, q], r) = ([1, 2], 3);
+check(p + q + r == 6, "array inside a tuple");
+
+// Closures capture destructured names
+fn makeAdder() {
+    let (base, step) = (100, 5);
+    return (times) => {
+        return base + step * times;
+    };
+}
+check(makeAdder()(2) == 110, "closure captures destructured names");
+
+// Tuple type annotations
+fn minMax(items: Int[]): (Int, Int) {
+    let mut lowest = items[0];
+    let mut highest = items[0];
+    for (item in items) {
+        if (item < lowest) {
+            lowest = item;
+        }
+        if (item > highest) {
+            highest = item;
+        }
+    }
+    return (lowest, highest);
+}
+let (low, high) = minMax([3, 9, 1, 4]);
+check(low == 1 && high == 9, "function returning a tuple type");
+
+let typed: (Int, String) = (1, "a");
+check(typed.1 == "a", "tuple type annotation");
+
+let (tn, ts): (Int, String) = (2, "b");
+check(tn == 2 && ts == "b", "annotated destructuring");
+
+let pairs: (String, Int)[] = [("a", 1), ("b", 2)];
+check(pairs.length == 2, "array of tuples annotation");
+
+let maybe: (Int, Int)? = null;
+check(maybe == null, "optional tuple annotation");
+
+// Errors
+check(errorOf(() => {
+    let (u, v) = 5;
+}) == "cannot destructure Int as a tuple", "not a tuple");
+check(errorOf(() => {
+    let (u, v, w) = (1, 2);
+}) == "tuple has 2 elements, pattern expects 3", "tuple length");
+check(errorOf(() => {
+    let [u, v] = "ab";
+}) == "cannot destructure String as an array", "not an array");
+check(errorOf(() => {
+    let [u, v] = [1];
+}) == "array has 1 element, pattern expects 2", "array too short");
+check(errorOf(() => {
+    let [u, ...rest] = [];
+}) == "array has 0 elements, pattern expects at least 1", "array too short for rest");
+check(errorOf(() => {
+    let [u] = [1, 2];
+}).startsWith("array has 2 elements, pattern expects 1"), "array too long");
+check(errorOf(() => {
+    let t: (Int, String) = (1, 2);
+}).endsWith("expected (Int, String), found Tuple"), "tuple annotation element type");
+check(errorOf(() => {
+    let t: (Int, Int) = (1, 2, 3);
+}).endsWith("expected (Int, Int), found Tuple"), "tuple annotation length");
+
+print("destructuring: all checks passed");

@@ -37,6 +37,6 @@ Pleno is at version 0.1, before 1.0. The language can change between releases, a
 
 - **Speed:** the interpreter is currently slower than CPython on simple benchmarks.
 - **Static checking:** `pleno check` finds syntax errors, undefined names, wrong argument counts and literals that contradict their annotations, but most type errors appear only when the code runs.
-- **Missing features:** destructuring, TCP sockets and a public package registry. Pages that describe features which do not exist yet mark them as **Planned**.
+- **Missing features:** TCP sockets and a public package registry. Pages that describe features which do not exist yet mark them as **Planned**.
 
 Ready to try it? [Install Pleno](./installation).

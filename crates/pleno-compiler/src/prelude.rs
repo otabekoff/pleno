@@ -198,7 +198,9 @@ impl<'ast> Visitor<'ast> for ReferenceCollector {
                     self.names.insert(item.name.clone());
                 }
             }
-            StmtKind::Let { ty: Some(ty), .. } => self.add_type(ty),
+            StmtKind::Let { ty: Some(ty), .. } | StmtKind::LetPattern { ty: Some(ty), .. } => {
+                self.add_type(ty)
+            }
             StmtKind::Fn { annotations, .. } => {
                 for annotation in annotations {
                     self.names.insert(annotation.name.clone());

@@ -1,0 +1,6 @@
+// expect-error: tuple has 2 elements, pattern expects 3
+// A destructuring `let` whose pattern does not fit the value is a runtime error.
+
+let pair = (1, 2);
+let (a, b, c) = pair;
+print(a, b, c);

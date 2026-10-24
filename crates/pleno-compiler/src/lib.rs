@@ -358,6 +358,21 @@ impl Compiler {
                 }
                 Ok(())
             }
+            StmtKind::LetPattern {
+                pattern,
+                mutable,
+                ty,
+                value,
+                ..
+            } => {
+                let reg = self.compile_expr(value)?;
+                if let Some(ty_name) = ty {
+                    self.emit_type_check(reg, ty_name)?;
+                }
+                self.compile_binding_pattern(pattern, reg, *mutable)?;
+                self.free_temp(reg);
+                Ok(())
+            }
             StmtKind::Assign { name, value } => {
                 let value_reg = self.compile_expr(value)?;
                 if let Some(local) = self.resolve_local(name) {
@@ -589,6 +604,12 @@ impl Compiler {
                 }
                 let export_name = match &stmt.kind {
                     StmtKind::Let { name, .. } => name.clone(),
+                    StmtKind::LetPattern { .. } => {
+                        return Err(self.error(
+                            "a destructuring 'let' cannot be exported; export each name separately",
+                            stmt.span,
+                        ));
+                    }
                     StmtKind::Fn { name, .. } => name.clone(),
                     StmtKind::Class { name, .. } => name.clone(),
                     _ => return Err(self.error("invalid export statement", stmt.span)),
@@ -2453,6 +2474,116 @@ impl Compiler {
         Ok(())
     }
 
+    /// Binds the names of a destructuring `let` pattern from `value_reg`.
+    /// The VM checks the shape (`Opcode::Destructure`) before any element is read.
+    fn compile_binding_pattern(
+        &mut self,
+        pattern: &pleno_ast::BindingPattern,
+        value_reg: u8,
+        mutable: bool,
+    ) -> Result<(), CompileError> {
+        use pleno_ast::BindingPatternKind;
+        match &pattern.kind {
+            BindingPatternKind::Ignore => Ok(()),
+            BindingPatternKind::Name(name) => {
+                let reg = self.registers.allocate()?;
+                self.emit(Opcode::Move, reg, value_reg, 0);
+                if self
+                    .boxed_vars
+                    .last()
+                    .map(|b| b.contains(name))
+                    .unwrap_or(false)
+                {
+                    let cell_reg = self.registers.allocate()?;
+                    self.emit(Opcode::MakeCell, cell_reg, reg, 0);
+                    self.emit(Opcode::Move, reg, cell_reg, 0);
+                    self.free_temp(cell_reg);
+                }
+                let previous_span = self.current_span;
+                self.current_span = pattern.span;
+                let result = self.insert_local(name.clone(), reg, mutable, None);
+                self.current_span = previous_span;
+                result
+            }
+            BindingPatternKind::Tuple(items) => {
+                let count = self.pattern_len(items.len(), pattern.span)?;
+                self.emit_destructure(
+                    value_reg,
+                    pleno_bytecode::DESTRUCTURE_TUPLE,
+                    count,
+                    pattern.span,
+                );
+                self.bind_pattern_elements(items, value_reg, mutable)
+            }
+            BindingPatternKind::Array { elements, rest } => {
+                let count = self.pattern_len(elements.len(), pattern.span)?;
+                let mode = if rest.is_some() {
+                    pleno_bytecode::DESTRUCTURE_ARRAY_AT_LEAST
+                } else {
+                    pleno_bytecode::DESTRUCTURE_ARRAY
+                };
+                self.emit_destructure(value_reg, mode, count, pattern.span);
+                self.bind_pattern_elements(elements, value_reg, mutable)?;
+                if let Some(rest) = rest
+                    && let BindingPatternKind::Name(_) = rest.kind
+                {
+                    // rest = value.slice(start: count)
+                    let args_reg = self.registers.allocate()?;
+                    self.emit(Opcode::NewMap, args_reg, 0, 0);
+                    let start_key_idx =
+                        self.add_constant(Value::String(Rc::new("start".to_string())));
+                    let start_key_reg = self.registers.allocate()?;
+                    self.emit(Opcode::LoadConst, start_key_reg, start_key_idx, 0);
+                    let start_val_reg = self.registers.allocate()?;
+                    self.emit(Opcode::LoadInt, start_val_reg, count, 0);
+                    self.emit(Opcode::SetIndex, start_val_reg, args_reg, start_key_reg);
+                    self.free_temp(start_key_reg);
+                    self.free_temp(start_val_reg);
+                    let rest_reg = self.registers.allocate()?;
+                    self.emit(Opcode::Slice, rest_reg, value_reg, args_reg);
+                    self.free_temp(args_reg);
+                    self.compile_binding_pattern(rest, rest_reg, mutable)?;
+                    self.free_temp(rest_reg);
+                }
+                Ok(())
+            }
+        }
+    }
+
+    /// Emits the shape check with the pattern's span, so an error points at it.
+    fn emit_destructure(&mut self, value_reg: u8, mode: u8, count: u8, span: Span) {
+        let previous_span = self.current_span;
+        self.current_span = span;
+        self.emit(Opcode::Destructure, value_reg, mode, count);
+        self.current_span = previous_span;
+    }
+
+    fn pattern_len(&self, len: usize, span: Span) -> Result<u8, CompileError> {
+        u8::try_from(len)
+            .map_err(|_| self.error("a destructuring pattern has at most 255 elements", span))
+    }
+
+    fn bind_pattern_elements(
+        &mut self,
+        items: &[pleno_ast::BindingPattern],
+        value_reg: u8,
+        mutable: bool,
+    ) -> Result<(), CompileError> {
+        for (i, item) in items.iter().enumerate() {
+            if matches!(item.kind, pleno_ast::BindingPatternKind::Ignore) {
+                continue;
+            }
+            let idx_reg = self.registers.allocate()?;
+            self.emit(Opcode::LoadInt, idx_reg, i as u8, 0);
+            let element_reg = self.registers.allocate()?;
+            self.emit(Opcode::GetIndex, element_reg, value_reg, idx_reg);
+            self.free_temp(idx_reg);
+            self.compile_binding_pattern(item, element_reg, mutable)?;
+            self.free_temp(element_reg);
+        }
+        Ok(())
+    }
+
     fn compile_pattern(
         &mut self,
         pattern: &Pattern,
@@ -3924,6 +4055,11 @@ impl Compiler {
             StmtKind::Let { name, .. } => {
                 locals.insert(name.clone(), ());
             }
+            StmtKind::LetPattern { pattern, .. } => {
+                for (name, _) in pattern.bindings() {
+                    locals.insert(name.to_string(), ());
+                }
+            }
             StmtKind::Block(items) => {
                 for item in items {
                     self.collect_locals(item, locals);
@@ -3980,6 +4116,14 @@ impl Compiler {
             StmtKind::Let { name, .. } => {
                 if let Some(s) = scope.last_mut() {
                     s.insert(name.clone());
+                }
+            }
+            StmtKind::LetPattern { pattern, value, .. } => {
+                self.collect_idents_expr(value, used, scope);
+                if let Some(s) = scope.last_mut() {
+                    for (name, _) in pattern.bindings() {
+                        s.insert(name.to_string());
+                    }
                 }
             }
             StmtKind::Assign { name, value } => {
@@ -4463,7 +4607,7 @@ impl Compiler {
             StmtKind::Expr(expr) => {
                 self.expand_expr(expr, substitutions);
             }
-            StmtKind::Let { value: Some(v), .. } => {
+            StmtKind::Let { value: Some(v), .. } | StmtKind::LetPattern { value: v, .. } => {
                 self.expand_expr(v, substitutions);
             }
             StmtKind::Assign { value, .. } => {
@@ -4864,19 +5008,22 @@ impl Compiler {
         let mut parts = Vec::new();
         let mut current = String::new();
         let mut depth = 0;
+        let mut prev = ' ';
         for c in s.chars() {
             if c == sep && depth == 0 {
                 parts.push(current.trim().to_string());
                 current = String::new();
             } else {
-                if c == '<' {
-                    depth += 1;
-                }
-                if c == '>' {
-                    depth -= 1;
+                match c {
+                    '<' | '(' | '[' => depth += 1,
+                    // `=>` in a function type is not a closing bracket.
+                    '>' if prev != '=' => depth -= 1,
+                    ')' | ']' => depth -= 1,
+                    _ => {}
                 }
                 current.push(c);
             }
+            prev = c;
         }
         parts.push(current.trim().to_string());
         parts.into_iter().filter(|s| !s.is_empty()).collect()
@@ -4952,7 +5099,12 @@ impl Compiler {
         let builtin_generic = ty_name.split_once('<').is_some_and(|(base, _)| {
             matches!(base.trim(), "Array" | "Map" | "Set" | "Result" | "Option")
         });
-        if let Some(start_idx) = ty_name.find('<').filter(|_| !builtin_generic) {
+        // Tuple and function types are checked from the annotation text too.
+        let structural = ty_name.starts_with('(');
+        if let Some(start_idx) = ty_name
+            .find('<')
+            .filter(|_| !builtin_generic && !structural)
+        {
             // `Name<Args>`: anything else (`a<b`, a union part like `x<y`) is
             // not a type this can reify.
             if !ty_name.ends_with('>') || start_idx + 1 >= ty_name.len() - 1 {
@@ -5185,7 +5337,10 @@ impl Compiler {
             StmtKind::Expr(expr) => self.find_closures_and_captures_in_expr(expr, boxed),
             StmtKind::Let {
                 value: Some(val), ..
-            } => self.find_closures_and_captures_in_expr(val, boxed),
+            }
+            | StmtKind::LetPattern { value: val, .. } => {
+                self.find_closures_and_captures_in_expr(val, boxed)
+            }
             StmtKind::Assign { value, .. } => self.find_closures_and_captures_in_expr(value, boxed),
             StmtKind::Block(stmts) => {
                 for s in stmts {

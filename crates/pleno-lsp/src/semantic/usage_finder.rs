@@ -105,6 +105,12 @@ impl<'a> Visitor<'a> for ScopeBuilder<'a> {
                     self.visit_expr(expr);
                 }
             }
+            StmtKind::LetPattern { pattern, value, .. } => {
+                self.visit_expr(value);
+                for (name, span) in pattern.bindings() {
+                    self.define(name, span);
+                }
+            }
             StmtKind::Class {
                 name, name_span, ..
             }
@@ -186,7 +192,7 @@ fn resolve_in_scope(builder: &ScopeBuilder, start_scope: usize, name: &str) -> O
 }
 
 /// Helper to get the name from a node if it is adaptable to a reference/definition
-fn get_node_name(node: &Node) -> Option<String> {
+fn get_node_name(node: &Node, pos: usize) -> Option<String> {
     match node {
         Node::Expr(e) => match &e.kind {
             ExprKind::Ident(name) => Some(name.clone()),
@@ -205,6 +211,7 @@ fn get_node_name(node: &Node) -> Option<String> {
             StmtKind::Class { name, .. } | StmtKind::Interface { name, .. } => Some(name.clone()),
             StmtKind::Enum(e) => Some(e.name.clone()),
             StmtKind::Let { name, .. } => Some(name.clone()),
+            StmtKind::LetPattern { pattern, .. } => binding_at(pattern, pos).map(|(name, _)| name),
             _ => None,
         },
         _ => None,
@@ -213,7 +220,7 @@ fn get_node_name(node: &Node) -> Option<String> {
 
 pub fn find_declaration(program: &Program, pos: usize) -> Option<Span> {
     let node = find_node_at(program, pos)?;
-    let name = get_node_name(&node)?;
+    let name = get_node_name(&node, pos)?;
 
     // Check if we are ON the definition
     if let Node::Function(f) = node
@@ -234,6 +241,11 @@ pub fn find_declaration(program: &Program, pos: usize) -> Option<Span> {
             StmtKind::Enum(e) if e.name_span.contains(pos) => {
                 return Some(e.name_span);
             }
+            StmtKind::LetPattern { pattern, .. } => {
+                if let Some((_, span)) = binding_at(pattern, pos) {
+                    return Some(span);
+                }
+            }
             _ => {}
         }
     }
@@ -248,6 +260,15 @@ pub fn find_declaration(program: &Program, pos: usize) -> Option<Span> {
     let scope_idx = find_scope_for_pos(&builder, pos);
 
     resolve_in_scope(&builder, scope_idx, &name)
+}
+
+/// The name a destructuring pattern binds at `pos`, with its span.
+fn binding_at(pattern: &pleno_ast::BindingPattern, pos: usize) -> Option<(String, Span)> {
+    pattern
+        .bindings()
+        .into_iter()
+        .find(|(_, span)| span.contains(pos))
+        .map(|(name, span)| (name.to_string(), span))
 }
 
 struct UsageVisitor<'a> {
@@ -276,10 +297,12 @@ impl<'a, 'b> Visitor<'a> for UsageVisitor<'b> {
 pub fn find_usages(program: &Program, pos: usize) -> Vec<Span> {
     let decl_span = find_declaration(program, pos);
     if let Some(decl) = decl_span {
-        let node = find_node_at(program, pos).or_else(|| find_node_at(program, decl.start));
+        let node = find_node_at(program, pos)
+            .map(|node| (node, pos))
+            .or_else(|| find_node_at(program, decl.start).map(|node| (node, decl.start)));
 
-        if let Some(node) = node
-            && let Some(name) = get_node_name(&node)
+        if let Some((node, node_pos)) = node
+            && let Some(name) = get_node_name(&node, node_pos)
         {
             let builder = build_scopes(program);
             let mut visitor = UsageVisitor {
@@ -297,4 +320,45 @@ pub fn find_usages(program: &Program, pos: usize) -> Vec<Span> {
         }
     }
     Vec::new()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn parse(source: &str) -> Program {
+        let tokens = pleno_lexer::lex(source).unwrap();
+        pleno_parser::Parser::new(tokens, source)
+            .parse_program()
+            .unwrap()
+    }
+
+    #[test]
+    fn destructured_names_resolve_to_their_pattern() {
+        let source = "let (a, [b, ...rest]) = (1, [2, 3]);\nprint(a + b + rest.length);";
+        let program = parse(source);
+        let a_decl = source.find('a').unwrap();
+        let a_use = source.rfind("a +").unwrap();
+        let rest_decl = source.find("rest").unwrap();
+        let rest_use = source.rfind("rest").unwrap();
+
+        assert_eq!(
+            find_declaration(&program, a_use),
+            Some(Span::new(a_decl, a_decl + 1))
+        );
+        assert_eq!(
+            find_declaration(&program, rest_use),
+            Some(Span::new(rest_decl, rest_decl + 4))
+        );
+        // From the definition inside the pattern: the definition and the use.
+        assert_eq!(
+            find_declaration(&program, a_decl),
+            Some(Span::new(a_decl, a_decl + 1))
+        );
+        let usages = find_usages(&program, a_decl);
+        assert_eq!(
+            usages,
+            vec![Span::new(a_decl, a_decl + 1), Span::new(a_use, a_use + 1)]
+        );
+    }
 }

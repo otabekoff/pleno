@@ -110,7 +110,7 @@ const status = [
   {
     label: 'Before 1.0',
     tone: 'next',
-    items: ['A frozen language specification', 'Faster execution', 'Destructuring and one error shape', 'Signed releases in package managers'],
+    items: ['A frozen language specification', 'Faster execution', 'One error shape', 'Signed releases in package managers'],
   },
   {
     label: 'After 1.0',
