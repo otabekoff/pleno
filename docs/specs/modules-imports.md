@@ -95,4 +95,4 @@ import _math from "std:math";
 let res = _math.sin(_math.PI / 2);
 ````
 
-For more details on available modules, see the [Standard Library Reference](../stdlib-ref.md).
+For more details on available modules, see the [Standard Library reference](/stdlib/).

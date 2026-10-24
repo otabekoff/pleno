@@ -6,7 +6,7 @@ Explore projects, tools, and applications built using the Pleno programming lang
 
 | Project              | Description                                           | Link                                             |
 | -------------------- | ----------------------------------------------------- | ------------------------------------------------ |
-| **Pleno Playground** | Online interactive REPL with Monaco Editor.           | [/playground](/playground)                       |
+| **VS Code extension** | Highlighting, language server, debugger and toolchain install. | [/guide/editor](/guide/editor) |
 | **Plm**              | The Pleno Package Manager for ecosystem control.      | [/specs/package-manager](/specs/package-manager) |
 | **Pleno LSP**        | Professional Language Server Protocol implementation. | [/specs/tooling-cli](/specs/tooling-cli)         |
 

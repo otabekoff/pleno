@@ -1,110 +1,26 @@
 /**
- * Customize default theme styling by overriding CSS variables:
+ * Pleno theme: the VitePress default theme in the colors of the logo
+ * (red #EF4857, magenta #D211EC, violet #7F52FF).
  * https://github.com/vuejs/vitepress/blob/main/src/client/theme-default/styles/vars.css
  */
 
-/**
- * Colors
- *
- * Each colors have exact same color scale system with 3 levels of solid
- * colors with different brightness, and 1 soft color.
- *
- * - `XXX-1`: The most solid color used mainly for colored text. It must
- *   satisfy the contrast ratio against when used on top of `XXX-soft`.
- *
- * - `XXX-2`: The color used mainly for hover state of the button.
- *
- * - `XXX-3`: The color for solid background, such as bg color of the button.
- *   It must satisfy the contrast ratio with pure white (#ffffff) text on
- *   top of it.
- *
- * - `XXX-soft`: The color used for subtle background such as custom container
- *   or badges. It must satisfy the contrast ratio when putting `XXX-1` colors
- *   on top of it.
- *
- *   The soft color must be semi transparent alpha channel. This is crucial
- *   because it allows adding multiple "soft" colors on top of each other
- *   to create an accent, such as when having inline code block inside
- *   custom containers.
- *
- * - `default`: The color used purely for subtle indication without any
- *   special meanings attached to it such as bg color for menu hover state.
- *
- * - `brand`: Used for primary brand colors, such as link text, button with
- *   brand theme, etc.
- *
- * - `tip`: Used to indicate useful information. The default theme uses the
- *   brand color for this by default.
- *
- * - `warning`: Used to indicate warning to the users. Used in custom
- *   container, badges, etc.
- *
- * - `danger`: Used to show error, or dangerous message to the users. Used
- *   in custom container, badges, etc.
- * -------------------------------------------------------------------------- */
-
 :root {
-  --vp-c-indigo-1: #a8b1ff;
-  --vp-c-indigo-2: #5c73e7;
-  --vp-c-indigo-3: #3e63dd;
-  --vp-c-indigo-soft: rgba(100, 108, 255, 0.16);
+  --pleno-red: #ef4857;
+  --pleno-magenta: #d211ec;
+  --pleno-violet: #7f52ff;
+  --pleno-gradient: linear-gradient(120deg, var(--pleno-red) 0%, var(--pleno-magenta) 50%, var(--pleno-violet) 100%);
 
-  --vp-c-indigo-1: #3451b2;
-  --vp-c-indigo-2: #3a5ccc;
-  --vp-c-indigo-3: #5672cd;
-  --vp-c-indigo-soft: rgba(100, 108, 255, 0.14);
-
-  /* -#19947c; */
-
-  /* Emerald palette */
-
-  /*
-  --vp-c-emerald-1: #25705b;
-  --vp-c-emerald-2: #2e8f7c;
-  --vp-c-emerald-3: #38b296;
-  --vp-c-emerald-soft: rgba(16, 185, 129, 0.16);
-  */
-
-  /* Darker emerald (like your second indigo set) */
-
-  /*
-  --vp-c-emerald-1: #42ab8e;
-  --vp-c-emerald-2: #19947c;
-  --vp-c-emerald-3: #10b981;
-  --vp-c-emerald-soft: rgba(16, 185, 129, 0.14);
-  */
-
-  --vp-c-default-1: var(--vp-c-gray-1);
-  --vp-c-default-2: var(--vp-c-gray-2);
-  --vp-c-default-3: var(--vp-c-gray-3);
-  --vp-c-default-soft: var(--vp-c-gray-soft);
-
-  --vp-c-brand-1: var(--vp-c-indigo-1);
-  --vp-c-brand-2: var(--vp-c-indigo-2);
-  --vp-c-brand-3: var(--vp-c-indigo-3);
-  --vp-c-brand-soft: var(--vp-c-indigo-soft);
+  /* Link and accent colors keep 4.5:1 contrast on the page background. */
+  --vp-c-brand-1: #6d3ff0;
+  --vp-c-brand-2: #7f52ff;
+  --vp-c-brand-3: #6a35e8;
+  --vp-c-brand-soft: rgba(127, 82, 255, 0.14);
 
   --vp-c-tip-1: var(--vp-c-brand-1);
   --vp-c-tip-2: var(--vp-c-brand-2);
   --vp-c-tip-3: var(--vp-c-brand-3);
   --vp-c-tip-soft: var(--vp-c-brand-soft);
 
-  --vp-c-warning-1: var(--vp-c-yellow-1);
-  --vp-c-warning-2: var(--vp-c-yellow-2);
-  --vp-c-warning-3: var(--vp-c-yellow-3);
-  --vp-c-warning-soft: var(--vp-c-yellow-soft);
-
-  --vp-c-danger-1: var(--vp-c-red-1);
-  --vp-c-danger-2: var(--vp-c-red-2);
-  --vp-c-danger-3: var(--vp-c-red-3);
-  --vp-c-danger-soft: var(--vp-c-red-soft);
-}
-
-/**
- * Component: Button
- * -------------------------------------------------------------------------- */
-
-:root {
   --vp-button-brand-border: transparent;
   --vp-button-brand-text: var(--vp-c-white);
   --vp-button-brand-bg: var(--vp-c-brand-3);
@@ -114,19 +30,23 @@
   --vp-button-brand-active-border: transparent;
   --vp-button-brand-active-text: var(--vp-c-white);
   --vp-button-brand-active-bg: var(--vp-c-brand-1);
+
+  --vp-home-hero-name-color: transparent;
+  --vp-home-hero-name-background: var(--pleno-gradient);
+  --vp-home-hero-image-background-image: linear-gradient(-45deg, var(--pleno-red) 50%, var(--pleno-violet) 50%);
+  --vp-home-hero-image-filter: blur(72px);
+
+  --vp-custom-block-tip-border: transparent;
+  --vp-custom-block-tip-text: var(--vp-c-text-1);
+  --vp-custom-block-tip-bg: var(--vp-c-brand-soft);
+  --vp-custom-block-tip-code-bg: var(--vp-c-brand-soft);
 }
 
-/**
- * Component: Home
- * -------------------------------------------------------------------------- */
-
-:root {
-  --vp-home-hero-name-color: transparent;
-  --vp-home-hero-name-background: -webkit-linear-gradient(-45deg, #884afd 0%, #e73980 100%);
-  --vp-home-hero-image-background-image: linear-gradient(-45deg,
-      #e73980 50%,
-      #884afd 50%);
-  --vp-home-hero-image-filter: blur(108px);
+.dark {
+  --vp-c-brand-1: #b9a0ff;
+  --vp-c-brand-2: #9f7cff;
+  --vp-c-brand-3: #7f52ff;
+  --vp-c-brand-soft: rgba(159, 124, 255, 0.16);
 }
 
 @media (min-width: 640px) {
@@ -141,22 +61,79 @@
   }
 }
 
-/**
- * Component: Custom Block
- * -------------------------------------------------------------------------- */
-
-:root {
-  --vp-custom-block-tip-border: transparent;
-  --vp-custom-block-tip-text: var(--vp-c-text-1);
-  --vp-custom-block-tip-bg: var(--vp-c-brand-soft);
-  --vp-custom-block-tip-code-bg: var(--vp-c-brand-soft);
+/* The site title in the navbar uses the logo gradient. */
+.VPNavBarTitle .title span {
+  background: var(--pleno-gradient);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  font-weight: 700;
 }
 
-/**
- * Component: Algolia
- * -------------------------------------------------------------------------- */
+/* A thin gradient line under the navbar, as on the logo. */
+.VPNavBar::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 1px;
+  background: var(--pleno-gradient);
+  opacity: 0.35;
+}
+
+.VPHero .name {
+  letter-spacing: -0.02em;
+}
+
+/* Feature cards lift slightly on hover. */
+.VPFeature {
+  transition: border-color 0.25s, transform 0.25s;
+}
+
+.VPFeature:hover {
+  border-color: var(--vp-c-brand-2);
+  transform: translateY(-2px);
+}
+
+/* "Pleno at a glance" on the home page. */
+/* Same width as the feature cards: 1152px of content plus the padding. */
+.home-showcase {
+  max-width: 1280px;
+  margin: 64px auto 32px;
+  padding: 0 24px;
+}
+
+@media (min-width: 640px) {
+  .home-showcase {
+    padding: 0 48px;
+  }
+}
+
+@media (min-width: 960px) {
+  .home-showcase {
+    padding: 0 64px;
+  }
+}
+
+.home-showcase h2 {
+  border-top: none;
+  margin: 0 0 8px;
+  padding: 0;
+  font-size: 28px;
+}
+
+.home-showcase > p {
+  margin: 0 0 20px;
+  color: var(--vp-c-text-2);
+}
+
+.home-showcase .vp-code-group {
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: var(--vp-shadow-3);
+}
 
 .DocSearch {
   --docsearch-primary-color: var(--vp-c-brand-1) !important;
-  background-color: #161618;
 }

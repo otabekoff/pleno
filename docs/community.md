@@ -157,7 +157,7 @@ Pleno is an open-source project and we love contributions! Check out our [Contri
 
 A showcase of projects created by our community.
 
-- **[Pleno Playground](/playground)**: The official online REPL for Pleno.
+- **[VS Code extension](/guide/editor)**: Highlighting, language server, debugger and toolchain install.
 - **[Pleno LSP](/specs/tooling-cli)**: High-performance language server.
 - **[GitHub Releases](https://github.com/otabekoff/pleno/releases)**: Download binaries and VS Code extension.
 

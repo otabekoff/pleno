@@ -4,10 +4,6 @@ Phase 5 represents a major milestone for Pleno. We've moved beyond the core lang
 
 ## What's New?
 
-### 🌐 Monaco-powered Playground
-
-The Pleno [playground](/playground) now uses the Monaco Editor, the same engine that powers VS Code. Enjoy syntax highlighting, micro-animations, and instant execution.
-
 ### 💻 Semantic LSP
 
 Our Language Server Protocol (LSP) implementation now performs full semantic analysis. This means **Go to Definition**, **Find References**, and **Rename** are more accurate than ever.

@@ -1,82 +1,72 @@
-# Getting Started with Pleno
+# Getting started
 
-Welcome to Pleno! This guide will help you install Pleno and write your first program.
+This page assumes Pleno is [installed](./installation).
 
-## Installation
+## Your first program
 
-### Prerequisites
-
-- **Rust**: Pleno is built with Rust. Ensure you have Rust installed (`rustup`).
-- **Git**: For cloning the repository.
-
-### Installing from Source
-
-```bash
-git clone https://github.com/otabekoff/pleno.git
-cd pleno
-cargo build --release
-```
-
-Add the binary to your path:
-
-```bash
-# Linux/macOS
-export PATH="$PWD/target/release:$PATH"
-
-# Windows (PowerShell)
-$env:PATH += ";$PWD\target\release"
-```
-
-### Verify Installation
-
-```bash
-pleno --version
-# Pleno 0.1.0
-```
-
-## Your First Program
-
-Create a file named `hello.pln`:
+Create `hello.pln`:
 
 ```pleno
-fn main() {
-    print("Hello, Pleno!");
+fn greet(name: String): String {
+    return `Hello, ${name}!`;
 }
 
-main();
+print(greet("Pleno"));
 ```
 
 Run it:
 
-```bash
+```sh
 pleno run hello.pln
 ```
 
-## Language Basics
+`pleno check hello.pln` finds syntax errors and misspelled names without running the file.
 
-### Variables
+## A project
 
-```pleno
-let name = "Alice";        // Immutable by default
-let mut counter = 0;       // Mutable variable
-const PI = 3.14159;        // Constant
+```sh
+mkdir my-app
+cd my-app
+plm init my-app
+plm run dev    # runs src/main.pln
+plm test       # runs the tests in tests/
 ```
 
-### Functions
+`plm init` creates `pleno.toml` (the name, scripts and dependencies), `src/main.pln`, a test in `tests/`, and editor settings. See [Packages](./packages) for dependencies.
+
+## The language in a few minutes
+
+### Values and variables
 
 ```pleno
-fn greet(name: String): String {
-    return "Hello, " + name + "!";
+let name = "Ada";          // cannot be reassigned
+let mut count = 0;         // can be
+const LIMIT = 10;
+count += 1;
+
+let numbers = [1, 2, 3];
+let ages = {"Ada": 36, "Alan": 41};
+let point = (x: 1.5, y: 2.0);   // a named tuple
+print(numbers.length, ages["Ada"], point.x);
+```
+
+### Types, where you want them
+
+```pleno
+fn area(width: Float, height: Float): Float {
+    return width * height;
 }
 
-print(greet("World"));  // Hello, World!
+let maybe: Int? = null;      // Int or null
+let id: Int | String = 42;   // either
 ```
 
-### Control Flow
+A value of the wrong type raises an error when the code runs: `area("3", 4.0)` fails with `parameter 'width' expected Float, got String`.
+
+### Control flow
 
 ```pleno
 let score = 85;
-
 if (score >= 90) {
     print("A");
 } else if (score >= 80) {
@@ -85,13 +75,20 @@ if (score >= 90) {
     print("C");
 }
 
-// For loop
-for (i in 0..5) {
-    print(i);
+for (i in 0..3) {
+    print(i);   // 0, 1, 2
 }
+
+let grade = "B";
+let label = match (grade) {
+    case "A" => "excellent",
+    case "B" => "good",
+    case _ => "keep going"
+};
+print(label);   // good
 ```
 
-### Classes
+### Classes and enums
 
 ```pleno
 class Person {
@@ -108,37 +105,55 @@ class Person {
     }
 }
 
-let alice = Person("Alice", 30);
-print(alice.greet());
+enum Shape {
+    Circle(radius),
+    Square(side)
+}
+
+fn area(shape: Shape): Float {
+    match (shape) {
+        case Shape.Circle(r) => return 3.14159 * r * r,
+        case Shape.Square(s) => return s * s
+    }
+}
+
+print(Person("Ada", 36).greet(), area(Shape.Square(2.0)));
 ```
 
-### Async/Await
+### Errors
 
 ```pleno
-async fn fetchData(url: String) {
+fn parsePort(text: String): Int {
+    let port = text.toInt();
+    if (port < 1 || port > 65535) {
+        throw Error(`invalid port ${text}`);
+    }
+    return port;
+}
+
+try {
+    parsePort("70000");
+} catch (e) {
+    print(e.message);
+}
+```
+
+### Async code
+
+```pleno
+import { HTTP } from "std:http";
+
+async fn fetchTitle(url: String): String {
     let response = await HTTP.get(url);
-    return response.body;
+    return response.body.substring(0, 60);
 }
 
-async fn main() {
-    let data = await fetchData("https://api.example.com");
-    print(data);
-}
+let task = spawn(fn() => 6 * 7);
+print(await task);   // 42
 ```
 
-## CLI Commands
+## Next
 
-```bash
-pleno run script.pln      # Run a script
-pleno repl                 # Start interactive REPL
-pleno check script.pln     # Type check without running
-pleno format src/          # Format code
-pleno test tests/          # Run tests
-```
-
-## Next Steps
-
-- Explore the [Language Specification](/specs/)
-- Browse the [Standard Library](/stdlib/)
-- Check out the [Examples](/examples)
-- Learn about [Contributing](contributing.md)
+- [Set up your editor](./editor)
+- [Write tests](./testing)
+- Read the [language reference](/specs/) and the [standard library](/stdlib/)
