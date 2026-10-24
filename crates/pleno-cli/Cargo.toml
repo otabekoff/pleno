@@ -56,7 +56,7 @@ serde_json = { workspace = true }
 log = { workspace = true }
 env_logger = { workspace = true }
 notify = "6"
-bincode = "1"
+pleno-bytecode = { workspace = true }
 chrono = { workspace = true }
 reqwest = { workspace = true }
 

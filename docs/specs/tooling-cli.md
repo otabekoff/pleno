@@ -21,8 +21,11 @@ pleno watch main.pln
 ## Building
 
 ```bash
-# Compile to bytecode
-pleno compile main.pln --output main.plc
+# Compile to bytecode (writes main.plc next to main.pln)
+pleno compile main.pln
+
+# Run the compiled bytecode
+pleno run main.plc
 
 # Build optimized binary
 pleno build --release --output app
@@ -30,6 +33,26 @@ pleno build --release --output app
 # Cross-compile (future)
 pleno build --target wasm32
 ```
+
+### The `.plc` format
+
+A `.plc` file starts with an 8-byte header, followed by the compiled program:
+
+| Bytes | Contents |
+|-------|----------|
+| 0-3 | The magic bytes `PLNC` |
+| 4-7 | The bytecode format version, a little-endian 32-bit integer (currently `1`) |
+| 8- | The compiled program (bincode-encoded) |
+
+`pleno run` checks the header before it reads anything else. A file that does not start with
+`PLNC` fails with `not a Pleno bytecode file`. A file with another format version fails with
+`` this .plc file was compiled by a different Pleno version (bytecode format N, this pleno reads M); recompile it with `pleno compile` ``,
+and a cut-off file fails with an error that says it is truncated. Bytecode is never misread.
+
+The format version goes up whenever the layout of compiled programs changes, which can happen in
+any release. A `.plc` file only runs on a `pleno` that reads the same format version, so keep the
+`.pln` sources and recompile after upgrading. `.plc` files written before Pleno 0.3 have no header
+and must be recompiled.
 
 ## Type Checking & Linting
 

@@ -1397,6 +1397,7 @@ dependencies = [
 name = "pleno-bytecode"
 version = "0.2.0"
 dependencies = [
+ "bincode",
  "indexmap",
  "num-derive",
  "num-traits",
@@ -1410,12 +1411,12 @@ dependencies = [
 name = "pleno-cli"
 version = "0.2.0"
 dependencies = [
- "bincode",
  "chrono",
  "env_logger",
  "log",
  "notify",
  "pleno-ast",
+ "pleno-bytecode",
  "pleno-common",
  "pleno-compiler",
  "pleno-dap",
