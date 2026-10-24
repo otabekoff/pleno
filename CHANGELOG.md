@@ -7,6 +7,7 @@ Notable changes to Pleno. The format follows [Keep a Changelog](https://keepacha
 ### Added
 
 - Destructuring in `let`: `let (a, b) = pair;`, `let mut (x, (y, _)) = nested;` and `let [first, ...rest] = items;`, with runtime errors such as `tuple has 2 elements, pattern expects 3`. Tuple type annotations such as `(Int, String)` and `(Int, Int)[]` are checked at runtime.
+- `pleno check` and the language server report wrong argument counts and unknown named arguments for functions, constructors and `this` methods declared in the file, literals that cannot match a type annotation (`let x: Int = "hi";`), and, as a warning, unknown methods called on `this`.
 - `pleno run file.plc` runs bytecode written by `pleno compile`.
 
 ### Changed
