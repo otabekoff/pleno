@@ -30,7 +30,7 @@ fn reflection_demo() {
 
 reflection_demo();
 
-// Macro syntax – currently parsed only, no expansion:
+// Macros expand at compile time; ${code} splices an argument:
 macro repeat(count, code) {
     for (let i = 0; i < count; i++) {
         ${code}

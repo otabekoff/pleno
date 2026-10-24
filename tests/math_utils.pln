@@ -1,3 +1,4 @@
+// skip: module imported by the module_*_import tests
 // Module definition file
 module MathUtils;
 

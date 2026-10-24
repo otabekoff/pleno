@@ -32,6 +32,7 @@ if (io.File.exists(test_file)) {
     print("File written successfully.");
     let read_content = io.File.read(test_file);
     print("Read content: " + read_content);
+    io.File.delete(test_file);
 } else {
     print("File write failed.");
 }
@@ -43,3 +44,6 @@ if (io.Directory.exists(test_dir)) {
 } else {
     print("Directory creation failed.");
 }
+
+// Clean up so the test can run again.
+io.Directory.delete(test_dir);

@@ -1,3 +1,4 @@
+import * as IO from "std:io";
 print("Starting IO test using global IO");
 
 // Test stdout

@@ -1,1 +1,2 @@
+// skip: scratch file (`**` is not a Pleno operator; use Math.pow)
 1 ** 2;

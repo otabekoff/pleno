@@ -1,3 +1,4 @@
+// expect-error: invalid operands for +: Int and Bool
 print("Verifying Error Messages...");
 // This should fail with a type error including types
 print(1 + true);

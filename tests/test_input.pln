@@ -1,3 +1,4 @@
+// stdin: Ada\n30\nanything\n
 // Test input function
 let name = input("Enter your name: ");
 print("Hello, " + name + "!");

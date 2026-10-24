@@ -12,6 +12,7 @@ fn main() {
         print("Success: Wrote to allowed.txt");
         let content = File.read("allowed.txt");
         print("Read: " + content);
+        File.delete("allowed.txt");
     } catch (e) {
         print("Unexpected Error: " + e.message);
     }
