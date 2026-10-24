@@ -27,6 +27,12 @@ pub trait VMProvider {
     fn get_gc(&mut self) -> &mut gc::GCManager;
     fn create_promise(&mut self) -> Result<(u64, Value), RuntimeError>;
     fn resolve_promise(&mut self, id: u64, value: Value);
+    fn reject_promise(&mut self, id: u64, reason: Value);
+    /// Records that a rejected promise now has a handler (a late `.catch` or `.then`).
+    fn mark_rejection_handled(&mut self, id: u64);
+    /// Runs one `.then`/`.catch`/`.finally` registration against a settled promise.
+    /// `info` is `[on_fulfilled, child_id, on_rejected, kind]` (kind 1 = finally).
+    fn run_promise_callback(&mut self, info: &[Value], value: &Value, rejected: bool);
     fn register_multi_waiter(&mut self, waiter: MultiWaiter);
     fn check_purity(&mut self) -> Result<(), RuntimeError>;
     fn collect(&mut self);
@@ -312,6 +318,8 @@ impl GcObject for ChannelState {
 pub struct FileState {
     pub inner: RefCell<Option<Box<dyn Write>>>,
     pub name: String,
+    /// Set for files opened in read mode (`File.open(path, "r")`).
+    pub read_path: Option<String>,
 }
 
 impl std::fmt::Debug for FileState {
@@ -345,6 +353,7 @@ impl<'de> Deserialize<'de> for FileState {
         Ok(FileState {
             inner: RefCell::new(None), // Deserialized files are closed
             name: data.name,
+            read_path: None,
         })
     }
 }
@@ -769,6 +778,9 @@ pub struct EnumVariantDef {
     pub param_count: usize,
     #[serde(default)]
     pub annotations: Vec<RuntimeAnnotation>,
+    /// Explicit value, as in `Active = 1`.
+    #[serde(default)]
+    pub value: Option<Value>,
 }
 
 impl GcObject for EnumType {
@@ -950,6 +962,8 @@ pub enum MethodOwner {
     Class(GcRc<Class>),
     Enum(GcRc<EnumType>),
     Interface(GcRc<Interface>),
+    /// An extension method on a built-in type such as `String` (`extend String { ... }`).
+    Builtin(Rc<String>),
 }
 
 impl MethodOwner {
@@ -958,6 +972,7 @@ impl MethodOwner {
             MethodOwner::Class(c) => c.borrow().name.clone(),
             MethodOwner::Enum(e) => e.borrow().name.clone(),
             MethodOwner::Interface(i) => i.borrow().name.clone(),
+            MethodOwner::Builtin(name) => name.clone(),
         }
     }
 }
@@ -978,7 +993,9 @@ impl MethodInfo {
             MethodOwner::Class(c) => gc.mark_object(&c.to_gc_object()),
             MethodOwner::Enum(e) => gc.mark_object(&e.to_gc_object()),
             MethodOwner::Interface(i) => gc.mark_object(&i.to_gc_object()),
+            MethodOwner::Builtin(_) => {}
         }
+        self.function.mark(gc);
     }
 }
 
@@ -1059,7 +1076,12 @@ impl PartialEq for Value {
             (Value::BoundFunction(a), Value::BoundFunction(b)) => a == b,
             (Value::BoundClass(a), Value::BoundClass(b)) => a == b,
             (Value::Enum(a), Value::Enum(b)) => a == b,
-            (Value::Variant(a), Value::Variant(b)) => a == b,
+            // Variants are values: `Status.Active == Status.Active` even though each
+            // access constructs a new variant.
+            (Value::Variant(a), Value::Variant(b)) => {
+                let (a, b) = (a.borrow(), b.borrow());
+                a.enum_type == b.enum_type && a.variant_name == b.variant_name && a.data == b.data
+            }
             (Value::VariantConstructor(a), Value::VariantConstructor(b)) => a == b,
             (Value::BoundInterface(a), Value::BoundInterface(b)) => a == b,
             (Value::Cell(a), Value::Cell(b)) => a == b,

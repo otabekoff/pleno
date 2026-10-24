@@ -53,7 +53,20 @@ TMP_DIR=$(mktemp -d)
 trap 'rm -rf "$TMP_DIR"' EXIT
 
 printf "${BLUE}Downloading binaries...${NC}\n"
-curl -L -o "$TMP_DIR/pleno.tar.gz" "$DOWNLOAD_URL"
+curl -fL -o "$TMP_DIR/pleno.tar.gz" "$DOWNLOAD_URL"
+
+# Verify checksum against the published .sha256 file
+printf "${BLUE}Verifying checksum...${NC}\n"
+EXPECTED_HASH=$(curl -fsL "$DOWNLOAD_URL.sha256" | cut -d ' ' -f 1)
+if command -v sha256sum >/dev/null 2>&1; then
+    ACTUAL_HASH=$(sha256sum "$TMP_DIR/pleno.tar.gz" | cut -d ' ' -f 1)
+else
+    ACTUAL_HASH=$(shasum -a 256 "$TMP_DIR/pleno.tar.gz" | cut -d ' ' -f 1)
+fi
+if [ -z "$EXPECTED_HASH" ] || [ "$EXPECTED_HASH" != "$ACTUAL_HASH" ]; then
+    printf "${RED}Error: Checksum verification failed.${NC}\n"
+    exit 1
+fi
 
 printf "${BLUE}Extracting...${NC}\n"
 tar -xzf "$TMP_DIR/pleno.tar.gz" -C "$TMP_DIR"

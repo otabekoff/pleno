@@ -32,7 +32,7 @@ for (i in 0..3) {
 
 // While loop
 print("2.2 While loop:");
-let j = 0;
+let mut j = 0;
 while (j < 3) {
     print(j);
     j = j + 1;

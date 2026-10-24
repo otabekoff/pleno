@@ -1,3 +1,4 @@
+import { Reflect } from "std:reflect";
 
 class User {
     public name: String;

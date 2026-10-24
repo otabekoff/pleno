@@ -1,5 +1,5 @@
 
-// EXPECT_COMPILE_ERROR
+// expect-error: break used outside of loop
 // This file is used to verify that the compiler correctly handles errors
 // instead of panicking.
 

@@ -65,3 +65,20 @@ pub fn run_source(source: String) -> String {
         Err(e) => e,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn runs_source_and_captures_output() {
+        let output = run_source("let x = 6 * 7; print(\"answer: \" + x);".to_string());
+        assert_eq!(output.trim(), "answer: 42");
+    }
+
+    #[test]
+    fn reports_compile_and_runtime_errors() {
+        assert!(run_source("let x = ;".to_string()).starts_with("Compilation failed"));
+        assert!(run_source("print(1 / 0);".to_string()).contains("division by zero"));
+    }
+}

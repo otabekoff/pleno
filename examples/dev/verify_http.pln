@@ -1,3 +1,4 @@
+// requires: network
 import { Http } from "std:http";
 
 fn main() {
@@ -12,7 +13,7 @@ fn main() {
 
     if (get_resp.contains("https://httpbin.org/get")) {
         print("GET Verification: SUCCESS");
-        print("Response length: " + get_resp.length());
+        print("Response length: " + get_resp.length);
     } else {
         print("GET Verification: FAILURE - response content mismatch");
         print(get_resp);

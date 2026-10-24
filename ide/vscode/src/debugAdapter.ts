@@ -1,7 +1,7 @@
 import * as vscode from "vscode";
 import { ChildProcess, spawn } from "child_process";
 import * as path from "path";
-import { getPlenoPath } from "./utils";
+import { getPlenoDapPath, getPlenoPath } from "./utils";
 
 /**
  * Pleno Debug Adapter Factory
@@ -24,8 +24,17 @@ export class PlenoDebugAdapterFactory
         _session: vscode.DebugSession,
         _executable: vscode.DebugAdapterExecutable | undefined,
     ): vscode.ProviderResult<vscode.DebugAdapterDescriptor> {
-        // For now, we use an inline implementation
-        // In the future, this can be replaced with an external debug adapter
+        // Debug with the real `pleno-dap` adapter (breakpoints, stepping,
+        // variables) when it is installed.
+        const dapPath = getPlenoDapPath(this.context);
+        if (dapPath) {
+            return new vscode.DebugAdapterExecutable(dapPath, []);
+        }
+
+        // Without it the program still runs, but stepping is only simulated.
+        vscode.window.showWarningMessage(
+            "pleno-dap was not found, so debugging is simulated. Install Pleno or set 'pleno.dap.path'.",
+        );
         return new vscode.DebugAdapterInlineImplementation(
             new PlenoDebugSession(this.context, this.outputChannel),
         );

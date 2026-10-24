@@ -235,13 +235,26 @@ impl NanValue {
                     })
                 }
                 TAG_CLASS => {
+                    // The low pointer bit distinguishes a specialized generic class.
+                    let is_bound = (self.0 & 0x1) != 0;
                     let ptr = self.as_ptr::<()>().unwrap();
-                    let rc = unsafe {
-                        ManuallyDrop::new(Rc::from_raw(ptr as *const std::cell::RefCell<Class>))
-                    };
-                    Value::Class(GcRc {
-                        inner: Rc::clone(&rc),
-                    })
+                    if is_bound {
+                        let rc = unsafe {
+                            ManuallyDrop::new(Rc::from_raw(
+                                ptr as *const std::cell::RefCell<crate::BoundClassState>,
+                            ))
+                        };
+                        Value::BoundClass(GcRc {
+                            inner: Rc::clone(&rc),
+                        })
+                    } else {
+                        let rc = unsafe {
+                            ManuallyDrop::new(Rc::from_raw(ptr as *const std::cell::RefCell<Class>))
+                        };
+                        Value::Class(GcRc {
+                            inner: Rc::clone(&rc),
+                        })
+                    }
                 }
                 TAG_CLOSURE => {
                     let ptr = self.as_ptr::<()>().unwrap();
@@ -286,13 +299,28 @@ impl NanValue {
                     })
                 }
                 TAG_INTERFACE => {
+                    // The low pointer bit distinguishes a specialized generic interface.
+                    let is_bound = (self.0 & 0x1) != 0;
                     let ptr = self.as_ptr::<()>().unwrap();
-                    let rc = unsafe {
-                        ManuallyDrop::new(Rc::from_raw(ptr as *const std::cell::RefCell<Interface>))
-                    };
-                    Value::Interface(GcRc {
-                        inner: Rc::clone(&rc),
-                    })
+                    if is_bound {
+                        let rc = unsafe {
+                            ManuallyDrop::new(Rc::from_raw(
+                                ptr as *const std::cell::RefCell<crate::BoundInterfaceState>,
+                            ))
+                        };
+                        Value::BoundInterface(GcRc {
+                            inner: Rc::clone(&rc),
+                        })
+                    } else {
+                        let rc = unsafe {
+                            ManuallyDrop::new(Rc::from_raw(
+                                ptr as *const std::cell::RefCell<Interface>,
+                            ))
+                        };
+                        Value::Interface(GcRc {
+                            inner: Rc::clone(&rc),
+                        })
+                    }
                 }
                 TAG_FILE => {
                     let ptr = self.as_ptr::<()>().unwrap();
@@ -476,11 +504,17 @@ impl NanValue {
             Value::Set(s) => Self::encode(TAG_SET, s.as_refcell_ptr() as usize as u64),
             Value::Object(o) => Self::encode(TAG_OBJECT, o.as_refcell_ptr() as usize as u64),
             Value::Class(c) => Self::encode(TAG_CLASS, c.as_refcell_ptr() as usize as u64),
+            Value::BoundClass(c) => {
+                Self::encode(TAG_CLASS, (c.as_refcell_ptr() as usize as u64) | 0x1)
+            }
             Value::Closure(c) => Self::encode(TAG_CLOSURE, c.as_refcell_ptr() as usize as u64),
             Value::Thunk(t) => Self::encode(TAG_THUNK, t.as_refcell_ptr() as usize as u64),
             Value::Tuple(t) => Self::encode(TAG_TUPLE, t.as_refcell_ptr() as usize as u64),
             Value::Enum(e) => Self::encode(TAG_ENUM, e.as_refcell_ptr() as usize as u64),
             Value::Interface(i) => Self::encode(TAG_INTERFACE, i.as_refcell_ptr() as usize as u64),
+            Value::BoundInterface(i) => {
+                Self::encode(TAG_INTERFACE, (i.as_refcell_ptr() as usize as u64) | 0x1)
+            }
             Value::File(f) => Self::encode(TAG_FILE, f.as_refcell_ptr() as usize as u64),
             Value::Mutex(m) => Self::encode(TAG_MUTEX, m.as_refcell_ptr() as usize as u64),
             Value::Channel(c) => Self::encode(TAG_CHANNEL, c.as_refcell_ptr() as usize as u64),
@@ -565,86 +599,10 @@ impl NanValue {
     }
 
     pub fn mark(&self, gc: &mut crate::gc::MarkAndSweepGC) {
-        let tag = self.tag();
-        if (TAG_MAP..=TAG_CHANNEL).contains(&tag) {
-            let ptr = self.as_ptr::<()>().unwrap();
-            match tag {
-                TAG_MAP => {
-                    let ptr = ptr as *const std::cell::RefCell<MapState>;
-                    unsafe { (*ptr).borrow().mark(gc) };
-                }
-                TAG_ARRAY => {
-                    let ptr = ptr as *const std::cell::RefCell<ArrayState>;
-                    unsafe { (*ptr).borrow().mark(gc) };
-                }
-                TAG_SET => {
-                    let ptr = ptr as *const std::cell::RefCell<SetState>;
-                    unsafe { (*ptr).borrow().mark(gc) };
-                }
-                TAG_OBJECT => {
-                    let ptr = ptr as *const std::cell::RefCell<Object>;
-                    unsafe { (*ptr).borrow().mark(gc) };
-                }
-                TAG_CLASS => {
-                    let ptr = ptr as *const std::cell::RefCell<Class>;
-                    unsafe { (*ptr).borrow().mark(gc) };
-                }
-                TAG_CLOSURE => {
-                    let ptr = ptr as *const std::cell::RefCell<ClosureState>;
-                    unsafe { (*ptr).borrow().mark(gc) };
-                }
-                TAG_THUNK => {
-                    let ptr = ptr as *const std::cell::RefCell<ThunkState>;
-                    unsafe { (*ptr).borrow().mark(gc) };
-                }
-                TAG_TUPLE => {
-                    let ptr = ptr as *const std::cell::RefCell<TupleState>;
-                    unsafe { (*ptr).borrow().mark(gc) };
-                }
-                TAG_FILE => {
-                    let ptr = ptr as *const std::cell::RefCell<crate::FileState>;
-                    unsafe { (*ptr).borrow().mark(gc) };
-                }
-                TAG_MUTEX => {
-                    let ptr = ptr as *const std::cell::RefCell<crate::MutexState>;
-                    unsafe { (*ptr).borrow().mark(gc) };
-                }
-                TAG_CHANNEL => {
-                    let ptr = ptr as *const std::cell::RefCell<crate::ChannelState>;
-                    unsafe { (*ptr).borrow().mark(gc) };
-                }
-                _ => {}
-            }
-        } else if (TAG_PARTIAL..=TAG_CELL).contains(&tag) {
-            // Handle new boxed types
-            let ptr = self.as_ptr::<()>().unwrap();
-            match tag {
-                TAG_PARTIAL => {
-                    let ptr = ptr as *const std::cell::RefCell<PartialState>;
-                    unsafe { (*ptr).borrow().mark(gc) };
-                }
-                TAG_BOUND_METHOD => {
-                    let ptr = ptr as *const std::cell::RefCell<BoundMethodState>;
-                    unsafe { (*ptr).borrow().mark(gc) };
-                }
-                TAG_STATIC_METHOD => {
-                    let ptr = ptr as *const std::cell::RefCell<StaticMethodState>;
-                    unsafe { (*ptr).borrow().mark(gc) };
-                }
-                TAG_BOUND_NATIVE => {
-                    let ptr = ptr as *const std::cell::RefCell<BoundNativeMethodState>;
-                    unsafe { (*ptr).borrow().mark(gc) };
-                }
-                TAG_BOUND_FUNC => {
-                    let ptr = ptr as *const std::cell::RefCell<BoundFunctionState>;
-                    unsafe { (*ptr).borrow().mark(gc) };
-                }
-                TAG_CELL => {
-                    let ptr = ptr as *const std::cell::RefCell<CellState>;
-                    unsafe { (*ptr).borrow().mark(gc) };
-                }
-                _ => {}
-            }
+        // Mark through `Value` so the referenced object itself is marked, not only
+        // its children; otherwise objects reachable only from registers are swept.
+        if !self.is_f64() && self.tag() >= TAG_STRING {
+            GcObject::mark(&self.to_value(), gc);
         }
     }
 }

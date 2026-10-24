@@ -16,6 +16,8 @@ pub struct AsyncTask {
     pub closure_state: Option<GcRc<ClosureState>>,
     pub is_async: bool,
     pub is_resolved: bool,
+    /// For a settled task (`is_resolved`), whether the promise was rejected.
+    pub is_rejected: bool,
 }
 
 impl GcObject for AsyncTask {
@@ -82,6 +84,7 @@ impl GcObject for CallFrame {
                 MethodOwner::Class(class) => gc.mark_object(&class.to_gc_object()),
                 MethodOwner::Enum(enum_type) => gc.mark_object(&enum_type.to_gc_object()),
                 MethodOwner::Interface(interface) => gc.mark_object(&interface.to_gc_object()),
+                MethodOwner::Builtin(_) => {}
             }
         }
         for arg in &self.type_args {
@@ -99,6 +102,7 @@ pub struct VmRoots<'a> {
     pub suspended_frames: &'a IndexMap<u64, SuspendedFrame>,
     pub promises: &'a IndexMap<u64, Value>,
     pub multi_waiters: &'a [MultiWaiter],
+    pub builtin_extensions: &'a IndexMap<String, IndexMap<String, pleno_value::MethodInfo>>,
 }
 
 impl<'a> GcObject for VmRoots<'a> {
@@ -126,6 +130,11 @@ impl<'a> GcObject for VmRoots<'a> {
         }
         for waiter in self.multi_waiters {
             waiter.mark(gc);
+        }
+        for methods in self.builtin_extensions.values() {
+            for info in methods.values() {
+                info.mark(gc);
+            }
         }
     }
 }

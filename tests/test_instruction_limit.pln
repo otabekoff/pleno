@@ -1,3 +1,4 @@
+// args: --max-instructions 100000
 // test_instruction_limit.pln
 fn main() {
     print("Starting infinite loop test...");

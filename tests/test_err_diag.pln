@@ -1,1 +1,2 @@
+// expect-error: Unexpected token in expression: Eof
 let x =

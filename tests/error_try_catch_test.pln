@@ -10,7 +10,7 @@ fn assert(condition: Bool, message: String) {
 
 // Test 1: Basic try-catch
 print("Test 1: Basic try-catch");
-let caught = false;
+let mut caught = false;
 try {
     throw "test error";
 } catch (e) {
@@ -21,7 +21,7 @@ assert(caught, "Catch block executed");
 
 // Test 2: Finally block
 print("\nTest 2: Finally block");
-let finallyCalled = false;
+let mut finallyCalled = false;
 try {
     throw "error";
 } catch (e) {
@@ -33,7 +33,7 @@ assert(finallyCalled, "Finally block executed");
 
 // Test 3: Finally without catch
 print("\nTest 3: Finally without error");
-let finallyCount = 0;
+let mut finallyCount = 0;
 try {
     finallyCount = 1;
 } finally {

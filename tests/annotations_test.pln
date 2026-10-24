@@ -1,3 +1,4 @@
+import { Reflect } from "std:reflect";
 // Simple annotation test for classes
 
 @Author("PlenoUser")

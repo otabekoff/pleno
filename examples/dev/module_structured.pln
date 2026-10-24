@@ -1,3 +1,4 @@
+// skip: module file, not a runnable script
 module Structured;
 
 let hidden = 7;

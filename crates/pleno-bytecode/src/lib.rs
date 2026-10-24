@@ -125,6 +125,8 @@ pub enum Opcode {
     AddStaticMethod,
     SetFieldType,
     SetStaticFieldType,
+    /// a = enum, b = variant name constant, c = value constant
+    SetVariantValue,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

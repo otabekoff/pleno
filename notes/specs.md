@@ -25,12 +25,16 @@
 
 ### 1.2 Variables & Constants ✅
 
-#### Variables (mutable) ✅
+#### Variables ✅
+
+`let` bindings cannot be reassigned; declare them with `let mut` to allow it.
 
 ```pleno
 let x = 10;                    // Type inference
 let name: String = "Alice";    // Explicit type
 let mut counter = 0;           // Explicitly mutable
+counter = counter + 1;         // OK
+// x = 11;                     // ERROR: cannot assign to immutable binding
 ```
 
 #### Constants (truly immutable)
@@ -129,10 +133,13 @@ fn process(value: Int | Float | String): String {
 let optional: Int? = null;   // Can be Int or null
 let username: String? = "alice";
 
-// Safe navigation operator [V2]
+// Safe navigation: the whole chain is null if any part is null
 let length = username?.length;  // Returns Int? (null if username is null)
+let street = user?.profile?.address?.street;
+let first = list?.[0];
+let result = obj?.method?.();   // Calls method only if obj and obj.method exist
 
-// Null coalescing [V2]
+// Null coalescing
 let displayName = username ?? "Guest";
 
 // Forced unwrap (runtime error if null)
@@ -1438,9 +1445,11 @@ let multiline = `
 
 ### 13.2 Math Operations ✅
 
-Pleno's `Math` module is a built-in global giving access to mathematical constants and functions.
+The `std:math` module provides mathematical constants and functions, as a `Math` namespace or as individual imports.
 
 ```pleno
+import { Math } from "std:math";   // or: import { abs, sqrt } from "std:math";
+
 Math.abs(-5);           // 5
 Math.ceil(4.3);         // 5
 Math.floor(4.7);        // 4

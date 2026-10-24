@@ -62,6 +62,8 @@ pub struct DebugContext {
     pub hit_counts: HashMap<(String, usize), usize>,   // (file, line) -> hits
     pub step_over_depth: Option<usize>,                // call stack depth
     pub variable_tracker: VariableTracker,
+    /// Set when resuming, so execution moves past the instruction it paused on.
+    pub skip_next_check: bool,
 }
 
 impl DebugContext {
@@ -84,6 +86,7 @@ impl DebugContext {
 
     pub fn resume(&mut self) {
         self.state = DebugState::Running;
+        self.skip_next_check = true;
     }
 
     pub fn get_breakpoint(
@@ -99,6 +102,10 @@ impl DebugContext {
             return None;
         }
         let line = function.chunk.lines[ip] as usize;
+        // A breakpoint triggers once per line: on the line's first instruction.
+        if ip > 0 && function.chunk.lines[ip - 1] as usize == line {
+            return None;
+        }
 
         if let Some(breakpoints) = self.breakpoints.get(path) {
             return breakpoints.iter().find(|bp| bp.line == line);
@@ -112,6 +119,9 @@ impl DebugContext {
         ip: usize,
         functions: &[crate::Function],
     ) -> bool {
+        if std::mem::take(&mut self.skip_next_check) {
+            return false;
+        }
         if let DebugState::Paused(_) = self.state {
             return true;
         }

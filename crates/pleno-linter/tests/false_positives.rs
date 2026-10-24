@@ -90,8 +90,10 @@ fn test_complex_literals_usage() {
     "#;
     let messages = lint(input);
 
+    // `x` and `y` are only read inside literals; the containers themselves are unused.
     assert!(
-        !messages.iter().any(|msg| msg.rule_name == "no-unused-vars"),
+        !messages.iter().any(|msg| msg.rule_name == "no-unused-vars"
+            && (msg.message.contains("'x'") || msg.message.contains("'y'"))),
         "Variables used in literals should be marked as used"
     );
 }

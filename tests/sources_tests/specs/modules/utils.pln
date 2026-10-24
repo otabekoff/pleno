@@ -1,3 +1,4 @@
+// skip: module imported by 08_modules_main.pln
 module Utils;
 
 export fn add(a: Int, b: Int): Int {

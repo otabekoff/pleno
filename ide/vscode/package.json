@@ -127,6 +127,11 @@
           "default": "pleno-lsp",
           "description": "Path to the Pleno Language Server executable."
         },
+        "pleno.dap.path": {
+          "type": "string",
+          "default": "",
+          "description": "Path to the Pleno debug adapter (pleno-dap). Found on PATH when empty."
+        },
         "pleno.cli.path": {
           "type": "string",
           "default": "",

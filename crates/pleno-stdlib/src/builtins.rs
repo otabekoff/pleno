@@ -149,6 +149,14 @@ pub fn register_builtins(vm: &mut dyn VMProvider) {
         "race".to_string(),
         Value::NativeFunction(crate::promise::promise_race),
     );
+    promise_obj_map.insert(
+        "resolve".to_string(),
+        Value::NativeFunction(crate::promise::promise_resolve_static),
+    );
+    promise_obj_map.insert(
+        "reject".to_string(),
+        Value::NativeFunction(crate::promise::promise_reject_static),
+    );
     let promise_val = Value::Map(
         vm.get_gc()
             .allocate(MapState::new(promise_obj_map))
@@ -475,6 +483,32 @@ fn native_file_close(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, 
     Ok(Value::Null)
 }
 
+/// The contents of a file opened with `File.open(path, "r")`.
+fn read_open_file(args: &[Value]) -> Result<String, RuntimeError> {
+    let file = match args.first() {
+        Some(Value::File(f)) => f,
+        _ => return Err(RuntimeError::new("Expected file")),
+    };
+    let path = file
+        .borrow()
+        .read_path
+        .clone()
+        .ok_or_else(|| RuntimeError::new("file is not open for reading"))?;
+    std::fs::read_to_string(&path).map_err(|e| RuntimeError::new(e.to_string()))
+}
+
+fn native_file_read(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    Ok(Value::String(Rc::new(read_open_file(args)?)))
+}
+
+fn native_file_read_lines(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    let lines = read_open_file(args)?
+        .lines()
+        .map(|line| Value::String(Rc::new(line.to_string())))
+        .collect();
+    Ok(Value::Array(vm.get_gc().allocate(ArrayState::new(lines))?))
+}
+
 pub fn resolve_builtin_method(ty: &str, name: &str) -> Option<pleno_value::NativeFunction> {
     match (ty, name) {
         ("String", "toUpperCase") | ("String", "upper") => Some(native_string_upper),
@@ -552,7 +586,11 @@ pub fn resolve_builtin_method(ty: &str, name: &str) -> Option<pleno_value::Nativ
         ("File", "write") => Some(native_file_write),
         ("File", "flush") => Some(native_file_flush),
         ("File", "close") => Some(native_file_close),
+        ("File", "read") => Some(native_file_read),
+        ("File", "readLines") => Some(native_file_read_lines),
         ("Promise", "then") => Some(crate::promise::promise_then),
+        ("Promise", "catch") => Some(crate::promise::promise_catch),
+        ("Promise", "finally") => Some(crate::promise::promise_finally),
         ("Mutex", "lock") => Some(crate::concurrency::native_mutex_lock),
         ("Mutex", "unlock") => Some(crate::concurrency::native_mutex_unlock),
         ("Channel", "send") => Some(crate::concurrency::native_channel_send),
@@ -1288,13 +1326,24 @@ fn native_array_with(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, R
         Value::Array(a) => a,
         _ => return Err(RuntimeError::new("expected array")),
     };
+    let mut elements = arr.borrow().elements.clone();
+
+    // `with(value)` returns an immutable copy with `value` appended.
+    if args.len() == 2 {
+        elements.push(args[1].clone());
+        return Ok(Value::Array(vm.get_gc().allocate(ArrayState {
+            elements,
+            is_immutable: true,
+        })?));
+    }
+
+    // `with(index, value)` returns an immutable copy with the element replaced.
     let index = match args.get(1) {
         Some(Value::Int(i)) => *i,
         _ => return Err(RuntimeError::new("expected integer index")),
     };
     let value = args.get(2).cloned().unwrap_or(Value::Null);
 
-    let mut elements = arr.borrow().elements.clone();
     let len = elements.len() as i64;
 
     let normalized_index = if index < 0 { len + index } else { index };

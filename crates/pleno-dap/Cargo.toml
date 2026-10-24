@@ -20,3 +20,4 @@ pleno-bytecode = { workspace = true }
 pleno-compiler = { workspace = true }
 pleno-parser = { workspace = true }
 pleno-lexer = { workspace = true }
+pleno-stdlib = { workspace = true }

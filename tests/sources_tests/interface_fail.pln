@@ -1,3 +1,4 @@
+// expect-error: missing method 'draw' required by interface 'Drawable'
 
 interface Drawable {
     draw(x: Int, y: Int): Null

@@ -1,4 +1,6 @@
+// skip: starts a server; covered by scripts/test_http_server.sh
 import { Server, Router } from "std:http";
+import { JSON } from "std:json";
 
 let router = Router();
 

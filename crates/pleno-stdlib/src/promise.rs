@@ -32,17 +32,14 @@ pub fn promise_constructor(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Va
 
     // Execute the executor immediately
     // If it throws, we catch it and reject the promise
-    match vm.call(executor, vec![resolve_fn, reject_fn]) {
-        Ok(_) => {}
-        Err(e) => {
-            // rejection logic could be here, but current VM error handling propagates up.
-            // In a real Promise impl, we'd want to catch this and reject.
-            // For now, let it propagate or manually reject if we could catch it.
-            // Since vm.call returns Result, we can reject:
-            vm.resolve_promise(id, Value::String(Rc::new(e.message))); // Simplified rejection
-            // Ideally we set state to Rejected, but currently resolve_promise just sets value and Resolved state.
-            // We need a proper reject mechanism in VM or just reuse resolve for now.
-        }
+    // An executor that throws rejects the promise.
+    if let Err(e) = vm.call(executor, vec![resolve_fn, reject_fn]) {
+        let reason = e
+            .message
+            .strip_prefix("uncaught exception: ")
+            .unwrap_or(&e.message)
+            .to_string();
+        vm.reject_promise(id, Value::String(Rc::new(reason)));
     }
 
     Ok(promise)
@@ -67,9 +64,6 @@ fn native_promise_resolve(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Val
 }
 
 fn native_promise_reject(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
-    // Similar to resolve but perhaps wrapping in error or setting distinct state
-    // For now simplistic implementation: resolve with error message or value
-    // We ideally need vm.reject_promise
     if args.is_empty() {
         return Err(RuntimeError::new("reject expects receiver"));
     }
@@ -79,75 +73,101 @@ fn native_promise_reject(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Valu
     if let Value::Map(map) = receiver {
         let b = map.borrow();
         if let Some(Value::Int(id)) = b.get("id") {
-            // For now treat rejection as resolution with the reason.
-            // Real implementation needs 'Rejected' state.
-            vm.resolve_promise(*id as u64, reason);
+            vm.reject_promise(*id as u64, reason);
         }
     }
     Ok(Value::Null)
 }
 
 pub fn promise_then(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
-    // args[0] is receiver (the promise)
-    // args[1] is on_fulfilled
-    // args[2] is on_rejected (optional)
+    // args: [receiver, on_fulfilled, on_rejected?]
     if args.len() < 2 {
         return Err(RuntimeError::new("then() requires callback"));
     }
-    let parent = &args[0];
-    let on_fulfilled = args[1].clone();
-    let _on_rejected = args.get(2).cloned();
+    let on_rejected = args.get(2).cloned().unwrap_or(Value::Null);
+    register_callback(vm, &args[0], args[1].clone(), on_rejected, 0)
+}
 
-    // Create a new dependent promise
+pub fn promise_catch(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    // args: [receiver, on_rejected]
+    if args.len() < 2 {
+        return Err(RuntimeError::new("catch() requires callback"));
+    }
+    register_callback(vm, &args[0], Value::Null, args[1].clone(), 0)
+}
+
+pub fn promise_finally(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    // args: [receiver, on_finally]
+    if args.len() < 2 {
+        return Err(RuntimeError::new("finally() requires callback"));
+    }
+    register_callback(vm, &args[0], args[1].clone(), Value::Null, 1)
+}
+
+/// `Promise.resolve(value)`: a promise already fulfilled with `value`.
+pub fn promise_resolve_static(
+    vm: &mut dyn VMProvider,
+    args: &[Value],
+) -> Result<Value, RuntimeError> {
+    let (id, promise) = vm.create_promise()?;
+    vm.resolve_promise(id, args.first().cloned().unwrap_or(Value::Null));
+    Ok(promise)
+}
+
+/// `Promise.reject(reason)`: a promise already rejected with `reason`.
+pub fn promise_reject_static(
+    vm: &mut dyn VMProvider,
+    args: &[Value],
+) -> Result<Value, RuntimeError> {
+    let (id, promise) = vm.create_promise()?;
+    vm.reject_promise(id, args.first().cloned().unwrap_or(Value::Null));
+    Ok(promise)
+}
+
+/// Registers a `then`/`catch`/`finally` callback on `parent` and returns the
+/// dependent promise. `kind` is 0 for then/catch and 1 for finally.
+fn register_callback(
+    vm: &mut dyn VMProvider,
+    parent: &Value,
+    on_fulfilled: Value,
+    on_rejected: Value,
+    kind: i64,
+) -> Result<Value, RuntimeError> {
     let (child_id, child_promise) = vm.create_promise()?;
+    let info = vec![
+        on_fulfilled,
+        Value::Int(child_id as i64),
+        on_rejected,
+        Value::Int(kind),
+    ];
 
-    if let Value::Map(map) = parent {
-        let mut b = map.borrow_mut();
+    let Value::Map(map) = parent else {
+        return Ok(child_promise);
+    };
 
-        // If parent is already resolved, schedule the task immediately
-        if let Some(Value::String(s)) = b.get("variant")
-            && s.as_str() == "Resolved"
-        {
-            let value = b.get("value").cloned().unwrap_or(Value::Null);
-            // We can't immediately run callback here easily, or we can?
-            // If we run it, we block.
-            // Better to spawn a task or rely on VM loop.
-            // Since we are in a builtin, we can perhaps just return the child promise
-            // and let the VM handle it?
-            // But we need to register the linkage.
-
-            // Simplest: register an AsyncTask that will execute the callback
-            // But we don't have public access to AsyncTask construction from here easily
-            // unless we add a method to VMProvider.
-            // For now, let's just assume we can simply attach to the parent's callbacks list.
-            // Since it's resolved, maybe we just execute immediately?
-            let result = vm.call(on_fulfilled, vec![value])?;
-            vm.resolve_promise(child_id, result);
-        } else {
-            // Attach to parent's callbacks
-            // We need to store this callback in the Promise map so VM picks it up on resolution
-            // But Map stores Value, not native functions or closures easily accessible this way?
-            // We can store a list of "then_callbacks" in the map.
-            let callback_info = vec![on_fulfilled, Value::Int(child_id as i64)]; // Callback + Child ID
-
-            // We need a list of these.
-            // Since Value doesn't have a List type that holds arbitrary internal data easily,
-            // we use Array<Value>.
-
-            let mut callbacks = match b.get("callbacks") {
-                Some(Value::Array(arr)) => arr.borrow().elements.clone(),
-                _ => Vec::new(),
-            };
-
-            // Encode call info as an array: [callback, child_id]
-            let info = Value::Array(vm.get_gc().allocate(ArrayState::new(callback_info))?);
-            callbacks.push(info);
-
-            b.insert(
-                "callbacks".to_string(),
-                Value::Array(vm.get_gc().allocate(ArrayState::new(callbacks))?),
-            );
+    let settled = {
+        let b = map.borrow();
+        match b.get("variant").and_then(|v| v.as_str()) {
+            Some("Resolved") => Some((b.get("value").cloned().unwrap_or(Value::Null), false)),
+            Some("Rejected") => Some((b.get("value").cloned().unwrap_or(Value::Null), true)),
+            _ => None,
         }
+    };
+
+    if let Some((value, rejected)) = settled {
+        if rejected && let Some(Value::Int(id)) = map.borrow().get("id") {
+            vm.mark_rejection_handled(*id as u64);
+        }
+        vm.run_promise_callback(&info, &value, rejected);
+    } else {
+        // Stored on the promise; the VM runs these when it settles.
+        let mut callbacks = match map.borrow().get("callbacks") {
+            Some(Value::Array(arr)) => arr.borrow().elements.clone(),
+            _ => Vec::new(),
+        };
+        callbacks.push(Value::Array(vm.get_gc().allocate(ArrayState::new(info))?));
+        let callbacks = Value::Array(vm.get_gc().allocate(ArrayState::new(callbacks))?);
+        map.borrow_mut().insert("callbacks".to_string(), callbacks);
     }
 
     Ok(child_promise)
