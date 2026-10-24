@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 use std::process;
 
 use chrono::Datelike;
+use pleno_common::style::{self, Stream};
 use pleno_compiler::BuildProfile;
 use pleno_package::{Dependency, DependencyDetail, Manifest};
 
@@ -45,7 +46,11 @@ pub fn run_pleno() {
             print_help();
         }
         "-v" | "--version" => {
-            println!("pleno {VERSION}", VERSION = env!("CARGO_PKG_VERSION"));
+            println!(
+                "{} {}",
+                style::gradient(Stream::Stdout, "pleno", &style::BRAND),
+                env!("CARGO_PKG_VERSION")
+            );
         }
         "init" => {
             handle_init(&mut args);
@@ -110,7 +115,7 @@ pub fn run_pleno() {
             check_file(&path, json_output);
         }
         "test" => {
-            let mut test_path = "sources/tests".to_string();
+            let mut test_path = default_test_dir();
             let mut json_output = false;
             for arg in args.by_ref() {
                 if arg == "--json" {
@@ -188,7 +193,7 @@ fn run_plm_core(args: &mut std::iter::Peekable<std::iter::Skip<std::env::Args>>)
         "search" => handle_plm_search(args),
         "build" => handle_build(args),
         "test" => {
-            let mut test_path = "sources/tests".to_string();
+            let mut test_path = default_test_dir();
             let mut json_output = false;
             for arg in args.by_ref() {
                 if arg == "--json" {
@@ -239,53 +244,87 @@ fn start_default() {
 }
 
 pub fn print_help() {
-    const HELP: &[&str] = &[
-        "Pleno Programming Language CLI",
-        "",
-        "Usage: pleno <command> [arguments]",
-        "",
-        "Commands:",
-        "  run <file.pln>      Run a Pleno file",
-        "  plm <command>       Package management (see below)",
-        "  format <path>       Format Pleno files (also: fmt; --stdout prints)",
-        "  lint <path>         Lint Pleno files",
-        "  check <file.pln>    Type check a Pleno file (--json for editors)",
-        "  test <path>         Run tests in a file or directory (--json)",
-        "  compile <file.pln>  Compile a file to .plc bytecode",
-        "  build [file]        Compile the package's main file (--release, --test)",
-        "  watch <file.pln>    Run a file again whenever it changes",
-        "  doc [path] [out]    Generate documentation",
-        "  repl                Start the interactive REPL",
-        "  lsp                 Start the language server",
-        "  dap                 Start the debug adapter on stdio",
-        "",
-        "Package Commands (plm):",
-        "  init [name]         Initialize a new Pleno package",
-        "  info                Show the package from pleno.toml",
-        "  install [url]       Install dependencies or a specific package",
-        "  update              Update all dependencies",
-        "  remove <name>       Remove a dependency",
-        "  run <script>        Run a script defined in pleno.toml",
-        "  build, test         Build or test the package",
-        "  publish             Publish to the registry named by PLENO_REGISTRY",
-        "  search <term>       Search the registry",
-        "",
-        "Options:",
-        "  -h, --help                 Show this help message",
-        "  -v, --version              Show version information",
-        "  --max-memory <bytes>       Set memory limit in bytes",
-        "  --max-instructions <num>   Set instruction count limit",
-        "  --allow-io <bool>          Enable/disable IO access",
-        "  --allow-network <bool>     Enable/disable network access",
-        "",
-        "Examples:",
-        "  pleno run main.pln",
-        "  pleno plm install",
-        "  pleno plm update",
-        "  pleno plm remove http-client",
-        "  pleno plm run dev",
+    const SECTIONS: &[(&str, &[(&str, &str)])] = &[
+        (
+            "Commands",
+            &[
+                ("run <file.pln>", "Run a Pleno file"),
+                ("plm <command>", "Package management (see below)"),
+                (
+                    "format <path>",
+                    "Format Pleno files (also: fmt; --stdout prints)",
+                ),
+                ("lint <path>", "Lint Pleno files"),
+                (
+                    "check <file.pln>",
+                    "Check a file without running it (--json for editors)",
+                ),
+                ("test <path>", "Run tests in a file or directory (--json)"),
+                ("compile <file.pln>", "Compile a file to .plc bytecode"),
+                (
+                    "build [file]",
+                    "Compile the package's main file (--release, --test)",
+                ),
+                ("watch <file.pln>", "Run a file again whenever it changes"),
+                ("doc [path] [out]", "Generate documentation"),
+                ("repl", "Start the interactive REPL"),
+                ("lsp", "Start the language server"),
+                ("dap", "Start the debug adapter on stdio"),
+            ],
+        ),
+        (
+            "Package commands (pleno plm <command>, or plm <command>)",
+            &[
+                ("init [name]", "Create a Pleno package in this folder"),
+                ("info", "Show the package from pleno.toml"),
+                (
+                    "install [url]",
+                    "Install dependencies or a specific package",
+                ),
+                ("update", "Update all dependencies"),
+                ("remove <name>", "Remove a dependency"),
+                ("run <script>", "Run a script defined in pleno.toml"),
+                ("build, test", "Build or test the package"),
+                ("publish", "Publish to the registry named by PLENO_REGISTRY"),
+                ("search <term>", "Search the registry"),
+            ],
+        ),
+        (
+            "Options",
+            &[
+                ("-h, --help", "Show this help message"),
+                ("-v, --version", "Show version information"),
+                ("--max-memory <bytes>", "Set the memory limit"),
+                ("--max-instructions <n>", "Set the instruction limit"),
+                ("--allow-io <bool>", "Allow or deny file access"),
+                ("--allow-network <bool>", "Allow or deny network access"),
+            ],
+        ),
     ];
-    println!("{}", HELP.join("\n"));
+    let out = Stream::Stdout;
+    println!(
+        "{} {}",
+        style::gradient(out, "Pleno", &style::BRAND),
+        style::dim(out, env!("CARGO_PKG_VERSION"))
+    );
+    println!();
+    println!("{} pleno <command> [arguments]", style::bold(out, "Usage:"));
+    for (heading, rows) in SECTIONS {
+        println!();
+        println!("{}", style::bold(out, &format!("{heading}:")));
+        for (command, description) in *rows {
+            // Pad before coloring, so the escape codes do not skew the columns.
+            println!(
+                "  {}  {description}",
+                style::cyan(out, &format!("{command:<23}"))
+            );
+        }
+    }
+    println!();
+    println!("{}", style::bold(out, "Examples:"));
+    for example in ["pleno run main.pln", "plm init my-app", "plm run dev"] {
+        println!("  {}", style::dim(out, example));
+    }
 }
 
 fn run_tests(path: &str, json_output: bool, profile: BuildProfile) {
@@ -307,9 +346,16 @@ fn run_tests(path: &str, json_output: bool, profile: BuildProfile) {
         });
         println!("{}", serde_json::to_string_pretty(&out).unwrap());
     } else {
-        println!("\nTest Summary:");
-        println!("  Passed: {}", stats.passed);
-        println!("  Failed: {}", stats.failed);
+        let out = Stream::Stdout;
+        println!("\n{}", style::bold(out, "Test Summary:"));
+        println!("  Passed: {}", style::green(out, &stats.passed.to_string()));
+        let failed = stats.failed.to_string();
+        let failed = if stats.failed > 0 {
+            style::red(out, &failed)
+        } else {
+            failed
+        };
+        println!("  Failed: {failed}");
         println!("  Total:  {}", stats.passed + stats.failed);
     }
 
@@ -374,7 +420,7 @@ fn run_single_test(
         Ok(tokens) => tokens,
         Err(err) => {
             if !json_output {
-                println!("FAILED (Lex Error)");
+                println!("{}", style::red(Stream::Stdout, "FAILED (Lex Error)"));
                 eprintln!(
                     "  Lex error at {}..{}: {}",
                     err.span.start, err.span.end, err.message
@@ -397,7 +443,7 @@ fn run_single_test(
         Ok(program) => program,
         Err(err) => {
             if !json_output {
-                println!("FAILED (Parse Error)");
+                println!("{}", style::red(Stream::Stdout, "FAILED (Parse Error)"));
                 eprintln!(
                     "  Parse error at {}..{}: {}",
                     err.span.start, err.span.end, err.message
@@ -415,6 +461,24 @@ fn run_single_test(
         }
     };
 
+    // A file that declares `module Name;` is a library other files import,
+    // not a test.
+    if program
+        .statements
+        .iter()
+        .any(|stmt| matches!(stmt.kind, pleno_ast::StmtKind::Module { body: None, .. }))
+    {
+        if !json_output {
+            println!("{}", style::dim(Stream::Stdout, "skipped (module)"));
+        }
+        stats.results.push(serde_json::json!({
+            "file": path.display().to_string(),
+            "status": "skipped",
+            "message": "module file"
+        }));
+        return;
+    }
+
     let is_expected_compile_error = source.contains("// EXPECT_COMPILE_ERROR");
     let is_expected_runtime_error = source.contains("// EXPECT_RUNTIME_ERROR");
 
@@ -423,7 +487,13 @@ fn run_single_test(
         Ok(chunk) => {
             if is_expected_compile_error {
                 if !json_output {
-                    println!("FAILED (Expected Compile Error but succeeded)");
+                    println!(
+                        "{}",
+                        style::red(
+                            Stream::Stdout,
+                            "FAILED (Expected Compile Error but succeeded)"
+                        )
+                    );
                 }
                 stats.failed += 1;
                 stats.results.push(serde_json::json!({
@@ -438,7 +508,10 @@ fn run_single_test(
         Err(err) => {
             if is_expected_compile_error {
                 if !json_output {
-                    println!("PASSED (Expected Compile Error)");
+                    println!(
+                        "{}",
+                        style::green(Stream::Stdout, "PASSED (Expected Compile Error)")
+                    );
                 }
                 stats.passed += 1;
                 stats.results.push(serde_json::json!({
@@ -449,7 +522,7 @@ fn run_single_test(
                 return;
             }
             if !json_output {
-                println!("FAILED (Compile Error)");
+                println!("{}", style::red(Stream::Stdout, "FAILED (Compile Error)"));
                 eprintln!("  Compile error: {}", err.diagnostic.message);
             }
             stats.failed += 1;
@@ -464,12 +537,29 @@ fn run_single_test(
     };
 
     let mut vm = pleno_vm::VM::new();
+    vm.main_path = std::fs::canonicalize(path).ok();
     pleno_stdlib::register(&mut vm);
-    match vm.execute(chunk) {
+    pleno_stdlib::test::take_failures();
+    let result = vm.execute(chunk).and_then(|value| {
+        // Failed `test(...)` cases fail the file even though it ran to the end.
+        match pleno_stdlib::test::take_failures() {
+            0 => Ok(value),
+            n => Err(pleno_value::RuntimeError::new(format!(
+                "{n} test(s) failed"
+            ))),
+        }
+    });
+    match result {
         Ok(_) => {
             if is_expected_runtime_error {
                 if !json_output {
-                    println!("FAILED (Expected Runtime Error but succeeded)");
+                    println!(
+                        "{}",
+                        style::red(
+                            Stream::Stdout,
+                            "FAILED (Expected Runtime Error but succeeded)"
+                        )
+                    );
                 }
                 stats.failed += 1;
                 stats.results.push(serde_json::json!({
@@ -479,7 +569,7 @@ fn run_single_test(
                 }));
             } else {
                 if !json_output {
-                    println!("PASSED");
+                    println!("{}", style::green(Stream::Stdout, "PASSED"));
                 }
                 stats.passed += 1;
                 stats.results.push(serde_json::json!({
@@ -491,7 +581,10 @@ fn run_single_test(
         Err(err) => {
             if is_expected_runtime_error {
                 if !json_output {
-                    println!("PASSED (Expected Runtime Error)");
+                    println!(
+                        "{}",
+                        style::green(Stream::Stdout, "PASSED (Expected Runtime Error)")
+                    );
                 }
                 stats.passed += 1;
                 stats.results.push(serde_json::json!({
@@ -501,7 +594,7 @@ fn run_single_test(
                 }));
             } else {
                 if !json_output {
-                    println!("FAILED (Runtime Error)");
+                    println!("{}", style::red(Stream::Stdout, "FAILED (Runtime Error)"));
                     eprintln!("  Runtime error: {}", err.message);
                 }
                 stats.failed += 1;
@@ -609,11 +702,22 @@ fn run_file(path: &str, config: Option<pleno_value::SandboxConfig>, profile: Bui
     if let Some(cfg) = config {
         vm.apply_config(cfg);
     }
+    vm.main_path = std::fs::canonicalize(path).ok();
     pleno_stdlib::register(&mut vm);
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| vm.execute(chunk)));
 
     match result {
-        Ok(Ok(_)) => {}
+        Ok(Ok(_)) => {
+            // A script that runs `test(...)` cases fails when any of them did.
+            let failures = pleno_stdlib::test::take_failures();
+            if failures > 0 {
+                eprintln!(
+                    "{} {failures} test(s) failed",
+                    style::red(Stream::Stderr, "Error:")
+                );
+                process::exit(1);
+            }
+        }
         Ok(Err(err)) => {
             eprintln!(
                 "{}",
@@ -983,6 +1087,18 @@ fn handle_init(args: &mut std::iter::Peekable<std::iter::Skip<std::env::Args>>) 
             .unwrap_or_else(|| "my-app".to_string())
     });
 
+    if Path::new("pleno.toml").exists() {
+        eprintln!(
+            "{} pleno.toml already exists here; run plm init in an empty folder.",
+            style::red(Stream::Stderr, "Error:")
+        );
+        process::exit(1);
+    }
+    let existed: Vec<bool> = INIT_FILES
+        .iter()
+        .map(|path| Path::new(path).exists())
+        .collect();
+
     let mut manifest = Manifest::new(&name, env!("CARGO_PKG_VERSION"));
 
     // Add standard scripts
@@ -1033,7 +1149,7 @@ fn main() {
      * Multi-line comment:
      * Print the hello message to the standard output.
      */
-    print("Hello, ", world);
+    print("Hello,", world);
 }
 
 // Run the main function
@@ -1049,20 +1165,20 @@ main();
     }
     let integration_test = tests_dir.join("integration_test.pln");
     if !integration_test.exists() {
-        let content = r#"/// Minimal test case to verify basic functionality.
-/// Run tests with `plm test`.
+        let content = r#"// Run the tests with `plm test`.
+import { describe, test, assert } from "std:test";
 
-#[test]
-fn test_addition() {
-    assert(1 + 1 == 2, "Math should work");
-}
+describe("math", fn() {
+    test("adds numbers", fn() {
+        assert.equal(1 + 1, 2);
+    });
 
-#[test]
-fn test_template() {
-    let x = 10;
-    let y = 20;
-    assert(x + y == 30, "Complex math should also work");
-}
+    test("compares numbers", fn() {
+        let x = 10;
+        let y = 20;
+        assert.true(x < y);
+    });
+});
 "#;
         fs::write(integration_test, content).expect("Failed to create tests/integration_test.pln");
     }
@@ -1483,8 +1599,55 @@ obligated to maintain confidentiality with regard to the reporter of an incident
         fs::write(extensions_json, content).expect("Failed to create .vscode/extensions.json");
     }
 
-    println!("Initialized Pleno project: {}", name);
+    let out = Stream::Stdout;
+    println!();
+    println!(
+        "  {}  {}",
+        style::gradient(out, "Pleno", &style::BRAND),
+        style::dim(out, &format!("created {name}"))
+    );
+    println!();
+    for (path, existed) in INIT_FILES.iter().zip(existed) {
+        if !existed && Path::new(path).exists() {
+            println!("  {} {path}", style::green(out, "\u{2714}"));
+        }
+    }
+    println!();
+    println!("  {}", style::bold(out, "Done. Now run:"));
+    println!();
+    println!("    {}", style::cyan(out, "plm run dev"));
+    println!("    {}", style::cyan(out, "plm test"));
+    println!();
 }
+
+/// Where `pleno test` and `plm test` look without a path: `tests/`, as
+/// `plm init` creates it, or the older `sources/tests/`.
+fn default_test_dir() -> String {
+    ["tests", "sources/tests"]
+        .into_iter()
+        .find(|dir| Path::new(dir).is_dir())
+        .unwrap_or("tests")
+        .to_string()
+}
+
+/// The files `plm init` creates, listed when it finishes.
+const INIT_FILES: &[&str] = &[
+    "pleno.toml",
+    "src/main.pln",
+    "tests/integration_test.pln",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md",
+    "CONTRIBUTING.md",
+    "CODE_OF_CONDUCT.md",
+    "SECURITY.md",
+    ".gitignore",
+    ".editorconfig",
+    ".vscode/settings.json",
+    ".vscode/tasks.json",
+    ".vscode/launch.json",
+    ".vscode/extensions.json",
+];
 
 fn handle_install(args: &mut std::iter::Peekable<std::iter::Skip<std::env::Args>>) {
     let mut pkg_name = None;

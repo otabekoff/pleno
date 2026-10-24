@@ -51,6 +51,9 @@ pub struct VM {
     pub promises: IndexMap<u64, Value>,
     pub next_promise_id: u64,
     pub multi_waiters: Vec<MultiWaiter>,
+    /// The file being run: relative imports in it resolve from its folder,
+    /// not from the working directory.
+    pub main_path: Option<std::path::PathBuf>,
     /// Promises passed to `Promise.all` or `Promise.race`: those observe their
     /// rejections, even after the combined promise has settled.
     combined_promises: std::collections::HashSet<u64>,
@@ -688,6 +691,7 @@ impl VM {
             promises: IndexMap::new(),
             next_promise_id: 1,
             multi_waiters: Vec::new(),
+            main_path: None,
             combined_promises: std::collections::HashSet::new(),
             builtin_resolver: None,
             run_depths: Vec::new(),
@@ -5970,7 +5974,13 @@ impl VM {
             .and_then(|frame| frame.current_module_path.as_ref())
             .map(|path| std::path::Path::new(path.as_ref()))
             .and_then(|path| path.parent())
-            .map(|path| path.to_path_buf());
+            .map(|path| path.to_path_buf())
+            .or_else(|| {
+                self.main_path
+                    .as_ref()
+                    .and_then(|main| main.parent())
+                    .map(|dir| dir.to_path_buf())
+            });
         let resolved = resolve_module_path(path, base_dir)?;
         let resolved_key = resolved.to_string_lossy().to_string();
         if let Some(value) = self.modules.get(&resolved_key).cloned() {

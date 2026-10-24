@@ -1,3 +1,4 @@
+use pleno_common::style::{self, Stream};
 use pleno_value::{RuntimeError, VMProvider, Value};
 use std::cell::RefCell;
 
@@ -8,6 +9,14 @@ thread_local! {
 #[derive(Default)]
 struct TestContext {
     suites: Vec<SuiteState>,
+    /// Tests that failed since the last `take_failures`.
+    failures: usize,
+}
+
+/// The number of `test(...)` calls that failed since the last call, which a
+/// runner uses to fail the file: a failing test does not stop the script.
+pub fn take_failures() -> usize {
+    CONTEXT.with(|ctx| std::mem::take(&mut ctx.borrow_mut().failures))
 }
 
 #[derive(Default)]
@@ -83,13 +92,29 @@ pub fn test_test(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, Runti
     // Execute the test function
     let result = match vm.call(args[1].clone(), vec![]) {
         Ok(_) => {
-            println!("{}✓ {}", indent, name);
+            println!(
+                "{}{} {}",
+                indent,
+                style::green(Stream::Stdout, "\u{2713}"),
+                name
+            );
             Ok(Value::Null)
         }
         Err(e) => {
-            println!("{}✗ {} (FAILED)", indent, name);
-            println!("{}  Error: {}", indent, e.message);
-            Ok(Value::Null) // We don't abort the suite on test failure
+            // Other tests still run; the runner fails the file at the end.
+            CONTEXT.with(|ctx| ctx.borrow_mut().failures += 1);
+            println!(
+                "{}{} {}",
+                indent,
+                style::red(Stream::Stdout, "\u{2717}"),
+                name
+            );
+            let message = e
+                .message
+                .strip_prefix("uncaught exception: ")
+                .unwrap_or(&e.message);
+            println!("{}  {}", indent, message);
+            Ok(Value::Null)
         }
     };
 
