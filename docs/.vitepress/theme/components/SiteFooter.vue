@@ -58,7 +58,7 @@ const href = (link: string) => (link.startsWith('http') || link === '#' ? link :
 
 <template>
   <footer v-if="show" class="site-footer">
-    <div class="inner">
+    <div class="inner pl-container">
       <div class="brand">
         <a class="logo" :href="withBase('/')">
           <img :src="withBase('/logo.svg')" alt="" width="24" height="24" />
@@ -85,7 +85,7 @@ const href = (link: string) => (link.startsWith('http') || link === '#' ? link :
         <a v-for="link in column.links" :key="link.text" :href="href(link.href)">{{ link.text }}</a>
       </nav>
     </div>
-    <div class="bottom">
+    <div class="bottom pl-container">
       <div class="bottom-inner">
         <p>Released under the MIT License.</p>
         <p>© 2026 Otabek and Pleno contributors</p>
@@ -104,9 +104,8 @@ const href = (link: string) => (link.startsWith('http') || link === '#' ? link :
 .inner {
   display: grid;
   gap: 32px;
-  max-width: 1200px;
-  margin: 0 auto;
-  padding: 48px 24px 40px;
+  padding-top: 48px;
+  padding-bottom: 40px;
 }
 
 @media (min-width: 640px) {
@@ -122,7 +121,8 @@ const href = (link: string) => (link.startsWith('http') || link === '#' ? link :
 @media (min-width: 960px) {
   .inner {
     grid-template-columns: 1.5fr repeat(4, 1fr);
-    padding: 56px 48px 48px;
+    padding-top: 56px;
+    padding-bottom: 48px;
   }
 
   .brand {
@@ -183,9 +183,7 @@ const href = (link: string) => (link.startsWith('http') || link === '#' ? link :
 }
 
 .bottom {
-  max-width: 1200px;
-  margin: 0 auto;
-  padding: 0 24px 28px;
+  padding-bottom: 28px;
 }
 
 .bottom-inner {

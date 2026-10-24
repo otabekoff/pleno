@@ -6,7 +6,7 @@ import PlIcon from './PlIcon.vue'
 </script>
 
 <template>
-  <div class="blog">
+  <div class="blog pl-container">
     <header class="head">
       <h1 class="pl-display">Blog</h1>
       <p>News about Pleno and the work toward 1.0.</p>
@@ -29,9 +29,12 @@ import PlIcon from './PlIcon.vue'
 
 <style scoped>
 .blog {
+  padding-top: 64px;
+  padding-bottom: 24px;
+}
+
+.blog > * {
   max-width: 760px;
-  margin: 0 auto;
-  padding: 64px 24px 24px;
 }
 
 .head h1 {

@@ -123,7 +123,7 @@ const status = [
 <template>
   <div class="home-page">
     <div class="backdrop" aria-hidden="true" />
-    <div class="home">
+    <div class="home pl-container">
       <section class="hero">
         <div class="hero-text">
           <a class="badge badge-home" :href="withBase('/blog/toward-1-0')">
@@ -265,36 +265,25 @@ const status = [
   overflow: hidden;
 }
 
-/* A fine grid that fades out from the top, and a faint violet glow behind
-   the hero's code. Its solid background hides the page's dot grid where the
-   lines are and fades with them, so the lines give way to the dots. */
+/* Small dotted crosses on a 20px grid behind the hero, fading out below
+   it. Two dot rows offset against each other make each cross. */
 .backdrop {
   position: absolute;
   inset: 0 0 auto;
-  height: 980px;
+  height: 900px;
   pointer-events: none;
-  background-color: var(--vp-c-bg);
   background-image:
-    radial-gradient(ellipse 34% 30% at 72% 32%, var(--pl-backdrop-glow), transparent 70%),
-    linear-gradient(to right, var(--pl-backdrop-line) 1px, transparent 1px),
-    linear-gradient(to bottom, var(--pl-backdrop-line) 1px, transparent 1px);
-  background-size: 100% 100%, 48px 48px, 48px 48px;
-  background-position: center top;
-  -webkit-mask-image: radial-gradient(ellipse 80% 75% at 50% 0%, #000 35%, transparent 80%);
-  mask-image: radial-gradient(ellipse 80% 75% at 50% 0%, #000 35%, transparent 80%);
+    radial-gradient(circle, var(--pl-pattern) 0.8px, transparent 0.8px),
+    radial-gradient(circle, var(--pl-pattern) 0.8px, transparent 0.8px);
+  background-size: 5px 20px, 20px 5px;
+  background-position: -2.5px -10px, -10px -2.5px;
+  -webkit-mask-image: radial-gradient(ellipse 85% 70% at 50% 0%, #000 30%, transparent 78%);
+  mask-image: radial-gradient(ellipse 85% 70% at 50% 0%, #000 30%, transparent 78%);
 }
 
 .home {
   position: relative;
-  max-width: 1200px;
-  margin: 0 auto;
-  padding: 0 24px 32px;
-}
-
-@media (min-width: 768px) {
-  .home {
-    padding: 0 48px 48px;
-  }
+  padding-bottom: 48px;
 }
 
 /* Hero */

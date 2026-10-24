@@ -44,11 +44,8 @@
 
   --pl-shadow-pop: 0 1px 2px rgba(15, 15, 25, 0.06), 0 8px 24px -6px rgba(15, 15, 25, 0.16);
 
-  /* The home page backdrop (PlenoHome.vue). */
-  --pl-backdrop-line: rgba(15, 15, 25, 0.055);
-  /* The dot grid behind every page (base.css). */
-  --pl-dot: rgba(15, 15, 25, 0.09);
-  --pl-backdrop-glow: rgba(127, 82, 255, 0.10);
+  /* The pattern behind the home page hero (PlenoHome.vue). */
+  --pl-pattern: rgba(98, 54, 224, 0.28);
   --pl-shadow-panel: 0 1px 2px rgba(15, 15, 25, 0.05);
 
   /* Code colors (GitHub Light), shared by Markdown blocks, the editor and
@@ -78,7 +75,19 @@
   /* The announcement bar's height; the inline script in <head> sets it to 0
      before the first paint when the bar was dismissed. */
   --pl-banner-height: 36px;
+
+  /* One container for every full-width page (home, tutorial, playground,
+     blog, footer): the navbar's width and side padding, so content starts
+     where the logo does. */
+  --pl-page-width: calc(var(--vp-layout-max-width) - 64px);
+  --pl-gutter: 24px;
   --vp-layout-top-height: var(--pl-banner-height);
+}
+
+@media (min-width: 768px) {
+  :root {
+    --pl-gutter: 32px;
+  }
 }
 
 .dark {
@@ -99,9 +108,7 @@
 
   --pl-shadow-pop: 0 1px 2px rgba(0, 0, 0, 0.4), 0 12px 32px -8px rgba(0, 0, 0, 0.7);
 
-  --pl-backdrop-line: rgba(255, 255, 255, 0.055);
-  --pl-dot: rgba(255, 255, 255, 0.07);
-  --pl-backdrop-glow: rgba(127, 82, 255, 0.2);
+  --pl-pattern: rgba(171, 146, 255, 0.22);
   --pl-shadow-panel: none;
 
   /* GitHub Dark */
