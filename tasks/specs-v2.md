@@ -102,24 +102,12 @@ Audited specs.md section 19 (Performance Features) against actual implementation
 | Feature | Status | Notes |
 |---------|--------|-------|
 | Hot path optimization | ❌ NOT IMPLEMENTED | No JIT compiler exists |
-| Automatic inlining | ❌ NOT IMPLEMENTED | No inlining pass |
-| Dead code elimination | ✅ IMPLEMENTED | Constant boolean conditions in if statements |
 
 ### 19.2 Memory Management
 | Feature | Status | Notes |
 |---------|--------|-------|
 | Generational GC | ❌ NOT IMPLEMENTED | Only Mark-and-Sweep in `pleno-value/src/gc.rs` |
-| Reference counting | ✅ IMPLEMENTED | Uses `Rc<RefCell<T>>` wrapper (`GcRc`) |
-| Manual memory hints | ✅ IMPLEMENTED | `GC.collect()`, `GC.heapSize()`, `GC.isEnabled()` in stdlib |
 | Object pooling | ❌ NOT IMPLEMENTED | No pool support |
-
-### 19.3 Optimization Hints
-| Annotation | Status | Notes |
-|------------|--------|-------|
-| `@pure` | ✅ IMPLEMENTED | Compiler checks `is_pure` flag |
-| `@inline` | ✅ IMPLEMENTED | Stored in `FunctionProto.is_inline` |
-| `@no_optimize` | ✅ IMPLEMENTED | Stored in `FunctionProto.no_optimize` |
-| `@hot` | ✅ IMPLEMENTED | Stored in `FunctionProto.is_hot` |
 
 ## Existing Implementation
 
@@ -182,20 +170,13 @@ This document tracks known technical debts and areas requiring improvement in Pl
 ## Post-v1 Improvements
 
 ### Standard Library
-- [x] Implement `std:http` (Client) using `reqwest`
-- [x] Implement `std:regex` using `regex` crate
-- Implement `std:test` assertion framework (currently ad-hoc in tests)
 
 ### Language Features
-- **Generics**: Currently parsed but not fully enforced/reified in runtime.
 - **Interfaces**: Parsed but conformance checks are basic.
 - **Async/Await**: Basic Promise support exists; needs full event loop integration.
 
 ### Spec Compliance Gaps (Found during verification)
-- **If Expressions**: `let x = if (...) ...` syntax is not currently supported by parser (expects statement).
 - **Closures**: Runtime error observed in closure variable capture test.
-- **Field Declarations**: Parser requires delimiters/types more strictly than spec implies (e.g. `name;` vs `name: String;`).
-- **Type Checking**: Strict type checking might be too aggressive or reporting errors confusingly (`expected Int, found Int`).
 
 ### Tooling
 - Error messages: Improve span reporting and suggestions.

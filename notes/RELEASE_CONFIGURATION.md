@@ -132,13 +132,19 @@ This allows the workflow to update your Homebrew formula in `otabekoff/homebrew-
 
 ---
 
-## 4. Why "No Signing"?
+## 4. What Is (and Isn't) Signed
 
-Following your decision to **build but not sign**:
+Releases are signed for free with **Sigstore keyless signing** (already enabled in `release.yml`):
 
-- The workflow no longer requires `GPG_PRIVATE_KEY` or `GPG_PASSPHRASE`.
-- Windows `.exe` and macOS binaries will be built but will be "unsigned". Users might see "Unknown Developer" warnings when running them for the first time.
-- The `.deb` package and `.vsix` extension will follow standard packaging rules.
+- Every `.tar.gz`, `.zip`, `.deb` and `.vsix` gets a `<file>.bundle` signature, and `SHA256SUMS.txt` is signed too.
+- `scripts/install.sh` and `scripts/install.ps1` verify the SHA256 checksum before installing.
+- No keys or secrets are needed (`GPG_PRIVATE_KEY` / `GPG_PASSPHRASE` are not used).
+
+Not covered, because there is no free option or it needs setup outside this repo:
+
+- **Windows Authenticode**: unsigned `.exe` files trigger SmartScreen "Unknown publisher" warnings. [SignPath Foundation](https://signpath.org) signs open-source projects for free, but requires a public repository and an application.
+- **macOS notarization**: Gatekeeper blocks unsigned binaries downloaded in a browser (`curl` downloads are not quarantined). This needs a paid Apple Developer account.
+- **GitHub artifact attestations** (`actions/attest-build-provenance`): free for public repositories only.
 
 ---
 
