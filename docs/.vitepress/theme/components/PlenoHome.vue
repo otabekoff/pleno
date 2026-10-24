@@ -266,12 +266,14 @@ const status = [
 }
 
 /* A fine grid that fades out from the top, and a faint violet glow behind
-   the hero's code. Decoration only. */
+   the hero's code. Its solid background hides the page's dot grid where the
+   lines are and fades with them, so the lines give way to the dots. */
 .backdrop {
   position: absolute;
   inset: 0 0 auto;
   height: 980px;
   pointer-events: none;
+  background-color: var(--vp-c-bg);
   background-image:
     radial-gradient(ellipse 34% 30% at 72% 32%, var(--pl-backdrop-glow), transparent 70%),
     linear-gradient(to right, var(--pl-backdrop-line) 1px, transparent 1px),

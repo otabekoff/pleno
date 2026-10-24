@@ -4,8 +4,12 @@ html {
   scrollbar-gutter: stable;
 }
 
+/* A faint dot grid behind every page. On the home page the hero's line grid
+   covers it at the top and fades into it (PlenoHome.vue). */
 body {
   background-color: var(--vp-c-bg);
+  background-image: radial-gradient(var(--pl-dot) 1px, transparent 1.2px);
+  background-size: 24px 24px;
 }
 
 ::selection {
