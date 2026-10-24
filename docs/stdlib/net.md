@@ -42,4 +42,8 @@ print("Connected to " + conn.remoteAddress);
 
 > **Note**: These are low-level functions. For HTTP requests, use `std:http` instead.
 
+::: warning Limited
+`listen` binds the address and `connect` opens a connection, but both close the socket right away: there is no `accept`, `read` or `write` yet. Use them to check that an address can be bound or reached.
+:::
+
 ---

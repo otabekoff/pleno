@@ -10,52 +10,7 @@ import { OS } from "std:os";
 
 ## Functions
 
-### `exit(code: Int): Void`
-
-Terminates the program with the specified exit code.
-
-```pleno
-if (error) {
-    print("Fatal error!");
-    OS.exit(1);
-}
-```
-
-### `getEnv(name: String): String?`
-
-Returns the value of an environment variable, or `null` if not set.
-
-```pleno
-let home = OS.getEnv("HOME");
-let apiKey = OS.getEnv("API_KEY") ?? "default-key";
-```
-
-### `setEnv(name: String, value: String): Void`
-
-Sets an environment variable.
-
-```pleno
-OS.setEnv("MY_VAR", "my_value");
-```
-
-### `args(): String[]`
-
-Returns command-line arguments passed to the program.
-
-```pleno
-let args = OS.args();
-if (args.length > 0) {
-    print("First argument: " + args[0]);
-}
-```
-
-### `cwd(): String`
-
-Returns the current working directory.
-
-```pleno
-print("Working directory: " + OS.cwd());
-```
+Environment variables, command-line arguments, the working directory and `exit` are in [std:process](./process.md).
 
 ### `platform(): String`
 
@@ -74,6 +29,38 @@ Returns the CPU architecture (`"x86_64"`, `"aarch64"`, etc.).
 
 ```pleno
 print("Architecture: " + OS.arch());
+```
+
+### `homedir(): String?`
+
+The current user's home directory, or `null` if it is unknown.
+
+```pleno
+print(OS.homedir());
+```
+
+### `tmpdir(): String`
+
+The directory for temporary files.
+
+```pleno
+let scratch = OS.tmpdir();
+```
+
+### `hostname(): String?`
+
+The machine's host name, or `null` if it cannot be found.
+
+```pleno
+print("Host: " + (OS.hostname() ?? "unknown"));
+```
+
+### `uptime(): Float?`
+
+Seconds since the system started, or `null` on platforms where it is unknown.
+
+```pleno
+let hours = (OS.uptime() ?? 0.0) / 3600.0;
 ```
 
 ---

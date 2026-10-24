@@ -292,11 +292,11 @@ for (row in rows) {
 import { Regex } from "std:regex";
 
 let email = Regex(r"(\w+)@(\w+\.\w+)");
-let match = email.match("user@example.com");
+let found = email.match("user@example.com");
 
-if (match != null) {
-    print("User: " + match.group(1));     // user
-    print("Domain: " + match.group(2));   // example.com
+if (found != null) {
+    print("User: " + found.group(1));     // user
+    print("Domain: " + found.group(2));   // example.com
 }
 
 let numbers = Regex(r"\d+");

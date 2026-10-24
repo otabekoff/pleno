@@ -6,8 +6,12 @@
 import { Reflect } from "std:reflect";
 
 class User {
-    public name: String;
-    public age: Int;
+    public name: String = "";
+    public age: Int = 0;
+
+    fn greet(greeting: String): String {
+        return greeting + ", " + this.name;
+    }
 }
 
 let user = User();
@@ -27,7 +31,7 @@ if (Reflect.isInstanceOf(user, User)) {
 }
 
 // Call method dynamically
-Reflect.callMethod(user, "someMethod", [arg1, arg2]);
+Reflect.callMethod(user, "greet", ["Hello"]);  // "Hello, Alice"
 ```
 
 ### 14.2 Macros (Compile-time Code Generation)

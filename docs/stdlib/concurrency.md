@@ -19,7 +19,7 @@ A mutual exclusion lock for synchronizing access to shared resources.
 Creates a new unlocked mutex.
 
 ```pleno
-let mutex = Mutex.new();
+let mutex = Mutex();
 ```
 
 ### `lock(): Void | Promise`
@@ -51,8 +51,8 @@ Message-passing channel for inter-task communication.
 Creates a new channel. Capacity 0 means unbounded.
 
 ```pleno
-let ch = Channel.new();     // Unbounded
-let ch = Channel.new(10);   // Buffered with capacity 10
+let ch = Channel();          // Unbounded
+let buffered = Channel(10);  // Buffered with capacity 10
 ```
 
 ### `send(value: Any): Void | Promise`
@@ -94,7 +94,7 @@ for (message in channel) {
 ## Example: Producer-Consumer
 
 ```pleno
-let ch = Channel.new(5);
+let ch = Channel(5);
 
 // Producer
 spawn(fn() {

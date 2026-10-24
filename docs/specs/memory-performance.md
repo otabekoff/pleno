@@ -49,8 +49,12 @@ let squares = (0..)
 
 Reuse object allocations for performance:
 
+::: warning Planned
+`@pooled` is accepted and recorded on the class, but allocation does not use a pool yet, and the annotation takes no arguments.
+:::
+
 ```pleno
-@pooled(size: 100)
+@pooled
 class GameObject {
     public x: Float;
     public y: Float;

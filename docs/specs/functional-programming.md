@@ -46,12 +46,12 @@ fn calculateArea(width: Float, height: Float): Float {
 ### 6.3 Immutable Data Structures
 
 ```pleno
-// Immutable list
-const immutable list = [1, 2, 3];
+// Immutable list (`deep` also freezes nested values)
+const deep list = [1, 2, 3];
 let newList = list.with(4);  // Creates new list [1, 2, 3, 4]
 
 // Immutable map
-const immutable config = {
+const deep config = {
     "host": "localhost",
     "port": 8080
 };

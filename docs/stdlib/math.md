@@ -23,7 +23,7 @@ let area = Math.PI * radius * radius;
 Euler's number e (approximately 2.71828).
 
 ```pleno
-let growth = Math.E ** x;
+let growth = Math.pow(Math.E, x);  // same as Math.exp(x)
 ```
 
 ## Functions

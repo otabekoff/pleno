@@ -97,12 +97,19 @@ Pleno V2 supports variance annotations on generic parameters to enable safer and
 Use `out` when a type parameter only appears in **output** positions (return types). This allows a more specific type to be used where a more general one is expected.
 
 ```pleno
+class Animal {}
+class Dog extends Animal {}
+
 interface Producer<out T> {
     fn produce(): T;
 }
 
-class AnimalProducer implements Producer<Animal> { ... }
-class DogProducer implements Producer<Dog> { ... }
+class AnimalProducer implements Producer<Animal> {
+    fn produce(): Animal { /* ... */ }
+}
+class DogProducer implements Producer<Dog> {
+    fn produce(): Dog { /* ... */ }
+}
 
 let p: Producer<Animal> = DogProducer(); // Valid due to 'out'
 ```
@@ -112,12 +119,19 @@ let p: Producer<Animal> = DogProducer(); // Valid due to 'out'
 Use `in` when a type parameter only appears in **input** positions (argument types). This allows a more general type to be used where a more specific one is expected.
 
 ```pleno
+class Animal {}
+class Dog extends Animal {}
+
 interface Consumer<in T> {
     fn consume(item: T): Void;
 }
 
-class AnimalConsumer implements Consumer<Animal> { ... }
-class DogConsumer implements Consumer<Dog> { ... }
+class AnimalConsumer implements Consumer<Animal> {
+    fn consume(item: Animal): Void { /* ... */ }
+}
+class DogConsumer implements Consumer<Dog> {
+    fn consume(item: Dog): Void { /* ... */ }
+}
 
 let c: Consumer<Dog> = AnimalConsumer(); // Valid due to 'in'
 ```

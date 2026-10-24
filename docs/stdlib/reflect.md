@@ -90,7 +90,7 @@ Returns all annotations on a class, enum, or object.
 ```pleno
 @Entity
 @Table("users")
-class User { ... }
+class User { /* ... */ }
 
 let annotations = Reflect.getAnnotations(User);
 // [{ name: "Entity", args: [] }, { name: "Table", args: ["users"] }]

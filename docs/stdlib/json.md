@@ -19,7 +19,7 @@ The `JSON` module provides functions for parsing and stringifying JSON data.
 Parses a JSON string and returns the corresponding Pleno value (Map, Array, String, Number, Boolean, or Null).
 
 ```pleno
-let data = JSON.parse('{"name": "Alice", "age": 30}');
+let data = JSON.parse(`{"name": "Alice", "age": 30}`);
 print(data.name); // "Alice"
 ```
 

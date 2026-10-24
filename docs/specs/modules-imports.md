@@ -6,10 +6,10 @@ Current implementation supports:
 import "path/to/module.pln";
 import ModuleName from "path/to/module.pln";
 import { symbol, other as alias } from "path/to/module.pln";
-import * as ModuleName from "path/to/module.pln";
+import * as Namespace from "path/to/module.pln";
 ```
 
-Exports are limited to `export` on `fn`, `class`, `let`, and `const` declarations plus `export { name as alias };`. Import returns a module namespace map (accessed via `ModuleName.field`). Module declarations and structured imports are implemented for string paths; relative paths and `sources/` lookups are supported. Package/registry resolution is not implemented yet.
+Exports are limited to `export` on `fn`, `class`, `let`, and `const` declarations plus `export { name as alias };`. Import returns a module namespace map (accessed via `ModuleName.field`). Module declarations and structured imports are implemented for string paths; relative paths and `sources/` lookups are supported. A bare name such as `"mylib"` resolves to a package: `packages/mylib/` (the `main` file named in its `pleno.toml`, or `lib.pln`) or `packages/mylib.pln`, searched from the importing file's folder upward. Packages are installed into `packages/` by `plm install`; there is no central registry yet.
 
 ### 8.1 Module Definition
 

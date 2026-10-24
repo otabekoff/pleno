@@ -366,8 +366,8 @@ https://packages.pleno-lang.org/
 ### **Publishing Packages**
 
 ```bash
-# Login to registry
-plm login
+# Point plm at the registry
+export PLENO_REGISTRY=https://registry.example.com
 
 # Publish package
 plm publish
@@ -410,13 +410,14 @@ plm install http-client@2.0.0
 
 ### **VS Code Extension**
 
-```bash
-# Install from VS Code Marketplace
-# Search: "Pleno Language Support"
+The extension is not on the VS Code Marketplace. Each GitHub release has a `.vsix` file:
 
-# Or via command line
-code --install-extension pleno-lang.pleno-vscode
+```bash
+# Download pleno-language-<version>.vsix from the release, then:
+code --install-extension pleno-language-<version>.vsix
 ```
+
+After installing it, run **Pleno: Install or Update Toolchain** to download `pleno`, `pleno-lsp` and `pleno-dap`.
 
 **Extension features:**
 - ✅ Syntax highlighting

@@ -33,13 +33,13 @@ Group related tests with `describe`:
 ```pleno
 describe("Calculator", fn() {
     describe("add", fn() {
-        test("positive numbers", fn() { ... });
-        test("negative numbers", fn() { ... });
+        test("positive numbers", fn() { /* ... */ });
+        test("negative numbers", fn() { /* ... */ });
     });
 
     describe("divide", fn() {
-        test("whole numbers", fn() { ... });
-        test("by zero throws", fn() { ... });
+        test("whole numbers", fn() { /* ... */ });
+        test("by zero throws", fn() { /* ... */ });
     });
 });
 ```
@@ -47,6 +47,8 @@ describe("Calculator", fn() {
 ### Lifecycle Hooks
 
 ```pleno
+import { describe, test, beforeEach, assert } from "std:test";
+
 describe("Database", fn() {
     let db;
 

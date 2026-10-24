@@ -60,9 +60,9 @@ match (result) {
 }
 
 // Result methods
-let value = result.unwrap();           // Panics if Err
-let value = result.unwrapOr(0.0);     // Default value if Err
-let value = result.expect("Failed");   // Panics with message if Err
+let value = result.unwrap();              // Panics if Err
+let orDefault = result.unwrapOr(0.0);     // Default value if Err
+let checked = result.expect("Failed");    // Panics with message if Err
 ```
 
 ### 7.4 Option Type

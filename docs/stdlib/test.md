@@ -48,8 +48,8 @@ describe("Database", fn() {
         // Setup test database
     });
 
-    test("insert works", fn() { ... });
-    test("delete works", fn() { ... });
+    test("insert works", fn() { /* ... */ });
+    test("delete works", fn() { /* ... */ });
 });
 ```
 
