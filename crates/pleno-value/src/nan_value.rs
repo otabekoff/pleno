@@ -4,14 +4,164 @@ use crate::{
     ClosureState, EnumType, Interface, MapState, Object, PartialState, Range, SetState,
     StaticMethodState, ThunkState, TupleState, Value, gc::GcObject, gc::GcRc,
 };
+use std::cell::RefCell;
+use std::collections::HashMap;
 use std::mem::ManuallyDrop;
 use std::rc::Rc;
+
+/// Values that cannot live inside a NaN-boxed payload are kept in per-thread
+/// tables and referenced by slot index:
+///
+/// - integers outside the inline 46-bit range,
+/// - strings (the table owns one `Rc`, so encoding a string never leaks it),
+/// - ranges (stored by value; they have no heap allocation of their own).
+///
+/// NaN-boxed values are `Copy` and only stored in VM registers, which every
+/// collection marks. A sweep after the collection frees the unmarked slots.
+struct Slots<T> {
+    values: Vec<Option<T>>,
+    marked: Vec<bool>,
+    free: Vec<usize>,
+}
+
+impl<T> Default for Slots<T> {
+    fn default() -> Self {
+        Self {
+            values: Vec::new(),
+            marked: Vec::new(),
+            free: Vec::new(),
+        }
+    }
+}
+
+impl<T> Slots<T> {
+    fn insert(&mut self, value: T) -> usize {
+        match self.free.pop() {
+            Some(slot) => {
+                self.values[slot] = Some(value);
+                slot
+            }
+            None => {
+                self.values.push(Some(value));
+                self.marked.push(false);
+                self.values.len() - 1
+            }
+        }
+    }
+
+    fn live(&self) -> usize {
+        self.values.iter().filter(|value| value.is_some()).count()
+    }
+
+    fn get(&self, slot: usize) -> &T {
+        self.values[slot]
+            .as_ref()
+            .expect("NaN-boxed value refers to a freed slot")
+    }
+
+    fn mark(&mut self, slot: usize) {
+        if let Some(mark) = self.marked.get_mut(slot) {
+            *mark = true;
+        }
+    }
+
+    /// Frees unmarked slots, passing each freed value to `on_free`, and clears
+    /// the marks for the next collection.
+    fn sweep(&mut self, mut on_free: impl FnMut(&T)) {
+        for slot in 0..self.values.len() {
+            if std::mem::take(&mut self.marked[slot]) {
+                continue;
+            }
+            if let Some(value) = self.values[slot].take() {
+                on_free(&value);
+                self.free.push(slot);
+            }
+        }
+    }
+}
+
+#[derive(Default)]
+struct BoxedValues {
+    ints: Slots<i64>,
+    /// Equal integers share a slot, so integers still compare by their bits.
+    int_slots: HashMap<i64, usize>,
+    strings: Slots<Rc<String>>,
+    /// The same string reuses its slot instead of growing the table.
+    string_slots: HashMap<*const String, usize>,
+    ranges: Slots<Range>,
+}
+
+thread_local! {
+    static BOXED: RefCell<BoxedValues> = RefCell::new(BoxedValues::default());
+}
+
+/// Inline integers use 46 value bits plus a flag bit that marks boxed ones.
+const INLINE_INT_MIN: i64 = -(1 << 45);
+const INLINE_INT_MAX: i64 = (1 << 45) - 1;
+
+fn box_int(value: i64) -> usize {
+    BOXED.with(|boxed| {
+        let mut boxed = boxed.borrow_mut();
+        if let Some(&slot) = boxed.int_slots.get(&value) {
+            return slot;
+        }
+        let slot = boxed.ints.insert(value);
+        boxed.int_slots.insert(value, slot);
+        slot
+    })
+}
+
+fn box_string(value: &Rc<String>) -> usize {
+    BOXED.with(|boxed| {
+        let mut boxed = boxed.borrow_mut();
+        let key = Rc::as_ptr(value);
+        if let Some(&slot) = boxed.string_slots.get(&key) {
+            return slot;
+        }
+        let slot = boxed.strings.insert(Rc::clone(value));
+        boxed.string_slots.insert(key, slot);
+        slot
+    })
+}
+
+fn box_range(value: &Range) -> usize {
+    BOXED.with(|boxed| boxed.borrow_mut().ranges.insert(value.clone()))
+}
+
+/// Live slots in the big-integer, string and range tables (for diagnostics
+/// and leak tests).
+pub fn boxed_value_counts() -> (usize, usize, usize) {
+    BOXED.with(|boxed| {
+        let boxed = boxed.borrow();
+        (boxed.ints.live(), boxed.strings.live(), boxed.ranges.live())
+    })
+}
+
+/// Frees table slots not marked since the last sweep. Called after a
+/// collection that marked every register of the VM.
+pub fn sweep_boxed_values() {
+    BOXED.with(|boxed| {
+        let mut boxed = boxed.borrow_mut();
+        let boxed = &mut *boxed;
+        let int_slots = &mut boxed.int_slots;
+        boxed.ints.sweep(|value| {
+            int_slots.remove(value);
+        });
+        let string_slots = &mut boxed.string_slots;
+        boxed.strings.sweep(|value| {
+            string_slots.remove(&Rc::as_ptr(value));
+        });
+        boxed.ranges.sweep(|_| {});
+    });
+}
 
 /// Optimized 64-bit representation of Pleno values using NaN boxing.
 ///
 /// Layout:
-/// - Any bit pattern where exponent (bits 62-52) is NOT all 1s is a standard IEEE 754 f64.
-/// - If exponent is 0x7FF, it's a tagged value.
+/// - Any bit pattern without all of the exponent bits (62-52) and the quiet
+///   bit (51) set is a standard IEEE 754 f64, which includes the infinities.
+/// - NaNs are stored as the canonical quiet NaN `QNAN` (tag 0, no payload).
+/// - Every other pattern with those bits set is a tagged value.
 /// - Tag bits (5 bits total): Bit 63 (sign) and bits 50-47.
 /// - Payload/Pointer (47 bits): Bits 46-0.
 ///
@@ -57,9 +207,15 @@ const TAG_VARIANT_COMBINED: u64 = 31;
 const PAYLOAD_MASK: u64 = 0x0000_7FFF_FFFF_FFFF;
 
 impl NanValue {
+    /// Every NaN is stored as the one canonical quiet NaN (`QNAN`), which no
+    /// tagged value uses, so a NaN's payload cannot be mistaken for a tag.
     #[inline]
     pub fn from_f64(f: f64) -> Self {
-        Self(f.to_bits())
+        if f.is_nan() {
+            Self(QNAN)
+        } else {
+            Self(f.to_bits())
+        }
     }
 
     #[inline]
@@ -67,9 +223,11 @@ impl NanValue {
         f64::from_bits(self.0)
     }
 
+    /// Tagged values always have the exponent and the quiet bit set. Of the
+    /// floats, only the canonical NaN does too; infinities do not.
     #[inline]
     pub fn is_f64(self) -> bool {
-        (self.0 & 0x7ff0_0000_0000_0000) != 0x7ff0_0000_0000_0000
+        (self.0 & QNAN) != QNAN || self.0 == QNAN
     }
 
     #[inline]
@@ -90,24 +248,29 @@ impl NanValue {
         Self((high << 63) | QNAN | (low << 47) | (payload & PAYLOAD_MASK))
     }
 
+    /// Integers in the 46-bit range are stored inline, shifted left by one;
+    /// larger ones are boxed, with the low payload bit set and a slot index.
     #[inline]
     pub fn from_int(i: i64) -> Self {
-        Self::encode(TAG_INT, i as u64)
+        if (INLINE_INT_MIN..=INLINE_INT_MAX).contains(&i) {
+            Self::encode(TAG_INT, (i << 1) as u64)
+        } else {
+            Self::encode(TAG_INT, ((box_int(i) as u64) << 1) | 1)
+        }
     }
 
     #[inline]
     pub fn as_int(self) -> Option<i64> {
-        if self.tag() == TAG_INT {
-            let val = self.0 & PAYLOAD_MASK;
-            if (val & (1 << 46)) != 0 {
-                // Sign extend 47th bit (bit 46) if necessary
-                Some((val | !PAYLOAD_MASK) as i64)
-            } else {
-                Some(val as i64)
-            }
-        } else {
-            None
+        if self.tag() != TAG_INT {
+            return None;
         }
+        let payload = self.0 & PAYLOAD_MASK;
+        if payload & 1 == 1 {
+            let slot = (payload >> 1) as usize;
+            return Some(BOXED.with(|boxed| *boxed.borrow().ints.get(slot)));
+        }
+        // Sign-extend the 47-bit payload, then drop the flag bit.
+        Some((((payload << 17) as i64) >> 17) >> 1)
     }
 
     #[inline]
@@ -192,9 +355,8 @@ impl NanValue {
                     }
                 }
                 TAG_STRING => {
-                    let ptr = self.as_ptr::<()>().unwrap();
-                    let rc = unsafe { ManuallyDrop::new(Rc::from_raw(ptr as *const String)) };
-                    Value::String(Rc::clone(&rc))
+                    let slot = (self.0 & PAYLOAD_MASK) as usize;
+                    Value::String(BOXED.with(|boxed| Rc::clone(boxed.borrow().strings.get(slot))))
                 }
                 TAG_MAP => {
                     let ptr = self.as_ptr::<()>().unwrap();
@@ -356,8 +518,8 @@ impl NanValue {
                     })
                 }
                 TAG_RANGE => {
-                    let ptr = self.as_ptr::<()>().unwrap();
-                    Value::Range(unsafe { (*(ptr as *const Range)).clone() })
+                    let slot = (self.0 & PAYLOAD_MASK) as usize;
+                    Value::Range(BOXED.with(|boxed| boxed.borrow().ranges.get(slot).clone()))
                 }
                 TAG_PARTIAL => {
                     let ptr = self.as_ptr::<()>().unwrap();
@@ -493,12 +655,17 @@ impl NanValue {
             Value::Float(f) => Self::from_f64(*f),
             Value::Char(c) => Self::from_char(*c),
             Value::Function(idx) => Self::encode(TAG_FUNC, (*idx as u64) << 1),
-            Value::NativeFunction(f) => Self::encode(TAG_FUNC, (*f as usize as u64) | 0x1),
-            Value::String(s) => {
-                let ptr = Rc::as_ptr(s);
-                unsafe { Rc::increment_strong_count(ptr) };
-                Self::encode(TAG_STRING, ptr as usize as u64)
+            Value::NativeFunction(f) => {
+                let address = *f as usize as u64;
+                // The low bit tags native functions, and the address must fit the
+                // payload; both hold for code addresses on x86-64 and AArch64.
+                debug_assert!(
+                    address & 0x1 == 0 && address <= PAYLOAD_MASK,
+                    "native function address {address:#x} cannot be NaN-boxed"
+                );
+                Self::encode(TAG_FUNC, address | 0x1)
             }
+            Value::String(s) => Self::encode(TAG_STRING, box_string(s) as u64),
             Value::Array(a) => Self::encode(TAG_ARRAY, a.as_refcell_ptr() as usize as u64),
             Value::Map(m) => Self::encode(TAG_MAP, m.as_refcell_ptr() as usize as u64),
             Value::Set(s) => Self::encode(TAG_SET, s.as_refcell_ptr() as usize as u64),
@@ -518,7 +685,7 @@ impl NanValue {
             Value::File(f) => Self::encode(TAG_FILE, f.as_refcell_ptr() as usize as u64),
             Value::Mutex(m) => Self::encode(TAG_MUTEX, m.as_refcell_ptr() as usize as u64),
             Value::Channel(c) => Self::encode(TAG_CHANNEL, c.as_refcell_ptr() as usize as u64),
-            Value::Range(r) => Self::encode(TAG_RANGE, r as *const Range as usize as u64),
+            Value::Range(r) => Self::encode(TAG_RANGE, box_range(r) as u64),
             Value::Partial(p) => Self::encode(TAG_PARTIAL, p.as_refcell_ptr() as usize as u64),
             Value::BoundMethod(m) => {
                 Self::encode(TAG_BOUND_METHOD, m.as_refcell_ptr() as usize as u64)
@@ -599,6 +766,25 @@ impl NanValue {
     }
 
     pub fn mark(&self, gc: &mut crate::gc::MarkAndSweepGC) {
+        if self.is_f64() {
+            return;
+        }
+        let payload = self.0 & PAYLOAD_MASK;
+        match self.tag() {
+            TAG_INT if payload & 1 == 1 => {
+                BOXED.with(|boxed| boxed.borrow_mut().ints.mark((payload >> 1) as usize));
+                return;
+            }
+            TAG_STRING => {
+                BOXED.with(|boxed| boxed.borrow_mut().strings.mark(payload as usize));
+                return;
+            }
+            TAG_RANGE => {
+                BOXED.with(|boxed| boxed.borrow_mut().ranges.mark(payload as usize));
+                return;
+            }
+            _ => {}
+        }
         // Mark through `Value` so the referenced object itself is marked, not only
         // its children; otherwise objects reachable only from registers are swept.
         if !self.is_f64() && self.tag() >= TAG_STRING {
@@ -638,7 +824,7 @@ impl std::fmt::Display for NanValue {
                 TAG_BOOL => write!(f, "{}", self.as_bool().unwrap()),
                 TAG_NULL => write!(f, "null"),
                 TAG_MISSING => write!(f, "missing"),
-                t if t >= TAG_STRING => write!(f, "<object@{:p}>", self.as_ptr::<()>().unwrap()),
+                t if t >= TAG_STRING => write!(f, "{}", self.to_value()),
                 TAG_FUNC => write!(f, "<function>"),
                 TAG_CHAR => write!(f, "{}", self.as_char().unwrap()),
                 _ => write!(f, "unknown"),
@@ -657,6 +843,33 @@ mod tests {
         let v = NanValue::from_f64(f);
         assert!(v.is_f64());
         assert_eq!(v.as_f64(), f);
+    }
+
+    #[test]
+    fn infinities_and_every_nan_stay_floats() {
+        for f in [f64::INFINITY, f64::NEG_INFINITY, f64::MAX, f64::MIN, -0.0] {
+            let v = NanValue::from_f64(f);
+            assert!(v.is_f64(), "{f}");
+            assert_eq!(v.as_f64().to_bits(), f.to_bits());
+            assert_eq!(v.tag(), 0);
+        }
+        // Quiet, signalling, negative and payload-carrying NaNs.
+        for bits in [
+            0x7ff8_0000_0000_0000u64,
+            0xfff8_0000_0000_0000,
+            0x7ff0_0000_0000_0001,
+            0x7ff8_0000_dead_beef,
+            0xffff_ffff_ffff_ffff,
+        ] {
+            let v = NanValue::from_f64(f64::from_bits(bits));
+            assert!(v.is_f64(), "{bits:#x}");
+            assert!(v.as_f64().is_nan());
+            assert_eq!(v.tag(), 0);
+        }
+        // Tagged values are never read as floats.
+        assert!(!NanValue::from_int(0).is_f64());
+        assert!(!NanValue::from_bool(false).is_f64());
+        assert!(!NanValue::null().is_f64());
     }
 
     #[test]

@@ -104,6 +104,8 @@ pub enum ExprKind {
         body: Box<Expr>,
         return_ty: Option<String>,
         annotations: Vec<Annotation>,
+        /// `async fn(...) { ... }`
+        is_async: bool,
     },
     Block(Vec<Stmt>),
     Underscore,
@@ -325,6 +327,7 @@ pub enum StmtKind {
         name_span: Span,
         generics: Vec<GenericParam>,
         params: Vec<Param>,
+        return_ty: Option<String>,
         body: Box<Stmt>,
         annotations: Vec<Annotation>,
         is_async: bool,

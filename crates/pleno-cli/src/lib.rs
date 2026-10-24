@@ -684,7 +684,7 @@ fn format_single_file(path: &PathBuf, stdout_flag: bool) {
         }
     };
 
-    let mut formatter = pleno_formatter::Formatter::new();
+    let mut formatter = pleno_formatter::Formatter::new().with_source(&source);
     let formatted = formatter.format_program(&program, 0);
 
     if stdout_flag {

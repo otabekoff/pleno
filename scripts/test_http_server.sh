@@ -35,6 +35,8 @@ check "GET /users/7 content type" "application/json" \
 check "POST /users status" "201" \
     "$(curl -s -o /dev/null -w '%{http_code}' -X POST -d '{"name":"Ada"}' "$base/users")"
 check "POST /users body" '{"name":"Ada"}' "$(curl -s -X POST -d '{"name":"Ada"}' "$base/users")"
+check "async handler" "done after 10ms" "$(curl -s "$base/delayed")"
+check "query string" "done after 25ms" "$(curl -s "$base/delayed?ms=25")"
 check "unknown route status" "404" "$(curl -s -o /dev/null -w '%{http_code}' "$base/missing")"
 
 if [ "$failures" -gt 0 ]; then

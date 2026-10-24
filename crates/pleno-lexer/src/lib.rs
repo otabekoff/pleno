@@ -201,6 +201,16 @@ impl pleno_diagnostics::ToDiagnostic for LexError {
     }
 }
 
+/// Stands for an escaped `\$` inside a string token, so the parser does not
+/// read `\${` as the start of an interpolation. A Unicode noncharacter, which
+/// never appears in source text.
+pub const ESCAPED_DOLLAR: char = '\u{FDD0}';
+
+/// Turns the escaped-dollar marker in a string token back into `$`.
+pub fn unescape_dollar(value: &str) -> String {
+    value.replace(ESCAPED_DOLLAR, "$")
+}
+
 pub fn lex(source: &str) -> Result<Vec<Token>, LexError> {
     let mut tokens = Vec::new();
     let mut chars = source.char_indices().peekable();
@@ -644,6 +654,7 @@ fn lex_string(
                         't' => '\t',
                         '"' => '"',
                         '\\' => '\\',
+                        '$' => ESCAPED_DOLLAR,
                         other => other,
                     });
                 }

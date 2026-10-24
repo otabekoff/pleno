@@ -792,46 +792,122 @@ fn handle_request(
     let res = new_response(vm)?;
 
     match vm.call(handler, vec![req, res.clone()]) {
-        Ok(returned) => {
-            let Value::Map(res_map) = &res else {
-                unreachable!("response is a map")
-            };
-            let res_map = res_map.borrow();
-            let status = res_map
-                .entries
-                .get("statusCode")
-                .and_then(|v| v.as_int())
-                .unwrap_or(200);
-            let headers: Vec<(String, String)> = match res_map.entries.get("headers") {
-                Some(Value::Map(h)) => h
-                    .borrow()
-                    .entries
-                    .iter()
-                    .map(|(k, v)| (k.clone(), v.to_string()))
-                    .collect(),
-                _ => Vec::new(),
-            };
-            // A handler may also just return its body instead of calling `res.send`.
-            let body = match (res_map.entries.get("body"), &returned) {
-                (Some(Value::String(body)), _) => body.to_string(),
-                (_, Value::String(body)) => body.to_string(),
-                _ => String::new(),
-            };
-            write_response(&mut stream, status, &headers, &body);
-        }
-        Err(e) => {
-            let message = e
-                .message
-                .strip_prefix("uncaught exception: ")
-                .unwrap_or(&e.message);
-            eprintln!("{} {}: {}", request.method, request.path, message);
-            write_response(
-                &mut stream,
-                500,
-                &[],
-                &format!("Internal Server Error: {message}"),
+        // An async handler returns a promise: respond once it settles.
+        Ok(Value::Map(promise))
+            if promise.borrow().get("variant").and_then(|v| v.as_str()) == Some("Pending") =>
+        {
+            let mut context = IndexMap::new();
+            let stream = NativeResource::new("http_stream".to_string(), Box::new(stream));
+            context.insert(
+                "stream".to_string(),
+                Value::Resource(vm.get_gc().allocate(stream)?),
             );
+            context.insert("res".to_string(), res);
+            context.insert(
+                "request".to_string(),
+                Value::String(Rc::new(format!("{} {}", request.method, request.path))),
+            );
+            let context = Value::Map(vm.get_gc().allocate(MapState::new(context))?);
+            let bind = |vm: &mut dyn VMProvider, function: NativeFunction| {
+                vm.get_gc()
+                    .allocate(BoundNativeMethodState {
+                        receiver: context.clone(),
+                        function,
+                    })
+                    .map(Value::BoundNativeMethod)
+            };
+            let on_fulfilled = bind(vm, finish_async_response)?;
+            let on_rejected = bind(vm, fail_async_response)?;
+            crate::promise::register_callback(
+                vm,
+                &Value::Map(promise),
+                on_fulfilled,
+                on_rejected,
+                0,
+            )?;
         }
+        Ok(returned) => send_handler_response(&mut stream, &res, &returned),
+        Err(e) => send_handler_error(
+            &mut stream,
+            &format!("{} {}", request.method, request.path),
+            &e.message,
+        ),
     }
     Ok(())
+}
+
+/// Writes the response a handler built on `res` (or the body it returned).
+fn send_handler_response(stream: &mut std::net::TcpStream, res: &Value, returned: &Value) {
+    let Value::Map(res_map) = res else {
+        return;
+    };
+    let res_map = res_map.borrow();
+    let status = res_map
+        .entries
+        .get("statusCode")
+        .and_then(|v| v.as_int())
+        .unwrap_or(200);
+    let headers: Vec<(String, String)> = match res_map.entries.get("headers") {
+        Some(Value::Map(h)) => h
+            .borrow()
+            .entries
+            .iter()
+            .map(|(k, v)| (k.clone(), v.to_string()))
+            .collect(),
+        _ => Vec::new(),
+    };
+    // A handler may also just return its body instead of calling `res.send`.
+    let body = match (res_map.entries.get("body"), returned) {
+        (Some(Value::String(body)), _) => body.to_string(),
+        (_, Value::String(body)) => body.to_string(),
+        _ => String::new(),
+    };
+    write_response(stream, status, &headers, &body);
+}
+
+fn send_handler_error(stream: &mut std::net::TcpStream, request: &str, message: &str) {
+    let message = message
+        .strip_prefix("uncaught exception: ")
+        .unwrap_or(message);
+    eprintln!("{request}: {message}");
+    write_response(
+        stream,
+        500,
+        &[],
+        &format!("Internal Server Error: {message}"),
+    );
+}
+
+/// Takes the connection and request details stored for an async handler.
+fn async_context(args: &[Value]) -> Option<(std::net::TcpStream, Value, String)> {
+    let Some(Value::Map(context)) = args.first() else {
+        return None;
+    };
+    let context = context.borrow();
+    let res = context.get("res").cloned()?;
+    let request = context
+        .get("request")
+        .map(|v| v.to_string())
+        .unwrap_or_default();
+    let Some(Value::Resource(resource)) = context.get("stream") else {
+        return None;
+    };
+    let stream = resource.borrow().inner.borrow_mut().take()?;
+    let stream = stream.downcast::<std::net::TcpStream>().ok()?;
+    Some((*stream, res, request))
+}
+
+fn finish_async_response(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    if let Some((mut stream, res, _)) = async_context(args) {
+        send_handler_response(&mut stream, &res, args.get(1).unwrap_or(&Value::Null));
+    }
+    Ok(Value::Null)
+}
+
+fn fail_async_response(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    if let Some((mut stream, _, request)) = async_context(args) {
+        let reason = args.get(1).map(|v| v.to_string()).unwrap_or_default();
+        send_handler_error(&mut stream, &request, &reason);
+    }
+    Ok(Value::Null)
 }

@@ -377,27 +377,46 @@ impl ConstantFolder {
                 ExprKind::Literal(Literal::Int(a)),
                 BinaryOp::Add,
                 ExprKind::Literal(Literal::Int(b)),
-            ) => Some(ExprKind::Literal(Literal::Int(a + b))),
+            ) => a
+                .checked_add(*b)
+                .map(|v| ExprKind::Literal(Literal::Int(v))),
             (
                 ExprKind::Literal(Literal::Int(a)),
                 BinaryOp::Subtract,
                 ExprKind::Literal(Literal::Int(b)),
-            ) => Some(ExprKind::Literal(Literal::Int(a - b))),
+            ) => a
+                .checked_sub(*b)
+                .map(|v| ExprKind::Literal(Literal::Int(v))),
             (
                 ExprKind::Literal(Literal::Int(a)),
                 BinaryOp::Multiply,
                 ExprKind::Literal(Literal::Int(b)),
-            ) => Some(ExprKind::Literal(Literal::Int(a * b))),
+            ) => a
+                .checked_mul(*b)
+                .map(|v| ExprKind::Literal(Literal::Int(v))),
             (
                 ExprKind::Literal(Literal::Int(a)),
                 BinaryOp::Divide,
                 ExprKind::Literal(Literal::Int(b)),
-            ) if *b != 0 => Some(ExprKind::Literal(Literal::Int(a / b))),
+                // `/` on integers produces a Float, as it does at runtime.
+            ) if *b != 0 => Some(ExprKind::Literal(Literal::Float(*a as f64 / *b as f64))),
             (
                 ExprKind::Literal(Literal::Int(a)),
                 BinaryOp::Modulo,
                 ExprKind::Literal(Literal::Int(b)),
             ) if *b != 0 => Some(ExprKind::Literal(Literal::Int(a % b))),
+
+            // Mixed Int and Float arithmetic produces a Float, as at runtime.
+            (ExprKind::Literal(Literal::Int(a)), op, ExprKind::Literal(Literal::Float(b)))
+                if matches!(op, BinaryOp::Add | BinaryOp::Subtract | BinaryOp::Multiply) =>
+            {
+                fold_float(*a as f64, op, *b)
+            }
+            (ExprKind::Literal(Literal::Float(a)), op, ExprKind::Literal(Literal::Int(b)))
+                if matches!(op, BinaryOp::Add | BinaryOp::Subtract | BinaryOp::Multiply) =>
+            {
+                fold_float(*a, op, *b as f64)
+            }
 
             // Float arithmetic
             (
@@ -540,4 +559,14 @@ impl ConstantFolder {
             _ => None,
         }
     }
+}
+
+fn fold_float(a: f64, op: &BinaryOp, b: f64) -> Option<ExprKind> {
+    let value = match op {
+        BinaryOp::Add => a + b,
+        BinaryOp::Subtract => a - b,
+        BinaryOp::Multiply => a * b,
+        _ => return None,
+    };
+    Some(ExprKind::Literal(Literal::Float(value)))
 }

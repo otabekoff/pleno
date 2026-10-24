@@ -1,6 +1,7 @@
 // skip: starts a server; covered by scripts/test_http_server.sh
 import { Server, Router } from "std:http";
 import { JSON } from "std:json";
+import time from "std:time";
 
 let router = Router();
 
@@ -17,6 +18,12 @@ router.post("/users", fn(req, res) {
     let user = JSON.parse(req.body);
     // Save user to database
     res.status(201).json(user);
+});
+
+// Async handlers can await; the response is sent when they finish.
+router.get("/delayed", async fn(req, res) {
+    await time.DateTime.sleep(10);
+    res.send("done after " + (req.query.ms ?? "10") + "ms");
 });
 
 let server = Server(router);

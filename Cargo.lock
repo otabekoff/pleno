@@ -1531,6 +1531,7 @@ dependencies = [
  "pleno-linter",
  "pleno-parser",
  "serde_json",
+ "url",
  "winresource",
 ]
 

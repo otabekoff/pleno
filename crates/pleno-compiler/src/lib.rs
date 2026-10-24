@@ -1040,29 +1040,27 @@ impl Compiler {
 
                 match (op, l_val, r_val) {
                     (BinaryOp::Add, Value::Int(a), Value::Int(b)) => {
-                        Some(Value::Int(a.wrapping_add(b)))
+                        a.checked_add(b).map(Value::Int)
                     }
                     (BinaryOp::Add, Value::Float(a), Value::Float(b)) => Some(Value::Float(a + b)),
                     (BinaryOp::Subtract, Value::Int(a), Value::Int(b)) => {
-                        Some(Value::Int(a.wrapping_sub(b)))
+                        a.checked_sub(b).map(Value::Int)
                     }
                     (BinaryOp::Subtract, Value::Float(a), Value::Float(b)) => {
                         Some(Value::Float(a - b))
                     }
                     (BinaryOp::Multiply, Value::Int(a), Value::Int(b)) => {
-                        Some(Value::Int(a.wrapping_mul(b)))
+                        a.checked_mul(b).map(Value::Int)
                     }
                     (BinaryOp::Multiply, Value::Float(a), Value::Float(b)) => {
                         Some(Value::Float(a * b))
                     }
-                    (BinaryOp::Divide, Value::Int(a), Value::Int(b)) => {
-                        if b == 0 {
-                            None
-                        } else {
-                            Some(Value::Int(a.wrapping_div(b)))
-                        }
+                    // Folding must agree with the VM: integer `/` produces a
+                    // Float, and division by zero is left to fail at runtime.
+                    (BinaryOp::Divide, Value::Int(a), Value::Int(b)) if b != 0 => {
+                        Some(Value::Float(a as f64 / b as f64))
                     }
-                    (BinaryOp::Divide, Value::Float(a), Value::Float(b)) => {
+                    (BinaryOp::Divide, Value::Float(a), Value::Float(b)) if b != 0.0 => {
                         Some(Value::Float(a / b))
                     }
                     _ => None,
@@ -1352,9 +1350,17 @@ impl Compiler {
                 body,
                 return_ty,
                 annotations,
+                is_async,
             } => {
                 let is_pure = annotations.iter().any(|a| a.name == "pure");
-                Ok(self.compile_lambda(params, body, return_ty.as_deref(), is_pure, annotations)?)
+                Ok(self.compile_lambda(
+                    params,
+                    body,
+                    return_ty.as_deref(),
+                    is_pure,
+                    annotations,
+                    *is_async,
+                )?)
             }
             ExprKind::Range {
                 start,
@@ -1459,13 +1465,17 @@ impl Compiler {
                     self.compile_inlined_call(&decl, args, dest, expr.span)?;
                     return Ok(dest);
                 }
-                if let Some(params) = match &callee.kind {
+                // Arguments passed to `move` parameters become unusable after the call.
+                let moved_regs = match match &callee.kind {
                     ExprKind::Ident(name) => self.resolve_fn_signature(name),
                     _ => None,
                 } {
-                    let params = params.to_vec();
-                    self.enforce_call_ownership(&params, args, expr.span)?;
-                }
+                    Some(params) => {
+                        let params = params.to_vec();
+                        self.enforce_call_ownership(&params, args, expr.span)?
+                    }
+                    None => Vec::new(),
+                };
                 // Handle super() constructor call
                 if matches!(&callee.kind, ExprKind::Super) {
                     if self.current_super.is_none() {
@@ -1512,6 +1522,9 @@ impl Compiler {
                 let dest = self.registers.allocate()?;
                 self.compile_call_internal(callee_reg, args, dest, expr.span)?;
                 self.free_temp(callee_reg);
+                for reg in moved_regs {
+                    self.ownership_states.insert(reg, OwnershipState::Moved);
+                }
                 Ok(dest)
             }
             ExprKind::SafeCall { callee, args } => {
@@ -2699,6 +2712,8 @@ impl Compiler {
         let mut compiler = Compiler::new(self.source.clone());
         compiler.is_top_level = false;
         compiler.is_async = decl.is_async;
+        // Calls inside the function check ownership against enclosing signatures.
+        compiler.fn_signatures = self.fn_signatures.clone();
         compiler.push_scope();
         compiler.module_name = self.module_name.clone();
         compiler.captures = captures
@@ -2725,7 +2740,12 @@ impl Compiler {
                     .find(|p| p.name == *param)
                     .and_then(|p| p.ty.clone())
             };
-            compiler.insert_local(param.clone(), reg, true, ty)?;
+            // A `&` (read-only borrow) parameter cannot be reassigned.
+            let borrowed = decl
+                .params
+                .iter()
+                .any(|p| p.name == *param && p.ownership == pleno_ast::Ownership::Borrow);
+            compiler.insert_local(param.clone(), reg, !borrowed, ty)?;
         }
         for param in decl.params.iter() {
             if let Some(default) = &param.default {
@@ -3015,6 +3035,7 @@ impl Compiler {
         return_ty: Option<&str>,
         is_pure: bool,
         annotations: &[pleno_ast::Annotation],
+        is_async: bool,
     ) -> Result<u8, CompileError> {
         let body_stmt = match &body.kind {
             ExprKind::Block(stmts) => Stmt {
@@ -3040,12 +3061,17 @@ impl Compiler {
             body: Box::new(body_stmt),
             is_static: false,
             is_abstract: false,
-            is_async: false,
+            is_async,
             visibility: None,
             kind: FunctionKind::Method,
             annotations: Vec::new(),
             doc: None,
         };
+        // An async lambda compiles like an async function declaration, which
+        // sets up its promise.
+        if is_async {
+            return self.compile_function(&decl, false, true, None, None);
+        }
 
         let captures = self.analyze_captures(&decl, false);
         let mut compiler = Compiler::new(self.source.clone());
@@ -4288,30 +4314,33 @@ impl Compiler {
         }
     }
 
+    /// Checks the arguments against the callee's ownership hints and returns
+    /// the registers of variables passed to `move` parameters, which the
+    /// caller marks as moved once the call is compiled.
     fn enforce_call_ownership(
         &mut self,
         params: &[ParamOwnership],
         args: &[pleno_ast::CallArg],
         span: pleno_ast::Span,
-    ) -> Result<(), CompileError> {
+    ) -> Result<Vec<u8>, CompileError> {
+        let mut moved = Vec::new();
         let mut positional_idx = 0;
         for arg in args {
-            match arg {
+            let (param, expr) = match arg {
                 pleno_ast::CallArg::Positional(expr) => {
-                    if let Some(param) = params.get(positional_idx) {
-                        self.enforce_arg_ownership(param, expr, span)?;
-                    }
                     positional_idx += 1;
+                    (params.get(positional_idx - 1), expr)
                 }
                 pleno_ast::CallArg::Named(name, expr) => {
-                    if let Some(param) = params.iter().find(|p| p.name == *name) {
-                        self.enforce_arg_ownership(param, expr, span)?;
-                    }
+                    (params.iter().find(|p| p.name == *name), expr)
                 }
-                pleno_ast::CallArg::Placeholder | pleno_ast::CallArg::Spread(_) => {}
+                pleno_ast::CallArg::Placeholder | pleno_ast::CallArg::Spread(_) => continue,
+            };
+            if let Some(param) = param {
+                moved.extend(self.enforce_arg_ownership(param, expr, span)?);
             }
         }
-        Ok(())
+        Ok(moved)
     }
 
     fn expand_stmt(
@@ -4574,7 +4603,7 @@ impl Compiler {
         param: &ParamOwnership,
         expr: &Expr,
         span: pleno_ast::Span,
-    ) -> Result<(), CompileError> {
+    ) -> Result<Option<u8>, CompileError> {
         if let Some(local) = match &expr.kind {
             ExprKind::Ident(name) => self.resolve_local(name),
             _ => None,
@@ -4587,10 +4616,7 @@ impl Compiler {
                 return Err(self.error("use of moved value", span));
             }
             match param.ownership {
-                pleno_ast::Ownership::Move => {
-                    self.ownership_states
-                        .insert(local.reg, OwnershipState::Moved);
-                }
+                pleno_ast::Ownership::Move => return Ok(Some(local.reg)),
                 pleno_ast::Ownership::BorrowMut => {
                     if !local.mutable {
                         return Err(
@@ -4601,7 +4627,7 @@ impl Compiler {
                 pleno_ast::Ownership::Borrow | pleno_ast::Ownership::None => {}
             }
         }
-        Ok(())
+        Ok(None)
     }
 
     fn resolve_inline_function(&self, name: &str) -> Option<&FunctionDecl> {
@@ -4900,7 +4926,7 @@ impl Compiler {
     }
 
     pub fn compile_lazy_thunk(&mut self, expr: &Expr) -> Result<u8, CompileError> {
-        let callable_reg = self.compile_lambda(&[], expr, None, false, &[])?;
+        let callable_reg = self.compile_lambda(&[], expr, None, false, &[], false)?;
         let thunk_reg = self.registers.allocate()?;
         self.emit(Opcode::MakeThunk, thunk_reg, callable_reg, 0);
         self.free_temp(callable_reg);

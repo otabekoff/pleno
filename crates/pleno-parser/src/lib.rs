@@ -108,14 +108,15 @@ impl Parser {
         for token in raw_tokens {
             if let TokenKind::Comment(content, kind) = token.kind {
                 if kind == pleno_ast::CommentKind::Doc {
-                    current_doc.push(content);
-                } else {
-                    comments.push(Comment {
-                        span: token.span,
-                        content,
-                        kind,
-                    });
+                    current_doc.push(content.clone());
                 }
+                // Doc comments are also kept as comments so the formatter
+                // and the LSP see them.
+                comments.push(Comment {
+                    span: token.span,
+                    content,
+                    kind,
+                });
             } else {
                 if !current_doc.is_empty() {
                     token_docs.insert(tokens.len(), current_doc.join("\n"));
@@ -292,6 +293,7 @@ impl Parser {
                             name_span: decl.name_span,
                             generics: decl.generics,
                             params: decl.params,
+                            return_ty: decl.return_ty,
                             body: decl.body,
                             annotations: decl.annotations,
                             is_async: true,
@@ -677,6 +679,7 @@ impl Parser {
                 name_span: decl.name_span,
                 generics: decl.generics,
                 params: decl.params,
+                return_ty: decl.return_ty,
                 body: decl.body,
                 annotations: decl.annotations,
                 is_async: false,
@@ -2339,17 +2342,7 @@ impl Parser {
             } else {
                 false
             };
-            let ownership = if self.matches(&TokenKind::KeywordMove) {
-                pleno_ast::Ownership::Move
-            } else if self.matches(&TokenKind::Ampersand) {
-                if self.matches(&TokenKind::KeywordMut) {
-                    pleno_ast::Ownership::BorrowMut
-                } else {
-                    pleno_ast::Ownership::Borrow
-                }
-            } else {
-                pleno_ast::Ownership::None
-            };
+            let mut ownership = self.parse_ownership_hint();
 
             let name_token = self.advance().clone();
             let name_start = name_token.span.start;
@@ -2367,6 +2360,12 @@ impl Parser {
                 }
             };
             let ty = if self.matches(&TokenKind::Colon) {
+                // The hint may also come before the type: `value: move String`,
+                // `value: &String`, `value: &mut Array`.
+                let hint = self.parse_ownership_hint();
+                if hint != pleno_ast::Ownership::None {
+                    ownership = hint;
+                }
                 Some(self.parse_type()?)
             } else {
                 None
@@ -2839,6 +2838,28 @@ impl Parser {
         self.parse_postfix_loop(expr, true)
     }
 
+    // Kept out of `parse_atom_inner`, like `parse_string_literal`.
+    #[inline(never)]
+    fn parse_async_fn_expr(&mut self, start_span: Span) -> Result<Expr, ParseError> {
+        let mut lambda = self.parse_fn_expr(Vec::new(), start_span)?;
+        if let ExprKind::Lambda { is_async, .. } = &mut lambda.kind {
+            *is_async = true;
+        }
+        Ok(lambda)
+    }
+
+    // Kept out of `parse_atom_inner` so its stack frame, which every level of
+    // nesting pays for, stays small.
+    #[inline(never)]
+    fn parse_string_literal(&mut self, value: String, span: Span) -> Result<Expr, ParseError> {
+        if value.contains("${") {
+            self.parse_interpolated_string(value, span)
+        } else {
+            let value = pleno_lexer::unescape_dollar(&value);
+            Ok(self.wrap_expr(ExprKind::Literal(Literal::String(value)), span))
+        }
+    }
+
     fn parse_interpolated_string(&mut self, value: String, span: Span) -> Result<Expr, ParseError> {
         let mut segments = Vec::new();
         let mut last_idx = 0;
@@ -2849,7 +2870,8 @@ impl Parser {
             if i + 1 < bytes.len() && bytes[i] == b'$' && bytes[i + 1] == b'{' {
                 // Add preceding literal segment
                 if i > last_idx {
-                    let literal = String::from_utf8_lossy(&bytes[last_idx..i]).to_string();
+                    let literal =
+                        pleno_lexer::unescape_dollar(&String::from_utf8_lossy(&bytes[last_idx..i]));
                     segments.push(Expr::new(ExprKind::Literal(Literal::String(literal)), span));
                 }
 
@@ -2890,7 +2912,8 @@ impl Parser {
         }
 
         if last_idx < bytes.len() {
-            let literal = String::from_utf8_lossy(&bytes[last_idx..]).to_string();
+            let literal =
+                pleno_lexer::unescape_dollar(&String::from_utf8_lossy(&bytes[last_idx..]));
             segments.push(Expr::new(ExprKind::Literal(Literal::String(literal)), span));
         }
 
@@ -2914,13 +2937,7 @@ impl Parser {
             TokenKind::Float(value) => {
                 Ok(self.wrap_expr(ExprKind::Literal(Literal::Float(value)), start_span))
             }
-            TokenKind::String(value) => {
-                if value.contains("${") {
-                    self.parse_interpolated_string(value, start_span)
-                } else {
-                    Ok(self.wrap_expr(ExprKind::Literal(Literal::String(value)), start_span))
-                }
-            }
+            TokenKind::String(value) => self.parse_string_literal(value, start_span),
             TokenKind::Char(value) => {
                 Ok(self.wrap_expr(ExprKind::Literal(Literal::Char(value)), start_span))
             }
@@ -2985,6 +3002,10 @@ impl Parser {
             TokenKind::Pipe => self.parse_lambda_expr(Vec::new(), start_span),
             TokenKind::KeywordIf => self.parse_if_expr(start_span),
             TokenKind::KeywordFn => self.parse_fn_expr(Vec::new(), start_span),
+            // `async fn(...) { ... }`: an anonymous async function.
+            TokenKind::KeywordAsync if self.matches(&TokenKind::KeywordFn) => {
+                self.parse_async_fn_expr(start_span)
+            }
             TokenKind::At => {
                 let first_annotation = self.parse_annotation()?;
                 let mut annotations = vec![first_annotation];
@@ -3065,6 +3086,7 @@ impl Parser {
                             body: Box::new(body),
                             return_ty: None,
                             annotations: Vec::new(),
+                            is_async: false,
                         },
                         start_span,
                     ))
@@ -3425,7 +3447,7 @@ impl Parser {
                     entries.push(pleno_ast::MapItem::Spread(value));
                 } else {
                     let key = match self.advance().kind.clone() {
-                        TokenKind::String(value) => value,
+                        TokenKind::String(value) => pleno_lexer::unescape_dollar(&value),
                         TokenKind::Ident(value) => value,
                         keyword if keyword.keyword_text().is_some() => {
                             keyword.keyword_text().unwrap_or_default().to_string()
@@ -3770,7 +3792,9 @@ impl Parser {
                 start_span,
             )),
             TokenKind::String(val) => Ok(self.wrap_pattern(
-                pleno_ast::PatternKind::Literal(pleno_ast::Literal::String(val)),
+                pleno_ast::PatternKind::Literal(pleno_ast::Literal::String(
+                    pleno_lexer::unescape_dollar(&val),
+                )),
                 start_span,
             )),
             TokenKind::Bool(val) => Ok(self.wrap_pattern(
@@ -4166,6 +4190,7 @@ impl Parser {
                 body: Box::new(body),
                 return_ty: None,
                 annotations,
+                is_async: false,
             },
             start_span,
         ))
@@ -4200,6 +4225,7 @@ impl Parser {
                 body,
                 return_ty,
                 annotations,
+                is_async: false,
             },
             start_span,
         ))
@@ -4228,6 +4254,21 @@ impl Parser {
             },
             start_span,
         ))
+    }
+
+    /// An optional ownership hint: `move`, `&` or `&mut`.
+    fn parse_ownership_hint(&mut self) -> pleno_ast::Ownership {
+        if self.matches(&TokenKind::KeywordMove) {
+            pleno_ast::Ownership::Move
+        } else if self.matches(&TokenKind::Ampersand) {
+            if self.matches(&TokenKind::KeywordMut) {
+                pleno_ast::Ownership::BorrowMut
+            } else {
+                pleno_ast::Ownership::Borrow
+            }
+        } else {
+            pleno_ast::Ownership::None
+        }
     }
 
     /// A branch of an `if` expression: `{ ... }` is a block whose last expression
