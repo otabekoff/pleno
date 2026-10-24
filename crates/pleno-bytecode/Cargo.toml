@@ -12,3 +12,4 @@ indexmap = { workspace = true, features = ["serde"] }
 num-derive = "0.4"
 num-traits = "0.2"
 serde = { workspace = true, features = ["derive"] }
+bincode = "1"
