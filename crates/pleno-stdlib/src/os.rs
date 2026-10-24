@@ -55,14 +55,88 @@ pub fn os_tmpdir(_vm: &mut dyn VMProvider, _args: &[Value]) -> Result<Value, Run
     )))
 }
 
+/// The machine's host name, or null if it cannot be found.
 pub fn os_hostname(_vm: &mut dyn VMProvider, _args: &[Value]) -> Result<Value, RuntimeError> {
-    // Placeholder to avoid hostname crate dependency for now
-    Ok(Value::Null)
+    Ok(host_name()
+        .map(|name| Value::String(Rc::new(name)))
+        .unwrap_or(Value::Null))
 }
 
+fn host_name() -> Option<String> {
+    let non_empty = |name: String| {
+        let name = name.trim().to_string();
+        (!name.is_empty()).then_some(name)
+    };
+    ["COMPUTERNAME", "HOSTNAME"]
+        .iter()
+        .find_map(|var| std::env::var(var).ok().and_then(non_empty))
+        .or_else(|| {
+            std::fs::read_to_string("/etc/hostname")
+                .ok()
+                .and_then(non_empty)
+        })
+        .or_else(|| {
+            let output = std::process::Command::new("hostname").output().ok()?;
+            output
+                .status
+                .success()
+                .then(|| String::from_utf8_lossy(&output.stdout).to_string())
+                .and_then(non_empty)
+        })
+}
+
+/// Seconds since the system booted, as a Float, or null where unknown.
 pub fn os_uptime(_vm: &mut dyn VMProvider, _args: &[Value]) -> Result<Value, RuntimeError> {
-    // Basic uptime using system_stat or similar would be better, but for now
-    // let's just return a placeholder or use a simpler method if available.
-    // Rust doesn't have a built-in for uptime.
-    Ok(Value::Float(0.0))
+    Ok(uptime_seconds().map(Value::Float).unwrap_or(Value::Null))
+}
+
+#[cfg(target_os = "linux")]
+fn uptime_seconds() -> Option<f64> {
+    // "12345.67 54321.00": seconds up, then idle time.
+    std::fs::read_to_string("/proc/uptime")
+        .ok()?
+        .split_whitespace()
+        .next()?
+        .parse()
+        .ok()
+}
+
+#[cfg(target_os = "windows")]
+fn uptime_seconds() -> Option<f64> {
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn GetTickCount64() -> u64;
+    }
+    // SAFETY: GetTickCount64 takes no arguments, cannot fail, and is in
+    // kernel32 on every supported Windows version.
+    let milliseconds = unsafe { GetTickCount64() };
+    Some(milliseconds as f64 / 1000.0)
+}
+
+#[cfg(target_os = "macos")]
+fn uptime_seconds() -> Option<f64> {
+    // `sysctl -n kern.boottime` prints "{ sec = 1700000000, usec = 0 } ...".
+    let output = std::process::Command::new("sysctl")
+        .args(["-n", "kern.boottime"])
+        .output()
+        .ok()?;
+    let text = String::from_utf8_lossy(&output.stdout);
+    let boot: u64 = text
+        .split("sec = ")
+        .nth(1)?
+        .split(',')
+        .next()?
+        .trim()
+        .parse()
+        .ok()?;
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()?
+        .as_secs();
+    Some(now.saturating_sub(boot) as f64)
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "windows", target_os = "macos")))]
+fn uptime_seconds() -> Option<f64> {
+    None
 }

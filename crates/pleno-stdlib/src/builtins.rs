@@ -126,12 +126,7 @@ pub fn register_builtins(vm: &mut dyn VMProvider) {
         Value::String(Rc::new("None".to_string())),
     );
     let none_val = Value::Map(vm.get_gc().allocate(MapState::new(none_map)).unwrap());
-    vm.register_global("None".to_string(), none_val);
-
-    vm.register_global(
-        "Promise".to_string(),
-        Value::NativeFunction(crate::promise::promise_constructor),
-    );
+    vm.register_global("None".to_string(), none_val.clone());
 
     // Global Math, JSON, OS removed. Import from std modules.
 
@@ -162,7 +157,7 @@ pub fn register_builtins(vm: &mut dyn VMProvider) {
             .allocate(MapState::new(promise_obj_map))
             .unwrap(),
     );
-    vm.register_global("Promise".to_string(), promise_val);
+    vm.register_global("Promise".to_string(), promise_val.clone());
 
     // Types
     let int_map = {
@@ -218,6 +213,27 @@ pub fn register_builtins(vm: &mut dyn VMProvider) {
         "stopIteration".to_string(),
         Value::NativeFunction(native_stop_iteration),
     );
+
+    // These are globals; the modules let code import them explicitly.
+    let mut core_module = IndexMap::new();
+    core_module.insert("Ok".to_string(), Value::NativeFunction(native_result_ok));
+    core_module.insert("Err".to_string(), Value::NativeFunction(native_result_err));
+    core_module.insert(
+        "Some".to_string(),
+        Value::NativeFunction(native_option_some),
+    );
+    core_module.insert("None".to_string(), none_val);
+    let core_module = Value::Map(vm.get_gc().allocate(MapState::new(core_module)).unwrap());
+    vm.register_module("std:core".to_string(), core_module);
+
+    let mut promise_module = IndexMap::new();
+    promise_module.insert("Promise".to_string(), promise_val);
+    promise_module.insert(
+        "spawn".to_string(),
+        Value::NativeFunction(native_async_spawn),
+    );
+    let promise_module = Value::Map(vm.get_gc().allocate(MapState::new(promise_module)).unwrap());
+    vm.register_module("std:promise".to_string(), promise_module);
 }
 
 fn native_stop_iteration(_vm: &mut dyn VMProvider, _args: &[Value]) -> Result<Value, RuntimeError> {
@@ -533,6 +549,8 @@ pub fn resolve_builtin_method(ty: &str, name: &str) -> Option<pleno_value::Nativ
         ("Array", "remove") => Some(native_array_remove_at),
         ("Array", "clear") => Some(native_array_clear),
         ("Array", "slice") => Some(native_array_slice),
+        // `clone()` is `slice()` with no bounds: a shallow copy.
+        ("Array", "clone") => Some(native_array_slice),
         ("Array", "join") => Some(native_array_join),
         ("Array", "find") => Some(native_array_find),
         ("Array", "map") => Some(native_array_map),
@@ -557,6 +575,7 @@ pub fn resolve_builtin_method(ty: &str, name: &str) -> Option<pleno_value::Nativ
         ("Map", "keys") => Some(native_map_keys),
         ("Map", "values") => Some(native_map_values),
         ("Map", "size") => Some(native_map_size),
+        ("Map", "isEmpty") => Some(native_map_is_empty),
         ("Set", "clear") => Some(native_set_clear),
         ("Map", "map") => Some(native_map_map),
         ("Map", "filter") => Some(native_map_filter),
@@ -565,6 +584,7 @@ pub fn resolve_builtin_method(ty: &str, name: &str) -> Option<pleno_value::Nativ
         ("Set", "remove") => Some(native_set_remove),
         ("Set", "contains") => Some(native_set_contains),
         ("Set", "size") => Some(native_set_size),
+        ("Set", "isEmpty") => Some(native_set_is_empty),
         ("Set", "map") => Some(native_set_map),
         ("Set", "filter") => Some(native_set_filter),
         ("Set", "forEach") => Some(native_set_for_each),
@@ -609,6 +629,8 @@ pub fn resolve_builtin_method(ty: &str, name: &str) -> Option<pleno_value::Nativ
         ("Set", "iterator") => Some(native_set_iterator),
         ("Tuple", "iterator") => Some(native_tuple_iterator),
         ("Range", "iterator") => Some(native_range_iterator),
+        ("Range", "contains") => Some(native_range_contains),
+        ("Range", "toArray") => Some(native_range_to_array),
         ("Iterator", "next") => Some(native_iterator_next),
         ("Char", "isDigit") => Some(native_char_is_digit),
         ("Char", "isAlpha") => Some(native_char_is_alpha),
@@ -1489,6 +1511,66 @@ fn native_set_size(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, Ru
         _ => return Err(RuntimeError::new("expected set")),
     };
     Ok(Value::Int(set.borrow().len() as i64))
+}
+
+fn native_map_is_empty(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    match &args[0] {
+        Value::Map(map) => Ok(Value::Bool(map.borrow().entries.is_empty())),
+        _ => Err(RuntimeError::new("expected map")),
+    }
+}
+
+fn native_set_is_empty(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    match &args[0] {
+        Value::Set(set) => Ok(Value::Bool(set.borrow().is_empty())),
+        _ => Err(RuntimeError::new("expected set")),
+    }
+}
+
+fn expect_range<'a>(
+    args: &'a [Value],
+    method: &str,
+) -> Result<&'a pleno_value::Range, RuntimeError> {
+    match args.first() {
+        Some(Value::Range(range)) => Ok(range),
+        _ => Err(RuntimeError::new(format!("{method}() called on non-range"))),
+    }
+}
+
+fn native_range_contains(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    let range = expect_range(args, "contains")?;
+    let value = match args.get(1) {
+        Some(Value::Int(value)) => *value,
+        _ => return Ok(Value::Bool(false)),
+    };
+    let above_start = range.start.is_none_or(|start| value >= start);
+    let below_end = match range.end {
+        None => true,
+        Some(end) if range.inclusive => value <= end,
+        Some(end) => value < end,
+    };
+    Ok(Value::Bool(above_start && below_end))
+}
+
+fn native_range_to_array(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    let range = expect_range(args, "toArray")?;
+    let (Some(start), Some(end)) = (range.start, range.end) else {
+        return Err(RuntimeError::new(
+            "toArray() needs a range with a start and an end",
+        ));
+    };
+    let end = if range.inclusive {
+        end.saturating_add(1)
+    } else {
+        end
+    };
+    let len = end.saturating_sub(start).max(0) as usize;
+    vm.get_gc()
+        .track_allocation(len * std::mem::size_of::<Value>())?;
+    let elements = (start..end).map(Value::Int).collect();
+    Ok(Value::Array(
+        vm.get_gc().allocate(ArrayState::new(elements))?,
+    ))
 }
 
 fn native_set_with(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {

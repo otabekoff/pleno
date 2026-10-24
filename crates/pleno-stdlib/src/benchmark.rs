@@ -33,3 +33,15 @@ pub fn benchmark_run(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, R
     ));
     Ok(Value::Int(average_ns))
 }
+
+/// `Benchmark.measure(fn)`: calls `fn` once and returns how long it took, in
+/// milliseconds.
+pub fn benchmark_measure(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    let callee = args
+        .first()
+        .cloned()
+        .ok_or_else(|| RuntimeError::new("Benchmark.measure expects a function"))?;
+    let start = Instant::now();
+    vm.call(callee, Vec::new())?;
+    Ok(Value::Float(start.elapsed().as_secs_f64() * 1000.0))
+}

@@ -275,13 +275,17 @@ pub fn register(vm: &mut dyn VMProvider) {
     );
 
     // std:json
-    let mut json_module = IndexMap::new();
     let mut json_obj = IndexMap::new();
     json_obj.insert("parse".to_string(), Value::NativeFunction(json::json_parse));
     json_obj.insert(
         "stringify".to_string(),
         Value::NativeFunction(json::json_stringify),
     );
+    json_obj.insert(
+        "stringifyPretty".to_string(),
+        Value::NativeFunction(json::json_stringify_pretty),
+    );
+    let mut json_module = json_obj.clone();
     json_module.insert(
         "JSON".to_string(),
         Value::Map(gc.allocate(MapState::new(json_obj)).unwrap()),
@@ -320,9 +324,30 @@ pub fn register(vm: &mut dyn VMProvider) {
         "now_ns".to_string(),
         Value::NativeFunction(time::time_now_ns),
     );
+    datetime_obj.insert(
+        "parse".to_string(),
+        Value::NativeFunction(time::time_datetime_parse),
+    );
     time_module.insert(
         "DateTime".to_string(),
         Value::Map(gc.allocate(MapState::new(datetime_obj)).unwrap()),
+    );
+    let mut duration_obj = IndexMap::new();
+    for (name, function) in [
+        (
+            "milliseconds",
+            time::duration_milliseconds as pleno_value::NativeFunction,
+        ),
+        ("seconds", time::duration_seconds),
+        ("minutes", time::duration_minutes),
+        ("hours", time::duration_hours),
+        ("days", time::duration_days),
+    ] {
+        duration_obj.insert(name.to_string(), Value::NativeFunction(function));
+    }
+    time_module.insert(
+        "Duration".to_string(),
+        Value::Map(gc.allocate(MapState::new(duration_obj)).unwrap()),
     );
 
     modules.insert(
@@ -335,6 +360,10 @@ pub fn register(vm: &mut dyn VMProvider) {
     benchmark_obj.insert(
         "run".to_string(),
         Value::NativeFunction(benchmark::benchmark_run),
+    );
+    benchmark_obj.insert(
+        "measure".to_string(),
+        Value::NativeFunction(benchmark::benchmark_measure),
     );
     let mut benchmark_module = benchmark_obj.clone();
     benchmark_module.insert(
@@ -501,6 +530,13 @@ pub fn register(vm: &mut dyn VMProvider) {
         "lengthOf".to_string(),
         Value::NativeFunction(test::assert_length_of),
     );
+    // The names used in the spec: `assert.true(x)`, `assert.false(x)`, `assert.null(x)`.
+    assert_obj.insert("true".to_string(), Value::NativeFunction(test::assert_true));
+    assert_obj.insert(
+        "false".to_string(),
+        Value::NativeFunction(test::assert_false),
+    );
+    assert_obj.insert("null".to_string(), Value::NativeFunction(test::assert_null));
 
     let mut test_module = IndexMap::new();
     test_module.insert(
@@ -774,6 +810,45 @@ pub fn register(vm: &mut dyn VMProvider) {
             "std:db".to_string(),
             Value::Map(gc.allocate(MapState::new(db_module)).unwrap()),
         );
+    }
+
+    // Every module can also be imported as one namespace, as the docs use
+    // it: `import { Path } from "std:path"` as well as `import { join } ...`.
+    for (module, namespace) in [
+        ("std:base64", "Base64"),
+        ("std:crypto", "Crypto"),
+        ("std:csv", "CSV"),
+        ("std:dotenv", "Dotenv"),
+        ("std:gc", "GC"),
+        ("std:http", "HTTP"),
+        ("std:log", "Log"),
+        ("std:net", "Net"),
+        ("std:os", "OS"),
+        ("std:path", "Path"),
+        ("std:process", "Process"),
+        ("std:random", "Random"),
+        ("std:time", "Time"),
+        ("std:toml", "TOML"),
+        ("std:uuid", "UUID"),
+        ("std:xml", "XML"),
+        ("std:yaml", "YAML"),
+    ] {
+        if let Some(Value::Map(map)) = modules.get(module) {
+            let entries = map.borrow().entries.clone();
+            if !entries.contains_key(namespace) {
+                let value = Value::Map(gc.allocate(MapState::new(entries)).unwrap());
+                map.borrow_mut()
+                    .entries
+                    .insert(namespace.to_string(), value);
+            }
+        }
+    }
+    // `Url` is the spelling used in the docs.
+    if let Some(Value::Map(map)) = modules.get("std:url") {
+        let url = map.borrow().entries.get("URL").cloned();
+        if let Some(url) = url {
+            map.borrow_mut().entries.insert("Url".to_string(), url);
+        }
     }
 
     // Register all in VM

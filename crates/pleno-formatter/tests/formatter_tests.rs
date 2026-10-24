@@ -458,3 +458,9 @@ fn match_and_tuples_round_trip() {
         "match (x) {\n    case 1 => a,\n    case _ => b,\n}\nlet t = (1,);\n",
     );
 }
+
+#[test]
+fn backtick_strings_and_qualified_patterns_are_kept() {
+    let input = "let j = `{\"a\": 1}`;\nmatch (d) {\n    case Direction.North => return 1,\n}\n";
+    assert_round_trip(input, input);
+}

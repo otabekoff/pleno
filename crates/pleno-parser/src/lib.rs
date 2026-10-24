@@ -904,6 +904,25 @@ impl Parser {
             }
         };
 
+        // `extend <T> Array<T>`: the arguments name the declared generics; the
+        // extension applies to the base type.
+        if self.matches(&TokenKind::Less) {
+            let mut depth = 1;
+            while depth > 0 && !self.is_at_end() {
+                match self.advance().kind {
+                    TokenKind::Less => depth += 1,
+                    TokenKind::Greater => depth -= 1,
+                    TokenKind::LBrace | TokenKind::Eof => {
+                        return Err(self.error(
+                            "Expected '>' after extension target type arguments".to_string(),
+                            self.previous_span(),
+                        ));
+                    }
+                    _ => {}
+                }
+            }
+        }
+
         self.expect(TokenKind::LBrace, "Expected '{' after extension target")?;
 
         let mut methods = Vec::new();
@@ -1236,8 +1255,11 @@ impl Parser {
                 doc: None,
             });
 
-            // Allow trailing comma
+            // Allow trailing comma; `;` ends the variants before the methods.
             self.matches(&TokenKind::Comma);
+            if self.matches(&TokenKind::Semicolon) {
+                break;
+            }
         }
 
         let mut methods = Vec::new();
@@ -3191,6 +3213,9 @@ impl Parser {
                     keyword if keyword.keyword_text().is_some() => {
                         keyword.keyword_text().unwrap_or_default().to_string()
                     }
+                    // `assert.true(x)`, `assert.null(x)`
+                    TokenKind::Bool(value) => value.to_string(),
+                    TokenKind::Null => "null".to_string(),
                     other => {
                         return Err(self.error(
                             format!("Expected identifier or index after '.', found {other:?}"),
@@ -3572,7 +3597,7 @@ impl Parser {
             };
 
             self.expect(TokenKind::FatArrow, "Expected '=>' after pattern")?;
-            let body = self.parse_expr()?;
+            let body = self.parse_match_arm_body()?;
             arms.push(pleno_ast::MatchArm {
                 span: Span::new(pattern.span.start, self.previous_span().end),
                 pattern,
@@ -3586,6 +3611,30 @@ impl Parser {
         }
         self.expect(TokenKind::RBrace, "Expected '}' after match arms")?;
         Ok(self.wrap_expr(ExprKind::Match { expr, arms }, start_span))
+    }
+
+    /// A match arm's body: an expression, or `return`/`throw` as in
+    /// `case 0 => return this.x,`, which becomes a one-statement block.
+    fn parse_match_arm_body(&mut self) -> Result<Expr, ParseError> {
+        let start_span = self.peek_span();
+        let kind = match self.peek_kind() {
+            TokenKind::KeywordReturn => {
+                self.advance();
+                let value = if matches!(self.peek_kind(), TokenKind::Comma | TokenKind::RBrace) {
+                    None
+                } else {
+                    Some(self.parse_expr()?)
+                };
+                StmtKind::Return(value)
+            }
+            TokenKind::KeywordThrow => {
+                self.advance();
+                StmtKind::Throw(self.parse_expr()?)
+            }
+            _ => return self.parse_expr(),
+        };
+        let stmt = self.wrap_stmt(kind, start_span);
+        Ok(self.wrap_expr(ExprKind::Block(vec![stmt]), start_span))
     }
 
     fn parse_pattern(&mut self) -> Result<pleno_ast::Pattern, ParseError> {
@@ -3952,6 +4001,11 @@ impl Parser {
                 ));
             }
         };
+        let params = self
+            .parse_generic_params()?
+            .into_iter()
+            .map(|param| param.name)
+            .collect();
         self.expect(TokenKind::Equal, "Expected '=' after type alias name")?;
         let ty = self.parse_type()?;
         self.expect(TokenKind::Semicolon, "Expected ';' after type alias")?;
@@ -3959,6 +4013,7 @@ impl Parser {
             StmtKind::TypeAlias {
                 name,
                 name_span,
+                params,
                 ty,
                 doc,
             },

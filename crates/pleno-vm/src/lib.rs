@@ -973,6 +973,14 @@ impl VM {
         )?)))
     }
 
+    /// A function's `.name`: its declared name.
+    fn function_name_value(&self, index: usize) -> Value {
+        self.functions
+            .get(index)
+            .map(|function| Value::String(function.name.clone()))
+            .unwrap_or(Value::Null)
+    }
+
     fn handle_property_error(&self, name: &str, type_name: &str) -> RuntimeError {
         RuntimeError::new(format!("cannot read property '{name}' of {type_name}"))
     }
@@ -1029,6 +1037,16 @@ impl VM {
                 | ("Any", _)
         );
         if primitive {
+            return true;
+        }
+        // `Ok`/`Err` and `Some`/`None` values are maps tagged with their variant.
+        if let ("Result" | "Option", Value::Map(map)) = (ty, value)
+            && let Some(Value::String(variant)) = map.borrow().entries.get("variant")
+            && matches!(
+                (ty, variant.as_str()),
+                ("Result", "Ok" | "Err") | ("Option", "Some" | "None")
+            )
+        {
             return true;
         }
         if let Some(resolved) = self.resolve_type_param(ty) {
@@ -1430,7 +1448,25 @@ impl VM {
                         .builtin_resolver
                         .and_then(|r| r(iter.type_name(), &name))
                     {
+                        let is_channel = matches!(iter, Value::Channel(_));
                         match native(self, &[iter]) {
+                            // An empty channel hands back a promise for its next
+                            // value: wait for it, as `await` does.
+                            Ok(val) if is_channel && pending_promise_id(&val).is_some() => {
+                                let id = pending_promise_id(&val).unwrap_or_default();
+                                let frame = self
+                                    .frames
+                                    .pop()
+                                    .ok_or_else(|| RuntimeError::new("VM stack underflow"))?;
+                                self.suspended_frames.insert(
+                                    id,
+                                    SuspendedFrame {
+                                        frame,
+                                        await_reg: a,
+                                    },
+                                );
+                                return Ok(Some(ExecutionStatus::Finished(Value::Null)));
+                            }
                             Ok(val) => {
                                 self.registers[base + a] = NanValue::from_value(&val);
                             }
@@ -2125,31 +2161,48 @@ impl VM {
                     self.registers[base + a] = NanValue::from_bool(result);
                 }
                 Opcode::TypeOf => {
-                    let value = self.registers[base + b];
-                    let type_name = value.type_name();
-                    self.registers[base + a] =
-                        NanValue::from_value(&Value::String(Rc::new(type_name.to_string())));
+                    // Instances report their class and variants their enum.
+                    let type_name = match self.registers[base + b].to_value() {
+                        Value::Object(object) => object
+                            .borrow()
+                            .class
+                            .as_ref()
+                            .map(|class| class.borrow().name.clone())
+                            .unwrap_or_else(|| Rc::new("Object".to_string())),
+                        Value::Variant(variant) => variant.borrow().enum_type.borrow().name.clone(),
+                        other => Rc::new(other.type_name().to_string()),
+                    };
+                    self.registers[base + a] = NanValue::from_value(&Value::String(type_name));
                 }
                 Opcode::AddInt => {
                     let val = match self.registers[base + b].as_int() {
                         Some(i) => i,
                         _ => return Err(RuntimeError::new("AddInt expects integer")),
                     };
-                    self.registers[base + a] = NanValue::from_int(val + c as i64);
+                    let result = val
+                        .checked_add(c as i64)
+                        .ok_or_else(|| RuntimeError::new("integer overflow in addition"))?;
+                    self.registers[base + a] = NanValue::from_int(result);
                 }
                 Opcode::SubInt => {
                     let val = match self.registers[base + b].as_int() {
                         Some(i) => i,
                         _ => return Err(RuntimeError::new("SubInt expects integer")),
                     };
-                    self.registers[base + a] = NanValue::from_int(val - c as i64);
+                    let result = val
+                        .checked_sub(c as i64)
+                        .ok_or_else(|| RuntimeError::new("integer overflow in subtraction"))?;
+                    self.registers[base + a] = NanValue::from_int(result);
                 }
                 Opcode::MulInt => {
                     let val = match self.registers[base + b].as_int() {
                         Some(i) => i,
                         _ => return Err(RuntimeError::new("MulInt expects integer")),
                     };
-                    self.registers[base + a] = NanValue::from_int(val * c as i64);
+                    let result = val
+                        .checked_mul(c as i64)
+                        .ok_or_else(|| RuntimeError::new("integer overflow in multiplication"))?;
+                    self.registers[base + a] = NanValue::from_int(result);
                 }
                 Opcode::DivInt => {
                     let val = match self.registers[base + b].as_int() {
@@ -2159,6 +2212,7 @@ impl VM {
                     if c == 0 {
                         return Err(RuntimeError::new("division by zero"));
                     }
+                    // `c` is a non-zero u8, so this cannot overflow.
                     self.registers[base + a] = NanValue::from_int(val / c as i64);
                 }
                 Opcode::ModInt => {
@@ -2701,6 +2755,13 @@ impl VM {
                                     }
                                     Value::Set(s) if name == "len" => {
                                         Value::Int(s.borrow().len() as i64)
+                                    }
+                                    Value::Function(index) if name == "name" => {
+                                        self.function_name_value(*index)
+                                    }
+                                    Value::Closure(closure) if name == "name" => {
+                                        let index = closure.borrow().function;
+                                        self.function_name_value(index)
                                     }
                                     _ => {
                                         return Err(
@@ -3938,6 +3999,11 @@ impl VM {
                             ));
                         }
 
+                        // `Shape<Int>`, `Promise<Int>(...)`: type arguments of enums and
+                        // built-in callables are not checked, so they mean the value itself.
+                        unchecked @ (Value::Enum(_) | Value::Map(_) | Value::NativeFunction(_)) => {
+                            self.registers[base + a] = NanValue::from_value(&unchecked);
+                        }
                         _ => return Err(RuntimeError::new("Specialize on non-class value")),
                     }
                 }
@@ -4629,6 +4695,16 @@ impl VM {
 
     pub fn is_instance(&self, value: &Value, type_val: &Value) -> bool {
         match type_val {
+            // A variant belongs to the enum that declared it.
+            Value::Enum(enum_type) => match value {
+                Value::Variant(variant) => {
+                    let declared = &variant.borrow().enum_type;
+                    let declared = declared.borrow();
+                    let expected = enum_type.borrow();
+                    declared.name == expected.name && declared.module == expected.module
+                }
+                _ => false,
+            },
             Value::String(s) => {
                 let s = s.as_str().trim();
                 if s.starts_with('{') && s.ends_with('}') {
@@ -4805,48 +4881,14 @@ impl VM {
                 }
                 _ => false,
             },
-            Value::BoundInterface(target) => match value {
-                Value::Object(obj) => {
-                    let obj = obj.borrow();
-                    let target = target.borrow();
-                    let target_iface = &target.interface;
-                    let target_args = &target.type_args;
-                    let iface = target_iface.borrow();
-
-                    if let Some(cls) = &obj.class {
-                        let mut current = Some(cls.clone());
-                        while let Some(c) = current {
-                            for imp in &c.borrow().implements {
-                                match imp {
-                                    Value::BoundInterface(bi)
-                                        if bi.borrow().interface.borrow().name == iface.name =>
-                                    {
-                                        let bi = bi.borrow();
-                                        let type_args = &bi.type_args;
-                                        if type_args.len() != target_args.len() {
-                                            continue;
-                                        }
-                                        let mut args_match = true;
-                                        for (a, b) in type_args.iter().zip(target_args.iter()) {
-                                            if !self.check_type_compatible(a, b) {
-                                                args_match = false;
-                                                break;
-                                            }
-                                        }
-                                        if args_match {
-                                            return true;
-                                        }
-                                    }
-                                    _ => {}
-                                }
-                            }
-                            current = c.borrow().superclass.clone();
-                        }
-                    }
-                    false
+            Value::BoundInterface(target) => {
+                match value {
+                    Value::Object(obj) => obj.borrow().class.as_ref().is_some_and(|class| {
+                        self.implements_bound_interface(class, &target.borrow())
+                    }),
+                    _ => false,
                 }
-                _ => false,
-            },
+            }
             _ => false,
         }
     }
@@ -6083,6 +6125,20 @@ fn value_to_key(value: &Value) -> Result<ValueKey, RuntimeError> {
 
 fn key_to_value(key: &ValueKey) -> Value {
     key.to_value()
+}
+
+/// The id of a pending promise, or None for any other value.
+fn pending_promise_id(value: &Value) -> Option<u64> {
+    let Value::Map(map) = value else {
+        return None;
+    };
+    let map = map.borrow();
+    match (map.entries.get("variant"), map.entries.get("id")) {
+        (Some(Value::String(variant)), Some(Value::Int(id))) if variant.as_str() == "Pending" => {
+            Some(*id as u64)
+        }
+        _ => None,
+    }
 }
 
 /// How an uncaught exception is reported: the `message` of an error map or

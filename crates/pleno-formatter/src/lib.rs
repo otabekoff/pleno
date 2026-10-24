@@ -922,8 +922,15 @@ impl Formatter {
                 result.push_str(&format!("{}}}\n", current_indent));
                 result
             }
-            StmtKind::TypeAlias { name, ty, .. } => {
-                format!("{}type {} = {};\n", current_indent, name, ty)
+            StmtKind::TypeAlias {
+                name, params, ty, ..
+            } => {
+                let params = if params.is_empty() {
+                    String::new()
+                } else {
+                    format!("<{}>", params.join(", "))
+                };
+                format!("{}type {}{} = {};\n", current_indent, name, params, ty)
             }
             StmtKind::MacroDecl {
                 name, params, body, ..
@@ -955,7 +962,23 @@ impl Formatter {
         result
     }
 
+    /// A string literal exactly as written, so its quotes, escapes and line
+    /// breaks are kept. None without the source.
+    fn source_string_literal(&self, expr: &Expr) -> Option<String> {
+        let raw = self.source.get(expr.span.start..expr.span.end)?;
+        let quote = raw.chars().next()?;
+        (raw.len() >= 2 && (quote == '"' || quote == '`') && raw.ends_with(quote))
+            .then(|| raw.to_string())
+    }
+
     fn format_expression(&mut self, expr: &Expr, indent_level: usize) -> String {
+        if matches!(
+            expr.kind,
+            ExprKind::Literal(Literal::String(_)) | ExprKind::InterpolatedString(_)
+        ) && let Some(raw) = self.source_string_literal(expr)
+        {
+            return raw;
+        }
         match &expr.kind {
             ExprKind::Literal(literal) => self.format_literal(literal),
             ExprKind::Ident(name) => name.clone(),
@@ -1160,10 +1183,7 @@ impl Formatter {
 
                 let body_str = match &body.kind {
                     ExprKind::Block(statements) => {
-                        let mut block_str = String::from(
-                            "{
-",
-                        );
+                        let mut block_str = String::from("{\n");
                         self.at_block_start = true;
                         for stmt in statements {
                             block_str.push_str(&self.format_statement(stmt, indent_level + 1));
@@ -1181,11 +1201,14 @@ impl Formatter {
                 format!("{} {}", head, body_str)
             }
             ExprKind::Block(statements) => {
-                let mut result = String::from("{ ");
+                let mut result = String::from("{\n");
+                self.at_block_start = true;
                 for stmt in statements {
-                    result.push_str(&self.format_statement(stmt, indent_level));
-                    result.push(' ');
+                    result.push_str(&self.format_statement(stmt, indent_level + 1));
                 }
+                result.push_str(&self.emit_comments_before(expr.span.end, indent_level + 1));
+                self.at_block_start = false;
+                result.push_str(&self.indent(indent_level));
                 result.push('}');
                 result
             }
@@ -1274,12 +1297,28 @@ impl Formatter {
                     } else {
                         "".to_string()
                     };
+                    let body = match &arm.body.kind {
+                        ExprKind::Block(stmts) if stmts.len() == 1 => match &stmts[0].kind {
+                            StmtKind::Return(Some(value)) => {
+                                format!(
+                                    "return {}",
+                                    self.format_expression(value, indent_level + 1)
+                                )
+                            }
+                            StmtKind::Return(None) => "return".to_string(),
+                            StmtKind::Throw(value) => {
+                                format!("throw {}", self.format_expression(value, indent_level + 1))
+                            }
+                            _ => self.format_expression(&arm.body, indent_level + 1),
+                        },
+                        _ => self.format_expression(&arm.body, indent_level + 1),
+                    };
                     result.push_str(&format!(
                         "{}case {}{} => {},\n",
                         self.indent(indent_level + 1),
                         self.format_pattern(&arm.pattern),
                         guard_str,
-                        self.format_expression(&arm.body, indent_level + 1)
+                        body
                     ));
                 }
                 result.push_str(&self.indent(indent_level));
@@ -1413,6 +1452,13 @@ impl Formatter {
     }
 
     fn format_pattern(&self, pattern: &Pattern) -> String {
+        // Patterns keep their source form: the AST drops the qualifier of
+        // `Direction.North`, and writing just `North` would bind a variable.
+        if let Some(raw) = self.source.get(pattern.span.start..pattern.span.end)
+            && !raw.trim().is_empty()
+        {
+            return raw.trim().to_string();
+        }
         match &pattern.kind {
             PatternKind::Literal(literal) => self.format_literal(literal),
             PatternKind::Ident(name) => name.clone(),

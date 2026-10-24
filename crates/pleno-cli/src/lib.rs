@@ -94,11 +94,20 @@ pub fn run_pleno() {
             lint_file(&path);
         }
         "check" => {
-            let path = args.next().unwrap_or_else(|| {
+            let mut path = None;
+            let mut json_output = false;
+            for arg in args.by_ref() {
+                if arg == "--json" {
+                    json_output = true;
+                } else {
+                    path = Some(arg);
+                }
+            }
+            let path = path.unwrap_or_else(|| {
                 eprintln!("Error: 'check' requires a file path");
                 process::exit(1);
             });
-            check_file(&path);
+            check_file(&path, json_output);
         }
         "test" => {
             let mut test_path = "sources/tests".to_string();
@@ -202,9 +211,11 @@ fn run_plm_core(args: &mut std::iter::Peekable<std::iter::Skip<std::env::Args>>)
             println!("  update           Update all dependencies");
             println!("  remove <name>    Remove a dependency");
             println!("  run <script>     Run a script defined in pleno.toml");
-            println!("  publish          Publish the current package");
-            println!("  search <query>   Search for packages in the registry");
+            println!("  info             Show the package from pleno.toml");
             println!("  build            Build the current package");
+            println!("  test             Run the package's tests");
+            println!("  publish          Publish to the registry named by PLENO_REGISTRY");
+            println!("  search <query>   Search for packages in the registry");
             println!();
             println!("Options:");
             println!("  -h, --help       Show this help message");
@@ -228,39 +239,53 @@ fn start_default() {
 }
 
 pub fn print_help() {
-    println!(
-        "Pleno Programming Language CLI\n\n\
-        Usage: pleno <command> [arguments]\n\n\
-        Commands:\n\
-          run <file.pln>     Run a Pleno file\n\
-          plm <command>      Package management (init, install, run)\n\
-          format <path>      Format Pleno files\n\
-          lint <path>        Lint Pleno files\n\
-          check <file.pln>   Type check a Pleno file\n\
-          test <path>        Run tests in file or directory\n\
-          doc [path] [out]   Generate documentation\n\
-          repl               Start the interactive REPL\n\
-          lsp                Start the Language Server\n\n\
-        Package Commands (plm):\n\
-          init [name]        Initialize a new Pleno package\n\
-          install [url]      Install dependencies or a specific package\n\
-          update             Update all dependencies\n\
-          remove <name>      Remove a dependency\n\
-          run <script>       Run a script defined in pleno.toml\n\n\
-        Options:\n\
-          -h, --help                Show this help message\n\
-          -v, --version             Show version information\n\
-          --max-memory <bytes>      Set memory limit in bytes\n\
-          --max-instructions <num> Set instruction count limit\n\
-          --allow-io <bool>         Enable/disable IO access\n\
-          --allow-network <bool>    Enable/disable network access\n\n\
-        Examples:\n\
-          pleno run main.pln\n\
-          pleno plm install\n\
-          pleno plm update\n\
-          pleno plm remove http-client\n\
-          pleno plm run dev"
-    );
+    const HELP: &[&str] = &[
+        "Pleno Programming Language CLI",
+        "",
+        "Usage: pleno <command> [arguments]",
+        "",
+        "Commands:",
+        "  run <file.pln>      Run a Pleno file",
+        "  plm <command>       Package management (see below)",
+        "  format <path>       Format Pleno files (also: fmt; --stdout prints)",
+        "  lint <path>         Lint Pleno files",
+        "  check <file.pln>    Type check a Pleno file (--json for editors)",
+        "  test <path>         Run tests in a file or directory (--json)",
+        "  compile <file.pln>  Compile a file to .plc bytecode",
+        "  build [file]        Compile the package's main file (--release, --test)",
+        "  watch <file.pln>    Run a file again whenever it changes",
+        "  doc [path] [out]    Generate documentation",
+        "  repl                Start the interactive REPL",
+        "  lsp                 Start the language server",
+        "  dap                 Start the debug adapter on stdio",
+        "",
+        "Package Commands (plm):",
+        "  init [name]         Initialize a new Pleno package",
+        "  info                Show the package from pleno.toml",
+        "  install [url]       Install dependencies or a specific package",
+        "  update              Update all dependencies",
+        "  remove <name>       Remove a dependency",
+        "  run <script>        Run a script defined in pleno.toml",
+        "  build, test         Build or test the package",
+        "  publish             Publish to the registry named by PLENO_REGISTRY",
+        "  search <term>       Search the registry",
+        "",
+        "Options:",
+        "  -h, --help                 Show this help message",
+        "  -v, --version              Show version information",
+        "  --max-memory <bytes>       Set memory limit in bytes",
+        "  --max-instructions <num>   Set instruction count limit",
+        "  --allow-io <bool>          Enable/disable IO access",
+        "  --allow-network <bool>     Enable/disable network access",
+        "",
+        "Examples:",
+        "  pleno run main.pln",
+        "  pleno plm install",
+        "  pleno plm update",
+        "  pleno plm remove http-client",
+        "  pleno plm run dev",
+    ];
+    println!("{}", HELP.join("\n"));
 }
 
 fn run_tests(path: &str, json_output: bool, profile: BuildProfile) {
@@ -752,7 +777,11 @@ fn lint_directory(dir: &PathBuf) {
     }
 }
 
-fn check_file(path: &str) {
+/// Lexes, parses and compiles `path` without running it. Problems are printed
+/// as `file:line:column: error: message`, or with `--json` as a JSON array of
+/// `{line, column, endLine, endColumn, severity, message}` (1-based, columns in
+/// UTF-16 units, as editors count them).
+fn check_file(path: &str, json_output: bool) {
     if !path.ends_with(".pln") {
         eprintln!("Error: Only .pln format file extensions are supported");
         process::exit(1);
@@ -765,39 +794,72 @@ fn check_file(path: &str) {
         }
     };
 
-    let tokens = match pleno_lexer::lex(&source) {
-        Ok(tokens) => tokens,
-        Err(err) => {
-            eprintln!(
-                "Lex error at {}..{}: {}",
-                err.span.start, err.span.end, err.message
-            );
-            process::exit(1);
-        }
-    };
+    let problem = check_source(&source);
+    if json_output {
+        let problems: Vec<serde_json::Value> = problem
+            .iter()
+            .map(|(message, start, end)| {
+                let (line, column) = line_and_column(&source, *start);
+                let (end_line, end_column) = line_and_column(&source, (*end).max(*start + 1));
+                serde_json::json!({
+                    "line": line,
+                    "column": column,
+                    "endLine": end_line,
+                    "endColumn": end_column,
+                    "severity": "error",
+                    "message": message,
+                })
+            })
+            .collect();
+        println!("{}", serde_json::Value::Array(problems));
+    } else if let Some((message, start, _)) = &problem {
+        let (line, column) = line_and_column(&source, *start);
+        eprintln!("{path}:{line}:{column}: error: {message}");
+    } else {
+        println!("Type check passed for {}", path);
+    }
+    if problem.is_some() {
+        process::exit(1);
+    }
+}
 
-    let mut parser = pleno_parser::Parser::new(tokens, &source);
+/// The first problem in `source`, as a message and a byte range.
+fn check_source(source: &str) -> Option<(String, usize, usize)> {
+    let tokens = match pleno_lexer::lex(source) {
+        Ok(tokens) => tokens,
+        Err(err) => return Some((err.message, err.span.start, err.span.end)),
+    };
+    let mut parser = pleno_parser::Parser::new(tokens, source);
     let mut program = match parser.parse_program() {
         Ok(program) => program,
-        Err(err) => {
-            eprintln!(
-                "Parse error at {}..{}: {}",
-                err.span.start, err.span.end, err.message
-            );
-            process::exit(1);
-        }
+        Err(err) => return Some((err.message, err.span.start, err.span.end)),
     };
-
-    let mut compiler = pleno_compiler::Compiler::new(source);
+    let mut compiler = pleno_compiler::Compiler::new(source.to_string());
     match compiler.compile(&mut program) {
-        Ok(_) => {
-            println!("Type check passed for {}", path);
-        }
+        Ok(_) => None,
         Err(err) => {
-            eprintln!("Compile error: {}", err.diagnostic.message);
-            process::exit(1);
+            let span = err
+                .diagnostic
+                .labels
+                .first()
+                .map(|label| (label.span.start, label.span.end))
+                .unwrap_or((0, 0));
+            Some((err.diagnostic.message, span.0, span.1))
         }
     }
+}
+
+/// The 1-based line and UTF-16 column of a byte offset.
+fn line_and_column(source: &str, offset: usize) -> (usize, usize) {
+    let mut offset = offset.min(source.len());
+    while !source.is_char_boundary(offset) {
+        offset -= 1;
+    }
+    let before = &source[..offset];
+    let line_start = before.rfind('\n').map_or(0, |i| i + 1);
+    let line = before.matches('\n').count() + 1;
+    let column = before[line_start..].encode_utf16().count() + 1;
+    (line, column)
 }
 
 fn watch_file(path: &str) {

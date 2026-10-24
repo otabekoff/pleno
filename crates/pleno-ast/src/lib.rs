@@ -350,6 +350,8 @@ pub enum StmtKind {
     TypeAlias {
         name: String,
         name_span: Span,
+        /// Type parameters: `type Pair<T> = (T, T);`
+        params: Vec<String>,
         ty: String,
         doc: Option<String>,
     },

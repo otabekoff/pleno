@@ -93,7 +93,8 @@ pub struct Compiler {
     source: String,
     current_span: pleno_ast::Span,
     next_labels: Vec<String>,
-    type_aliases: HashMap<String, String>,
+    /// Type aliases by name: their type parameters and the aliased type.
+    type_aliases: HashMap<String, (Vec<String>, String)>,
     macros: HashMap<String, MacroDef>,
     boxed_vars: Vec<HashSet<String>>,
     finally_stack: Vec<Option<Stmt>>,
@@ -265,8 +266,11 @@ impl Compiler {
                 }
                 Ok(())
             }
-            StmtKind::TypeAlias { name, ty, .. } => {
-                self.type_aliases.insert(name.clone(), ty.clone());
+            StmtKind::TypeAlias {
+                name, params, ty, ..
+            } => {
+                self.type_aliases
+                    .insert(name.clone(), (params.clone(), ty.clone()));
                 Ok(())
             }
             StmtKind::Expr(expr) => {
@@ -1400,6 +1404,29 @@ impl Compiler {
             ExprKind::TupleLiteral(items) => self.compile_tuple_literal(items),
             ExprKind::SetLiteral(items) => self.compile_set_literal(items),
             ExprKind::Block(stmts) => self.compile_block_expr(stmts),
+            // `x |> f(a)` is `f(x, a)`; `x |> f(a, _)` puts `x` at the placeholder.
+            ExprKind::Pipeline { left, right } if matches!(right.kind, ExprKind::Call { .. }) => {
+                let ExprKind::Call { callee, args } = &right.kind else {
+                    unreachable!()
+                };
+                let mut args = args.clone();
+                let piped = pleno_ast::CallArg::Positional((**left).clone());
+                match args
+                    .iter()
+                    .position(|arg| matches!(arg, pleno_ast::CallArg::Placeholder))
+                {
+                    Some(index) => args[index] = piped,
+                    None => args.insert(0, piped),
+                }
+                let call = Expr::new(
+                    ExprKind::Call {
+                        callee: callee.clone(),
+                        args,
+                    },
+                    expr.span,
+                );
+                self.compile_expr(&call)
+            }
             ExprKind::Pipeline { left, right } => {
                 let left_reg = self.compile_expr(left)?;
                 let right_reg = self.compile_expr(right)?;
@@ -1960,7 +1987,11 @@ impl Compiler {
 
             self.push_scope();
             self.finally_stack.push(finally_branch.cloned());
-            self.insert_local(catch.name.clone(), error_reg, false, catch.ty.clone())?;
+            // The catch variable gets its own register: leaving this scope frees
+            // it, and `error_reg` must stay live for the following catches.
+            let catch_reg = self.registers.allocate()?;
+            self.emit(Opcode::Move, catch_reg, error_reg, 0);
+            self.insert_local(catch.name.clone(), catch_reg, false, catch.ty.clone())?;
             self.compile_stmt(&catch.body)?;
             self.finally_stack.pop();
             self.pop_scope();
@@ -2712,8 +2743,10 @@ impl Compiler {
         let mut compiler = Compiler::new(self.source.clone());
         compiler.is_top_level = false;
         compiler.is_async = decl.is_async;
-        // Calls inside the function check ownership against enclosing signatures.
+        // Calls inside the function check ownership against enclosing
+        // signatures, and annotations use the enclosing type aliases.
         compiler.fn_signatures = self.fn_signatures.clone();
+        compiler.type_aliases = self.type_aliases.clone();
         compiler.push_scope();
         compiler.module_name = self.module_name.clone();
         compiler.captures = captures
@@ -2983,6 +3016,13 @@ impl Compiler {
         let is_callable_reg = self.registers.allocate()?;
         self.emit(Opcode::Is, is_callable_reg, callee_reg, fn_type_reg);
         let skip_jump = self.emit_jump(Opcode::JumpIfNot, is_callable_reg);
+        // A class used as an annotation (`@Entity`, `@Route("/users")`) is
+        // metadata, not a decorator, even though classes are callable.
+        let class_name_idx = self.add_constant(Value::String(Rc::new("Class".to_string())));
+        self.emit(Opcode::TypeOf, is_callable_reg, callee_reg, 0);
+        self.emit(Opcode::LoadConst, fn_type_reg, class_name_idx, 0);
+        self.emit(Opcode::Eq, is_callable_reg, is_callable_reg, fn_type_reg);
+        let skip_class_jump = self.emit_jump(Opcode::JumpIf, is_callable_reg);
         self.free_temp(fn_type_reg);
         self.free_temp(is_callable_reg);
 
@@ -3003,6 +3043,19 @@ impl Compiler {
             );
             self.compile_expr(&call)?
         };
+        // A factory that returns something other than a function is metadata.
+        let skip_result_jump = if decorator_reg != callee_reg {
+            let fn_type_reg = self.registers.allocate()?;
+            self.emit(Opcode::LoadConst, fn_type_reg, fn_type_idx, 0);
+            let is_callable_reg = self.registers.allocate()?;
+            self.emit(Opcode::Is, is_callable_reg, decorator_reg, fn_type_reg);
+            let jump = self.emit_jump(Opcode::JumpIfNot, is_callable_reg);
+            self.free_temp(fn_type_reg);
+            self.free_temp(is_callable_reg);
+            Some(jump)
+        } else {
+            None
+        };
 
         let args_reg = self.registers.allocate()?;
         self.emit(Opcode::NewArray, args_reg, 0, 0);
@@ -3020,6 +3073,10 @@ impl Compiler {
         self.free_temp(is_null_reg);
         self.free_temp(result_reg);
 
+        if let Some(jump) = skip_result_jump {
+            self.patch_jump(jump)?;
+        }
+        self.patch_jump(skip_class_jump)?;
         self.patch_jump(skip_jump)?;
         if decorator_reg != callee_reg {
             self.free_temp(decorator_reg);
@@ -3076,6 +3133,8 @@ impl Compiler {
         let captures = self.analyze_captures(&decl, false);
         let mut compiler = Compiler::new(self.source.clone());
         compiler.is_top_level = false;
+        compiler.fn_signatures = self.fn_signatures.clone();
+        compiler.type_aliases = self.type_aliases.clone();
         compiler.push_scope();
         compiler.module_name = self.module_name.clone();
         compiler.captures = captures
@@ -4785,12 +4844,8 @@ impl Compiler {
             name = name.strip_suffix('?').unwrap().trim();
         }
 
-        // Expand alias if it exists
-        let expanded = self
-            .type_aliases
-            .get(name)
-            .map(|s| s.as_str())
-            .unwrap_or(name);
+        let expanded = self.expand_type_alias(name);
+        let expanded = expanded.as_str();
 
         let union_parts = self.split_aware(expanded, '|');
         let mut union_types = Vec::new();
@@ -4805,12 +4860,52 @@ impl Compiler {
         (union_types, is_optional)
     }
 
+    /// Expands a type alias once: `Pair<Int>` with `type Pair<T> = (T, T);`
+    /// becomes `(Int, Int)`. Other types are returned unchanged.
+    fn expand_type_alias(&self, name: &str) -> String {
+        let (base, args) = match name.find('<') {
+            Some(open) if name.ends_with('>') => (
+                &name[..open],
+                self.split_aware(&name[open + 1..name.len() - 1], ','),
+            ),
+            _ => (name, Vec::new()),
+        };
+        let Some((params, ty)) = self.type_aliases.get(base.trim()) else {
+            return name.to_string();
+        };
+        if params.is_empty() || params.len() != args.len() {
+            return if params.is_empty() && args.is_empty() {
+                ty.clone()
+            } else {
+                name.to_string()
+            };
+        }
+        let mut expanded = String::new();
+        let mut word = String::new();
+        for ch in ty.chars().chain(std::iter::once(' ')) {
+            if ch.is_alphanumeric() || ch == '_' {
+                word.push(ch);
+                continue;
+            }
+            match params.iter().position(|param| *param == word) {
+                Some(index) => expanded.push_str(args[index].trim()),
+                None => expanded.push_str(&word),
+            }
+            word.clear();
+            expanded.push(ch);
+        }
+        expanded.pop();
+        expanded
+    }
+
     fn emit_reified_type(&mut self, ty_name: &str) -> Result<u8, CompileError> {
-        let ty_name = ty_name.trim();
-        // Built-in generic collections are checked from the annotation text by the VM.
-        let builtin_generic = ty_name
-            .split_once('<')
-            .is_some_and(|(base, _)| matches!(base.trim(), "Array" | "Map" | "Set"));
+        let expanded = self.expand_type_alias(ty_name.trim());
+        let ty_name = expanded.as_str();
+        // Built-in generic collections, `Result` and `Option` are checked from
+        // the annotation text by the VM.
+        let builtin_generic = ty_name.split_once('<').is_some_and(|(base, _)| {
+            matches!(base.trim(), "Array" | "Map" | "Set" | "Result" | "Option")
+        });
         if let Some(start_idx) = ty_name.find('<').filter(|_| !builtin_generic) {
             let base_name = ty_name[..start_idx].trim();
             let args_str = &ty_name[start_idx + 1..ty_name.len() - 1]; // Assuming it ends with >

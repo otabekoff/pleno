@@ -135,7 +135,7 @@ pub fn assert_equal(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, R
     }
     if !deep_equal(&args[0], &args[1]) {
         return Err(RuntimeError::new(format!(
-            "Assertion failed: expected equal, got {:?} and {:?}",
+            "Assertion failed: expected equal, got {} and {}",
             args[0], args[1]
         )));
     }
@@ -148,7 +148,7 @@ pub fn assert_not_equal(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Valu
     }
     if deep_equal(&args[0], &args[1]) {
         return Err(RuntimeError::new(format!(
-            "Assertion failed: expected not equal, got {:?} and {:?}",
+            "Assertion failed: expected not equal, got {} and {}",
             args[0], args[1]
         )));
     }
@@ -163,7 +163,7 @@ pub fn assert_true(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, Ru
         Ok(Value::Null)
     } else {
         Err(RuntimeError::new(format!(
-            "Assertion failed: expected true, got {:?}",
+            "Assertion failed: expected true, got {}",
             args[0]
         )))
     }
@@ -177,7 +177,7 @@ pub fn assert_false(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, R
         Ok(Value::Null)
     } else {
         Err(RuntimeError::new(format!(
-            "Assertion failed: expected false, got {:?}",
+            "Assertion failed: expected false, got {}",
             args[0]
         )))
     }
@@ -191,7 +191,7 @@ pub fn assert_null(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, Ru
         Ok(Value::Null)
     } else {
         Err(RuntimeError::new(format!(
-            "Assertion failed: expected null, got {:?}",
+            "Assertion failed: expected null, got {}",
             args[0]
         )))
     }
@@ -256,7 +256,7 @@ pub fn assert_contains(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value
 
     if !found {
         Err(RuntimeError::new(format!(
-            "Assertion failed: collection does not contain {:?}",
+            "Assertion failed: collection does not contain {}",
             item
         )))
     } else {
