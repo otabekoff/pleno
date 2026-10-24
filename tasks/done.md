@@ -27,6 +27,22 @@ History & motivation. This becomes your project diary. Very powerful psychologic
 - [x] Macro splice, `const` initializer check, unhandled rejection warnings, capture analysis for `try`/`throw`/`do-while`
 - [x] Correct line numbers inside functions; operand types in operator errors
 - [x] `scripts/run_pln_tests.sh` runs every `.pln` script against declared expectations in CI
+- [x] Code signing: SignPath Foundation requirements (policy page, uninstall scripts, Windows version metadata)
+- [x] Memory safety audit (`notes/MEMORY_SAFETY_AUDIT.md`): string refcount leak, dangling range pointer, 47-bit integer wraparound fixed
+- [x] Infinity and NaN are real floats (they decoded as `null` or garbage before)
+- [x] Arithmetic: division and modulo by zero are errors for every Int/Float mix; `-Int.MIN` and `Int.MIN % -1` report overflow instead of panicking
+- [x] Uncaught exceptions report their message (`MyError: bad input`), not the error map
+- [x] Generics variance (`out T`, `in T`) enforced; ownership hints (`move`, `&`, `&mut`) before the name or the type
+- [x] `async fn(...) {}` lambdas; async HTTP handlers; `std:crypto` hashes, HMAC, AES and JWT
+- [x] Property-based tests for opcodes, arithmetic, strings, arrays and full-range integers
+- [x] Constant folding matches runtime semantics (Int / Int is a Float, checked overflow)
+- [x] Formatter round-trips every test and example and is idempotent: string escapes, floats, interface/abstract members, operators, accessors, parameter markers, lambdas, `match`, one-element tuples, doc comments, blank lines and member order are kept
+- [x] `\$` escapes `${` in strings
+- [x] LSP, REPL and DAP run on a 64 MB stack (deeply nested code crashed the language server)
+- [x] LSP: UTF-16 positions, CRLF, file URIs with spaces; "Prefix with `_`" quick fix
+- [x] `vm_errors.rs` covers bytecode and corrupted-chunk errors; empty tests removed
+- [x] Specs document `std:gc`, `std:security` and `Mutex`; no `__native_` globals remain
+- [x] Fuzz and benchmark-regression workflows added; root `.vitepress` cache untracked
 
 ## 2026-01-23
 - [x] Setup project structure

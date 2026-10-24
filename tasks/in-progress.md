@@ -2,5 +2,4 @@ Only what you’re currently touching. Golden rule: Never more than 3–5 items 
 
 # In Progress
 
-- [ ] Fix memory leak in GC
-
+Nothing in progress.

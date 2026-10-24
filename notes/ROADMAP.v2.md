@@ -1,50 +1,30 @@
 # Pleno V2 Roadmap
 
-This roadmap outlines the journey toward Pleno V2, emphasizing stability, feature evolution, and high-performance execution.
+Open items toward Pleno V2. Status checked against the code on 2026-10-24; finished items are removed and logged in `tasks/done.md`.
 
 ---
 
-## Phase 1: Stability & Hardening (Month 1-2)
+## Stability & Hardening
 
-**Goal:** Bulletproof the core engine and automate quality control.
+- **[ ] Fuzzing in CI**. Status: three cargo-fuzz targets (`fuzz_lexer`, `fuzz_parser`, `fuzz_compile`) and `.github/workflows/fuzz.yml` (weekly, on demand, and on pull requests that touch the lexer, parser or compiler). Remove this item once the workflow has run green on GitHub.
+- **[ ] Benchmark gating in CI**. Status: the `benchmark` job in `ci.yml` compares each pull request against its base branch on the same runner and fails on a slowdown over 15%. Remove this item once the job has run green on GitHub.
+- **[ ] Arena allocator for the AST**. Status: not started. AST nodes are `Box`ed.
 
-- **[ ] Fuzzing Infrastructure**: Continuous fuzzing for Lexer and Parser nodes.
-- **[ ] Property-based Testing**: VM opcode verification using `proptest`.
-- **[ ] Memory Safety Audit**: Comprehensive review of `unsafe` blocks and GC logic.
-- **[ ] Arena Allocator**: Implement arena allocation for the AST to eliminate `Box<T>` overhead.
-- **[ ] Automated Benchmarking**: prevent performance regressions with CI gating.
+## Standard Library & Ecosystem
 
-## Phase 2: Language Evolution (Month 3-5)
+- **[ ] std:db PostgreSQL driver**. Status: `std:db` supports SQLite (`sqlite:path`) only.
+- **[ ] Central package registry**. Status: partly built. `crates/pleno-registry` is a registry server (Axum + SQLite) and `plm` can publish to and install from a registry URL, but no public registry is deployed and the protocol is undocumented.
 
-**Goal:** Implement modern syntax and reified type system features.
+## Performance & Runtime
 
-- **[ ] Generics V2**: Support for variance (`out T`, `in T`) and reified runtime types.
-- **[ ] Ownership Hints**: Optional `move` and `ref` keywords for explicit memory control.
+- **[ ] JIT compiler** (Cranelift, x86-64/ARM64). Status: not started.
+- **[ ] Generational GC**. Status: not started. The collector is single-generation mark-and-sweep.
 
-## Phase 3: Standard Library & Ecosystem (Month 6-8)
+## Developer Experience
 
-**Goal:** Expand the toolkit for production-level application development.
-
-- **[ ] std:crypto**: Native support for SHA, AES, and JWT primitives.
-- **[ ] std:db**: Unified interface for SQLite and PostgreSQL.
-- **[ ] Enhanced std:http**: Async event loop integration and full Router callback support.
-- **[ ] plm registry**: Design and implement the central Pleno package registry.
-
-## Phase 4: Performance & Runtime (Month 9-12)
-
-**Goal:** Match interpreted language performance leaders.
-
-- **[ ] JIT Compiler**: Baseline JIT targeting x86_64/ARM64 (via Cranelift).
-- **[ ] Generational GC**: Shift from simple mark-and-sweep to a generational/concurrent collector.
-
-## Phase 5: Developer Experience (Ongoing)
-
-**Goal:** Provide professional-grade tooling and debugging.
-
-- **[ ] Professional LSP**: Full refactoring, go-to-definition, and inlay hits.
-- **[ ] Debugger (DAP)**: VS Code integration for step-through debugging.
-- **[ ] WASM Backend**: High-performance execution in browsers and at the edge.
+- **[ ] LSP refactorings**. Status: definition, references, rename, hover, completion, signature help, inlay hints, semantic tokens, folding, formatting, code lens, call hierarchy and code actions are implemented. Missing: refactorings other than rename, workspace symbol search, and integration tests.
+- **[ ] WASM distribution**. Status: `crates/pleno-wasm` builds for `wasm32-unknown-unknown` and exports `compile`, `run` and `run_source` through wasm-bindgen. There is no npm package or browser playground yet.
 
 ---
 
-_Note: Features and timelines are living targets and will evolve based on community feedback._
+_Features and timelines are living targets and will evolve based on community feedback._
