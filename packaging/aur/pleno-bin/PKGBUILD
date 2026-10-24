@@ -1,0 +1,24 @@
+# Maintainer: Otabek Ismoilov <sadiridinovotabek@gmail.com>
+pkgname=pleno-bin
+pkgver=0.2.0
+pkgrel=1
+pkgdesc="A readable programming language with optional checked types and async built in (prebuilt binaries)"
+arch=('x86_64' 'aarch64')
+url="https://pleno.mohirlab.uz/"
+license=('MIT')
+depends=('gcc-libs' 'glibc')
+provides=('pleno')
+conflicts=('pleno')
+source=("LICENSE-$pkgver::https://raw.githubusercontent.com/otabekoff/pleno/v$pkgver/LICENSE")
+source_x86_64=("pleno-v$pkgver-x86_64.tar.gz::https://github.com/otabekoff/pleno/releases/download/v$pkgver/pleno-v$pkgver-x86_64-unknown-linux-gnu.tar.gz")
+source_aarch64=("pleno-v$pkgver-aarch64.tar.gz::https://github.com/otabekoff/pleno/releases/download/v$pkgver/pleno-v$pkgver-aarch64-unknown-linux-gnu.tar.gz")
+sha256sums=('8c254b459213d3850ee5ef4a8a8701dcadb5b5e6e7fa39dc5a148397f534a0c9')
+sha256sums_x86_64=('a22dec76f1758063a6d7816926322d5fccb639c0a9ad840a244f9ac010678b21')
+sha256sums_aarch64=('1534f90b9cc844caa7bbdd2c7c2c6f05169e4b813fba5c0dfd53952283edd29a')
+
+package() {
+    for tool in pleno plm pleno-lsp pleno-dap pleno-repl; do
+        install -Dm755 "$tool" "$pkgdir/usr/bin/$tool"
+    done
+    install -Dm644 "LICENSE-$pkgver" "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}

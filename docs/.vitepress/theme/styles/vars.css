@@ -106,3 +106,10 @@
 html.pl-banner-dismissed {
   --pl-banner-height: 0px;
 }
+
+/* Here, not in AnnouncementBar.vue: inside a scoped style,
+   `:global(html.x) .announcement` compiles to `html.x` alone, which would
+   hide the whole page. */
+html.pl-banner-dismissed .announcement {
+  display: none;
+}

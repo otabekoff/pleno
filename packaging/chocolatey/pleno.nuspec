@@ -2,20 +2,20 @@
 <package xmlns="http://schemas.microsoft.com/packaging/2015/06/nuspec.xsd">
   <metadata>
     <id>pleno</id>
-    <version>0.1.0</version>
+    <version>0.2.0</version>
     <title>Pleno Programming Language</title>
     <authors>Otabek Ismoilov</authors>
     <owners>otabekoff</owners>
     <licenseUrl>https://github.com/otabekoff/pleno/blob/main/LICENSE</licenseUrl>
     <projectUrl>https://pleno.mohirlab.uz/</projectUrl>
-    <iconUrl>https://raw.githubusercontent.com/otabekoff/pleno/main/docs/public/logo.svg</iconUrl>
+    <iconUrl>https://raw.githubusercontent.com/otabekoff/pleno/main/docs/public/logo.png</iconUrl>
     <requireLicenseAcceptance>false</requireLicenseAcceptance>
-    <description>Pleno is a modern programming language designed for clarity, safety, and expressiveness. It combines the best features from multiple programming paradigms while maintaining simplicity and consistency.</description>
-    <summary>Modern programming language with clarity, safety, and expressiveness</summary>
-    <releaseNotes>Initial release of Pleno for Windows via Chocolatey</releaseNotes>
-    <copyright>Copyright 2026 Pleno Team</copyright>
+    <description>Pleno is a dynamically typed programming language with optional type annotations that are checked when the program runs, classes and pattern matching, and async built in. This package installs pleno (compiler and runtime), plm (package manager), pleno-lsp (language server), pleno-dap (debug adapter) and pleno-repl.</description>
+    <summary>A readable programming language with optional checked types and async built in</summary>
+    <releaseNotes>https://github.com/otabekoff/pleno/releases/tag/v0.2.0</releaseNotes>
+    <copyright>Copyright 2026 Otabek Ismoilov and Pleno contributors</copyright>
     <tags>pleno programming language compiler interpreter</tags>
-    <packageSourceUrl>https://github.com/otabekoff/pleno</packageSourceUrl>
+    <packageSourceUrl>https://github.com/otabekoff/pleno/tree/main/packaging/chocolatey</packageSourceUrl>
     <docsUrl>https://pleno.mohirlab.uz/</docsUrl>
     <bugTrackerUrl>https://github.com/otabekoff/pleno/issues</bugTrackerUrl>
   </metadata>

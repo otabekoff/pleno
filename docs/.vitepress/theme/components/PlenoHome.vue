@@ -94,6 +94,13 @@ test("adds", fn() {
 // Each has a page at /stdlib/<name>.
 const stdlib = ['io', 'path', 'os', 'process', 'http', 'net', 'url', 'json', 'yaml', 'toml', 'csv', 'xml', 'base64', 'regex', 'time', 'crypto', 'uuid', 'log', 'test', 'benchmark', 'concurrency', 'promise', 'reflect', 'math', 'random', 'dotenv']
 
+const tools = [
+  { name: 'pleno', text: 'Runs, checks, formats, lints and tests your code.' },
+  { name: 'plm', text: 'Creates projects and manages their dependencies.' },
+  { name: 'pleno-lsp', text: 'Completions, errors and navigation in your editor.' },
+  { name: 'pleno-dap', text: 'Breakpoints and stepping in the debugger.' },
+]
+
 const status = [
   {
     label: 'Works today',
@@ -175,18 +182,24 @@ const status = [
     </section>
 
     <section class="section tools">
-      <div class="tools-text">
-        <h2 class="pl-display">One toolchain</h2>
+      <header class="tools-text">
+        <p class="eyebrow">Toolchain</p>
+        <h2 class="pl-display">Everything in one install</h2>
         <p>
-          <code>pleno</code> runs, checks, formats, lints and tests. <code>plm</code> creates
-          projects and manages dependencies. <code>pleno-lsp</code> and <code>pleno-dap</code>
-          power the VS Code extension, which can install all of them for you.
+          One command installs the compiler and every tool around it. The VS Code extension can
+          install them for you, too.
         </p>
-        <a class="pl-link" :href="withBase('/guide/editor')">
-          Set up your editor
-          <PlIcon name="arrow-right" :size="14" />
-        </a>
-      </div>
+        <div class="tools-actions">
+          <a class="pl-btn pl-btn-primary" :href="withBase('/guide/installation')">Install Pleno</a>
+          <a class="pl-btn pl-btn-secondary" :href="withBase('/guide/editor')">Set up your editor</a>
+        </div>
+      </header>
+      <ul class="tool-list">
+        <li v-for="tool in tools" :key="tool.name">
+          <code>{{ tool.name }}</code>
+          <p>{{ tool.text }}</p>
+        </li>
+      </ul>
       <div class="terminal" role="img" aria-label="A terminal running plm init, plm test and pleno check">
         <div class="terminal-bar">
           <PlIcon name="terminal" :size="14" />
@@ -472,21 +485,76 @@ src/main.pln:3:5: <span class="err">error:</span> undefined variable 'prnt'</pre
   background-color: var(--vp-c-brand-soft);
 }
 
-/* Tools: the text, then the terminal at full width. */
+/* Tools: a centered heading, the four tools, then the terminal. */
 .tools {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  gap: 32px;
+  gap: 28px;
 }
 
-.tools-text code {
+.tools-text {
+  text-align: center;
+}
+
+.tools-text p {
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.eyebrow {
+  margin: 0 auto 10px !important;
+  font-size: 14px !important;
+  font-weight: 600;
+  color: var(--vp-c-brand-1) !important;
+}
+
+.tools-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
+  margin-top: 24px;
+}
+
+.tool-list {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+@media (min-width: 640px) {
+  .tool-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 1024px) {
+  .tool-list {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+.tool-list li {
+  padding: 16px 18px;
+  border: 1px solid var(--vp-c-border);
+  border-radius: var(--pl-radius-lg);
+}
+
+.tool-list code {
   font-family: var(--vp-font-family-mono);
-  font-size: 0.88em;
+  font-size: 14px;
+  font-weight: 600;
   color: var(--vp-c-text-1);
 }
 
-.tools-text .pl-link {
-  margin-top: 20px;
+.tool-list p {
+  margin: 6px 0 0;
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--vp-c-text-2);
 }
 
 .terminal {

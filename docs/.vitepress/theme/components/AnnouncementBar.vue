@@ -50,10 +50,6 @@ function dismiss() {
   font-size: 13px;
 }
 
-:global(html.pl-banner-dismissed) .announcement {
-  display: none;
-}
-
 .announcement a {
   display: inline-flex;
   align-items: center;

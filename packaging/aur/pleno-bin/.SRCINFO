@@ -1,0 +1,20 @@
+pkgbase = pleno-bin
+	pkgdesc = A readable programming language with optional checked types and async built in (prebuilt binaries)
+	pkgver = 0.2.0
+	pkgrel = 1
+	url = https://pleno.mohirlab.uz/
+	arch = x86_64
+	arch = aarch64
+	license = MIT
+	depends = gcc-libs
+	depends = glibc
+	provides = pleno
+	conflicts = pleno
+	source = LICENSE-0.2.0::https://raw.githubusercontent.com/otabekoff/pleno/v0.2.0/LICENSE
+	sha256sums = 8c254b459213d3850ee5ef4a8a8701dcadb5b5e6e7fa39dc5a148397f534a0c9
+	source_x86_64 = pleno-v0.2.0-x86_64.tar.gz::https://github.com/otabekoff/pleno/releases/download/v0.2.0/pleno-v0.2.0-x86_64-unknown-linux-gnu.tar.gz
+	sha256sums_x86_64 = a22dec76f1758063a6d7816926322d5fccb639c0a9ad840a244f9ac010678b21
+	source_aarch64 = pleno-v0.2.0-aarch64.tar.gz::https://github.com/otabekoff/pleno/releases/download/v0.2.0/pleno-v0.2.0-aarch64-unknown-linux-gnu.tar.gz
+	sha256sums_aarch64 = 1534f90b9cc844caa7bbdd2c7c2c6f05169e4b813fba5c0dfd53952283edd29a
+
+pkgname = pleno-bin

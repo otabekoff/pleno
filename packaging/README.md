@@ -1,80 +1,65 @@
-# Packaging Files
+# Packaging
 
-This directory contains package configurations for various package managers.
+Package definitions for each package manager. Every one installs the prebuilt release archives
+(`pleno`, `plm`, `pleno-lsp`, `pleno-dap` and `pleno-repl`) and pins their SHA-256 checksums,
+taken from the release's `SHA256SUMS.txt`.
 
-## Package Managers
+| Directory        | Platform      | Package manager | How it is published                                    |
+| ---------------- | ------------- | --------------- | ------------------------------------------------------ |
+| `homebrew/`      | macOS, Linux  | Homebrew        | The release workflow pushes it to `otabekoff/homebrew-tap` |
+| `scoop/`         | Windows       | Scoop           | Copied to `bucket/pleno.json` in `otabekoff/scoop-bucket`  |
+| `winget/`        | Windows       | WinGet          | A pull request to `microsoft/winget-pkgs`               |
+| `chocolatey/`    | Windows       | Chocolatey      | `choco push` with the maintainer's API key              |
+| `aur/pleno-bin/` | Arch Linux    | AUR             | Pushed to the `pleno-bin` AUR repository                |
+| `snap/`, `flatpak/`, `asdf/` | Linux | —        | Not maintained yet                                     |
 
-| Directory     | Platform     | Package Manager | Status |
-| ------------- | ------------ | --------------- | ------ |
-| `homebrew/`   | macOS        | Homebrew        | Ready  |
-| `chocolatey/` | Windows      | Chocolatey      | Ready  |
-| `scoop/`      | Windows      | Scoop           | Ready  |
-| `winget/`     | Windows      | WinGet          | Ready  |
-| `aur/`        | Arch Linux   | AUR             | Ready  |
-| `snap/`       | Ubuntu/Linux | Snap            | Ready  |
+## For each release
 
-## Usage
+The Homebrew formula is written and published by the release workflow
+(`scripts/homebrew-formula.sh`). The others are updated by hand: change the version, the URLs and the
+checksums (from `SHA256SUMS.txt` in the release), then publish.
 
-### Homebrew (macOS)
+### Homebrew
 
-```bash
-# Build from source formula
-brew install --build-from-source ./packaging/homebrew/pleno.rb
-
-# Or from tap (after tap is published)
-brew tap otabekoff/tap
-brew install pleno
+```sh
+brew install otabekoff/tap/pleno
 ```
 
-### Chocolatey (Windows)
+### Scoop
 
 ```powershell
-# Pack the package
-choco pack packaging/chocolatey/pleno.nuspec
-
-# Install locally
-choco install pleno -s .
-
-# Push to Chocolatey
-choco push pleno.0.1.0.nupkg --source https://push.chocolatey.org/
-```
-
-### Scoop (Windows)
-
-```powershell
-# Add to bucket (after bucket is published)
 scoop bucket add pleno https://github.com/otabekoff/scoop-bucket
 scoop install pleno
 ```
 
-### WinGet (Windows)
+To publish, copy `scoop/pleno.json` to `bucket/pleno.json` in the bucket repository. Its
+`autoupdate` section also lets Scoop's tools update it from a new release.
 
-Submit to [winget-pkgs](https://github.com/microsoft/winget-pkgs) repository.
+### WinGet
 
-### AUR (Arch Linux)
-
-```bash
-cd packaging/aur
-makepkg -si
+```powershell
+winget validate --manifest packaging/winget
 ```
 
-### Snap (Ubuntu/Linux)
+Then submit the three files as `manifests/p/Pleno/Pleno/<version>/` in a pull request to
+[microsoft/winget-pkgs](https://github.com/microsoft/winget-pkgs), or use
+`wingetcreate submit packaging/winget`. Once it is accepted: `winget install Pleno.Pleno`.
 
-```bash
-cd packaging/snap
-snapcraft
-sudo snap install pleno_*.snap --dangerous
+### Chocolatey
+
+```powershell
+choco pack packaging/chocolatey/pleno.nuspec --outputdirectory packaging/chocolatey
+choco install pleno --source packaging/chocolatey   # test locally
+choco push packaging/chocolatey/pleno.0.2.0.nupkg --source https://push.chocolatey.org/ --api-key <key>
 ```
 
-## Docker
+### AUR
 
-```bash
-# Build image
-docker build -t pleno/pleno:latest .
-
-# Run REPL
-docker run -it pleno/pleno:latest
-
-# Run a script
-docker run -v $(pwd):/workspace pleno/pleno:latest pleno run /workspace/script.pln
+```sh
+git clone ssh://aur@aur.archlinux.org/pleno-bin.git
+cp packaging/aur/pleno-bin/PKGBUILD packaging/aur/pleno-bin/.SRCINFO pleno-bin/
+cd pleno-bin && makepkg -si   # test, then:
+git add PKGBUILD .SRCINFO && git commit -m "pleno-bin 0.2.0" && git push
 ```
+
+`.SRCINFO` must match the PKGBUILD; regenerate it with `makepkg --printsrcinfo > .SRCINFO`.

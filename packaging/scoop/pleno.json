@@ -1,17 +1,20 @@
 {
-    "version": "0.1.0",
-    "description": "Modern programming language with clarity, safety, and expressiveness",
+    "version": "0.2.0",
+    "description": "A readable programming language with optional checked types and async built in",
     "homepage": "https://pleno.mohirlab.uz/",
     "license": "MIT",
     "architecture": {
         "64bit": {
-            "url": "https://github.com/otabekoff/pleno/releases/download/v0.1.0/pleno-v0.1.0-x86_64-pc-windows-msvc.zip",
-            "hash": "REPLACE_WITH_ACTUAL_HASH"
+            "url": "https://github.com/otabekoff/pleno/releases/download/v0.2.0/pleno-v0.2.0-x86_64-pc-windows-msvc.zip",
+            "hash": "2b26d51c972ddb99422442408a4e562e5ac79e5a09e60d852902febb9ad339ba"
         }
     },
     "bin": [
         "pleno.exe",
-        "plm.exe"
+        "plm.exe",
+        "pleno-lsp.exe",
+        "pleno-dap.exe",
+        "pleno-repl.exe"
     ],
     "checkver": {
         "github": "https://github.com/otabekoff/pleno"
@@ -19,7 +22,10 @@
     "autoupdate": {
         "architecture": {
             "64bit": {
-                "url": "https://github.com/otabekoff/pleno/releases/download/v$version/pleno-v$version-x86_64-pc-windows-msvc.zip"
+                "url": "https://github.com/otabekoff/pleno/releases/download/v$version/pleno-v$version-x86_64-pc-windows-msvc.zip",
+                "hash": {
+                    "url": "https://github.com/otabekoff/pleno/releases/download/v$version/SHA256SUMS.txt"
+                }
             }
         }
     }
