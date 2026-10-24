@@ -74,6 +74,10 @@ pub trait VMProvider {
     fn get_max_instructions(&self) -> u64 {
         0 // 0 means unlimited
     }
+    /// How many instructions the VM has executed so far.
+    fn instruction_count(&self) -> u64 {
+        0
+    }
     // Added for sandboxing
     fn create_sandbox(
         &self,
@@ -1216,7 +1220,9 @@ impl std::fmt::Display for Value {
                 write!(f, "}}")
             }
             Value::Object(o) => {
-                if let Some(class) = &o.borrow().class {
+                if let Some(text) = o.borrow().error_text() {
+                    write!(f, "{}", text)
+                } else if let Some(class) = &o.borrow().class {
                     write!(f, "<instance of {}>", class.borrow().name)
                 } else {
                     write!(f, "<object>")
@@ -1499,9 +1505,200 @@ impl Object {
             Ok(())
         }
     }
+
+    /// The error's name, `Error` for the built-in class or the subclass name
+    /// unless the `name` field says otherwise. `None` if this is not an error.
+    pub fn error_name(&self) -> Option<String> {
+        let class = self.class.as_ref()?;
+        if !class.borrow().extends_error() {
+            return None;
+        }
+        Some(match self.fields.get("name") {
+            Some(Value::String(name)) => name.to_string(),
+            _ => class.borrow().name.to_string(),
+        })
+    }
+
+    /// How an error prints: `name: message`, or only the name without a message.
+    pub fn error_text(&self) -> Option<String> {
+        let name = self.error_name()?;
+        Some(match self.fields.get("message") {
+            None | Some(Value::Null) => name,
+            Some(Value::String(message)) if message.is_empty() => name,
+            Some(message) => format!("{name}: {message}"),
+        })
+    }
+
+    /// How an uncaught error is reported: like [`Object::error_text`], but a
+    /// plain `Error` shows only its message, as the runtime always has.
+    pub fn error_report(&self) -> Option<String> {
+        let plain = self
+            .class
+            .as_ref()
+            .is_some_and(|class| class.borrow().is_builtin_error())
+            && matches!(self.fields.get("name"), Some(Value::String(name)) if name.as_str() == ERROR_CLASS);
+        match self.fields.get("message") {
+            Some(Value::String(message)) if plain && !message.is_empty() => {
+                Some(message.to_string())
+            }
+            _ => self.error_text(),
+        }
+    }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+/// The name of the class every error extends.
+pub const ERROR_CLASS: &str = "Error";
+
+impl Class {
+    /// A class named `name` without members, as `class Name {}` declares.
+    pub fn empty(name: &str) -> Self {
+        Self {
+            name: Rc::new(name.to_string()),
+            superclass: None,
+            static_fields: IndexMap::new(),
+            methods: IndexMap::new(),
+            static_methods: IndexMap::new(),
+            constructor: None,
+            native_constructor: None,
+            operators: IndexMap::new(),
+            fields: IndexMap::new(),
+            field_types: IndexMap::new(),
+            static_field_visibility: IndexMap::new(),
+            static_field_types: IndexMap::new(),
+            getters: IndexMap::new(),
+            setters: IndexMap::new(),
+            static_getters: IndexMap::new(),
+            static_setters: IndexMap::new(),
+            module: None,
+            is_abstract: false,
+            is_pooled: false,
+            implements: Vec::new(),
+            type_params: Vec::new(),
+            type_constraints: IndexMap::new(),
+            annotations: Vec::new(),
+        }
+    }
+
+    /// The built-in `Error` class: `Error(message)` makes an instance with
+    /// `message` and `name` fields, and classes extend it for their own errors.
+    pub fn error() -> Self {
+        let mut class = Self::empty(ERROR_CLASS);
+        class.native_constructor = Some(error_constructor);
+        for field in ["message", "name"] {
+            class
+                .fields
+                .insert(field.to_string(), MethodVisibility::Public);
+            class
+                .field_types
+                .insert(field.to_string(), Some("String".to_string()));
+        }
+        class
+    }
+
+    /// Whether this is the built-in `Error` class (not a subclass or a
+    /// user class that happens to share its name).
+    pub fn is_builtin_error(&self) -> bool {
+        self.superclass.is_none()
+            && self.name.as_str() == ERROR_CLASS
+            && self.native_constructor.is_some()
+    }
+
+    /// Whether this is the built-in `Error` class or extends it.
+    pub fn extends_error(&self) -> bool {
+        if self.is_builtin_error() {
+            return true;
+        }
+        let mut current = self.superclass.clone();
+        while let Some(class) = current {
+            if class.borrow().is_builtin_error() {
+                return true;
+            }
+            current = class.borrow().superclass.clone();
+        }
+        false
+    }
+
+    /// The native constructor of this class or the nearest ancestor that has one.
+    pub fn resolve_native_constructor(&self) -> Option<NativeFunction> {
+        if let Some(constructor) = self.native_constructor {
+            return Some(constructor);
+        }
+        let mut current = self.superclass.clone();
+        while let Some(class) = current {
+            if let Some(constructor) = class.borrow().native_constructor {
+                return Some(constructor);
+            }
+            current = class.borrow().superclass.clone();
+        }
+        None
+    }
+}
+
+/// Splits a runtime error message such as `TypeError: expected Int` into its
+/// name (`TypeError`) and the rest; messages without such a prefix are `Error`s.
+pub fn split_error_message(message: &str) -> (&str, &str) {
+    if let Some((name, rest)) = message.split_once(": ")
+        && name.len() > ERROR_CLASS.len()
+        && name.ends_with(ERROR_CLASS)
+        && name.starts_with(|c: char| c.is_ascii_uppercase())
+        && name.chars().all(|c| c.is_ascii_alphanumeric())
+    {
+        return (name, rest);
+    }
+    (ERROR_CLASS, message)
+}
+
+/// `Error(message)`: called with the new instance first, it sets `message`
+/// (a String, empty when omitted) and `name` (the instance's class name).
+fn error_constructor(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    let Some(Value::Object(object)) = args.first() else {
+        return Err(RuntimeError::new(
+            "Error constructor called without an instance",
+        ));
+    };
+    let message = match args.get(1) {
+        None | Some(Value::Null) => String::new(),
+        Some(Value::String(message)) => message.to_string(),
+        Some(other) => other.to_string(),
+    };
+    let mut object_ref = object.borrow_mut();
+    let name = object_ref
+        .class
+        .as_ref()
+        .map(|class| class.borrow().name.to_string())
+        .unwrap_or_else(|| ERROR_CLASS.to_string());
+    object_ref
+        .fields
+        .insert("message".to_string(), Value::String(Rc::new(message)));
+    object_ref
+        .fields
+        .insert("name".to_string(), Value::String(Rc::new(name)));
+    drop(object_ref);
+    Ok(Value::Object(object.clone()))
+}
+
+/// Whether an Int and a Float are the same number, exactly: `5 == 5.0`, but
+/// `9007199254740993` is not the Float it rounds to.
+pub fn int_equals_float(int: i64, float: f64) -> bool {
+    // 2^63 is exactly representable; every Float in [-2^63, 2^63) converts to i64.
+    const LIMIT: f64 = 9_223_372_036_854_775_808.0;
+    float.fract() == 0.0 && (-LIMIT..LIMIT).contains(&float) && float as i64 == int
+}
+
+/// `==` as programs see it: like `Value`'s `PartialEq`, except that an Int and
+/// a Float are equal when they are the same number (`5 == 5.0`).
+pub fn values_equal(a: &Value, b: &Value) -> bool {
+    match (a, b) {
+        (Value::Int(int), Value::Float(float)) | (Value::Float(float), Value::Int(int)) => {
+            int_equals_float(*int, *float)
+        }
+        _ => a == b,
+    }
+}
+
+/// A Set element. Numbers compare by value, as with `==`: a Float with an
+/// integral value is the same element as that Int (`{5, 5.0}` has one element).
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ValueKey {
     Null,
     Bool(bool),
@@ -1512,11 +1709,80 @@ pub enum ValueKey {
 }
 
 impl ValueKey {
+    /// The Int a Float key equals, if it has an integral value.
+    fn as_integral(&self) -> Option<i64> {
+        match self {
+            ValueKey::Int(int) => Some(*int),
+            ValueKey::Float(bits) => {
+                let float = f64::from_bits(*bits);
+                let int = float as i64;
+                int_equals_float(int, float).then_some(int)
+            }
+            _ => None,
+        }
+    }
+}
+
+impl PartialEq for ValueKey {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (ValueKey::Null, ValueKey::Null) => true,
+            (ValueKey::Bool(a), ValueKey::Bool(b)) => a == b,
+            (ValueKey::String(a), ValueKey::String(b)) => a == b,
+            (ValueKey::Char(a), ValueKey::Char(b)) => a == b,
+            (ValueKey::Float(a), ValueKey::Float(b)) => a == b,
+            (ValueKey::Int(_) | ValueKey::Float(_), ValueKey::Int(_) | ValueKey::Float(_)) => {
+                self.as_integral().is_some() && self.as_integral() == other.as_integral()
+            }
+            _ => false,
+        }
+    }
+}
+
+impl Eq for ValueKey {}
+
+impl std::hash::Hash for ValueKey {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        // Equal numbers hash alike whether they are Ints or Floats.
+        if let Some(int) = self.as_integral() {
+            state.write_u8(2);
+            int.hash(state);
+            return;
+        }
+        match self {
+            ValueKey::Null => state.write_u8(0),
+            ValueKey::Bool(value) => {
+                state.write_u8(1);
+                value.hash(state);
+            }
+            ValueKey::Int(value) => {
+                state.write_u8(2);
+                value.hash(state);
+            }
+            ValueKey::Float(bits) => {
+                state.write_u8(3);
+                bits.hash(state);
+            }
+            ValueKey::String(value) => {
+                state.write_u8(4);
+                value.hash(state);
+            }
+            ValueKey::Char(value) => {
+                state.write_u8(5);
+                value.hash(state);
+            }
+        }
+    }
+}
+
+impl ValueKey {
     pub fn try_from_value(value: &Value) -> Option<Self> {
         match value {
             Value::Null => Some(ValueKey::Null),
             Value::Bool(value) => Some(ValueKey::Bool(*value)),
             Value::Int(value) => Some(ValueKey::Int(*value)),
+            // -0.0 is the same element as 0.0 (and 0).
+            Value::Float(value) if *value == 0.0 => Some(ValueKey::Float(0.0f64.to_bits())),
             Value::Float(value) => Some(ValueKey::Float(value.to_bits())),
             Value::String(value) => Some(ValueKey::String(Rc::clone(value))),
             Value::Char(value) => Some(ValueKey::Char(*value)),

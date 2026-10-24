@@ -25,7 +25,7 @@ fn test_capture_reassignment_type_error() {
     "#;
     let err = eval_result(source).unwrap_err();
     assert!(
-        err.contains("Type error") || err.contains("expected Int"),
+        err.contains("TypeError") || err.contains("expected Int"),
         "Expected type error, got: {}",
         err
     );
@@ -59,7 +59,7 @@ fn test_capture_nested_reassignment_type_error() {
     "#;
     let err = eval_result(source).unwrap_err();
     assert!(
-        err.contains("Type error") || err.contains("expected Int"),
+        err.contains("TypeError") || err.contains("expected Int"),
         "Expected type error, got: {}",
         err
     );

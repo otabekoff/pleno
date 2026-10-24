@@ -256,3 +256,24 @@ pub fn reflect_get_annotations(
 
     Ok(Value::Array(gc.allocate(ArrayState::new(list))?))
 }
+
+/// `vmStats()`: what the running VM has used so far, as a map with
+/// `instructions` (executed), `memory` (bytes allocated now) and `peakMemory`.
+pub fn reflect_vm_stats(vm: &mut dyn VMProvider, _args: &[Value]) -> Result<Value, RuntimeError> {
+    let instructions = vm.instruction_count();
+    let gc = vm.get_gc();
+    let mut stats = IndexMap::new();
+    stats.insert(
+        "instructions".to_string(),
+        Value::Int(i64::try_from(instructions).unwrap_or(i64::MAX)),
+    );
+    stats.insert(
+        "memory".to_string(),
+        Value::Int(i64::try_from(gc.allocated_bytes).unwrap_or(i64::MAX)),
+    );
+    stats.insert(
+        "peakMemory".to_string(),
+        Value::Int(i64::try_from(gc.peak_bytes).unwrap_or(i64::MAX)),
+    );
+    Ok(Value::Map(gc.allocate(pleno_value::MapState::new(stats))?))
+}

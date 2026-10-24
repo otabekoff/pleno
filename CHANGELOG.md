@@ -2,6 +2,20 @@
 
 Notable changes to Pleno. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Before 1.0, any release may change behavior.
 
+## Unreleased
+
+### Changed
+
+- Every caught error is an `Error` instance with `name` and `message`: runtime errors, failed type annotations (`TypeError`), denied operations (`SecurityError`) and sandbox limits (`SandboxError`) included, so `catch (e: Error)` catches them and `e.message` always works.
+- Printing an error or putting it in a string gives `name: message`, such as `TypeError: parameter 'x' expected Int, got String`, instead of a map.
+- Caught errors no longer carry `peakMemory` and `instructions`; `vmStats()` from `std:reflect` returns them.
+- Ints and Floats compare by value: `5.0 == 5` is true, so `assert.equal(10 / 2, 5)` passes. Sets, `contains` and `indexOf` follow the same rule (`Set([5, 5.0])` has one element).
+
+### Added
+
+- `vmStats()` in `std:reflect`: instructions executed, current and peak memory.
+- `Error` is a class: `Error(message)` instances print as `Error: message` and have `toString()`; subclasses get their class name as `name`.
+
 ## 0.2.0 - 2026-10-24
 
 ### Changed

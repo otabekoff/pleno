@@ -1,47 +1,9 @@
-//! Program-level analysis and declarations the compiler adds on demand.
+//! Program-level analysis the compiler runs before compiling.
 
 use pleno_ast::visitor::{
     Visitor, walk_annotation, walk_expr, walk_field_decl, walk_function_decl, walk_param, walk_stmt,
 };
-use pleno_ast::{
-    BinaryOp, Expr, ExprKind, FieldDecl, FunctionDecl, FunctionKind, Literal, Ownership, Param,
-    Program, Span, Stmt, StmtKind, Visibility,
-};
-
-/// The native `Error(message)` global is a function, so it cannot be a superclass.
-/// When a program declares `class X extends Error` without defining `Error` itself,
-/// this prepends an equivalent class:
-///
-/// ```pleno
-/// class Error {
-///     message; name;
-///     constructor(message = null) { this.message = message; this.name = "Error"; }
-///     fn toString() { return this.name + ": " + this.message; }
-/// }
-/// ```
-pub fn add_error_class(program: &mut Program) {
-    let extends_error = program.statements.iter().any(|stmt| {
-        matches!(
-            top_level_class(stmt),
-            Some(StmtKind::Class { superclass: Some(name), .. }) if name == "Error"
-        )
-    });
-    let defines_error = program
-        .statements
-        .iter()
-        .any(|stmt| declared_name(stmt) == Some("Error"));
-    if extends_error && !defines_error {
-        program.statements.insert(0, error_class());
-    }
-}
-
-fn top_level_class(stmt: &Stmt) -> Option<&StmtKind> {
-    match &stmt.kind {
-        StmtKind::Export(inner) => top_level_class(inner),
-        kind @ StmtKind::Class { .. } => Some(kind),
-        _ => None,
-    }
-}
+use pleno_ast::{Expr, ExprKind, FieldDecl, FunctionDecl, Param, Stmt, StmtKind};
 
 fn declared_name(stmt: &Stmt) -> Option<&str> {
     match &stmt.kind {
@@ -51,115 +13,6 @@ fn declared_name(stmt: &Stmt) -> Option<&str> {
         }
         _ => None,
     }
-}
-
-fn error_class() -> Stmt {
-    let field = |name: &str| FieldDecl {
-        span: SPAN,
-        name: name.to_string(),
-        name_span: SPAN,
-        ty: None,
-        default: None,
-        is_static: false,
-        is_const: false,
-        visibility: Some(Visibility::Public),
-        annotations: Vec::new(),
-        doc: None,
-    };
-    let set_field = |name: &str, value: Expr| {
-        stmt(StmtKind::AssignProperty {
-            object: expr(ExprKind::This),
-            name: name.to_string(),
-            value,
-        })
-    };
-    let this_field = |name: &str| {
-        expr(ExprKind::Property {
-            object: Box::new(expr(ExprKind::This)),
-            name: name.to_string(),
-        })
-    };
-    let add = |left: Expr, right: Expr| {
-        expr(ExprKind::Binary {
-            left: Box::new(left),
-            op: BinaryOp::Add,
-            right: Box::new(right),
-        })
-    };
-
-    let constructor = method(
-        "constructor",
-        vec![Param {
-            span: SPAN,
-            name: "message".to_string(),
-            name_span: SPAN,
-            ty: None,
-            default: Some(expr(ExprKind::Literal(Literal::Null))),
-            is_variadic: false,
-            is_keyword_only: false,
-            ownership: Ownership::None,
-        }],
-        vec![
-            set_field("message", expr(ExprKind::Ident("message".to_string()))),
-            set_field("name", string("Error")),
-        ],
-    );
-    let to_string = method(
-        "toString",
-        Vec::new(),
-        vec![stmt(StmtKind::Return(Some(add(
-            add(this_field("name"), string(": ")),
-            this_field("message"),
-        ))))],
-    );
-
-    stmt(StmtKind::Class {
-        name: "Error".to_string(),
-        name_span: SPAN,
-        generics: Vec::new(),
-        fields: vec![field("message"), field("name")],
-        methods: vec![constructor, to_string],
-        properties: Vec::new(),
-        superclass: None,
-        implements: Vec::new(),
-        is_abstract: false,
-        annotations: Vec::new(),
-        nested_classes: Vec::new(),
-        doc: None,
-    })
-}
-
-const SPAN: Span = Span { start: 0, end: 0 };
-
-fn method(name: &str, params: Vec<Param>, body: Vec<Stmt>) -> FunctionDecl {
-    FunctionDecl {
-        span: SPAN,
-        name: name.to_string(),
-        name_span: SPAN,
-        generics: Vec::new(),
-        params,
-        return_ty: None,
-        body: Box::new(stmt(StmtKind::Block(body))),
-        is_static: false,
-        is_abstract: false,
-        is_async: false,
-        visibility: Some(Visibility::Public),
-        kind: FunctionKind::Method,
-        annotations: Vec::new(),
-        doc: None,
-    }
-}
-
-fn stmt(kind: StmtKind) -> Stmt {
-    Stmt::new(kind, SPAN)
-}
-
-fn expr(kind: ExprKind) -> Expr {
-    Expr::new(kind, SPAN)
-}
-
-fn string(value: &str) -> Expr {
-    expr(ExprKind::Literal(Literal::String(value.to_string())))
 }
 
 /// Collects every name a program refers to, so unreferenced top-level

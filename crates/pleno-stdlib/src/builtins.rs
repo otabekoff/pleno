@@ -105,10 +105,7 @@ pub fn register_builtins(vm: &mut dyn VMProvider) {
         Value::NativeFunction(native_global_reduce),
     );
 
-    vm.register_global(
-        "Error".to_string(),
-        Value::NativeFunction(native_error_constructor),
-    );
+    // `Error` is a class the VM defines, so runtime errors are instances of it.
 
     // Result type constructors
     vm.register_global("Ok".to_string(), Value::NativeFunction(native_result_ok));
@@ -900,24 +897,6 @@ fn native_option_some(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, 
     Ok(Value::Map(gc.allocate(MapState::new(res))?))
 }
 
-fn native_error_constructor(
-    vm: &mut dyn VMProvider,
-    args: &[Value],
-) -> Result<Value, RuntimeError> {
-    let gc = vm.get_gc();
-    let mut res = IndexMap::new();
-    res.insert(
-        "message".to_string(),
-        args.first().cloned().unwrap_or(Value::Null),
-    );
-    // Also add variant for potential pattern matching
-    res.insert(
-        "variant".to_string(),
-        Value::String(Rc::new("Error".to_string())),
-    );
-    Ok(Value::Map(gc.allocate(MapState::new(res))?))
-}
-
 // ... more primitive methods ...
 fn native_string_upper(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
     let s = match &args[0] {
@@ -1342,7 +1321,12 @@ fn native_array_contains(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Val
         _ => return Err(RuntimeError::new("expected array")),
     };
     let val = args.get(1).unwrap_or(&Value::Null);
-    Ok(Value::Bool(arr.borrow().elements.contains(val)))
+    Ok(Value::Bool(
+        arr.borrow()
+            .elements
+            .iter()
+            .any(|v| pleno_value::values_equal(v, val)),
+    ))
 }
 fn native_array_index_of(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
     let arr = match &args[0] {
@@ -1354,7 +1338,7 @@ fn native_array_index_of(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Val
         arr.borrow()
             .elements
             .iter()
-            .position(|v| v == val)
+            .position(|v| pleno_value::values_equal(v, val))
             .map(|i| i as i64)
             .unwrap_or(-1),
     ))

@@ -195,6 +195,9 @@ fn async_test_passed(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, R
 fn async_test_failed(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
     let (indent, name) = label_parts(&args[0]);
     let message = match args.get(1) {
+        Some(Value::Object(error)) if error.borrow().error_name().is_some() => {
+            error.borrow().error_report().unwrap_or_default()
+        }
         Some(Value::Map(error)) => {
             let message = error.borrow().get("message").map(|m| m.to_string());
             message.unwrap_or_else(|| Value::Map(error.clone()).to_string())
@@ -405,6 +408,10 @@ fn deep_equal(a: &Value, b: &Value) -> bool {
         (Value::Bool(a), Value::Bool(b)) => a == b,
         (Value::Int(a), Value::Int(b)) => a == b,
         (Value::Float(a), Value::Float(b)) => (a - b).abs() < f64::EPSILON,
+        // `assert.equal(10 / 2, 5)`: numbers are equal across Int and Float.
+        (Value::Int(_), Value::Float(_)) | (Value::Float(_), Value::Int(_)) => {
+            pleno_value::values_equal(a, b)
+        }
         (Value::String(a), Value::String(b)) => a == b,
         (Value::Char(a), Value::Char(b)) => a == b,
         (Value::Array(a), Value::Array(b)) => {

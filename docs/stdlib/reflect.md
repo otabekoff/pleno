@@ -174,3 +174,23 @@ print(annotations.length);   // 2
 print(annotations[0].name);  // Entity
 print(annotations[1].args);  // [users]
 ```
+
+---
+
+## VM Statistics
+
+### `vmStats(): Map`
+
+Returns what the running program has used so far: `instructions` (the number of VM instructions executed), `memory` (bytes allocated now) and `peakMemory` (the most bytes allocated at once). Useful after a sandbox limit stops a computation, since the error itself carries only its `name` and `message`.
+
+```pleno
+import { vmStats } from "std:reflect";
+
+let mut total = 0;
+for (i in 0..1000) {
+    total = total + i;
+}
+let stats = vmStats();
+print(stats.instructions > 1000);   // true
+print(stats.peakMemory >= stats.memory);   // true
+```

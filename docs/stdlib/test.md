@@ -95,7 +95,7 @@ Each assertion throws an error when it fails.
 
 ### `assert.equal(actual, expected)`
 
-Asserts deep equality. Arrays and maps are compared element by element.
+Asserts deep equality. Arrays and maps are compared element by element, and numbers by value: an Int equals a Float of the same value.
 
 ```pleno
 import { assert } from "std:test";
@@ -103,6 +103,7 @@ import { assert } from "std:test";
 assert.equal([1, 2], [1, 2]);
 assert.equal({ "a": [1] }, { "a": [1] });
 assert.equal(42, 42);
+assert.equal(10 / 2, 5);
 ```
 
 ### `assert.notEqual(a, b)`

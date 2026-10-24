@@ -1,5 +1,6 @@
 // args: --max-instructions 100000
 // test_instruction_limit.pln
+import { vmStats } from "std:reflect";
 fn main() {
     print("Starting infinite loop test...");
     try {
@@ -8,9 +9,10 @@ fn main() {
             i = i + 1;
         }
     } catch (e) {
-        print("Caught: " + e.message);
-        print("Peak Memory: " + e.peakMemory.toString());
-        print("Instructions: " + e.instructions.toString());
+        print("Caught: " + e.name + ": " + e.message);
+        let stats = vmStats();
+        print("Peak Memory: " + stats.peakMemory.toString());
+        print("Instructions: " + stats.instructions.toString());
     }
 }
 main();

@@ -56,6 +56,14 @@ Void     // No return value
 Any      // Dynamic type (opt-out of type checking)
 ```
 
+Ints and Floats compare by value: `5.0 == 5` is `true` and `5.5 == 5` is `false`. The same holds in sets (`Set([5, 5.0])` has one element), `contains`, `indexOf` and `assert.equal`.
+
+```pleno
+print(10 / 2 == 5);           // true
+print(5.5 != 5);              // true
+print(Set([5, 5.0]).size());  // 1
+```
+
 #### Type Annotations
 ```pleno
 let age: Int = 25;
