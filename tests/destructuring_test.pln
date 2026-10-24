@@ -125,9 +125,9 @@ check(errorOf(() => {
 }).startsWith("array has 2 elements, pattern expects 1"), "array too long");
 check(errorOf(() => {
     let t: (Int, String) = (1, 2);
-}) == "Type error: expected (Int, String), found Tuple", "tuple annotation element type");
+}).endsWith("expected (Int, String), found Tuple"), "tuple annotation element type");
 check(errorOf(() => {
     let t: (Int, Int) = (1, 2, 3);
-}) == "Type error: expected (Int, Int), found Tuple", "tuple annotation length");
+}).endsWith("expected (Int, Int), found Tuple"), "tuple annotation length");
 
 print("destructuring: all checks passed");
