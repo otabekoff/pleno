@@ -881,10 +881,11 @@ fn lint_directory(dir: &PathBuf) {
     }
 }
 
-/// Lexes, parses and compiles `path` without running it. Problems are printed
-/// as `file:line:column: error: message`, or with `--json` as a JSON array of
+/// Lexes, parses, compiles and statically checks `path` without running it.
+/// Problems are printed as `file:line:column: error: message` (or `warning:`),
+/// or with `--json` as a JSON array of
 /// `{line, column, endLine, endColumn, severity, message}` (1-based, columns in
-/// UTF-16 units, as editors count them).
+/// UTF-16 units, as editors count them). Only errors make the exit status 1.
 fn check_file(path: &str, json_output: bool) {
     if !path.ends_with(".pln") {
         eprintln!("Error: Only .pln format file extensions are supported");
@@ -899,48 +900,91 @@ fn check_file(path: &str, json_output: bool) {
     };
 
     let problems = check_source(&source);
+    let has_errors = problems.iter().any(|p| p.severity == Severity::Error);
     if json_output {
         let problems: Vec<serde_json::Value> = problems
             .iter()
-            .map(|(message, start, end)| {
-                let (line, column) = line_and_column(&source, *start);
-                let (end_line, end_column) = line_and_column(&source, (*end).max(*start + 1));
+            .map(|problem| {
+                let (line, column) = line_and_column(&source, problem.start);
+                let (end_line, end_column) =
+                    line_and_column(&source, problem.end.max(problem.start + 1));
                 serde_json::json!({
                     "line": line,
                     "column": column,
                     "endLine": end_line,
                     "endColumn": end_column,
-                    "severity": "error",
-                    "message": message,
+                    "severity": problem.severity.label(),
+                    "message": problem.message,
                 })
             })
             .collect();
         println!("{}", serde_json::Value::Array(problems));
-    } else if problems.is_empty() {
-        println!("Type check passed for {}", path);
     } else {
-        for (message, start, _) in &problems {
-            let (line, column) = line_and_column(&source, *start);
-            eprintln!("{path}:{line}:{column}: error: {message}");
+        for problem in &problems {
+            let (line, column) = line_and_column(&source, problem.start);
+            let severity = problem.severity.label();
+            eprintln!("{path}:{line}:{column}: {severity}: {}", problem.message);
+        }
+        if !has_errors {
+            println!("Type check passed for {}", path);
         }
     }
-    if !problems.is_empty() {
+    if has_errors {
         process::exit(1);
     }
 }
 
-/// The problems in `source`, as messages and byte ranges: a lex, parse or
-/// compile error, or else every name read but never defined.
-fn check_source(source: &str) -> Vec<(String, usize, usize)> {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Severity {
+    Error,
+    Warning,
+}
+
+impl Severity {
+    fn label(self) -> &'static str {
+        match self {
+            Severity::Error => "error",
+            Severity::Warning => "warning",
+        }
+    }
+}
+
+/// One problem `pleno check` reports, with its byte range in the source.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Problem {
+    message: String,
+    start: usize,
+    end: usize,
+    severity: Severity,
+}
+
+impl Problem {
+    fn error(message: String, start: usize, end: usize) -> Self {
+        Problem {
+            message,
+            start,
+            end,
+            severity: Severity::Error,
+        }
+    }
+}
+
+/// The problems in `source`: a lex, parse or compile error, or else every
+/// name read but never defined and what the static checks find (wrong
+/// argument counts, unknown methods on `this`, literals that do not match
+/// their annotation), in source order.
+fn check_source(source: &str) -> Vec<Problem> {
     let tokens = match pleno_lexer::lex(source) {
         Ok(tokens) => tokens,
-        Err(err) => return vec![(err.message, err.span.start, err.span.end)],
+        Err(err) => return vec![Problem::error(err.message, err.span.start, err.span.end)],
     };
     let mut parser = pleno_parser::Parser::new(tokens, source);
     let mut program = match parser.parse_program() {
         Ok(program) => program,
-        Err(err) => return vec![(err.message, err.span.start, err.span.end)],
+        Err(err) => return vec![Problem::error(err.message, err.span.start, err.span.end)],
     };
+    // Compiling optimizes the program in place, so check it first.
+    let static_problems = pleno_compiler::check::check_program(&program);
     let mut compiler = pleno_compiler::Compiler::new(source.to_string());
     if let Err(err) = compiler.compile(&mut program) {
         let span = err
@@ -949,17 +993,30 @@ fn check_source(source: &str) -> Vec<(String, usize, usize)> {
             .first()
             .map(|label| (label.span.start, label.span.end))
             .unwrap_or((0, 0));
-        return vec![(err.diagnostic.message, span.0, span.1)];
+        return vec![Problem::error(err.diagnostic.message, span.0, span.1)];
     }
 
     // Built-in globals are whatever the standard library registers.
     let mut vm = pleno_vm::VM::new();
     pleno_stdlib::register(&mut vm);
-    compiler
+    let mut problems: Vec<Problem> = compiler
         .undefined_globals(|name| vm.globals.contains_key(name))
         .into_iter()
-        .map(|(name, span)| (format!("undefined variable '{name}'"), span.start, span.end))
-        .collect()
+        .map(|(name, span)| {
+            Problem::error(format!("undefined variable '{name}'"), span.start, span.end)
+        })
+        .collect();
+    problems.extend(static_problems.into_iter().map(|d| Problem {
+        message: d.message,
+        start: d.span.start,
+        end: d.span.end,
+        severity: match d.severity {
+            pleno_compiler::check::Severity::Error => Severity::Error,
+            pleno_compiler::check::Severity::Warning => Severity::Warning,
+        },
+    }));
+    problems.sort_by_key(|p| (p.start, p.end));
+    problems
 }
 
 /// The 1-based line and UTF-16 column of a byte offset.
@@ -2253,5 +2310,46 @@ fn handle_dap_for_file(_path: &str) {
     if let Err(e) = server.run() {
         eprintln!("DAP server error: {e}");
         std::process::exit(1);
+    }
+}
+
+#[cfg(test)]
+mod check_tests {
+    use super::*;
+
+    fn summary(source: &str) -> Vec<(Severity, String, (usize, usize))> {
+        check_source(source)
+            .into_iter()
+            .map(|p| (p.severity, p.message, line_and_column(source, p.start)))
+            .collect()
+    }
+
+    #[test]
+    fn check_reports_static_problems_in_source_order() {
+        let source = "fn greet(name, greeting = \"Hi\") {}\n\
+                      greet(1, 2, 3);\n\
+                      let x: Int = \"hi\";\n\
+                      print(missing);\n\
+                      class A { fn m() { this.nope(); } }\n";
+        let error = |message: &str, at| (Severity::Error, message.to_string(), at);
+        assert_eq!(
+            summary(source),
+            vec![
+                error("greet expects 1 to 2 arguments, got 3", (2, 1)),
+                error("'x' is declared Int but given a String literal", (3, 14)),
+                error("undefined variable 'missing'", (4, 7)),
+                (
+                    Severity::Warning,
+                    "A has no method 'nope'".to_string(),
+                    (5, 20)
+                ),
+            ]
+        );
+    }
+
+    #[test]
+    fn check_passes_valid_calls() {
+        let source = "fn f(a, b = 1, ...rest) { return a; }\nprint(f(1), f(1, 2, 3, 4));\n";
+        assert_eq!(summary(source), Vec::new());
     }
 }

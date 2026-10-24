@@ -1,3 +1,4 @@
+pub mod check;
 mod prelude;
 
 use indexmap::IndexMap;

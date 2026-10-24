@@ -45,6 +45,15 @@ pleno lint src/
 pleno lint --fix src/
 ```
 
+`pleno check` reports, without running the file:
+
+- syntax and compile errors, and names that are read but never defined;
+- calls with the wrong arguments to functions and classes declared at the top level of the file and to methods called on `this`, counting default, variadic (`...rest`), keyword-only (after `*`) and named arguments: `greet expects 1 to 2 arguments, got 3`, `greet has no parameter named 'x'`, `config is missing named argument 'port'`;
+- literals that can never match a built-in type annotation: `let x: Int = "hi";` gives `'x' is declared Int but given a String literal`, and `f(1)` for `fn f(s: String)` gives `f expects String for 's', found an Int literal`;
+- as a warning, calls to methods on `this` that the class and its superclasses never declare: `Counter has no method 'reset'`.
+
+The checks stay quiet whenever the code could still be right: a name that is bound more than once, a decorated function or class, a class changed by `extend` or inheriting from a class in another file, for methods on `this` also a class that is exported, subclassed or implements an interface, a call with `...spread` or `_` placeholders, a call inside `try` with a `catch` or inside `assert.throws`, and any annotation other than `Int`, `Float`, `Number`, `String`, `Char`, `Bool`, `Null`, `Void` and `Any`. An Int literal is never reported against `Float`. Errors make `pleno check` exit with status 1; warnings do not. `pleno check --json` prints the same problems with `"severity": "error"` or `"warning"`, and the language server shows them as you type.
+
 ## Formatting
 
 ```bash

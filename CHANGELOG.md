@@ -2,6 +2,12 @@
 
 Notable changes to Pleno. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Before 1.0, any release may change behavior.
 
+## Unreleased
+
+### Added
+
+- `pleno check` and the language server report wrong argument counts and unknown named arguments for functions, constructors and `this` methods declared in the file, literals that cannot match a type annotation (`let x: Int = "hi";`), and, as a warning, unknown methods called on `this`.
+
 ## 0.2.0 - 2026-10-24
 
 ### Changed
