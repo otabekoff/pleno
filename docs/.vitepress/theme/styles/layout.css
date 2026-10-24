@@ -1,0 +1,354 @@
+/* ---------------------------------------------------------------- navbar */
+
+/* Frosted bar with a gradient hairline instead of a solid border. */
+.VPNavBar {
+  --vp-nav-bg-color: color-mix(in srgb, var(--vp-c-bg) 78%, transparent);
+}
+
+.VPNavBar:not(.home.top) {
+  backdrop-filter: saturate(160%) blur(14px);
+  -webkit-backdrop-filter: saturate(160%) blur(14px);
+}
+
+.VPNavBar .divider-line {
+  background: var(--pl-gradient);
+  opacity: 0.28;
+  height: 1px;
+}
+
+/* Menu next to the logo, search and toggles on the right. */
+@media (min-width: 768px) {
+  .VPNavBar .content-body {
+    justify-content: flex-start;
+  }
+
+  .VPNavBar .content-body > .menu {
+    order: 0;
+    margin-left: 12px;
+  }
+
+  .VPNavBar .content-body > .search {
+    order: 1;
+    margin-left: auto;
+  }
+
+  .VPNavBar .content-body > *:not(.menu):not(.search) {
+    order: 2;
+  }
+}
+
+.VPNavBarTitle .title {
+  gap: 10px;
+  font-family: var(--pl-font-display);
+  font-size: 18px;
+  letter-spacing: -0.01em;
+}
+
+.VPNavBarTitle .title span {
+  background: var(--pl-gradient);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  font-weight: 700;
+}
+
+/* Nav links as soft pills. */
+.VPNavBarMenuLink,
+.VPNavBarMenuGroup .button {
+  border-radius: 999px;
+  padding: 0 12px !important;
+  line-height: 32px !important;
+  height: 32px;
+  margin: 0 1px;
+  transition: background-color 0.2s, color 0.2s;
+}
+
+.VPNavBarMenuLink:hover,
+.VPNavBarMenuGroup .button:hover {
+  background-color: var(--vp-c-default-soft);
+}
+
+.VPNavBarMenuLink.active {
+  background-color: var(--vp-c-brand-soft);
+}
+
+.VPNavBarSearch .DocSearch-Button {
+  border-radius: 999px;
+  border: 1px solid var(--vp-c-divider);
+  background: var(--vp-c-bg-soft);
+}
+
+.VPFlyout .menu {
+  border-radius: var(--pl-radius);
+}
+
+/* --------------------------------------------------------------- sidebar */
+
+.VPSidebar {
+  border-right: 1px solid var(--vp-c-divider);
+}
+
+.VPSidebarItem.level-0 > .item > .text,
+.VPSidebarItem.level-0 > .item > .link > .text {
+  font-family: var(--pl-font-display);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--vp-c-text-3);
+}
+
+.VPSidebarItem .items .item {
+  border-radius: var(--pl-radius-sm);
+  padding-left: 10px;
+  margin-left: -10px;
+  transition: background-color 0.2s;
+}
+
+.VPSidebarItem .items .item:hover {
+  background-color: var(--vp-c-default-soft);
+}
+
+.VPSidebarItem.is-active > .item {
+  background: var(--pl-gradient-soft);
+}
+
+.VPSidebarItem.is-active > .item > .indicator {
+  background: var(--pl-gradient);
+  width: 3px;
+  border-radius: 3px;
+  top: 8px;
+  bottom: 8px;
+  left: 0;
+}
+
+.VPSidebarItem .indicator {
+  left: 0;
+}
+
+/* ----------------------------------------------------------- doc content */
+
+.vp-doc h1 {
+  font-size: 36px;
+  line-height: 1.2;
+}
+
+.vp-doc h2 {
+  border-top: none;
+  margin-top: 56px;
+  padding-top: 0;
+}
+
+.vp-doc a {
+  text-decoration-color: color-mix(in srgb, var(--vp-c-brand-1) 40%, transparent);
+  text-underline-offset: 3px;
+}
+
+.vp-doc a:hover {
+  text-decoration-color: var(--vp-c-brand-1);
+}
+
+.vp-doc :not(pre) > code {
+  border-radius: 6px;
+  padding: 2px 6px;
+}
+
+/* Code blocks: rounded panels with a gradient hairline on top. */
+.vp-doc div[class*='language-'] {
+  border-radius: var(--pl-radius);
+  border: 1px solid var(--vp-c-divider);
+  overflow: hidden;
+}
+
+.vp-doc div[class*='language-']::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 1px;
+  background: var(--pl-gradient);
+  opacity: 0.5;
+  z-index: 2;
+}
+
+.vp-doc .vp-code-group .tabs {
+  border-radius: var(--pl-radius) var(--pl-radius) 0 0;
+}
+
+.vp-doc .vp-code-group div[class*='language-'] {
+  border-radius: 0 0 var(--pl-radius) var(--pl-radius);
+  border-top: none;
+}
+
+/* "Open in playground" under Pleno code blocks (added by the markdown plugin). */
+.vp-doc .pl-run-link {
+  position: absolute;
+  right: 12px;
+  bottom: 10px;
+  z-index: 3;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-family: var(--vp-font-family-base);
+  font-size: 12px;
+  font-weight: 600;
+  color: #fff;
+  text-decoration: none;
+  background: var(--pl-gradient);
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+
+.vp-doc div.language-pleno:hover .pl-run-link,
+.vp-doc .pl-run-link:focus-visible {
+  opacity: 1;
+}
+
+/* Callouts with a gradient edge. */
+.vp-doc .custom-block {
+  border-radius: var(--pl-radius);
+  border: 1px solid var(--vp-c-divider);
+  position: relative;
+  overflow: hidden;
+}
+
+.vp-doc .custom-block::before {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 3px;
+}
+
+.vp-doc .custom-block.tip::before,
+.vp-doc .custom-block.info::before {
+  background: var(--pl-gradient);
+}
+
+.vp-doc .custom-block.warning::before {
+  background: var(--vp-c-warning-1);
+}
+
+.vp-doc .custom-block.danger::before {
+  background: var(--vp-c-danger-1);
+}
+
+.vp-doc table {
+  border-radius: var(--pl-radius-sm);
+  overflow: hidden;
+  display: table;
+  width: 100%;
+}
+
+/* Outline: a gradient marker for the current heading. */
+.VPDocAsideOutline .outline-marker {
+  background: var(--pl-gradient);
+  width: 2px;
+}
+
+/* Prev / next links and the doc footer. */
+.VPDocFooter .pager-link {
+  border-radius: var(--pl-radius);
+  transition: border-color 0.2s, background-color 0.2s;
+}
+
+.VPDocFooter .pager-link:hover {
+  background: var(--pl-gradient-soft);
+}
+
+/* -------------------------------------------------------------- local search */
+
+.VPLocalSearchBox .shell {
+  border-radius: var(--pl-radius-lg) !important;
+}
+
+/* ------------------------------------------------------------------ buttons */
+
+.VPButton {
+  border-radius: 999px !important;
+}
+
+.VPButton.brand {
+  background: var(--pl-gradient) !important;
+  border: none !important;
+}
+
+.VPButton.brand:hover {
+  filter: brightness(1.08);
+}
+
+/* The tutorial's start page. */
+.tutorial-index {
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 64px 24px 24px;
+}
+
+.tutorial-index .eyebrow {
+  margin: 0;
+  font-family: var(--vp-font-family-mono);
+  font-size: 13px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--vp-c-brand-1);
+}
+
+.tutorial-index h1 {
+  margin: 8px 0 16px;
+  font-family: var(--pl-font-display);
+  font-size: clamp(32px, 6vw, 48px);
+  font-weight: 700;
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+}
+
+.tutorial-index > p {
+  font-size: 17px;
+  line-height: 1.7;
+  color: var(--vp-c-text-2);
+}
+
+.tutorial-index .start {
+  display: inline-block;
+  margin: 12px 0 40px;
+  padding: 10px 22px;
+  border-radius: 999px;
+  font-weight: 600;
+  color: #fff;
+  background: var(--pl-gradient);
+}
+
+.tutorial-index .lessons {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+@media (min-width: 640px) {
+  .tutorial-index .lessons {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+.tutorial-index .lessons a {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 16px;
+  border: 1px solid var(--pl-panel-border);
+  border-radius: var(--pl-radius);
+  background: var(--pl-panel);
+  color: var(--vp-c-text-1);
+  font-weight: 500;
+  transition: border-color 0.2s, transform 0.2s;
+}
+
+.tutorial-index .lessons a:hover {
+  border-color: var(--vp-c-brand-2);
+  transform: translateY(-1px);
+}
+
+.tutorial-index .lessons .n {
+  font-family: var(--vp-font-family-mono);
+  font-size: 13px;
+  color: var(--vp-c-text-3);
+}

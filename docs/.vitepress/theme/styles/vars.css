@@ -1,0 +1,99 @@
+/**
+ * Pleno design tokens on top of the VitePress default theme.
+ * https://github.com/vuejs/vitepress/blob/main/src/client/theme-default/styles/vars.css
+ *
+ * The look: soft, rounded surfaces in the colors of the logo (red #EF4857,
+ * magenta #D211EC, violet #7F52FF), a display font for headings, and a
+ * faint dot grid behind the page. Dark first; light mode is fully styled.
+ */
+
+:root {
+  --pl-red: #ef4857;
+  --pl-magenta: #d211ec;
+  --pl-violet: #7f52ff;
+  --pl-gradient: linear-gradient(120deg, var(--pl-red) 0%, var(--pl-magenta) 50%, var(--pl-violet) 100%);
+  --pl-gradient-soft: linear-gradient(120deg, rgba(239, 72, 87, 0.14), rgba(210, 17, 236, 0.12) 50%, rgba(127, 82, 255, 0.14));
+
+  --pl-font-display: 'Sora Variable', 'Inter', ui-sans-serif, system-ui, sans-serif;
+  --vp-font-family-mono: 'JetBrains Mono Variable', ui-monospace, 'SFMono-Regular', 'Menlo', 'Consolas', monospace;
+
+  --pl-radius-sm: 8px;
+  --pl-radius: 14px;
+  --pl-radius-lg: 22px;
+
+  /* Light mode */
+  --vp-c-bg: #fcfbff;
+  --vp-c-bg-alt: #f5f2fc;
+  --vp-c-bg-soft: #f0ecf9;
+  --vp-c-bg-elv: #ffffff;
+  --vp-c-divider: rgba(60, 40, 110, 0.10);
+  --vp-c-border: rgba(60, 40, 110, 0.16);
+  --vp-c-gutter: rgba(60, 40, 110, 0.08);
+
+  --vp-c-brand-1: #6a3df0;
+  --vp-c-brand-2: #7f52ff;
+  --vp-c-brand-3: #6a35e8;
+  --vp-c-brand-soft: rgba(127, 82, 255, 0.12);
+
+  --vp-c-tip-1: var(--vp-c-brand-1);
+  --vp-c-tip-2: var(--vp-c-brand-2);
+  --vp-c-tip-3: var(--vp-c-brand-3);
+  --vp-c-tip-soft: var(--vp-c-brand-soft);
+
+  --pl-dot: rgba(60, 40, 110, 0.10);
+  --pl-glow: rgba(210, 17, 236, 0.10);
+  --pl-panel: rgba(255, 255, 255, 0.72);
+  --pl-panel-border: rgba(60, 40, 110, 0.12);
+
+  /* Code tokens, shared by the editor and the terminal mockups. */
+  --pl-tok-keyword: #a626a4;
+  --pl-tok-type: #6a35e8;
+  --pl-tok-string: #2e7d32;
+  --pl-tok-number: #c2410c;
+  --pl-tok-comment: #8a8499;
+  --pl-tok-function: #2563eb;
+
+  --vp-button-brand-border: transparent;
+  --vp-button-brand-text: #ffffff;
+  --vp-button-brand-bg: var(--vp-c-brand-3);
+  --vp-button-brand-hover-border: transparent;
+  --vp-button-brand-hover-text: #ffffff;
+  --vp-button-brand-hover-bg: var(--vp-c-brand-2);
+  --vp-button-brand-active-border: transparent;
+  --vp-button-brand-active-text: #ffffff;
+  --vp-button-brand-active-bg: var(--vp-c-brand-1);
+
+  --vp-custom-block-tip-border: transparent;
+  --vp-custom-block-tip-text: var(--vp-c-text-1);
+  --vp-custom-block-tip-bg: var(--vp-c-brand-soft);
+  --vp-custom-block-tip-code-bg: var(--vp-c-brand-soft);
+
+  --vp-nav-height: 60px;
+}
+
+.dark {
+  --vp-c-bg: #0c0b11;
+  --vp-c-bg-alt: #100e17;
+  --vp-c-bg-soft: #17141f;
+  --vp-c-bg-elv: #15121d;
+  --vp-c-divider: rgba(220, 210, 255, 0.08);
+  --vp-c-border: rgba(220, 210, 255, 0.13);
+  --vp-c-gutter: rgba(0, 0, 0, 0.6);
+
+  --vp-c-brand-1: #b9a0ff;
+  --vp-c-brand-2: #9f7cff;
+  --vp-c-brand-3: #7f52ff;
+  --vp-c-brand-soft: rgba(159, 124, 255, 0.16);
+
+  --pl-dot: rgba(220, 210, 255, 0.06);
+  --pl-glow: rgba(210, 17, 236, 0.16);
+  --pl-panel: rgba(23, 20, 31, 0.72);
+  --pl-panel-border: rgba(220, 210, 255, 0.10);
+
+  --pl-tok-keyword: #f472d0;
+  --pl-tok-type: #b9a0ff;
+  --pl-tok-string: #86efac;
+  --pl-tok-number: #fdba74;
+  --pl-tok-comment: #7d778c;
+  --pl-tok-function: #7dd3fc;
+}

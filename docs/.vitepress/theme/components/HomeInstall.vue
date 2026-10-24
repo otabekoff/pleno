@@ -61,9 +61,10 @@ async function copy() {
 /* Centered under the hero on narrow screens, left-aligned beside the logo
    on wide ones, and never wider than the screen. */
 .home-install {
-  /* A viewport-based limit: the hero grows to fit its content, so a
-     percentage would let the long command widen the page. */
-  width: min(640px, calc(100vw - 48px));
+  /* The hero's columns are minmax(0, ...), so a percentage cannot widen
+     the page; the long command scrolls inside the box instead. */
+  width: 100%;
+  max-width: 640px;
   margin: 28px auto 0;
 }
 

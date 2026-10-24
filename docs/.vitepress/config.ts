@@ -9,15 +9,42 @@ const plenoGrammar = JSON.parse(
   )
 )
 
+const BASE = '/'
+
+// Modules the browser build cannot use; examples importing them stay offline.
+const OFFLINE_MODULES = /from\s+"std:(io|path|os|process|http|net|db|dotenv)"/
+
+// Pleno code blocks get an "Open in playground" link carrying their source.
+// ```pleno norun marks a fragment that cannot run by itself (see
+// scripts/check-doc-examples.py), and gets no link.
+function playgroundLinks(md: any) {
+  const fence = md.renderer.rules.fence
+  md.renderer.rules.fence = (tokens: any[], idx: number, ...rest: any[]) => {
+    const token = tokens[idx]
+    const words = token.info.trim().split(/\s+/)
+    const norun = words.includes('norun')
+    if (norun) token.info = words.filter((w: string) => w !== 'norun').join(' ')
+    const html: string = fence(tokens, idx, ...rest)
+    const lang = token.info.trim().split(/[\s{:\[]/)[0]
+    if (lang !== 'pleno' && lang !== 'pln') return html
+    if (norun || OFFLINE_MODULES.test(token.content)) return html
+    const code = Buffer.from(token.content, 'utf-8').toString('base64url')
+    const link = `<a class="pl-run-link" href="${BASE}playground#code=${code}">Open in playground</a>`
+    return html.replace(/<\/div>\s*$/, `${link}</div>`)
+  }
+}
+
 // https://vitepress.dev/reference/site-config
 export default defineConfig({
   title: "Pleno",
   description: "A readable language with optional type annotations, async built in, and the tools to go with it.",
-  base: "/pleno/",
+  base: BASE,
   srcDir: '.',
   // Broken internal links fail the build.
   ignoreDeadLinks: [/^https?:\/\/localhost/],
   lastUpdated: true,
+  appearance: 'dark',
+  head: [['link', { rel: 'icon', href: `${BASE}logo.svg` }]],
   themeConfig: {
     search: {
       provider: 'local',
@@ -28,6 +55,7 @@ export default defineConfig({
     },
     logo: '/logo.svg',
     nav: [
+      { text: 'Tutorial', link: '/tutorial/', activeMatch: '/tutorial/' },
       { text: 'Guide', link: '/guide/introduction', activeMatch: '/guide/' },
       {
         text: 'Reference',
@@ -36,33 +64,29 @@ export default defineConfig({
           { text: 'Language', link: '/specs/' },
           { text: 'Standard library', link: '/stdlib/' },
           { text: 'CLI and tools', link: '/specs/tooling-cli' },
+          { text: 'Examples', link: '/examples' },
         ]
       },
-      { text: 'Examples', link: '/examples' },
+      { text: 'Playground', link: '/playground' },
       { text: 'Blog', link: '/blog/', activeMatch: '/blog/' },
       {
-        text: 'More',
+        text: 'v0.1',
         items: [
           {
             items: [
-              { text: 'Showcase', link: '/showcase' },
-              { text: 'Community', link: '/community' },
-              { text: 'Code signing policy', link: '/code-signing-policy' },
+              { text: 'Changelog', link: 'https://github.com/otabekoff/pleno/blob/main/CHANGELOG.md' },
+              { text: 'Releases', link: 'https://github.com/otabekoff/pleno/releases' },
+              { text: 'Roadmap to 1.0', link: 'https://github.com/otabekoff/pleno/blob/main/tasks/v1.md' },
             ]
           },
           {
             items: [
-              { text: 'Roadmap to 1.0', link: 'https://github.com/otabekoff/pleno/blob/main/tasks/v1.md' },
+              { text: 'Showcase', link: '/showcase' },
+              { text: 'Community', link: '/community' },
               { text: 'Contributing', link: '/guide/contributing' },
+              { text: 'Code signing policy', link: '/code-signing-policy' },
             ]
           }
-        ]
-      },
-      {
-        text: 'v0.1',
-        items: [
-          { text: 'Changelog', link: 'https://github.com/otabekoff/pleno/blob/main/CHANGELOG.md' },
-          { text: 'Releases', link: 'https://github.com/otabekoff/pleno/releases' },
         ]
       }
     ],
@@ -219,6 +243,7 @@ export default defineConfig({
           text: 'Blog',
           items: [
             { text: 'All Posts', link: '/blog/' },
+            { text: 'The road to 1.0', link: '/blog/toward-1-0' },
             { text: 'Announcing Phase 5', link: '/blog/announcing-phase-5' },
           ]
         }
@@ -240,14 +265,10 @@ export default defineConfig({
     editLink: {
       pattern: 'https://github.com/otabekoff/pleno/edit/main/docs/:path',
       text: 'Edit this page on GitHub'
-    },
-
-    footer: {
-      message: 'Released under the MIT License.',
-      copyright: 'Copyright © 2026-present Otabek and Pleno contributors'
     }
   },
   markdown: {
+    config: playgroundLinks,
     theme: {
       light: 'light-plus',
       dark: 'dark-plus'

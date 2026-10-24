@@ -25,7 +25,7 @@ import {
 } from "./debugAdapter";
 import { PlenoTestController } from "./testController";
 
-const DOCS_URL = "https://otabekoff.github.io/pleno/";
+const DOCS_URL = "https://pleno.mohirlab.uz/";
 const SETUP_URL = "https://github.com/otabekoff/pleno#installation";
 
 /**

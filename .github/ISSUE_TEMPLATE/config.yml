@@ -1,7 +1,7 @@
 blank_issues_enabled: true
 contact_links:
   - name: Documentation
-    url: https://otabekoff.github.io/pleno/
+    url: https://pleno.mohirlab.uz/
     about: Guides, the language reference and the standard library.
   - name: Report a security vulnerability
     url: https://github.com/otabekoff/pleno/security/advisories/new

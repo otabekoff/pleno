@@ -77,7 +77,7 @@ Changing a path setting restarts the language server. Without `pleno-lsp`, diagn
 
 ## Links
 
-- [Documentation](https://otabekoff.github.io/pleno/)
+- [Documentation](https://pleno.mohirlab.uz/)
 - [Language specification](https://github.com/otabekoff/pleno/blob/main/notes/specs.md)
 - [Report an issue](https://github.com/otabekoff/pleno/issues)
 

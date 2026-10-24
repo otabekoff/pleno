@@ -1,7 +1,7 @@
 {
     "version": "0.1.0",
     "description": "Modern programming language with clarity, safety, and expressiveness",
-    "homepage": "https://otabekoff.github.io/pleno/",
+    "homepage": "https://pleno.mohirlab.uz/",
     "license": "MIT",
     "architecture": {
         "64bit": {

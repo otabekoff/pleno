@@ -15,3 +15,5 @@ docs/.vitepress/cache/
 clippy_output.txt
 # VitePress cache from running it at the repository root (the docs live in docs/)
 /.vitepress/
+# The docs playground's WebAssembly build (scripts/build-playground.sh)
+docs/.vitepress/theme/wasm/

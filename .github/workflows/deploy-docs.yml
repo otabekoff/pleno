@@ -34,6 +34,24 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
+      # The playground and tutorial run Pleno compiled to WebAssembly.
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install wasm-bindgen
+        # Must match the wasm-bindgen version in Cargo.lock.
+        uses: taiki-e/install-action@v2
+        with:
+          tool: wasm-bindgen-cli@0.2.108
+
+      - name: Build the playground
+        run: bun run docs:wasm
+
       - name: Build with VitePress
         run: bun run docs:build
 

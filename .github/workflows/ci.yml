@@ -57,6 +57,8 @@ jobs:
         run: bash scripts/run_pln_tests.sh
       - name: HTTP server smoke test
         run: bash scripts/test_http_server.sh
+      - name: Run the examples in the docs
+        run: python3 scripts/check-doc-examples.py target/debug/pleno docs
 
   wasm:
     name: WASM build
@@ -69,8 +71,15 @@ jobs:
           targets: wasm32-unknown-unknown
       - name: Rust Cache
         uses: Swatinem/rust-cache@v2
-      - name: Build pleno-wasm
-        run: cargo build -p pleno-wasm --target wasm32-unknown-unknown --release
+      - name: Install wasm-bindgen
+        # Must match the wasm-bindgen version in Cargo.lock.
+        uses: taiki-e/install-action@v2
+        with:
+          tool: wasm-bindgen-cli@0.2.108
+      - name: Build the playground's WebAssembly
+        run: bash scripts/build-playground.sh
+      - name: Run programs through it
+        run: node scripts/playground-smoke.mjs
 
   benchmark:
     name: Benchmark Regression Check

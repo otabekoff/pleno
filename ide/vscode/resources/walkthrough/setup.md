@@ -38,4 +38,4 @@ Errors appear in the **Problems** panel as you type.
 
 ## 5. Learn More
 
-Read the [documentation](https://otabekoff.github.io/pleno/) for the language guide and the standard library.
+Read the [documentation](https://pleno.mohirlab.uz/) for the language guide and the standard library.

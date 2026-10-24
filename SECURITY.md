@@ -46,7 +46,7 @@ Please include the following in your report:
 
 ### Out of Scope
 
-- Issues in the documentation website (`otabekoff.github.io/pleno`), which is static.
+- Issues in the documentation website (`pleno.mohirlab.uz`), which is static.
 - Vulnerabilities in third-party dependencies (unless they impact Pleno-specific logic).
 - Social engineering attacks.
 

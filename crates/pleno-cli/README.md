@@ -59,4 +59,4 @@ This project includes a `pleno.toml` file with standard scripts for your conveni
 
 ## Documentation
 
-For more information about the Pleno programming language, please visit the [official documentation](https://otabekoff.github.io/pleno/).
+For more information about the Pleno programming language, please visit the [official documentation](https://pleno.mohirlab.uz/).
