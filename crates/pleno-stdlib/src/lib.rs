@@ -1,4 +1,5 @@
 pub mod base64;
+pub mod benchmark;
 pub mod builtins;
 pub mod concurrency;
 pub mod crypto;
@@ -117,6 +118,17 @@ pub fn register(vm: &mut dyn VMProvider) {
         "write".to_string(),
         Value::NativeFunction(io::io_file_write),
     );
+    for (name, function) in [
+        ("exists", io::io_file_exists as pleno_value::NativeFunction),
+        ("append", io::io_file_append),
+        ("delete", io::io_file_delete),
+        ("copy", io::io_file_copy),
+        ("move", io::io_file_move),
+        ("readLines", io::io_file_read_lines),
+        ("open", io::io_open),
+    ] {
+        file_obj.insert(name.to_string(), Value::NativeFunction(function));
+    }
 
     let mut dir_obj = IndexMap::new();
     dir_obj.insert(
@@ -135,6 +147,19 @@ pub fn register(vm: &mut dyn VMProvider) {
         "deleteRecursive".to_string(),
         Value::NativeFunction(io::io_directory_delete_recursive),
     );
+    for (name, function) in [
+        (
+            "create",
+            io::io_directory_create as pleno_value::NativeFunction,
+        ),
+        ("exists", io::io_directory_exists),
+        ("delete", io::io_directory_delete),
+        ("list", io::io_directory_list),
+        ("listFiles", io::io_directory_list_files),
+        ("listDirectories", io::io_directory_list_directories),
+    ] {
+        dir_obj.insert(name.to_string(), Value::NativeFunction(function));
+    }
 
     let mut io_module = IndexMap::new();
     io_module.insert(
@@ -291,6 +316,10 @@ pub fn register(vm: &mut dyn VMProvider) {
         Value::NativeFunction(time::time_datetime_now),
     );
     datetime_obj.insert("sleep".to_string(), Value::NativeFunction(time::time_sleep));
+    datetime_obj.insert(
+        "now_ns".to_string(),
+        Value::NativeFunction(time::time_now_ns),
+    );
     time_module.insert(
         "DateTime".to_string(),
         Value::Map(gc.allocate(MapState::new(datetime_obj)).unwrap()),
@@ -299,6 +328,22 @@ pub fn register(vm: &mut dyn VMProvider) {
     modules.insert(
         "std:time".to_string(),
         Value::Map(gc.allocate(MapState::new(time_module)).unwrap()),
+    );
+
+    // std:benchmark
+    let mut benchmark_obj = IndexMap::new();
+    benchmark_obj.insert(
+        "run".to_string(),
+        Value::NativeFunction(benchmark::benchmark_run),
+    );
+    let mut benchmark_module = benchmark_obj.clone();
+    benchmark_module.insert(
+        "Benchmark".to_string(),
+        Value::Map(gc.allocate(MapState::new(benchmark_obj)).unwrap()),
+    );
+    modules.insert(
+        "std:benchmark".to_string(),
+        Value::Map(gc.allocate(MapState::new(benchmark_module)).unwrap()),
     );
 
     // std:math
@@ -342,6 +387,9 @@ pub fn register(vm: &mut dyn VMProvider) {
         Value::Float(std::f64::consts::FRAC_1_SQRT_2),
     );
     math_module.insert("SQRT2".to_string(), Value::Float(std::f64::consts::SQRT_2));
+    // `import { Math } from "std:math"` gives the same functions as a namespace.
+    let math_namespace = Value::Map(gc.allocate(MapState::new(math_module.clone())).unwrap());
+    math_module.insert("Math".to_string(), math_namespace);
 
     modules.insert(
         "std:math".to_string(),
@@ -350,9 +398,23 @@ pub fn register(vm: &mut dyn VMProvider) {
 
     // std:regex
     let mut regex_module = IndexMap::new();
+    // `Regex(pattern)` constructs; `Regex.isMatch` and `Regex.replace` are statics.
+    let mut regex_class = IndexMap::new();
+    regex_class.insert(
+        "__call__".to_string(),
+        Value::NativeFunction(regex::regex_constructor),
+    );
+    regex_class.insert(
+        "isMatch".to_string(),
+        Value::NativeFunction(regex::regex_is_match_static),
+    );
+    regex_class.insert(
+        "replace".to_string(),
+        Value::NativeFunction(regex::regex_replace_static),
+    );
     regex_module.insert(
         "Regex".to_string(),
-        Value::NativeFunction(regex::regex_constructor),
+        Value::Map(gc.allocate(MapState::new(regex_class)).unwrap()),
     );
     modules.insert(
         "std:regex".to_string(),
@@ -393,6 +455,9 @@ pub fn register(vm: &mut dyn VMProvider) {
         "getAnnotations".to_string(),
         Value::NativeFunction(reflect::reflect_get_annotations),
     );
+    // `import { Reflect } from "std:reflect"` gives the same functions as a namespace.
+    let reflect_namespace = Value::Map(gc.allocate(MapState::new(reflect_module.clone())).unwrap());
+    reflect_module.insert("Reflect".to_string(), reflect_namespace);
     modules.insert(
         "std:reflect".to_string(),
         Value::Map(gc.allocate(MapState::new(reflect_module)).unwrap()),
@@ -686,6 +751,9 @@ pub fn register(vm: &mut dyn VMProvider) {
             "Server".to_string(),
             Value::NativeFunction(http::http_server),
         );
+        // `import { Http } from "std:http"` gives the client functions as a namespace.
+        let http_namespace = Value::Map(gc.allocate(MapState::new(http_module.clone())).unwrap());
+        http_module.insert("Http".to_string(), http_namespace);
         modules.insert(
             "std:http".to_string(),
             Value::Map(gc.allocate(MapState::new(http_module)).unwrap()),

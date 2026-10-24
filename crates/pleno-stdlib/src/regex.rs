@@ -78,7 +78,6 @@ pub fn regex_test(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, Run
 }
 
 pub fn regex_match(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
-    let gc = vm.get_gc();
     let this = match args.first() {
         Some(Value::Map(m)) => m.borrow(),
         _ => return Err(RuntimeError::new("Regex.match: invalid receiver")),
@@ -94,23 +93,92 @@ pub fn regex_match(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, Run
 
     let re = regex::Regex::new(pattern)
         .map_err(|e| RuntimeError::new(format!("invalid regex: {}", e)))?;
-    match re.captures(text) {
-        Some(caps) => {
-            let mut groups = Vec::new();
-            for i in 0..caps.len() {
-                match caps.get(i) {
-                    Some(m) => groups.push(Value::String(Rc::new(m.as_str().to_string()))),
-                    None => groups.push(Value::Null),
-                }
-            }
-            Ok(Value::Array(gc.allocate(ArrayState::new(groups))?))
-        }
+    let caps = re.captures(text);
+    drop(this);
+    match caps {
+        Some(caps) => match_object(vm, &caps),
         None => Ok(Value::Null),
     }
 }
 
+/// A `Match`: `value` (the whole match), `index` (its start), `groups`
+/// (the capture groups) and `group(i)`. It can also be read like an array:
+/// `m[0]` is the whole match, `m[1]` the first group, and `m.length` the count.
+fn match_object(vm: &mut dyn VMProvider, caps: &regex::Captures) -> Result<Value, RuntimeError> {
+    let text_of = |i: usize| {
+        caps.get(i)
+            .map(|m| Value::String(Rc::new(m.as_str().to_string())))
+            .unwrap_or(Value::Null)
+    };
+    let mut entries = IndexMap::new();
+    for i in 0..caps.len() {
+        entries.insert(i.to_string(), text_of(i));
+    }
+    entries.insert("length".to_string(), Value::Int(caps.len() as i64));
+    entries.insert("value".to_string(), text_of(0));
+    let index = caps.get(0).map(|m| m.start()).unwrap_or(0);
+    entries.insert("index".to_string(), Value::Int(index as i64));
+    let groups = (1..caps.len()).map(text_of).collect();
+    let groups = Value::Array(vm.get_gc().allocate(ArrayState::new(groups))?);
+    entries.insert("groups".to_string(), groups);
+
+    let match_val = Value::Map(vm.get_gc().allocate(MapState::new(entries))?);
+    let group = Value::BoundNativeMethod(vm.get_gc().allocate(BoundNativeMethodState {
+        receiver: match_val.clone(),
+        function: match_group,
+    })?);
+    if let Value::Map(m) = &match_val {
+        m.borrow_mut().entries.insert("group".to_string(), group);
+    }
+    Ok(match_val)
+}
+
+/// `m.group(i)`: capture group `i` (0 is the whole match), or null.
+fn match_group(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    let (Some(Value::Map(m)), Some(Value::Int(i))) = (args.first(), args.get(1)) else {
+        return Err(RuntimeError::new("Match.group expects an integer index"));
+    };
+    Ok(m.borrow()
+        .entries
+        .get(&i.to_string())
+        .cloned()
+        .unwrap_or(Value::Null))
+}
+
+/// `Regex.isMatch(pattern, text)`.
+pub fn regex_is_match_static(
+    _vm: &mut dyn VMProvider,
+    args: &[Value],
+) -> Result<Value, RuntimeError> {
+    let (Some(Value::String(pattern)), Some(Value::String(text))) = (args.first(), args.get(1))
+    else {
+        return Err(RuntimeError::new("Regex.isMatch expects pattern and text"));
+    };
+    let re = regex::Regex::new(pattern)
+        .map_err(|e| RuntimeError::new(format!("invalid regex: {}", e)))?;
+    Ok(Value::Bool(re.is_match(text)))
+}
+
+/// `Regex.replace(pattern, text, replacement)`: replaces every match.
+pub fn regex_replace_static(
+    _vm: &mut dyn VMProvider,
+    args: &[Value],
+) -> Result<Value, RuntimeError> {
+    let (Some(Value::String(pattern)), Some(Value::String(text)), Some(Value::String(with))) =
+        (args.first(), args.get(1), args.get(2))
+    else {
+        return Err(RuntimeError::new(
+            "Regex.replace expects pattern, text and replacement",
+        ));
+    };
+    let re = regex::Regex::new(pattern)
+        .map_err(|e| RuntimeError::new(format!("invalid regex: {}", e)))?;
+    Ok(Value::String(Rc::new(
+        re.replace_all(text, with.as_str()).to_string(),
+    )))
+}
+
 pub fn regex_find_all(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
-    let gc = vm.get_gc();
     let this = match args.first() {
         Some(Value::Map(m)) => m.borrow(),
         _ => return Err(RuntimeError::new("Regex.findAll: invalid receiver")),
@@ -126,19 +194,15 @@ pub fn regex_find_all(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, 
 
     let re = regex::Regex::new(pattern)
         .map_err(|e| RuntimeError::new(format!("invalid regex: {}", e)))?;
+    let all_caps: Vec<_> = re.captures_iter(text).collect();
+    drop(this);
     let mut matches = Vec::new();
-
-    for caps in re.captures_iter(text) {
-        let mut groups = Vec::new();
-        for i in 0..caps.len() {
-            match caps.get(i) {
-                Some(m) => groups.push(Value::String(Rc::new(m.as_str().to_string()))),
-                None => groups.push(Value::Null),
-            }
-        }
-        matches.push(Value::Array(gc.allocate(ArrayState::new(groups))?));
+    for caps in &all_caps {
+        matches.push(match_object(vm, caps)?);
     }
-    Ok(Value::Array(gc.allocate(ArrayState::new(matches))?))
+    Ok(Value::Array(
+        vm.get_gc().allocate(ArrayState::new(matches))?,
+    ))
 }
 
 pub fn regex_replace(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {

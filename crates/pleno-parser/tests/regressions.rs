@@ -22,7 +22,7 @@ fn test_regression_nested_tuples_crash() {
 
 #[test]
 fn test_recursion_limit_expr() {
-    let source = "(".repeat(50) + &")".repeat(50);
+    let source = "(".repeat(1000) + &")".repeat(1000);
     let tokens = lex(&source).unwrap();
     let mut parser = Parser::new(tokens, &source);
     let result = parser.parse_program();

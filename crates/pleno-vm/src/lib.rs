@@ -41,6 +41,10 @@ pub struct VM {
     pub frames: Vec<CallFrame>,
     pub globals: IndexMap<String, Value>,
     pub modules: IndexMap<String, Value>,
+    /// Methods added to built-in types with `extend`, keyed by type name.
+    pub builtin_extensions: IndexMap<String, IndexMap<String, pleno_value::MethodInfo>>,
+    /// Rejected promises nothing has handled yet, reported when the program ends.
+    pub unhandled_rejections: IndexMap<u64, Value>,
     pub functions: Vec<Function>,
     pub pending_tasks: Vec<AsyncTask>,
     pub suspended_frames: IndexMap<u64, SuspendedFrame>,
@@ -233,15 +237,43 @@ impl VMProvider for VM {
     }
 
     fn resolve_promise(&mut self, id: u64, value: Value) {
-        self.pending_tasks.push(AsyncTask {
-            promise_id: id,
-            value,
-            callee: None,
-            args: None,
-            closure_state: None,
-            is_async: true,
-            is_resolved: true,
-        });
+        self.settle_promise(id, value, false);
+    }
+
+    fn reject_promise(&mut self, id: u64, reason: Value) {
+        self.settle_promise(id, reason, true);
+    }
+
+    fn mark_rejection_handled(&mut self, id: u64) {
+        self.unhandled_rejections.swap_remove(&id);
+    }
+
+    fn run_promise_callback(&mut self, info: &[Value], value: &Value, rejected: bool) {
+        let Some(Value::Int(child_id)) = info.get(1) else {
+            return;
+        };
+        let child_id = *child_id as u64;
+        let on_fulfilled = info.first().cloned().unwrap_or(Value::Null);
+        let on_rejected = info.get(2).cloned().unwrap_or(Value::Null);
+
+        if matches!(info.get(3), Some(Value::Int(1))) {
+            // `finally`: run the callback, then pass the original outcome through.
+            match self.call(on_fulfilled, vec![]) {
+                Ok(_) => self.settle_promise(child_id, value.clone(), rejected),
+                Err(e) => self.reject_promise(child_id, rejection_reason(e)),
+            }
+            return;
+        }
+
+        let handler = if rejected { on_rejected } else { on_fulfilled };
+        if matches!(handler, Value::Null) {
+            self.settle_promise(child_id, value.clone(), rejected);
+            return;
+        }
+        match self.call(handler, vec![value.clone()]) {
+            Ok(res) => self.resolve_promise(child_id, res),
+            Err(e) => self.reject_promise(child_id, rejection_reason(e)),
+        }
     }
 
     fn spawn(&mut self, callee: Value, args: Vec<Value>) -> Result<Value, RuntimeError> {
@@ -259,6 +291,7 @@ impl VMProvider for VM {
             closure_state,
             is_async: true,
             is_resolved: false,
+            is_rejected: false,
         });
         Ok(promise)
     }
@@ -299,6 +332,11 @@ impl VMProvider for VM {
             }
             for waiter in &self.multi_waiters {
                 waiter.mark(gc);
+            }
+            for methods in self.builtin_extensions.values() {
+                for info in methods.values() {
+                    info.mark(gc);
+                }
             }
             for frame in &self.frames {
                 frame.mark(gc);
@@ -630,6 +668,8 @@ impl VM {
             frames: Vec::new(),
             globals,
             modules,
+            builtin_extensions: IndexMap::new(),
+            unhandled_rejections: IndexMap::new(),
             functions: Vec::new(),
             pending_tasks: Vec::new(),
             suspended_frames: IndexMap::new(),
@@ -652,6 +692,13 @@ impl VM {
     }
 
     pub fn load_script(&mut self, chunk: Chunk) {
+        self.load_script_with_path(chunk, None);
+    }
+
+    /// Loads the main script, recording its file path so breakpoints set on
+    /// that file match and relative imports resolve from its directory.
+    pub fn load_script_with_path(&mut self, chunk: Chunk, path: Option<String>) {
+        let path = path.map(Rc::new);
         let max_regs = chunk.max_registers;
         let function = Function {
             name: Rc::new("<script>".to_string()),
@@ -659,7 +706,7 @@ impl VM {
             arity: 0,
             params: Vec::new(),
             module: None,
-            module_path: None,
+            module_path: path.clone(),
             is_async: false,
             is_pure: false,
             type_params: Vec::new(),
@@ -688,7 +735,7 @@ impl VM {
             closure_state: Some(closure_gc),
             current_owner: None,
             current_module: None,
-            current_module_path: None,
+            current_module_path: path,
             type_args: Vec::new(),
             exception_handlers: Vec::new(),
         };
@@ -755,6 +802,7 @@ impl VM {
                     closure_state: None,
                     is_async: true,
                     is_resolved: false,
+                    is_rejected: false,
                 });
                 continue;
             }
@@ -762,29 +810,79 @@ impl VM {
             // 5. If no frames, no pending tasks, and event loop empty -> Done
             break;
         }
+        for (_, reason) in std::mem::take(&mut self.unhandled_rejections) {
+            eprintln!("Warning: unhandled promise rejection: {reason}");
+        }
         Ok(last_result)
     }
 
+    /// Runs until the next breakpoint or the end of the program. Called again
+    /// after a pause, it resumes from where execution stopped.
     pub fn run_debug(&mut self) -> Result<ExecutionStatus, RuntimeError> {
+        self.debug_context.resume();
         self.run_until(0)
     }
 
+    /// Stops at the next line, entering called functions.
     pub fn step_into(&mut self) -> Result<ExecutionStatus, RuntimeError> {
-        if self.frames.is_empty() {
-            return Ok(ExecutionStatus::Finished(Value::Null));
-        }
-        match self.run_step(0)? {
-            Some(status) => Ok(status),
-            None => Ok(ExecutionStatus::Paused),
-        }
+        self.step_until(|start, now| now != start)
     }
 
+    /// Stops at the next line of the current function, or its caller once it returns.
     pub fn step_over(&mut self) -> Result<ExecutionStatus, RuntimeError> {
-        self.step_into()
+        self.step_until(|(start_depth, start_line), (depth, line)| {
+            depth < start_depth || (depth == start_depth && line != start_line)
+        })
     }
 
+    /// Runs until the current function returns to its caller.
     pub fn step_out(&mut self) -> Result<ExecutionStatus, RuntimeError> {
-        self.step_into()
+        self.step_until(|(start_depth, _), (depth, _)| depth < start_depth)
+    }
+
+    /// The call depth and source line of the next instruction to run.
+    pub fn current_location(&self) -> Option<(usize, u32)> {
+        let frame = self.frames.last()?;
+        let line = *self.functions[frame.function_index]
+            .chunk
+            .lines
+            .get(frame.ip)?;
+        Some((self.frames.len(), line))
+    }
+
+    /// Executes instructions until `arrived(start, now)` holds for the
+    /// (call depth, line) locations, a breakpoint is hit, or the program ends.
+    fn step_until(
+        &mut self,
+        arrived: impl Fn((usize, u32), (usize, u32)) -> bool,
+    ) -> Result<ExecutionStatus, RuntimeError> {
+        let Some(start) = self.current_location() else {
+            return Ok(ExecutionStatus::Finished(Value::Null));
+        };
+        self.debug_context.resume();
+        loop {
+            match self.run_step(0) {
+                Ok(Some(status)) => return Ok(status),
+                Ok(None) => {}
+                Err(err) if err.handled => {}
+                Err(err) if err.message.contains("uncaught exception") => return Err(err),
+                Err(err) => {
+                    // Let `catch` blocks see runtime errors, as normal execution does.
+                    let unwound = self.throw_runtime_error(&err.message);
+                    if !unwound.handled {
+                        return Err(unwound);
+                    }
+                }
+            }
+            match self.current_location() {
+                Some(now) if arrived(start, now) => {
+                    self.debug_context.pause();
+                    return Ok(ExecutionStatus::Paused);
+                }
+                Some(_) => {}
+                None => return Ok(ExecutionStatus::Finished(Value::Null)),
+            }
+        }
     }
 
     fn enrich_error(&self, err: &mut RuntimeError) {
@@ -835,30 +933,162 @@ impl VM {
         trace
     }
 
-    fn handle_property_error(&self, name: &str) -> RuntimeError {
+    /// `value.toString()` for built-in values: the same text `print` shows.
+    fn bind_to_string(&mut self, receiver: Value) -> Result<Value, RuntimeError> {
+        fn to_string(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+            let text = args.first().map(|v| v.to_string()).unwrap_or_default();
+            Ok(Value::String(Rc::new(text)))
+        }
+        Ok(Value::BoundNativeMethod(self.gc.allocate(
+            BoundNativeMethodState {
+                receiver,
+                function: to_string,
+            },
+        )?))
+    }
+
+    /// A method added to `receiver`'s built-in type with `extend`, bound to it.
+    fn extension_method(
+        &mut self,
+        receiver: &Value,
+        name: &str,
+    ) -> Result<Option<Value>, RuntimeError> {
+        let Some(info) = self
+            .builtin_extensions
+            .get(receiver.type_name())
+            .and_then(|methods| methods.get(name))
+            .cloned()
+        else {
+            return Ok(None);
+        };
+        Ok(Some(Value::BoundMethod(self.gc.allocate(
+            BoundMethodState {
+                receiver: receiver.clone(),
+                function: info.function,
+                owner: info.owner,
+                visibility: info.visibility,
+            },
+        )?)))
+    }
+
+    fn handle_property_error(&self, name: &str, type_name: &str) -> RuntimeError {
+        let message = Self::property_error_kind(name);
+        RuntimeError::new(format!("{message}: {type_name} has no property '{name}'"))
+    }
+
+    fn property_error_kind(name: &str) -> &'static str {
         if name == "len" || name == "length" {
-            RuntimeError::new("array length on non-array value")
+            "array length on non-array value"
         } else if name == "append" {
-            RuntimeError::new("array append on non-array value")
+            "array append on non-array value"
         } else if name == "add" {
-            RuntimeError::new("set add on non-set value")
+            "set add on non-set value"
         } else if name == "has" {
-            RuntimeError::new("set has on non-set value")
+            "set has on non-set value"
         } else if name == "keys" {
-            RuntimeError::new("map keys on non-map value")
+            "map keys on non-map value"
         } else if name == "prop"
             || name == "field"
             || (name.len() == 1 && name.chars().next().is_some_and(|c| c.is_ascii_lowercase()))
         {
-            // Heuristic for tests or general field access
-            RuntimeError::new("field access on non-object")
+            "field access on non-object"
         } else {
-            RuntimeError::new("property access on non-object")
+            "property access on non-object"
         }
     }
 
+    /// Checks `value` against a type annotation written as text, such as `Int`,
+    /// `String?`, `Int | String`, `Int[]`, `Map<String, Int>`, `(Int) => Int`
+    /// or the name of a class, interface or enum.
+    fn matches_type_name(&self, value: &Value, ty: &str) -> bool {
+        let ty = ty.trim();
+        if let Some(parts) = split_top_level(ty, '|') {
+            return parts.iter().any(|part| self.matches_type_name(value, part));
+        }
+        if let Some(inner) = ty.strip_suffix('?') {
+            return matches!(value, Value::Null) || self.matches_type_name(value, inner);
+        }
+        if ty == "Function" || (ty.starts_with('(') && ty.contains("=>")) {
+            return self.is_callable(value);
+        }
+        if let Some(elem) = ty.strip_suffix("[]") {
+            return self.elements_match(value, elem);
+        }
+        if let Some((base, args)) = ty.split_once('<')
+            && let Some(args) = args.strip_suffix('>')
+        {
+            let args = split_top_level(args, ',').unwrap_or_else(|| vec![args.to_string()]);
+            return match (base.trim(), value) {
+                ("Array", Value::Array(_)) => self.elements_match(value, &args[0]),
+                ("Set", Value::Set(_)) => true,
+                ("Map", Value::Map(map)) => {
+                    let values: Vec<Value> = map.borrow().entries.values().cloned().collect();
+                    let value_ty = args.get(1).cloned().unwrap_or_else(|| "Any".to_string());
+                    values.iter().all(|v| self.matches_type_name(v, &value_ty))
+                }
+                (base, _) => self.matches_type_name(value, base),
+            };
+        }
+        let primitive = matches!(
+            (ty, value),
+            ("Int", Value::Int(_))
+                | ("Float", Value::Float(_) | Value::Int(_))
+                | ("Number", Value::Float(_) | Value::Int(_))
+                | ("Bool", Value::Bool(_))
+                | ("String", Value::String(_))
+                | ("Array", Value::Array(_))
+                | ("Tuple", Value::Tuple(_))
+                | ("Map", Value::Map(_))
+                | ("Set", Value::Set(_))
+                | ("Object", Value::Map(_) | Value::Object(_))
+                | ("Mutex", Value::Mutex(_))
+                | ("Channel", Value::Channel(_))
+                | ("File", Value::File(_))
+                | ("Null" | "Void", Value::Null)
+                | ("Char", Value::Char(_))
+                | ("Any", _)
+        );
+        if primitive {
+            return true;
+        }
+        if let Some(resolved) = self.resolve_type_param(ty) {
+            return self.is_instance(value, &resolved);
+        }
+        // A user-defined class, interface or enum referenced by name.
+        match self.globals.get(ty).cloned() {
+            Some(
+                target @ (Value::Class(_)
+                | Value::Interface(_)
+                | Value::Enum(_)
+                | Value::BoundClass(_)),
+            ) => self.is_instance(value, &target),
+            _ => false,
+        }
+    }
+
+    fn elements_match(&self, value: &Value, elem_ty: &str) -> bool {
+        let Value::Array(array) = value else {
+            return false;
+        };
+        let elements = array.borrow().elements.clone();
+        elements.iter().all(|e| self.matches_type_name(e, elem_ty))
+    }
+
+    fn settle_promise(&mut self, id: u64, value: Value, rejected: bool) {
+        self.pending_tasks.push(AsyncTask {
+            promise_id: id,
+            value,
+            callee: None,
+            args: None,
+            closure_state: None,
+            is_async: true,
+            is_resolved: true,
+            is_rejected: rejected,
+        });
+    }
+
     fn process_tasks(&mut self) -> Result<(), RuntimeError> {
-        let tasks: Vec<_> = self.pending_tasks.drain(..).collect();
+        let tasks = std::mem::take(&mut self.pending_tasks);
         for task in tasks {
             if !task.is_resolved {
                 if let Some(callee) = task.callee {
@@ -883,23 +1113,21 @@ impl VM {
                                 self.resolve_promise(task.promise_id, res);
                             }
                         }
-                        Err(e) => {
-                            self.resolve_promise(
-                                task.promise_id,
-                                Value::String(Rc::new(e.message)),
-                            );
-                        }
+                        Err(e) => self.reject_promise(task.promise_id, rejection_reason(e)),
                     }
                 }
                 continue;
             }
             // Update Promise map if it exists
+            let rejected = task.is_rejected;
+            let mut handled = false;
             if let Some(Value::Map(map)) = self.promises.swap_remove(&task.promise_id) {
                 {
                     let mut b = map.borrow_mut();
+                    let state = if rejected { "Rejected" } else { "Resolved" };
                     b.insert(
                         "variant".to_string(),
-                        Value::String(Rc::new("Resolved".to_string())),
+                        Value::String(Rc::new(state.to_string())),
                     );
                     b.insert("value".to_string(), task.value.clone());
                 }
@@ -912,41 +1140,38 @@ impl VM {
 
                 if let Some(Value::Array(arr)) = callbacks {
                     let elements = arr.borrow().elements.clone();
+                    handled |= !elements.is_empty();
                     for cb_info_val in elements {
                         if let Value::Array(info) = cb_info_val {
-                            let info_borrow = info.borrow();
-                            let info_elements = &info_borrow.elements;
-                            if info_elements.len() >= 2 {
-                                let callback = info_elements[0].clone();
-                                if let Value::Int(child_id) = info_elements[1] {
-                                    // Execute callback(value) and resolve child promise
-                                    match self.call(callback, vec![task.value.clone()]) {
-                                        Ok(res) => self.resolve_promise(child_id as u64, res),
-                                        Err(e) => {
-                                            // Basic error propagation to child
-                                            self.resolve_promise(
-                                                child_id as u64,
-                                                Value::String(Rc::new(e.message)),
-                                            );
-                                        }
-                                    }
-                                }
-                            }
+                            let info = info.borrow().elements.clone();
+                            self.run_promise_callback(&info, &task.value, rejected);
                         }
                     }
                 }
             }
 
             if let Some(suspended) = self.suspended_frames.swap_remove(&task.promise_id) {
+                handled = true;
                 let frame = suspended.frame;
-                self.registers[frame.base + suspended.await_reg] =
-                    NanValue::from_value(&task.value);
-                self.frames.push(frame);
+                if rejected {
+                    // Throw the reason inside the awaiting frame: its handler catches it,
+                    // or, in an async function, it rejects that function's promise.
+                    self.frames.push(frame);
+                    match self.unwind_to_handler(task.value.clone()) {
+                        Err(err) if !err.handled => return Err(err),
+                        _ => {}
+                    }
+                } else {
+                    self.registers[frame.base + suspended.await_reg] =
+                        NanValue::from_value(&task.value);
+                    self.frames.push(frame);
+                }
             }
 
             // Check multi-waiters
             let mut i = 0;
             let mut resolutions = Vec::new();
+            let mut rejections = Vec::new();
             while i < self.multi_waiters.len() {
                 let mut waiter = self.multi_waiters[i].clone();
                 let mut resolved = false;
@@ -956,7 +1181,12 @@ impl VM {
                     .iter()
                     .position(|&id| id == task.promise_id)
                 {
+                    handled = true;
                     match waiter.mode {
+                        _ if rejected => {
+                            rejections.push((waiter.promise_id, task.value.clone()));
+                            resolved = true;
+                        }
                         MultiWaiterMode::All => {
                             waiter.results[pos] = task.value.clone();
                             waiter.resolved_count += 1;
@@ -986,6 +1216,13 @@ impl VM {
 
             for (id, val) in resolutions {
                 self.resolve_promise(id, val);
+            }
+            for (id, reason) in rejections {
+                self.reject_promise(id, reason);
+            }
+            if rejected && !handled {
+                self.unhandled_rejections
+                    .insert(task.promise_id, task.value.clone());
             }
         }
         Ok(())
@@ -1026,6 +1263,7 @@ impl VM {
             frames: &self.frames,
             globals: &self.globals,
             modules: &self.modules,
+            builtin_extensions: &self.builtin_extensions,
             pending_tasks: &self.pending_tasks,
             suspended_frames: &self.suspended_frames,
             promises: &self.promises,
@@ -1688,7 +1926,7 @@ impl VM {
                                         let msg = format!(
                                             "Type error: field '{}' expected {}, got {}",
                                             name,
-                                            ty_val.type_name(),
+                                            ty_val.as_str().unwrap_or_default(),
                                             actual_type_name
                                         );
                                         return Err(self.throw_runtime_error(&msg));
@@ -1874,6 +2112,21 @@ impl VM {
                                         .unwrap_or(Value::Null);
                                     self.registers[base + a] = NanValue::from_value(&val);
                                 }
+                                Some(Value::String(s)) if s.as_str() == "Rejected" => {
+                                    if let Some(Value::Int(id)) = map.borrow().entries.get("id") {
+                                        self.unhandled_rejections.swap_remove(&(*id as u64));
+                                    }
+                                    let reason = map
+                                        .borrow()
+                                        .entries
+                                        .get("value")
+                                        .cloned()
+                                        .unwrap_or(Value::Null);
+                                    match self.unwind_to_handler(reason) {
+                                        Ok(_) => unreachable!(),
+                                        Err(err) => return Err(err),
+                                    }
+                                }
                                 _ => {
                                     self.registers[base + a] =
                                         NanValue::from_value(&Value::Map(map));
@@ -2018,7 +2271,7 @@ impl VM {
                                         let msg = format!(
                                             "Type error: field '{}' expected {}, got {}",
                                             name,
-                                            ty_val.type_name(),
+                                            ty_val.as_str().unwrap_or_default(),
                                             actual_type_name
                                         );
                                         return Err(self.throw_runtime_error(&msg));
@@ -2076,7 +2329,7 @@ impl VM {
                                     let msg = format!(
                                         "Type error: static field '{}' expected {}, got {}",
                                         name,
-                                        ty_val.type_name(),
+                                        ty_val.as_str().unwrap_or_default(),
                                         actual_type_name
                                     );
                                     return Err(self.throw_runtime_error(&msg));
@@ -2128,6 +2381,22 @@ impl VM {
                                             })?,
                                         ));
                                     continue;
+                                } else if matches!(
+                                    variant.as_str(),
+                                    "Pending" | "Resolved" | "Rejected"
+                                ) && map_ref.get("id").is_some()
+                                    && let Some(func) =
+                                        self.builtin_resolver.and_then(|r| r("Promise", &name))
+                                {
+                                    drop(map_ref);
+                                    self.registers[base + a] =
+                                        NanValue::from_value(&Value::BoundNativeMethod(
+                                            self.gc.allocate(BoundNativeMethodState {
+                                                receiver: Value::Map(map.clone()),
+                                                function: func,
+                                            })?,
+                                        ));
+                                    continue;
                                 } else if (variant.as_str() == "Some" || variant.as_str() == "None")
                                     && self
                                         .builtin_resolver
@@ -2163,8 +2432,15 @@ impl VM {
                                         function: func,
                                     },
                                 )?)
+                            } else if let Some(method) =
+                                self.extension_method(&Value::Map(map.clone()), &name)?
+                            {
+                                method
+                            } else if name == "toString" {
+                                self.bind_to_string(Value::Map(map.clone()))?
                             } else {
-                                return Err(self.handle_property_error(&name));
+                                // A missing key reads as null, like `map.get(key)`.
+                                Value::Null
                             }
                         }
                         Value::Enum(enum_type) => {
@@ -2269,7 +2545,7 @@ impl VM {
                                         visibility: info.visibility,
                                     })?)
                                 } else {
-                                    return Err(self.handle_property_error(&name));
+                                    return Err(self.handle_property_error(&name, "Object"));
                                 }
                             } else {
                                 field_value.unwrap_or(Value::Null)
@@ -2336,11 +2612,57 @@ impl VM {
                                     visibility: info.visibility,
                                 })?)
                             } else {
-                                return Err(self.handle_property_error(&name));
+                                return Err(self.handle_property_error(&name, "Class"));
                             }
                         }
+                        Value::Variant(variant) if name == "value" || name == "name" => {
+                            let variant = variant.borrow();
+                            if name == "name" {
+                                Value::String(variant.variant_name.clone())
+                            } else {
+                                // The explicit value, or the variant's position.
+                                let enum_type = variant.enum_type.borrow();
+                                let def = enum_type.variants.get(variant.variant_name.as_str());
+                                match def {
+                                    Some(def) => {
+                                        def.value.clone().unwrap_or(Value::Int(def.index as i64))
+                                    }
+                                    None => Value::Null,
+                                }
+                            }
+                        }
+                        Value::Variant(variant)
+                            if resolve_enum_method(&variant.borrow().enum_type, &name)
+                                .is_some() =>
+                        {
+                            let enum_type = variant.borrow().enum_type.clone();
+                            let info = resolve_enum_method(&enum_type, &name)
+                                .ok_or_else(|| RuntimeError::new("unknown enum method"))?;
+                            if !can_access_method(
+                                &info,
+                                current_class.as_ref(),
+                                frame.current_module.as_ref(),
+                            ) {
+                                return Err(self.throw_runtime_error("method access denied"));
+                            }
+                            Value::BoundMethod(self.gc.allocate(BoundMethodState {
+                                receiver: Value::Variant(variant.clone()),
+                                function: info.function.clone(),
+                                owner: info.owner.clone(),
+                                visibility: info.visibility,
+                            })?)
+                        }
                         other => {
-                            if let Some(func) = self
+                            if let Some(method) = self.extension_method(&other, &name)? {
+                                method
+                            } else if name == "toString"
+                                && self
+                                    .builtin_resolver
+                                    .and_then(|r| r(other.type_name(), &name))
+                                    .is_none()
+                            {
+                                self.bind_to_string(other)?
+                            } else if let Some(func) = self
                                 .builtin_resolver
                                 .and_then(|r| r(other.type_name(), &name))
                             {
@@ -2353,6 +2675,44 @@ impl VM {
                             } else {
                                 // Specialized len/length checks for common types
                                 match &other {
+                                    Value::Tuple(t) if name.parse::<usize>().is_ok() => {
+                                        let idx = name.parse::<usize>().unwrap_or_default();
+                                        let elements = &t.borrow().elements;
+                                        match elements.get(idx) {
+                                            Some(v) => v.clone(),
+                                            None => {
+                                                return Err(RuntimeError::new(format!(
+                                                    "tuple index {} out of bounds (length {})",
+                                                    idx,
+                                                    elements.len()
+                                                )));
+                                            }
+                                        }
+                                    }
+                                    Value::Tuple(t)
+                                        if t.borrow()
+                                            .names
+                                            .as_ref()
+                                            .is_some_and(|names| names.contains_key(&name)) =>
+                                    {
+                                        let t = t.borrow();
+                                        let idx = t.names.as_ref().and_then(|n| n.get(&name));
+                                        idx.and_then(|i| t.elements.get(*i))
+                                            .cloned()
+                                            .unwrap_or(Value::Null)
+                                    }
+                                    Value::Tuple(t) if name == "len" || name == "length" => {
+                                        Value::Int(t.borrow().elements.len() as i64)
+                                    }
+                                    Value::Range(r) if name == "start" => {
+                                        r.start.map(Value::Int).unwrap_or(Value::Null)
+                                    }
+                                    Value::Range(r) if name == "end" => {
+                                        r.end.map(Value::Int).unwrap_or(Value::Null)
+                                    }
+                                    Value::Range(r) if name == "inclusive" => {
+                                        Value::Bool(r.inclusive)
+                                    }
                                     Value::String(s) if name == "len" || name == "length" => {
                                         Value::Int(s.len() as i64)
                                     }
@@ -2362,7 +2722,11 @@ impl VM {
                                     Value::Set(s) if name == "len" => {
                                         Value::Int(s.borrow().len() as i64)
                                     }
-                                    _ => return Err(self.handle_property_error(&name)),
+                                    _ => {
+                                        return Err(
+                                            self.handle_property_error(&name, other.type_name())
+                                        );
+                                    }
                                 }
                             }
                         }
@@ -2405,14 +2769,15 @@ impl VM {
                         Value::Object(obj) => obj,
                         _ => return Err(RuntimeError::new("super() called on non-object")),
                     };
-                    let superclass = {
-                        let obj_borrow = this_obj.borrow();
-                        obj_borrow
-                            .class
-                            .as_ref()
-                            .and_then(|class| class.borrow().superclass.clone())
-                            .ok_or_else(|| RuntimeError::new("superclass missing for super()"))?
+                    // `super` refers to the parent of the class that defines the running
+                    // constructor, not of the object's class (which may be a deeper subclass).
+                    let owner_class = match &frame.current_owner {
+                        Some(MethodOwner::Class(class)) => Some(class.clone()),
+                        _ => this_obj.borrow().class.clone(),
                     };
+                    let superclass = owner_class
+                        .and_then(|class| class.borrow().superclass.clone())
+                        .ok_or_else(|| RuntimeError::new("superclass missing for super()"))?;
                     let args = match self.registers[base + c].to_value() {
                         Value::Array(arr) => arr.borrow().elements.clone(),
                         _ => return Err(RuntimeError::new("super() args must be array")),
@@ -2483,6 +2848,21 @@ impl VM {
                                 self.gc.allocate(ArrayState::new(sub_elements))?,
                             ))
                         }
+                        (Value::Tuple(tuple), Value::Range(range)) => {
+                            let tuple_borrow = tuple.borrow();
+                            let len = tuple_borrow.elements.len();
+                            let start = (range.start.unwrap_or(0).max(0) as usize).min(len);
+                            let end = range
+                                .end
+                                .map(|e| if range.inclusive { e + 1 } else { e })
+                                .unwrap_or(len as i64)
+                                .max(0) as usize;
+                            let end = end.min(len).max(start);
+                            Ok(Value::Tuple(self.gc.allocate(TupleState {
+                                elements: tuple_borrow.elements[start..end].to_vec(),
+                                names: None,
+                            })?))
+                        }
                         (Value::String(s), Value::Int(idx)) => {
                             let idx = *idx as usize;
                             if idx >= s.len() {
@@ -2517,6 +2897,13 @@ impl VM {
                             .borrow()
                             .entries
                             .get(key.as_str())
+                            .cloned()
+                            .unwrap_or(Value::Null)),
+                        // `map[0]` reads the key "0", as in JavaScript.
+                        (Value::Map(map), Value::Int(key)) => Ok(map
+                            .borrow()
+                            .entries
+                            .get(&key.to_string())
                             .cloned()
                             .unwrap_or(Value::Null)),
                         (Value::Set(set), value) => {
@@ -2855,6 +3242,7 @@ impl VM {
                                     closure_state: None,
                                     is_async: true,
                                     is_resolved: true,
+                                    is_rejected: false,
                                 });
                             }
                         }
@@ -2889,10 +3277,13 @@ impl VM {
                     };
                     let mut value = self.globals.get(&name).cloned();
 
+                    // An unspecialized type parameter (e.g. `T` in `Box(3)`) accepts any type.
+                    let mut is_type_param = false;
                     if value.is_none() {
                         // Check function type parameters
                         for (i, param) in function.type_params.iter().enumerate() {
                             if param.name == name {
+                                is_type_param = true;
                                 if i < frame.type_args.len() {
                                     value = Some(frame.type_args[i].clone());
                                 }
@@ -2907,6 +3298,7 @@ impl VM {
                             let cls = cls.borrow();
                             for (i, param) in cls.type_params.iter().enumerate() {
                                 if param.name == name {
+                                    is_type_param = true;
                                     // First try to get from receiver (this)
                                     if let Value::Object(obj) =
                                         self.registers[frame.base].to_value()
@@ -2930,7 +3322,11 @@ impl VM {
                         }
                     }
 
-                    let value = value.unwrap_or(Value::Null);
+                    let value = match value {
+                        Some(value) => value,
+                        None if is_type_param => Value::String(Rc::new("Any".to_string())),
+                        None => Value::Null,
+                    };
                     log::trace!("VM: GetGlobal '{}' => {:?}", name, value);
                     self.registers[base + a] = NanValue::from_value(&value);
                 }
@@ -3234,7 +3630,8 @@ impl VM {
                     let class_val = self.registers[base + a].to_value();
                     match class_val {
                         Value::Class(class) => {
-                            let type_val = self.registers[base + c].to_value();
+                            // Operand c is a constant index holding the type name.
+                            let type_val = function.chunk.constants[c].clone();
                             let type_name = match type_val {
                                 Value::String(s) => Some(s.as_str().to_string()),
                                 _ => None,
@@ -3256,7 +3653,8 @@ impl VM {
                     let class_val = self.registers[base + a].to_value();
                     match class_val {
                         Value::Class(class) => {
-                            let type_val = self.registers[base + c].to_value();
+                            // Operand c is a constant index holding the type name.
+                            let type_val = function.chunk.constants[c].clone();
                             let type_name = match type_val {
                                 Value::String(s) => Some(s.as_str().to_string()),
                                 _ => None,
@@ -3784,10 +4182,28 @@ impl VM {
                                     index,
                                     param_count,
                                     annotations: Vec::new(),
+                                    value: None,
                                 },
                             );
                         }
                         _ => return Err(RuntimeError::new("AddVariant on non-enum value")),
+                    }
+                }
+                Opcode::SetVariantValue => {
+                    let variant_name = match &function.chunk.constants[b] {
+                        Value::String(s) => s.to_string(),
+                        _ => return Err(RuntimeError::new("variant name must be string")),
+                    };
+                    let value = function.chunk.constants[c].clone();
+                    match self.registers[base + a].to_value() {
+                        Value::Enum(enum_type) => {
+                            if let Some(def) =
+                                enum_type.borrow_mut().variants.get_mut(&variant_name)
+                            {
+                                def.value = Some(value);
+                            }
+                        }
+                        _ => return Err(RuntimeError::new("SetVariantValue on non-enum value")),
                     }
                 }
                 Opcode::ConstructVariant => {
@@ -3817,6 +4233,13 @@ impl VM {
                     let val = self.registers[base + b].to_value();
                     let is_match = match val {
                         Value::Variant(s) => s.borrow().variant_name.as_str() == variant_name,
+                        // Option and Result values (`Some`, `None`, `Ok`, `Err`) are maps
+                        // tagged with a `variant` key.
+                        Value::Map(m) => m
+                            .borrow()
+                            .get("variant")
+                            .and_then(|v| v.as_str())
+                            .is_some_and(|v| v == variant_name),
                         _ => false,
                     };
                     self.registers[base + a] = NanValue::from_bool(is_match);
@@ -3840,6 +4263,19 @@ impl VM {
                                 return Err(RuntimeError::new("variant field index out of bounds"));
                             }
                         }
+                        // Map-encoded variants: `Some`/`Ok` keep their payload in `value`,
+                        // `Err` in `error`, and multi-field variants in `value0`, `value1`, ...
+                        Value::Map(m) => {
+                            let m = m.borrow();
+                            let indexed = m.get(&format!("value{index}")).cloned();
+                            let payload = indexed.or_else(|| {
+                                (index == 0)
+                                    .then(|| m.get("value").or_else(|| m.get("error")).cloned())
+                                    .flatten()
+                            });
+                            self.registers[base + a] =
+                                NanValue::from_value(&payload.unwrap_or(Value::Null));
+                        }
                         _ => return Err(RuntimeError::new("GetVariantField on non-variant value")),
                     }
                 }
@@ -3857,6 +4293,17 @@ impl VM {
                     let target_val = self.registers[base + b].to_value();
 
                     match target_val {
+                        Value::String(type_name) => {
+                            let info = parse_method_info(
+                                func_val,
+                                MethodOwner::Builtin(type_name.clone()),
+                                None,
+                            )?;
+                            self.builtin_extensions
+                                .entry(type_name.to_string())
+                                .or_default()
+                                .insert(name, info);
+                        }
                         Value::Class(class) => {
                             let module = class.borrow().module.clone();
                             let info = parse_method_info(
@@ -4066,11 +4513,18 @@ impl VM {
                         Value::Array(arr) => arr.borrow().elements.clone(),
                         _ => return Err(RuntimeError::new("Partial expects array of arguments")),
                     };
+                    // The compiler marks each `_` placeholder slot with `Missing`.
+                    let placeholders = args_meta
+                        .iter()
+                        .enumerate()
+                        .filter(|(_, arg)| matches!(arg, Value::Missing))
+                        .map(|(idx, _)| idx)
+                        .collect();
                     self.registers[base + a] = NanValue::from_value(&Value::Partial(
                         self.gc.allocate(pleno_value::PartialState {
                             callee,
                             args: args_meta,
-                            placeholders: Vec::new(),
+                            placeholders,
                         })?,
                     ));
                 }
@@ -4158,7 +4612,8 @@ impl VM {
                 if i < frame.type_args.len() {
                     return Some(frame.type_args[i].clone());
                 }
-                break;
+                // Declared but not specialized: any type is accepted.
+                return Some(Value::String(Rc::new("Any".to_string())));
             }
         }
 
@@ -4181,7 +4636,7 @@ impl VM {
                     if function.type_params.is_empty() && i < frame.type_args.len() {
                         return Some(frame.type_args[i].clone());
                     }
-                    break;
+                    return Some(Value::String(Rc::new("Any".to_string())));
                 }
             }
         }
@@ -4236,24 +4691,7 @@ impl VM {
                     if let Some(resolved) = self.resolve_type_param(s) {
                         return self.is_instance(value, &resolved);
                     }
-                    matches!(
-                        (s, value),
-                        ("Int", Value::Int(_))
-                            | ("Float", Value::Float(_))
-                            | ("Bool", Value::Bool(_))
-                            | ("String", Value::String(_))
-                            | ("Array", Value::Array(_))
-                            | ("Tuple", Value::Tuple(_))
-                            | ("Map", Value::Map(_))
-                            | ("Set", Value::Set(_))
-                            | ("Object", Value::Map(_) | Value::Object(_))
-                            | ("Mutex", Value::Mutex(_))
-                            | ("Channel", Value::Channel(_))
-                            | ("File", Value::File(_))
-                            | ("Null", Value::Null)
-                            | ("Char", Value::Char(_))
-                            | ("Any", _)
-                    )
+                    self.matches_type_name(value, s)
                 }
             }
             Value::Map(m) => {
@@ -4899,7 +5337,7 @@ impl VM {
             }
             Value::Class(class) => {
                 let object = self.gc.allocate(Object::new(Some(class.clone()), None))?;
-                if let Some(handle) = class.borrow().constructor.clone() {
+                if let Some(handle) = resolve_constructor(&class) {
                     let handle_idx = match handle.function {
                         Value::Function(idx) => idx,
                         Value::Closure(ref c) => c.borrow().function,
@@ -4921,7 +5359,7 @@ impl VM {
                         true,
                         CallOptions {
                             return_override: override_value,
-                            current_owner: Some(MethodOwner::Class(class.clone())),
+                            current_owner: Some(handle.owner.clone()),
                             ..Default::default()
                         },
                     )
@@ -4939,7 +5377,7 @@ impl VM {
                 let object = self
                     .gc
                     .allocate(Object::new(Some(class.clone()), Some(type_args.clone())))?;
-                if let Some(handle) = class.borrow().constructor.clone() {
+                if let Some(handle) = resolve_constructor(class) {
                     let handle_idx = match handle.function {
                         Value::Function(idx) => idx,
                         Value::Closure(ref c) => c.borrow().function,
@@ -4961,7 +5399,7 @@ impl VM {
                         true,
                         CallOptions {
                             return_override: override_value,
-                            current_owner: Some(MethodOwner::Class(class.clone())),
+                            current_owner: Some(handle.owner.clone()),
                             ..Default::default()
                         },
                     )
@@ -5122,6 +5560,11 @@ impl VM {
     }
 
     fn unwind_to_handler(&mut self, error_value: Value) -> Result<(), RuntimeError> {
+        // Capture where the error was raised before frames are popped, so an
+        // uncaught exception still reports its source location.
+        let mut uncaught = RuntimeError::new(format!("uncaught exception: {}", error_value));
+        self.enrich_error(&mut uncaught);
+
         let stop_depth = self.run_depths.last().cloned().unwrap_or(0);
         while self.frames.len() > stop_depth {
             let mut frame = self.frames.pop().unwrap();
@@ -5132,12 +5575,32 @@ impl VM {
                 self.frames.push(frame);
                 return Err(RuntimeError::handled());
             }
+            // An exception escaping an async function rejects its promise instead of
+            // propagating; the caller already holds that promise.
+            let promise_id = self.async_frame_promise_id(&frame);
             self.registers.truncate(frame.base);
+            if let Some(id) = promise_id {
+                self.reject_promise(id, error_value);
+                return Err(RuntimeError::handled());
+            }
         }
-        Err(RuntimeError::new(format!(
-            "uncaught exception: {}",
-            error_value
-        )))
+        Err(uncaught)
+    }
+
+    /// The promise an async function frame settles; its ID is the last argument.
+    fn async_frame_promise_id(&self, frame: &CallFrame) -> Option<u64> {
+        let function = &self.functions[frame.function_index];
+        if !function.is_async || function.arity == 0 {
+            return None;
+        }
+        match self
+            .registers
+            .get(frame.base + function.arity - 1)?
+            .to_value()
+        {
+            Value::Int(id) => id.try_into().ok(),
+            _ => None,
+        }
     }
 
     fn freeze_value(&mut self, value: &Value, recursive: bool) {
@@ -5189,14 +5652,12 @@ impl VM {
                     // but if they ever contain mutable things, we'd recurse here.
                 }
             }
-            Value::Tuple(tuple) => {
-                // Tuples themselves are immutable at the top level,
-                // but we recurse for deep freezing.
-                if recursive {
-                    let elements = tuple.borrow().elements.clone();
-                    for item in elements {
-                        self.freeze_value(&item, true);
-                    }
+            // Tuples themselves are immutable at the top level,
+            // but we recurse for deep freezing.
+            Value::Tuple(tuple) if recursive => {
+                let elements = tuple.borrow().elements.clone();
+                for item in elements {
+                    self.freeze_value(&item, true);
                 }
             }
             _ => {}
@@ -5367,7 +5828,7 @@ impl VM {
                 }
                 let object = self.gc.allocate(Object::new(Some(class.clone()), None))?;
                 let val = Value::Object(object.clone());
-                if let Some(handle) = class.borrow().constructor.clone() {
+                if let Some(handle) = resolve_constructor(&class) {
                     self.call_function(
                         handle.function.clone(),
                         Some(val.clone()),
@@ -5376,7 +5837,7 @@ impl VM {
                         false,
                         CallOptions {
                             return_override: Some(val),
-                            current_owner: Some(MethodOwner::Class(class.clone())),
+                            current_owner: Some(handle.owner.clone()),
                             ..Default::default()
                         },
                     )?;
@@ -5398,7 +5859,7 @@ impl VM {
                     .gc
                     .allocate(Object::new(Some(class.clone()), Some(type_args.clone())))?;
                 let val = Value::Object(object.clone());
-                if let Some(handle) = class.borrow().constructor.clone() {
+                if let Some(handle) = resolve_constructor(class) {
                     self.call_function(
                         handle.function.clone(),
                         Some(val.clone()),
@@ -5407,7 +5868,7 @@ impl VM {
                         false,
                         CallOptions {
                             return_override: Some(val),
-                            current_owner: Some(MethodOwner::Class(class.clone())),
+                            current_owner: Some(handle.owner.clone()),
                             type_args: type_args.clone(),
                             ..Default::default()
                         },
@@ -5596,8 +6057,12 @@ fn resolve_module_path(
                 let manifest_path = pkg_root.join("pleno.toml");
                 if manifest_path.exists()
                     && let Ok(content) = fs::read_to_string(&manifest_path)
-                    && let Ok(manifest) = serde_json::from_str::<serde_json::Value>(&content)
-                    && let Some(main) = manifest.get("main").and_then(|v| v.as_str())
+                    && let Ok(manifest) = content.parse::<toml::Table>()
+                    && let Some(main) = manifest
+                        .get("package")
+                        .and_then(|package| package.get("main"))
+                        .or_else(|| manifest.get("main"))
+                        .and_then(|v| v.as_str())
                 {
                     let main_path = pkg_root.join(main);
                     if main_path.exists() {
@@ -5656,4 +6121,45 @@ fn value_to_key(value: &Value) -> Result<ValueKey, RuntimeError> {
 
 fn key_to_value(key: &ValueKey) -> Value {
     key.to_value()
+}
+
+/// The value a promise is rejected with when a callback or task fails.
+fn rejection_reason(error: RuntimeError) -> Value {
+    let message = error
+        .message
+        .strip_prefix("uncaught exception: ")
+        .unwrap_or(&error.message)
+        .to_string();
+    Value::String(Rc::new(message))
+}
+
+/// Splits `text` on `sep` outside of `<>`, `()` and `[]`; `None` if `sep` never
+/// occurs at the top level.
+fn split_top_level(text: &str, sep: char) -> Option<Vec<String>> {
+    let mut parts = Vec::new();
+    let mut depth = 0i32;
+    let mut current = String::new();
+    let mut prev = ' ';
+    for ch in text.chars() {
+        match ch {
+            '<' | '(' | '[' => depth += 1,
+            // `=>` in a function type is not a closing bracket.
+            '>' if prev != '=' => depth -= 1,
+            ')' | ']' => depth -= 1,
+            c if c == sep && depth == 0 => {
+                parts.push(current.trim().to_string());
+                current.clear();
+                prev = ch;
+                continue;
+            }
+            _ => {}
+        }
+        current.push(ch);
+        prev = ch;
+    }
+    if parts.is_empty() {
+        return None;
+    }
+    parts.push(current.trim().to_string());
+    Some(parts)
 }

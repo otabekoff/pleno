@@ -285,48 +285,24 @@ fn static_method_access_denied_error() {
 }
 
 #[test]
-fn super_used_on_non_object_error() {
-    // a.super fails at parse time because super is a keyword
-    // This test checks runtime error, but it's a parse error
-    // The VM's GetSuper opcode would check this, but it's only used with super.method() syntax
-    let err = eval_result("class A {} let a = 1; a.super.method();").unwrap_err();
-    // Accept either parse error or runtime error
-    assert!(
-        err.contains("super used on non-object")
-            || err.contains("Expected identifier")
-            || err.contains("KeywordSuper")
-    );
+fn super_property_on_non_object_error() {
+    // `super` is allowed as a property name, so this is a runtime error.
+    let err = eval_result("let a = 1; a.super;").unwrap_err();
+    assert!(err.contains("property access on non-object"));
 }
 
 #[test]
 fn superclass_missing_error() {
-    // b.super fails at parse time because super is a keyword
-    // To test this at runtime, we'd need to use super.method() inside a method
-    // For now, accept parse error or check if we can test it differently
-    let err = eval_result("class A {} class B extends A {} let b = B(); b.super.nonexistent();")
-        .unwrap_err();
-    // Accept either parse error or runtime error
-    assert!(
-        err.contains("superclass missing")
-            || err.contains("unknown super method")
-            || err.contains("Expected identifier")
-            || err.contains("KeywordSuper")
-    );
+    let err = eval_result("class A { fn f() { return super.g(); } } A().f();").unwrap_err();
+    assert!(err.contains("super used without superclass"));
 }
 
 #[test]
 fn unknown_super_method_error() {
-    // b.super fails at parse time because super is a keyword
-    // To test this at runtime, we'd need to use super.nonexistent() inside a method of B
-    // For now, accept parse error or check if we can test it differently
-    let err = eval_result("class A {} class B extends A {} let b = B(); b.super.nonexistent();")
-        .unwrap_err();
-    // Accept either parse error or runtime error
-    assert!(
-        err.contains("unknown super method")
-            || err.contains("Expected identifier")
-            || err.contains("KeywordSuper")
-    );
+    let err =
+        eval_result("class A {} class B extends A { fn f() { return super.nope(); } } B().f();")
+            .unwrap_err();
+    assert!(err.contains("unknown super method"));
 }
 
 #[test]
@@ -362,7 +338,6 @@ fn partial_named_calls_not_supported_error() {
 }
 
 #[test]
-#[ignore = "Partial application behavior has changed"]
 fn partial_callee_must_be_function_error() {
     // Use underscore (_) as placeholder, not ellipsis (...)
     // a(_, 2) creates a partial application with placeholder

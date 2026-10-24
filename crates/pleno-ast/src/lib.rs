@@ -441,6 +441,8 @@ pub struct EnumVariant {
     pub name: String,
     pub name_span: Span,
     pub params: Option<Vec<Param>>,
+    /// Explicit value, as in `Active = 1`.
+    pub value: Option<Expr>,
     pub doc: Option<String>,
 }
 

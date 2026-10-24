@@ -12,6 +12,7 @@ pleno-parser = { workspace = true }
 pleno-compiler = { workspace = true }
 pleno-common = { workspace = true }
 serde_json = { workspace = true }
+toml = { workspace = true }
 reqwest = { workspace = true }
 indexmap = { workspace = true }
 log = { workspace = true }

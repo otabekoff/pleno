@@ -15,7 +15,6 @@ fn eval_result(source: &str) -> Result<pleno_value::Value, String> {
 }
 
 #[test]
-#[ignore = "Capture variable type checking not yet implemented"]
 fn test_capture_reassignment_type_error() {
     let source = r#"
         let x: Int = 1;
@@ -47,7 +46,6 @@ fn test_capture_reassignment_valid() {
 }
 
 #[test]
-#[ignore = "Capture variable type checking not yet implemented"]
 fn test_capture_nested_reassignment_type_error() {
     let source = r#"
         let x: Int = 1;

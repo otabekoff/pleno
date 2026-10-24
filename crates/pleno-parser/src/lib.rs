@@ -1,4 +1,4 @@
-use pleno_ast::{Comment, Expr, ExprKind, Literal, Program, Span, Stmt, StmtKind};
+use pleno_ast::{BinaryOp, Comment, Expr, ExprKind, Literal, Program, Span, Stmt, StmtKind};
 use pleno_lexer::{Token, TokenKind};
 use std::collections::HashMap;
 
@@ -141,7 +141,9 @@ impl Parser {
             line_starts,
             last_stmt_end_line: 0,
             depth: 0,
-            max_depth: 20,
+            // Each nesting level of source code uses about three units. The limit keeps
+            // the recursive parser within a 2 MB thread stack in debug builds.
+            max_depth: 128,
         }
     }
 
@@ -317,34 +319,10 @@ impl Parser {
                     ));
                 }
                 let expr = self.parse_expr()?;
-                if self.matches(&TokenKind::Equal) {
-                    let value = self.parse_expr()?;
+                if self.is_assignment_op() {
+                    let stmt = self.parse_assignment(expr, start_span)?;
                     self.expect(TokenKind::Semicolon, "Expected ';' after assignment")?;
-                    return match expr.kind {
-                        ExprKind::Ident(name) => {
-                            Ok(self.wrap_stmt(StmtKind::Assign { name, value }, start_span))
-                        }
-                        ExprKind::Property { object, name } => Ok(self.wrap_stmt(
-                            StmtKind::AssignProperty {
-                                object: *object,
-                                name,
-                                value,
-                            },
-                            start_span,
-                        )),
-                        ExprKind::Index { collection, index } => Ok(self.wrap_stmt(
-                            StmtKind::AssignIndex {
-                                collection: *collection,
-                                index: *index,
-                                value,
-                            },
-                            start_span,
-                        )),
-                        _ => Err(self.error(
-                            "Invalid assignment target".to_string(),
-                            self.previous_span(),
-                        )),
-                    };
+                    return Ok(stmt);
                 }
                 if self.matches(&TokenKind::Semicolon)
                     || matches!(self.peek_kind(), TokenKind::RBrace | TokenKind::Eof)
@@ -380,9 +358,13 @@ impl Parser {
         self.advance(); // let
         let is_lazy = self.matches(&TokenKind::KeywordLazy);
         let mutable = self.matches(&TokenKind::KeywordMut) || forced_mutable;
+        let is_deep = self.matches(&TokenKind::KeywordDeep);
         let name_span = self.peek_span();
         let name = match self.advance().kind.clone() {
             TokenKind::Ident(value) => value,
+            kind if contextual_keyword_name(&kind).is_some() => contextual_keyword_name(&kind)
+                .unwrap_or_default()
+                .to_string(),
             other => {
                 return Err(self.error(
                     format!("Expected identifier after 'let', found {other:?}"),
@@ -408,7 +390,7 @@ impl Parser {
                 ty,
                 value,
                 is_const: false,
-                is_deep: false,
+                is_deep,
                 is_lazy,
                 doc,
             },
@@ -452,11 +434,11 @@ impl Parser {
         } else {
             None
         };
-        let value = if self.matches(&TokenKind::Equal) {
-            Some(self.parse_expr()?)
-        } else {
-            None
-        };
+        // A constant can never be assigned later, so it must be initialized here.
+        if !self.matches(&TokenKind::Equal) {
+            return Err(self.error(format!("const '{name}' requires an initializer"), name_span));
+        }
+        let value = Some(self.parse_expr()?);
         Ok(StmtKind::Let {
             name,
             name_span,
@@ -498,32 +480,72 @@ impl Parser {
     fn parse_expr_or_assign(&mut self) -> Result<Stmt, ParseError> {
         let start_span = self.peek_span();
         let expr = self.parse_expr()?;
-        if self.matches(&TokenKind::Equal) {
-            let value = self.parse_expr()?;
-            return match expr.kind {
-                ExprKind::Ident(name) => {
-                    Ok(self.wrap_stmt(StmtKind::Assign { name, value }, start_span))
-                }
-                ExprKind::Property { object, name } => Ok(self.wrap_stmt(
-                    StmtKind::AssignProperty {
-                        object: *object,
-                        name,
-                        value,
-                    },
-                    start_span,
-                )),
-                ExprKind::Index { collection, index } => Ok(self.wrap_stmt(
-                    StmtKind::AssignIndex {
-                        collection: *collection,
-                        index: *index,
-                        value,
-                    },
-                    start_span,
-                )),
-                _ => Err(self.error("Invalid assignment target".to_string(), expr.span)),
-            };
+        if self.is_assignment_op() {
+            return self.parse_assignment(expr, start_span);
         }
         Ok(self.wrap_stmt(StmtKind::Expr(expr), start_span))
+    }
+
+    fn is_assignment_op(&self) -> bool {
+        matches!(
+            self.peek_kind(),
+            TokenKind::Equal
+                | TokenKind::PlusEqual
+                | TokenKind::MinusEqual
+                | TokenKind::StarEqual
+                | TokenKind::SlashEqual
+                | TokenKind::PercentEqual
+        )
+    }
+
+    /// Parses `target = value` or `target op= value`, with the assignment operator
+    /// as the next token. Compound assignments desugar to `target = target op value`.
+    fn parse_assignment(&mut self, target: Expr, start_span: Span) -> Result<Stmt, ParseError> {
+        let compound_op = match self.advance().kind {
+            TokenKind::PlusEqual => Some(BinaryOp::Add),
+            TokenKind::MinusEqual => Some(BinaryOp::Subtract),
+            TokenKind::StarEqual => Some(BinaryOp::Multiply),
+            TokenKind::SlashEqual => Some(BinaryOp::Divide),
+            TokenKind::PercentEqual => Some(BinaryOp::Modulo),
+            _ => None,
+        };
+        let rhs = self.parse_expr()?;
+        let value = match compound_op {
+            Some(op) => {
+                let span = Span::new(target.span.start, rhs.span.end);
+                Expr::new(
+                    ExprKind::Binary {
+                        left: Box::new(target.clone()),
+                        op,
+                        right: Box::new(rhs),
+                    },
+                    span,
+                )
+            }
+            None => rhs,
+        };
+        match target.kind {
+            ExprKind::Ident(name) => {
+                Ok(self.wrap_stmt(StmtKind::Assign { name, value }, start_span))
+            }
+            ExprKind::Property { object, name } => Ok(self.wrap_stmt(
+                StmtKind::AssignProperty {
+                    object: *object,
+                    name,
+                    value,
+                },
+                start_span,
+            )),
+            ExprKind::Index { collection, index } => Ok(self.wrap_stmt(
+                StmtKind::AssignIndex {
+                    collection: *collection,
+                    index: *index,
+                    value,
+                },
+                start_span,
+            )),
+            _ => Err(self.error("Invalid assignment target".to_string(), target.span)),
+        }
     }
 
     fn parse_module_stmt(&mut self, doc: Option<String>) -> Result<Stmt, ParseError> {
@@ -1194,6 +1216,11 @@ impl Parser {
             } else {
                 None
             };
+            let value = if self.matches(&TokenKind::Equal) {
+                Some(self.parse_expr()?)
+            } else {
+                None
+            };
 
             let variant_end = self.previous_span().end;
             let variant_span = Span::new(variant_start, variant_end);
@@ -1202,6 +1229,7 @@ impl Parser {
                 name: variant_name,
                 name_span: variant_token.span,
                 params,
+                value,
                 doc: None,
             });
 
@@ -2129,7 +2157,8 @@ impl Parser {
         };
 
         let body = if config.is_abstract {
-            self.expect(TokenKind::Semicolon, "Expected ';' after abstract function")?;
+            // The `;` after an abstract signature is optional.
+            self.matches(&TokenKind::Semicolon);
             let span = self.previous_span();
             Box::new(self.wrap_stmt(StmtKind::Block(Vec::new()), span))
         } else if self.matches(&TokenKind::FatArrow) {
@@ -2327,6 +2356,9 @@ impl Parser {
             let name = match name_token.kind {
                 TokenKind::Ident(name) => name,
                 TokenKind::Underscore => "_".to_string(),
+                kind if contextual_keyword_name(&kind).is_some() => contextual_keyword_name(&kind)
+                    .unwrap_or_default()
+                    .to_string(),
                 other => {
                     return Err(self.error(
                         format!("Expected parameter name, found {other:?}"),
@@ -2897,6 +2929,14 @@ impl Parser {
             }
             TokenKind::Null => Ok(self.wrap_expr(ExprKind::Literal(Literal::Null), start_span)),
             TokenKind::Ident(name) => Ok(self.wrap_expr(ExprKind::Ident(name), start_span)),
+            kind if contextual_keyword_name(&kind).is_some() => Ok(self.wrap_expr(
+                ExprKind::Ident(
+                    contextual_keyword_name(&kind)
+                        .unwrap_or_default()
+                        .to_string(),
+                ),
+                start_span,
+            )),
             TokenKind::Underscore => Ok(self.wrap_expr(ExprKind::Underscore, start_span)),
             TokenKind::KeywordMatch => self.parse_match_expr(start_span),
             TokenKind::KeywordNew => {
@@ -3125,10 +3165,10 @@ impl Parser {
 
                 let name = match self.advance().kind.clone() {
                     TokenKind::Ident(name) => name,
-                    TokenKind::KeywordMatch => "match".to_string(),
-                    TokenKind::KeywordGet => "get".to_string(),
-                    TokenKind::KeywordSet => "set".to_string(),
                     TokenKind::Int(val) => val.to_string(),
+                    keyword if keyword.keyword_text().is_some() => {
+                        keyword.keyword_text().unwrap_or_default().to_string()
+                    }
                     other => {
                         return Err(self.error(
                             format!("Expected identifier or index after '.', found {other:?}"),
@@ -3172,6 +3212,9 @@ impl Parser {
                 let name = match self.advance().kind.clone() {
                     TokenKind::Ident(name) => name,
                     TokenKind::Int(val) => val.to_string(),
+                    keyword if keyword.keyword_text().is_some() => {
+                        keyword.keyword_text().unwrap_or_default().to_string()
+                    }
                     other => {
                         return Err(self.error(
                             format!("Expected identifier or index after '?.', found {other:?}"),
@@ -3384,6 +3427,9 @@ impl Parser {
                     let key = match self.advance().kind.clone() {
                         TokenKind::String(value) => value,
                         TokenKind::Ident(value) => value,
+                        keyword if keyword.keyword_text().is_some() => {
+                            keyword.keyword_text().unwrap_or_default().to_string()
+                        }
                         other => {
                             return Err(self.error(
                                 format!(
@@ -4166,10 +4212,10 @@ impl Parser {
             self.expect(TokenKind::RParen, "Expected ')' after 'if' condition")?;
         }
 
-        let then_branch = self.parse_expr()?;
+        let then_branch = self.parse_branch_expr()?;
 
         let else_branch = if self.matches(&TokenKind::KeywordElse) {
-            Some(Box::new(self.parse_expr()?))
+            Some(Box::new(self.parse_branch_expr()?))
         } else {
             None
         };
@@ -4182,6 +4228,19 @@ impl Parser {
             },
             start_span,
         ))
+    }
+
+    /// A branch of an `if` expression: `{ ... }` is a block whose last expression
+    /// is its value (not a set or map literal); anything else is an expression.
+    fn parse_branch_expr(&mut self) -> Result<Expr, ParseError> {
+        if !matches!(self.peek_kind(), TokenKind::LBrace) {
+            return self.parse_expr();
+        }
+        let block = self.parse_block_stmt()?;
+        match block.kind {
+            StmtKind::Block(stmts) => Ok(self.wrap_expr(ExprKind::Block(stmts), block.span)),
+            _ => Err(self.error("Expected block".to_string(), block.span)),
+        }
     }
 
     fn is_likely_specialization(&self) -> bool {
@@ -4266,5 +4325,19 @@ fn is_accessor(
             true
         }
         _ => false,
+    }
+}
+
+/// Keywords that only have meaning in specific positions (generic variance,
+/// accessors, property and operator declarations) and can otherwise be used
+/// as variable and parameter names.
+fn contextual_keyword_name(kind: &TokenKind) -> Option<&'static str> {
+    match kind {
+        TokenKind::KeywordOut
+        | TokenKind::KeywordGet
+        | TokenKind::KeywordSet
+        | TokenKind::KeywordProperty
+        | TokenKind::KeywordOperator => kind.keyword_text(),
+        _ => None,
     }
 }
