@@ -84,13 +84,12 @@ pub fn native_channel_close(
     }
     chan.closed = true;
 
-    // Reject all send waiters
-    for (id, _) in chan.send_waiters.drain(..) {
-        // Ideally we'd have a way to reject, but for now we resolve with Null/Error?
-        // Let's resolve with Null or throw error?
-        // Spec says send on closed channel should probably throw.
-        // But since we are resolving a promise, we should resolve with an error value.
-        vm.resolve_promise(id as u64, Value::Null); // Simplified
+    // Values sent before the close are still delivered: waiting senders put
+    // theirs in the buffer, past its capacity, and complete.
+    let waiting = std::mem::take(&mut chan.send_waiters);
+    for (id, value) in waiting {
+        chan.buffer.push_back(value);
+        vm.resolve_promise(id as u64, Value::Null);
     }
 
     // Resolve all recv waiters with Missing if buffer is empty

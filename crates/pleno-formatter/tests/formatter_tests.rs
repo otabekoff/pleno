@@ -378,3 +378,89 @@ fn test_char_literal_formatting() {
     let result = format_code(input, &FormatOptions::default()).unwrap();
     assert_eq!(result, expected);
 }
+
+fn fmt(input: &str) -> String {
+    format_code(input, &FormatOptions::default()).unwrap()
+}
+
+/// Formatting must not change what the code means, and formatting twice must
+/// give the same result.
+fn assert_round_trip(input: &str, expected: &str) {
+    let once = fmt(input);
+    assert_eq!(once, expected);
+    assert_eq!(fmt(&once), once, "formatting is not idempotent");
+}
+
+#[test]
+fn string_escapes_are_kept() {
+    assert_round_trip(
+        r#"let s = "a\nb\t\"c\" \\ \${x}";"#,
+        concat!(r#"let s = "a\nb\t\"c\" \\ \${x}";"#, "\n"),
+    );
+}
+
+#[test]
+fn whole_floats_keep_their_decimal_point() {
+    assert_round_trip("let x = 1.0; let y = 2.5;", "let x = 1.0;\nlet y = 2.5;\n");
+}
+
+#[test]
+fn interface_and_abstract_members_have_no_body() {
+    assert_round_trip(
+        "interface Shape { area(): Float; } abstract class Base { abstract fn name(): String; }",
+        "interface Shape {\n    fn area(): Float;\n}\nabstract class Base {\n    abstract fn name(): String;\n}\n",
+    );
+}
+
+#[test]
+fn operators_and_accessors_keep_their_syntax() {
+    assert_round_trip(
+        "class V { operator +(o) { return o; } get size() { return 1; } }",
+        "class V {\n    operator +(o) {\n        return o;\n    }\n    get size() {\n        return 1;\n    }\n}\n",
+    );
+}
+
+#[test]
+fn parameters_keep_markers_types_and_ownership() {
+    assert_round_trip(
+        "fn f(a: Int, *, b = 1, ...rest) {} fn g(move s: String, &t, &mut u): Int { return 1; }",
+        "fn f(a: Int, *, b = 1, ...rest) {}\nfn g(move s: String, &t, &mut u): Int {\n    return 1;\n}\n",
+    );
+}
+
+#[test]
+fn lambdas_keep_types_and_async() {
+    assert_round_trip(
+        "let f = fn(x: Int): Int => x + 1; let g = async fn() { return 1; };",
+        "let f = fn(x: Int): Int => x + 1;\nlet g = async fn() {\n    return 1;\n};\n",
+    );
+}
+
+#[test]
+fn blank_lines_and_comments_stay_where_they_were() {
+    let input = "let a = 1;\n\n// about b\nlet b = 2;\nclass C {\n    x;\n\n    // a method\n    fn m() {\n\n        return 1;\n    }\n}\n";
+    let expected = "let a = 1;\n\n// about b\nlet b = 2;\nclass C {\n    x;\n\n    // a method\n    fn m() {\n        return 1;\n    }\n}\n";
+    assert_round_trip(input, expected);
+}
+
+#[test]
+fn doc_comments_and_comment_only_blocks_are_kept() {
+    assert_round_trip(
+        "/// Adds.\nfn add() {\n    // nothing yet\n}\n",
+        "/// Adds.\nfn add() {\n    // nothing yet\n}\n",
+    );
+}
+
+#[test]
+fn match_and_tuples_round_trip() {
+    assert_round_trip(
+        "match (x) { case 1 => a, case _ => b } let t = (1,);",
+        "match (x) {\n    case 1 => a,\n    case _ => b,\n}\nlet t = (1,);\n",
+    );
+}
+
+#[test]
+fn backtick_strings_and_qualified_patterns_are_kept() {
+    let input = "let j = `{\"a\": 1}`;\nmatch (d) {\n    case Direction.North => return 1,\n}\n";
+    assert_round_trip(input, input);
+}

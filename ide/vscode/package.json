@@ -1,8 +1,8 @@
 {
   "name": "pleno-language",
   "displayName": "Pleno Language Support",
-  "description": "Pleno Programming Language Support Extension for VSCode with Syntax highlighting for Pleno (.pln)",
-  "version": "0.1.0",
+  "description": "Pleno language support: highlighting, language server, debugger, test explorer, and one-click toolchain install.",
+  "version": "0.2.0",
   "publisher": "pleno",
   "icon": "resources/icon.png",
   "engines": {
@@ -31,8 +31,9 @@
     "pretest": "npm run compile:tsc && npm run lint",
     "lint": "eslint src --ext ts",
     "test": "node ./out/test/runTest.js",
-    "pack": "npm run package && vsce package && antigravity --install-extension pleno-language-0.1.0.vsix",
-    "all": "npm run pretest && npm run pack"
+    "pack": "npm run package && vsce package",
+    "all": "npm run pretest && npm run pack",
+    "install-local": "npm run pack && code --install-extension pleno-language-0.2.0.vsix --force"
   },
   "devDependencies": {
     "@types/glob": "^9.0.0",
@@ -125,7 +126,7 @@
         "pleno.lsp.path": {
           "type": "string",
           "default": "pleno-lsp",
-          "description": "Path to the Pleno Language Server executable."
+          "description": "Path to the Pleno language server (pleno-lsp). Leave as `pleno-lsp` to use the installed toolchain or PATH."
         },
         "pleno.dap.path": {
           "type": "string",
@@ -135,7 +136,7 @@
         "pleno.cli.path": {
           "type": "string",
           "default": "",
-          "description": "Path to the Pleno command line tool."
+          "description": "Path to the pleno command line tool. Found automatically when empty."
         },
         "pleno.inlayHints.enabled": {
           "type": "boolean",
@@ -177,6 +178,18 @@
         "title": "Restart Language Server",
         "category": "Pleno",
         "icon": "$(refresh)"
+      },
+      {
+        "command": "pleno.installToolchain",
+        "title": "Install or Update Toolchain",
+        "category": "Pleno",
+        "icon": "$(cloud-download)"
+      },
+      {
+        "command": "pleno.uninstallToolchain",
+        "title": "Uninstall Toolchain",
+        "category": "Pleno",
+        "icon": "$(trash)"
       },
       {
         "command": "pleno.openDocs",
@@ -423,7 +436,7 @@
     "viewsWelcome": [
       {
         "view": "plenoProject",
-        "contents": "Welcome to Pleno!\n\nNo Pleno project detected in this workspace.\n\n[Create New Project](command:pleno.createProject)\n\n[Open Getting Started](command:pleno.openWalkthrough)\n\n[Open Documentation](command:pleno.openDocs)",
+        "contents": "Welcome to Pleno!\n\nNo Pleno project detected in this workspace.\n\n[Create New Project](command:pleno.createProject)\n\n[Install Pleno Toolchain](command:pleno.installToolchain)\n\n[Open Getting Started](command:pleno.openWalkthrough)\n\n[Open Documentation](command:pleno.openDocs)",
         "when": "workspaceFolderCount == 0 || !pleno.hasProject"
       },
       {

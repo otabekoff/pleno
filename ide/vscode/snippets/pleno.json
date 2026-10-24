@@ -11,7 +11,7 @@
     "Function with Return Type": {
         "prefix": "fnr",
         "body": [
-            "fn ${1:name}(${2:params}) -> ${3:ReturnType} {",
+            "fn ${1:name}(${2:params}): ${3:ReturnType} {",
             "\t$0",
             "}"
         ],
@@ -90,16 +90,16 @@
         "description": "Pleno const declaration"
     },
     "Mutable Variable": {
-        "prefix": "mut",
+        "prefix": "letm",
         "body": [
-            "mut ${1:name} = ${2:value};"
+            "let mut ${1:name} = ${2:value};"
         ],
         "description": "Pleno mutable variable declaration"
     },
     "If Statement": {
         "prefix": "if",
         "body": [
-            "if ${1:condition} {",
+            "if (${1:condition}) {",
             "\t$0",
             "}"
         ],
@@ -108,7 +108,7 @@
     "If-Else Statement": {
         "prefix": "ife",
         "body": [
-            "if ${1:condition} {",
+            "if (${1:condition}) {",
             "\t$2",
             "} else {",
             "\t$0",
@@ -137,7 +137,7 @@
     "While Loop": {
         "prefix": "while",
         "body": [
-            "while ${1:condition} {",
+            "while (${1:condition}) {",
             "\t$0",
             "}"
         ],
@@ -157,7 +157,7 @@
     "Import Statement": {
         "prefix": "import",
         "body": [
-            "import ${1:module};"
+            "import ${1:name} from \"${2:std:math}\";"
         ],
         "description": "Pleno import statement"
     },
@@ -173,7 +173,7 @@
         "body": [
             "try {",
             "\t$1",
-            "} catch ${2:error} {",
+            "} catch (${2:error}) {",
             "\t$0",
             "}"
         ],
@@ -186,17 +186,14 @@
         ],
         "description": "Pleno print statement"
     },
-    "Println": {
-        "prefix": "println",
-        "body": [
-            "println(${1:value});"
-        ],
-        "description": "Pleno println statement"
-    },
     "Property": {
         "prefix": "prop",
         "body": [
-            "property ${1:name}: ${2:Type};"
+            "property ${1:name}: ${2:Type} {",
+            "\tget {",
+            "\t\treturn ${3:value};",
+            "\t}",
+            "}"
         ],
         "description": "Pleno property declaration"
     },
@@ -241,7 +238,7 @@
         "body": [
             "try {",
             "\t$1",
-            "} catch ${2:error} {",
+            "} catch (${2:error}) {",
             "\t$3",
             "} finally {",
             "\t$0",

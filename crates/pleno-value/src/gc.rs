@@ -215,6 +215,10 @@ pub struct GCManager {
 
     // Statistics tracking
     pub total_collections: u64,
+    /// Whether collections also free unused slots of NaN-boxed big integers,
+    /// strings and ranges. Only the VM that owns the thread's registers may do
+    /// this; sandboxed VMs share them.
+    pub sweeps_boxed_values: bool,
     pub total_freed_bytes: usize,
     pub total_freed_objects: usize,
     pub last_collection_freed_bytes: usize,
@@ -231,6 +235,7 @@ impl GCManager {
             max_bytes: 0,
             grace_bytes: 0,
             total_collections: 0,
+            sweeps_boxed_values: true,
             total_freed_bytes: 0,
             total_freed_objects: 0,
             last_collection_freed_bytes: 0,
@@ -290,6 +295,9 @@ impl GCManager {
         let freed_objects = before_objects.saturating_sub(self.current_allocation);
 
         self.total_collections += 1;
+        if self.sweeps_boxed_values {
+            crate::nan_value::sweep_boxed_values();
+        }
         self.total_freed_bytes += freed_bytes;
         self.total_freed_objects += freed_objects;
         self.last_collection_freed_bytes = freed_bytes;
@@ -368,6 +376,9 @@ impl GCManager {
         let freed_objects = before_objects.saturating_sub(self.current_allocation);
 
         self.total_collections += 1;
+        if self.sweeps_boxed_values {
+            crate::nan_value::sweep_boxed_values();
+        }
         self.total_freed_bytes += freed_bytes;
         self.total_freed_objects += freed_objects;
         self.last_collection_freed_bytes = freed_bytes;

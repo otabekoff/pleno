@@ -77,11 +77,9 @@ do {
 ```
 
 #### Loop Control
-```pleno
-break;        // Exit loop
-continue;     // Skip to next iteration
-break label;  // Break from labeled outer loop
+Inside a loop, `break;` exits it, `continue;` skips to the next iteration, and `break label;` exits a labeled outer loop:
 
+```pleno
 outer: for (i in 0..10) {
     for (j in 0..10) {
         if (i * j > 50) break outer;

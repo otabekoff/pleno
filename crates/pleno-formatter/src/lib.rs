@@ -7,6 +7,31 @@ pub struct Formatter {
     _max_line_length: usize,
     comments: Vec<Comment>,
     comment_index: usize,
+    /// The formatted source, used to keep the author's blank lines. Empty
+    /// when only an AST was given.
+    source: String,
+    line_starts: Vec<usize>,
+    /// Set at the start of a block: a blank line right after `{` is dropped.
+    at_block_start: bool,
+}
+
+/// A class or interface member, so members can be written in source order.
+enum Member<'a> {
+    Field(&'a FieldDecl),
+    Method(&'a FunctionDecl),
+    Property(&'a pleno_ast::PropertyDecl),
+    Class(&'a Stmt),
+}
+
+impl Member<'_> {
+    fn start(&self) -> usize {
+        match self {
+            Member::Field(field) => field.span.start,
+            Member::Method(method) => method.span.start,
+            Member::Property(property) => property.span.start,
+            Member::Class(class) => class.span.start,
+        }
+    }
 }
 
 impl Default for Formatter {
@@ -23,7 +48,43 @@ impl Formatter {
             _max_line_length: 80,
             comments: Vec::new(),
             comment_index: 0,
+            source: String::new(),
+            line_starts: Vec::new(),
+            at_block_start: true,
         }
+    }
+
+    /// Gives the formatter the source the AST was parsed from, so blank lines
+    /// between statements are kept.
+    pub fn with_source(mut self, source: &str) -> Self {
+        self.source = source.to_string();
+        self.line_starts = std::iter::once(0)
+            .chain(source.match_indices('\n').map(|(i, _)| i + 1))
+            .collect();
+        self
+    }
+
+    /// Whether the code at `offset` starts its line and the line above it is
+    /// blank. Always false right after an opening brace.
+    fn blank_line_before(&mut self, offset: usize) -> bool {
+        if std::mem::take(&mut self.at_block_start) || self.line_starts.is_empty() {
+            return false;
+        }
+        let offset = offset.min(self.source.len());
+        let line = match self.line_starts.binary_search(&offset) {
+            Ok(line) => line,
+            Err(next) => next - 1,
+        };
+        if line == 0
+            || !self.source[self.line_starts[line]..offset]
+                .trim()
+                .is_empty()
+        {
+            return false;
+        }
+        self.source[self.line_starts[line - 1]..self.line_starts[line]]
+            .trim()
+            .is_empty()
     }
 
     pub fn format(&self, source: &str) -> Result<String, String> {
@@ -50,10 +111,14 @@ impl Formatter {
     fn emit_comments_before(&mut self, limit: usize, indent_level: usize) -> String {
         let mut result = String::new();
         while self.comment_index < self.comments.len() {
-            let comment = &self.comments[self.comment_index];
-            if comment.span.start >= limit {
+            let start = self.comments[self.comment_index].span.start;
+            if start >= limit {
                 break;
             }
+            if self.blank_line_before(start) {
+                result.push('\n');
+            }
+            let comment = &self.comments[self.comment_index];
             // Add indentation
             result.push_str(&self.indent(indent_level));
             match comment.kind {
@@ -81,6 +146,10 @@ impl Formatter {
     fn emit_remaining_comments(&mut self, indent_level: usize) -> String {
         let mut result = String::new();
         while self.comment_index < self.comments.len() {
+            let start = self.comments[self.comment_index].span.start;
+            if self.blank_line_before(start) {
+                result.push('\n');
+            }
             let comment = &self.comments[self.comment_index];
             result.push_str(&self.indent(indent_level));
             match comment.kind {
@@ -128,6 +197,7 @@ impl Formatter {
     pub fn format_program(&mut self, program: &Program, indent_level: usize) -> String {
         self.comments = program.comments.clone();
         self.comment_index = 0;
+        self.at_block_start = true;
         let mut result = String::new();
 
         for stmt in &program.statements {
@@ -148,8 +218,13 @@ impl Formatter {
     fn format_statement(&mut self, stmt: &Stmt, indent_level: usize) -> String {
         let mut result = self.emit_comments_before(stmt.span.start, indent_level);
 
-        // Prepend blank lines (max 1)
-        if stmt.leading_blank_lines > 0 {
+        // Keep at most one blank line before a statement.
+        let blank = if self.line_starts.is_empty() {
+            !std::mem::take(&mut self.at_block_start) && stmt.leading_blank_lines > 0
+        } else {
+            self.blank_line_before(stmt.span.start)
+        };
+        if blank {
             result.push('\n');
         }
 
@@ -555,51 +630,75 @@ impl Formatter {
                 result.push_str(" {\n");
                 let next_indent = indent_level + 1;
 
-                for field in fields {
-                    result.push_str(&self.format_annotations(&field.annotations, next_indent));
-                    let visibility = match &field.visibility {
-                        Some(vis) => format!("{} ", format_visibility(vis)),
-                        None => "".to_string(),
-                    };
-                    let static_keyword = if field.is_static { "static " } else { "" };
-                    let const_keyword = if field.is_const { "const " } else { "" };
+                let mut members: Vec<Member> = fields.iter().map(Member::Field).collect();
+                members.extend(methods.iter().map(Member::Method));
+                members.extend(properties.iter().map(Member::Property));
+                members.extend(nested_classes.iter().map(Member::Class));
+                members.sort_by_key(Member::start);
 
-                    result.push_str(&self.indent(next_indent));
-                    result.push_str(&format!(
-                        "{}{}{}{}",
-                        visibility, static_keyword, const_keyword, field.name
-                    ));
+                self.at_block_start = true;
+                for member in members {
+                    match member {
+                        Member::Field(field) => {
+                            result.push_str(
+                                &self.emit_comments_before(field.span.start, next_indent),
+                            );
+                            if self.blank_line_before(field.span.start) {
+                                result.push('\n');
+                            }
+                            result.push_str(
+                                &self.format_annotations(&field.annotations, next_indent),
+                            );
+                            let visibility = match &field.visibility {
+                                Some(vis) => format!("{} ", format_visibility(vis)),
+                                None => "".to_string(),
+                            };
+                            let static_keyword = if field.is_static { "static " } else { "" };
+                            let const_keyword = if field.is_const { "const " } else { "" };
 
-                    if let Some(ty) = &field.ty {
-                        result.push_str(": ");
-                        result.push_str(ty);
+                            result.push_str(&self.indent(next_indent));
+                            result.push_str(&format!(
+                                "{}{}{}{}",
+                                visibility, static_keyword, const_keyword, field.name
+                            ));
+
+                            if let Some(ty) = &field.ty {
+                                result.push_str(": ");
+                                result.push_str(ty);
+                            }
+
+                            if let Some(val) = &field.default {
+                                result.push_str(" = ");
+                                result.push_str(&self.format_expression(val, next_indent));
+                            }
+
+                            result.push_str(";\n");
+                        }
+                        Member::Method(method) => {
+                            result.push_str(
+                                &self.emit_comments_before(method.span.start, next_indent),
+                            );
+                            if self.blank_line_before(method.span.start) {
+                                result.push('\n');
+                            }
+                            result.push_str(&self.format_function(method, next_indent, false));
+                        }
+                        Member::Property(property) => {
+                            result.push_str(
+                                &self.emit_comments_before(property.span.start, next_indent),
+                            );
+                            if self.blank_line_before(property.span.start) {
+                                result.push('\n');
+                            }
+                            result.push_str(&self.format_property(property, next_indent));
+                        }
+                        Member::Class(class) => {
+                            result.push_str(&self.format_statement(class, next_indent));
+                        }
                     }
-
-                    if let Some(val) = &field.default {
-                        result.push_str(" = ");
-                        result.push_str(&self.format_expression(val, next_indent));
-                    }
-
-                    result.push_str(";\n");
                 }
-
-                for method in methods {
-                    result.push_str(&self.format_function(method, next_indent));
-                }
-
-                for property in properties {
-                    result.push_str(&self.format_property(property, next_indent));
-                }
-
-                for nested_class in nested_classes {
-                    // Recursively format nested classes
-                    if let StmtKind::Class { .. } = &nested_class.kind {
-                        // We need to re-invoke format_statement but adjust indentation?
-                        // format_statement should handle it correctly if we pass next_indent
-                        let class_str = self.format_statement(nested_class, next_indent);
-                        result.push_str(&class_str);
-                    }
-                }
+                result.push_str(&self.emit_comments_before(stmt.span.end, next_indent));
+                self.at_block_start = false;
 
                 result.push_str(&format!("{}}}\n", self.indent(indent_level)));
 
@@ -622,12 +721,28 @@ impl Formatter {
                 }
                 result.push_str("{\n");
                 let next_indent = indent_level + 1;
-                for method in methods {
-                    result.push_str(&self.format_function(method, next_indent));
+                let mut members: Vec<Member> = methods.iter().map(Member::Method).collect();
+                members.extend(properties.iter().map(Member::Property));
+                members.sort_by_key(Member::start);
+                self.at_block_start = true;
+                for member in members {
+                    let start = member.start();
+                    result.push_str(&self.emit_comments_before(start, next_indent));
+                    if self.blank_line_before(start) {
+                        result.push('\n');
+                    }
+                    match member {
+                        Member::Method(method) => {
+                            result.push_str(&self.format_function(method, next_indent, true))
+                        }
+                        Member::Property(property) => {
+                            result.push_str(&self.format_property(property, next_indent))
+                        }
+                        Member::Field(_) | Member::Class(_) => {}
+                    }
                 }
-                for property in properties {
-                    result.push_str(&self.format_property(property, next_indent));
-                }
+                result.push_str(&self.emit_comments_before(stmt.span.end, next_indent));
+                self.at_block_start = false;
                 result.push_str(&format!("{}}}\n", self.indent(indent_level)));
                 result
             }
@@ -635,6 +750,7 @@ impl Formatter {
                 name,
                 generics,
                 params,
+                return_ty,
                 body,
                 annotations,
                 is_async,
@@ -650,13 +766,13 @@ impl Formatter {
                 result.push_str(&self.format_generics(generics));
                 result.push('(');
 
-                let param_strs: Vec<String> = params
-                    .iter()
-                    .map(|param| self.format_param(param))
-                    .collect();
-                result.push_str(&param_strs.join(", "));
-
-                result.push_str(") ");
+                result.push_str(&self.format_params(params));
+                result.push(')');
+                if let Some(ret_ty) = return_ty {
+                    result.push_str(": ");
+                    result.push_str(ret_ty);
+                }
+                result.push(' ');
                 match &body.kind {
                     StmtKind::Block(_) => {
                         let body_formatted = self.format_statement(body, indent_level);
@@ -705,7 +821,11 @@ impl Formatter {
             }
             StmtKind::Block(statements) => {
                 // Handle empty blocks
-                if statements.is_empty() {
+                let has_comments = self
+                    .comments
+                    .get(self.comment_index)
+                    .is_some_and(|comment| comment.span.start < stmt.span.end);
+                if statements.is_empty() && !has_comments {
                     let mut result = String::new();
                     if indent_level > 0 {
                         result.push_str(&self.indent(indent_level));
@@ -722,9 +842,12 @@ impl Formatter {
                 result.push_str("{\n");
                 let next_indent = indent_level + 1;
 
+                self.at_block_start = true;
                 for stmt in statements {
                     result.push_str(&self.format_statement(stmt, next_indent));
                 }
+                result.push_str(&self.emit_comments_before(stmt.span.end, next_indent));
+                self.at_block_start = false;
 
                 result.push_str(&format!("{}}}\n", self.indent(indent_level)));
                 result
@@ -743,11 +866,22 @@ impl Formatter {
                 result.push_str(target);
                 result.push_str(" {\n");
                 for method in methods {
-                    result.push_str(&self.format_function(method, indent_level + 1));
+                    result.push_str(&self.format_function(method, indent_level + 1, false));
                 }
                 result.push_str(&format!("{}}}\n", current_indent));
                 result
             }
+            // A `match` used as a statement needs no `;`.
+            StmtKind::Expr(
+                expr @ Expr {
+                    kind: ExprKind::Match { .. },
+                    ..
+                },
+            ) => format!(
+                "{}{}\n",
+                current_indent,
+                self.format_expression(expr, indent_level)
+            ),
             StmtKind::Expr(expr) => {
                 format!(
                     "{}{};\n",
@@ -781,15 +915,22 @@ impl Formatter {
                 if !decl.methods.is_empty() {
                     result.push('\n');
                     for method in &decl.methods {
-                        result.push_str(&self.format_function(method, indent_level + 1));
+                        result.push_str(&self.format_function(method, indent_level + 1, false));
                     }
                 }
 
                 result.push_str(&format!("{}}}\n", current_indent));
                 result
             }
-            StmtKind::TypeAlias { name, ty, .. } => {
-                format!("{}type {} = {};\n", current_indent, name, ty)
+            StmtKind::TypeAlias {
+                name, params, ty, ..
+            } => {
+                let params = if params.is_empty() {
+                    String::new()
+                } else {
+                    format!("<{}>", params.join(", "))
+                };
+                format!("{}type {}{} = {};\n", current_indent, name, params, ty)
             }
             StmtKind::MacroDecl {
                 name, params, body, ..
@@ -821,7 +962,23 @@ impl Formatter {
         result
     }
 
+    /// A string literal exactly as written, so its quotes, escapes and line
+    /// breaks are kept. None without the source.
+    fn source_string_literal(&self, expr: &Expr) -> Option<String> {
+        let raw = self.source.get(expr.span.start..expr.span.end)?;
+        let quote = raw.chars().next()?;
+        (raw.len() >= 2 && (quote == '"' || quote == '`') && raw.ends_with(quote))
+            .then(|| raw.to_string())
+    }
+
     fn format_expression(&mut self, expr: &Expr, indent_level: usize) -> String {
+        if matches!(
+            expr.kind,
+            ExprKind::Literal(Literal::String(_)) | ExprKind::InterpolatedString(_)
+        ) && let Some(raw) = self.source_string_literal(expr)
+        {
+            return raw;
+        }
         match &expr.kind {
             ExprKind::Literal(literal) => self.format_literal(literal),
             ExprKind::Ident(name) => name.clone(),
@@ -974,39 +1131,84 @@ impl Formatter {
                     .iter()
                     .map(|item| self.format_expression(item, indent_level))
                     .collect();
-                format!("({})", items_str.join(", "))
+                // `(x,)` is a one-element tuple; `(x)` is just `x`.
+                if items_str.len() == 1 {
+                    format!("({},)", items_str[0])
+                } else {
+                    format!("({})", items_str.join(", "))
+                }
             }
             ExprKind::Lambda {
                 params,
                 body,
-                return_ty: _,
-                annotations: _,
+                return_ty,
+                annotations,
+                is_async,
             } => {
-                let param_strs: Vec<String> =
-                    params.iter().map(|param| param.name.clone()).collect();
+                let mut head = String::new();
+                for annotation in annotations {
+                    head.push('@');
+                    head.push_str(&annotation.name);
+                    if !annotation.args.is_empty() {
+                        let args: Vec<String> = annotation
+                            .args
+                            .iter()
+                            .map(|arg| self.format_expression(arg, indent_level))
+                            .collect();
+                        head.push_str(&format!("({})", args.join(", ")));
+                    }
+                    head.push(' ');
+                }
+                // `(x) => ...` takes only bare names; anything more needs `fn(...)`.
+                let arrow = !*is_async
+                    && return_ty.is_none()
+                    && params.iter().all(|param| {
+                        param.ty.is_none()
+                            && param.default.is_none()
+                            && !param.is_variadic
+                            && !param.is_keyword_only
+                            && param.ownership == Ownership::None
+                    });
+                if *is_async {
+                    head.push_str("async ");
+                }
+                if arrow {
+                    head.push_str(&format!("({}) =>", self.format_params(params)));
+                } else {
+                    head.push_str(&format!("fn({})", self.format_params(params)));
+                    if let Some(ty) = return_ty {
+                        head.push_str(&format!(": {}", ty));
+                    }
+                }
 
-                // Format body - if it's a block, format it properly
                 let body_str = match &body.kind {
                     ExprKind::Block(statements) => {
                         let mut block_str = String::from("{\n");
+                        self.at_block_start = true;
                         for stmt in statements {
                             block_str.push_str(&self.format_statement(stmt, indent_level + 1));
                         }
+                        block_str
+                            .push_str(&self.emit_comments_before(body.span.end, indent_level + 1));
+                        self.at_block_start = false;
                         block_str.push_str(&format!("{}}}", self.indent(indent_level)));
                         block_str
                     }
-                    _ => self.format_expression(body, indent_level),
+                    _ if arrow => self.format_expression(body, indent_level),
+                    _ => format!("=> {}", self.format_expression(body, indent_level)),
                 };
 
-                // Use arrow syntax for lambdas
-                format!("({}) => {}", param_strs.join(", "), body_str)
+                format!("{} {}", head, body_str)
             }
             ExprKind::Block(statements) => {
-                let mut result = String::from("{ ");
+                let mut result = String::from("{\n");
+                self.at_block_start = true;
                 for stmt in statements {
-                    result.push_str(&self.format_statement(stmt, indent_level));
-                    result.push(' ');
+                    result.push_str(&self.format_statement(stmt, indent_level + 1));
                 }
+                result.push_str(&self.emit_comments_before(expr.span.end, indent_level + 1));
+                self.at_block_start = false;
+                result.push_str(&self.indent(indent_level));
                 result.push('}');
                 result
             }
@@ -1080,9 +1282,14 @@ impl Formatter {
                 )
             }
             ExprKind::Match { expr, arms } => {
+                // `match (x)` keeps its parentheses in the AST.
+                let scrutinee = match &expr.kind {
+                    ExprKind::Paren(inner) => inner,
+                    _ => expr,
+                };
                 let mut result = format!(
                     "match ({}) {{\n",
-                    self.format_expression(expr, indent_level)
+                    self.format_expression(scrutinee, indent_level)
                 );
                 for arm in arms {
                     let guard_str = if let Some(guard) = &arm.guard {
@@ -1090,14 +1297,31 @@ impl Formatter {
                     } else {
                         "".to_string()
                     };
+                    let body = match &arm.body.kind {
+                        ExprKind::Block(stmts) if stmts.len() == 1 => match &stmts[0].kind {
+                            StmtKind::Return(Some(value)) => {
+                                format!(
+                                    "return {}",
+                                    self.format_expression(value, indent_level + 1)
+                                )
+                            }
+                            StmtKind::Return(None) => "return".to_string(),
+                            StmtKind::Throw(value) => {
+                                format!("throw {}", self.format_expression(value, indent_level + 1))
+                            }
+                            _ => self.format_expression(&arm.body, indent_level + 1),
+                        },
+                        _ => self.format_expression(&arm.body, indent_level + 1),
+                    };
                     result.push_str(&format!(
                         "{}case {}{} => {},\n",
                         self.indent(indent_level + 1),
                         self.format_pattern(&arm.pattern),
                         guard_str,
-                        self.format_expression(&arm.body, indent_level + 1)
+                        body
                     ));
                 }
+                result.push_str(&self.indent(indent_level));
                 result.push('}');
                 result
             }
@@ -1138,7 +1362,7 @@ impl Formatter {
                 let mut result = String::from("\"");
                 for segment in segments {
                     match &segment.kind {
-                        ExprKind::Literal(Literal::String(s)) => result.push_str(s),
+                        ExprKind::Literal(Literal::String(s)) => result.push_str(&escape_string(s)),
                         _ => {
                             result.push_str("${");
                             result.push_str(&self.format_expression(segment, indent_level));
@@ -1155,8 +1379,12 @@ impl Formatter {
     fn format_literal(&self, literal: &Literal) -> String {
         match literal {
             Literal::Int(i) => i.to_string(),
+            // Keep the decimal point: `1.0` is a Float, `1` an Int.
+            Literal::Float(f) if f.is_finite() && f.fract() == 0.0 && f.abs() < 1e16 => {
+                format!("{:.1}", f)
+            }
             Literal::Float(f) => f.to_string(),
-            Literal::String(s) => format!("\"{}\"", s),
+            Literal::String(s) => format!("\"{}\"", escape_string(s)),
             Literal::Char(c) => match c {
                 '\n' => "'\\n'".to_string(),
                 '\r' => "'\\r'".to_string(),
@@ -1188,24 +1416,49 @@ impl Formatter {
         format!("<{}>", params.join(", "))
     }
 
+    /// Formats a parameter list, writing the `*` marker once before the
+    /// first keyword-only parameter.
+    fn format_params(&mut self, params: &[Param]) -> String {
+        let mut parts = Vec::new();
+        let mut keyword_only = false;
+        for param in params {
+            if param.is_keyword_only && !keyword_only {
+                keyword_only = true;
+                parts.push("*".to_string());
+            }
+            parts.push(self.format_param(param));
+        }
+        parts.join(", ")
+    }
+
     fn format_param(&mut self, param: &Param) -> String {
-        let mut result = param.name.clone();
+        let ownership = match param.ownership {
+            Ownership::Move => "move ",
+            Ownership::Borrow => "&",
+            Ownership::BorrowMut => "&mut ",
+            Ownership::None => "",
+        };
+        let mut result = format!("{}{}", ownership, param.name);
+        if param.is_variadic {
+            result = format!("...{}", result);
+        }
         if let Some(ty) = &param.ty {
             result.push_str(&format!(": {}", ty));
         }
         if let Some(default) = &param.default {
             result.push_str(&format!(" = {}", self.format_expression(default, 0)));
         }
-        if param.is_variadic {
-            result = format!("...{}", result);
-        }
-        if param.is_keyword_only {
-            result = format!("*{}", result);
-        }
         result
     }
 
     fn format_pattern(&self, pattern: &Pattern) -> String {
+        // Patterns keep their source form: the AST drops the qualifier of
+        // `Direction.North`, and writing just `North` would bind a variable.
+        if let Some(raw) = self.source.get(pattern.span.start..pattern.span.end)
+            && !raw.trim().is_empty()
+        {
+            return raw.trim().to_string();
+        }
         match &pattern.kind {
             PatternKind::Literal(literal) => self.format_literal(literal),
             PatternKind::Ident(name) => name.clone(),
@@ -1250,13 +1503,22 @@ impl Formatter {
         }
     }
 
-    fn format_function(&mut self, func: &FunctionDecl, indent_level: usize) -> String {
+    fn format_function(
+        &mut self,
+        func: &FunctionDecl,
+        indent_level: usize,
+        in_interface: bool,
+    ) -> String {
         let current_indent = self.indent(indent_level);
         let mut result = current_indent.clone();
 
-        // Add visibility if present
-        if let Some(visibility) = &func.visibility {
-            result.push_str(&format!("{} ", format_visibility(visibility)));
+        // Add visibility if present. Constructors are public by default, so
+        // the parser records `public` even when it was not written.
+        let is_constructor = func.name == "constructor";
+        match &func.visibility {
+            Some(Visibility::Public) if is_constructor => {}
+            Some(visibility) => result.push_str(&format!("{} ", format_visibility(visibility))),
+            None => {}
         }
 
         // Add static if applicable
@@ -1269,30 +1531,34 @@ impl Formatter {
             result.push_str("async ");
         }
 
-        // Add abstract if applicable
-        if func.is_abstract {
+        // Interface members are always abstract; the keyword is implied there.
+        if func.is_abstract && !in_interface {
             result.push_str("abstract ");
         }
 
-        // Add function keyword and name
-        result.push_str("fn ");
-        result.push_str(&func.name);
+        match &func.kind {
+            FunctionKind::Getter => result.push_str(&format!("get {}", func.name)),
+            FunctionKind::Setter => result.push_str(&format!("set {}", func.name)),
+            FunctionKind::Operator(symbol) => result.push_str(&format!("operator {}", symbol)),
+            FunctionKind::Method => {
+                result.push_str("fn ");
+                result.push_str(&func.name);
+            }
+        }
         result.push_str(&self.format_generics(&func.generics));
         result.push('(');
-
-        // Add parameters
-        let param_strs: Vec<String> = func
-            .params
-            .iter()
-            .map(|param| self.format_param(param))
-            .collect();
-        result.push_str(&param_strs.join(", "));
-
+        result.push_str(&self.format_params(&func.params));
         result.push(')');
 
         if let Some(ret_ty) = &func.return_ty {
             result.push_str(": ");
             result.push_str(ret_ty);
+        }
+
+        // Abstract members have no body.
+        if func.is_abstract {
+            result.push_str(";\n");
+            return result;
         }
 
         result.push(' ');
@@ -1380,9 +1646,27 @@ impl Formatter {
     }
 }
 
+/// Escapes a string's contents so the lexer reads back the same value.
+fn escape_string(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut chars = s.chars().peekable();
+    while let Some(ch) = chars.next() {
+        match ch {
+            '\\' => out.push_str("\\\\"),
+            '"' => out.push_str("\\\""),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            '$' if chars.peek() == Some(&'{') => out.push_str("\\$"),
+            other => out.push(other),
+        }
+    }
+    out
+}
+
 fn format_visibility(visibility: &Visibility) -> String {
     match visibility {
-        Visibility::Public => "",
+        Visibility::Public => "public",
         Visibility::Private => "private",
         Visibility::Protected => "protected",
         Visibility::Internal => "internal",
@@ -1410,7 +1694,11 @@ pub fn format_code(source: &str, options: &FormatOptions) -> Result<String, Stri
         _max_line_length: options.max_line_length.unwrap_or(80),
         comments: Vec::new(),
         comment_index: 0,
-    };
+        source: String::new(),
+        line_starts: Vec::new(),
+        at_block_start: true,
+    }
+    .with_source(source);
 
     // Format the program
     let mut result = formatter.format_program(&program, 0);

@@ -201,6 +201,16 @@ impl pleno_diagnostics::ToDiagnostic for LexError {
     }
 }
 
+/// Stands for an escaped `\$` inside a string token, so the parser does not
+/// read `\${` as the start of an interpolation. A Unicode noncharacter, which
+/// never appears in source text.
+pub const ESCAPED_DOLLAR: char = '\u{FDD0}';
+
+/// Turns the escaped-dollar marker in a string token back into `$`.
+pub fn unescape_dollar(value: &str) -> String {
+    value.replace(ESCAPED_DOLLAR, "$")
+}
+
 pub fn lex(source: &str) -> Result<Vec<Token>, LexError> {
     let mut tokens = Vec::new();
     let mut chars = source.char_indices().peekable();
@@ -381,7 +391,15 @@ pub fn lex(source: &str) -> Result<Vec<Token>, LexError> {
                     token_simple(TokenKind::Pipe, start)
                 }
             }
-            '`' => token_simple(TokenKind::Backtick, start),
+            // `...` is a string that may contain unescaped `"`, handy for
+            // multi-line text such as JSON or TOML.
+            '`' => {
+                let (value, end) = lex_string(&mut chars, start, '`')?;
+                Token {
+                    kind: TokenKind::String(value),
+                    span: Span::new(start, end),
+                }
+            }
             '$' => token_simple(TokenKind::Dollar, start),
             '~' => token_simple(TokenKind::Tilda, start),
             '^' => token_simple(TokenKind::Caret, start),
@@ -465,7 +483,7 @@ pub fn lex(source: &str) -> Result<Vec<Token>, LexError> {
                 }
             }
             '"' => {
-                let (value, end) = lex_string(&mut chars, start)?;
+                let (value, end) = lex_string(&mut chars, start, '"')?;
                 Token {
                     kind: TokenKind::String(value),
                     span: Span::new(start, end),
@@ -600,16 +618,18 @@ fn token_simple(kind: TokenKind, start: usize) -> Token {
     }
 }
 
+/// Lexes a string up to the closing `delimiter` (`"` or a backtick).
 fn lex_string(
     chars: &mut std::iter::Peekable<std::str::CharIndices<'_>>,
     start: usize,
+    delimiter: char,
 ) -> Result<(String, usize), LexError> {
     let mut value = String::new();
     let mut brace_depth: usize = 0;
     let mut in_quote = false;
 
     while let Some((idx, ch)) = chars.next() {
-        if !in_quote && brace_depth == 0 && ch == '"' {
+        if !in_quote && brace_depth == 0 && ch == delimiter {
             return Ok((value, idx + 1));
         }
 
@@ -643,7 +663,9 @@ fn lex_string(
                         'r' => '\r',
                         't' => '\t',
                         '"' => '"',
+                        '`' => '`',
                         '\\' => '\\',
+                        '$' => ESCAPED_DOLLAR,
                         other => other,
                     });
                 }

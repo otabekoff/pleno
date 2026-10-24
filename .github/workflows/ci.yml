@@ -74,21 +74,23 @@ jobs:
 
   benchmark:
     name: Benchmark Regression Check
+    # Compares the change against its base branch on the same runner.
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     needs: [fmt, clippy, test]
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
       - name: Rust Cache
         uses: Swatinem/rust-cache@v2
-      - name: Build release
-        run: cargo build --release
-      - name: Run benchmark regression test
+      - name: Build the change
+        run: cargo build --release --bin pleno
+      - name: Build the base branch
         run: |
-          if [ -f bench/baselines.json ]; then
-            python3 bench/regression_test.py
-          else
-            echo "No baselines found, creating initial baselines"
-            python3 bench/regression_test.py --update
-          fi
+          git worktree add ../base "origin/${{ github.base_ref }}"
+          cargo build --release --bin pleno --manifest-path ../base/Cargo.toml --target-dir target/base
+      - name: Compare benchmarks
+        run: python3 bench/regression_test.py --base target/base/release/pleno --head target/release/pleno

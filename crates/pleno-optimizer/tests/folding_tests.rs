@@ -69,12 +69,13 @@ fn test_fold_boolean_logic() {
 
 #[test]
 fn test_fold_complex_nested() {
+    // `/` produces a Float, so the whole expression folds to a Float.
     let program = fold_code("let x = (10 + 5) * (20 / 4);");
     if let StmtKind::Let {
         value: Some(expr), ..
     } = &program.statements[0].kind
     {
-        assert_eq!(expr.kind, ExprKind::Literal(Literal::Int(75)));
+        assert_eq!(expr.kind, ExprKind::Literal(Literal::Float(75.0)));
     } else {
         panic!("Expected let statement with folded value");
     }

@@ -11,3 +11,7 @@
 docs/.vitepress/dist
 docs/.vitepress/cachetemp/
 docs/.vitepress/cache/
+# Local tool output
+clippy_output.txt
+# VitePress cache from running it at the repository root (the docs live in docs/)
+/.vitepress/

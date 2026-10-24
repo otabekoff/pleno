@@ -74,11 +74,11 @@
       "patterns": [
         {
           "name": "keyword.control.pleno",
-          "match": "\\b(let|const|mut|fn|return|if|else|for|while|match|class|interface|enum|import|from|as|export|module|case|do|label|break|continue|try|catch|finally|throw|abstract|implements|extends|constructor|property|get|set|static|override|label|typeof|extend|operator|macro|lazy|move|type|where|yield|implicit|explicit|init|deinit|del|global|nonlocal|struct|union|is|in|new)\\b"
+          "match": "\\b(let|const|mut|fn|return|if|else|for|while|match|class|interface|enum|import|from|as|export|module|case|do|label|break|continue|try|catch|finally|throw|abstract|implements|extends|constructor|property|get|set|static|override|label|typeof|extend|operator|macro|lazy|move|type|where|yield|implicit|explicit|init|deinit|del|global|nonlocal|struct|union|is|in|new|async|await)\\b"
         },
         {
           "name": "storage.modifier.pleno",
-          "match": "\\b(public|private|protected|internal|static|abstract|override|deep|readonly|required|virtual|implicit|explicit|global|nonlocal|mut|const|immutable)\\b"
+          "match": "\\b(public|private|protected|internal|static|abstract|override|deep|readonly|required|virtual|implicit|explicit|global|nonlocal|mut|const|immutable|out)\\b"
         }
       ]
     },

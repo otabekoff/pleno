@@ -11,3 +11,7 @@ pleno-ast = { workspace = true }
 pleno-formatter = { workspace = true }
 pleno-linter = { workspace = true }
 serde_json = { workspace = true }
+url = { workspace = true }
+
+[build-dependencies]
+winresource = "0.1"

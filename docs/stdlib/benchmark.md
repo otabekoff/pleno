@@ -31,7 +31,7 @@ Measures execution time of a function and returns duration in milliseconds.
 ```pleno
 let duration = Benchmark.measure(fn() {
     // Code to measure
-    let sum = 0;
+    let mut sum = 0;
     for (i in 0..100000) {
         sum += i;
     }

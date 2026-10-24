@@ -1,111 +1,73 @@
 #!/usr/bin/env python3
 """
-Benchmark Regression Testing for Pleno
+Benchmark regression check for Pleno.
 
-This script runs benchmarks and compares them against stored baselines.
-If performance degrades by more than the threshold, it fails with an exit code.
+Runs each benchmark with two builds of `pleno` on the same machine (the base
+branch and the change under test) and fails if the change is slower than the
+base by more than the threshold. Comparing on the same machine avoids the
+noise of stored baselines measured on different hardware.
 
 Usage:
-    python3 bench/regression_test.py                 # Run and compare
-    python3 bench/regression_test.py --update        # Update baselines
+    python3 bench/regression_test.py --base path/to/base/pleno --head path/to/pleno
+        [--runs 5] [--threshold 0.15]
 """
 
-import subprocess
-import time
-import json
+import argparse
 import os
+import subprocess
 import sys
+import time
 
 BENCH_DIR = os.path.dirname(os.path.abspath(__file__))
 CASES_DIR = os.path.join(BENCH_DIR, "cases")
-BASELINE_FILE = os.path.join(BENCH_DIR, "baselines.json")
-PLENO_BIN = os.path.join(BENCH_DIR, "..", "target", "release", "pleno")
 
-# Maximum allowed regression percentage (10% = 0.10)
-REGRESSION_THRESHOLD = 0.15
+BENCHMARKS = ["fib", "loop", "string", "collection"]
 
-BENCHMARKS = [
-    ("fib", "fib.pln"),
-    ("loop", "loop.pln"),
-    ("string", "string.pln"),
-    ("collection", "collection.pln"),
-]
 
-def run_benchmark(pln_file):
-    """Run a Pleno benchmark and return execution time in seconds."""
-    cmd = [PLENO_BIN, os.path.join(CASES_DIR, pln_file)]
+def run_once(pleno, case):
+    """Runs one benchmark and returns its wall time in seconds."""
+    path = os.path.join(CASES_DIR, f"{case}.pln")
     start = time.perf_counter()
-    result = subprocess.run(cmd, capture_output=True, text=True)
-    end = time.perf_counter()
-    return end - start
+    result = subprocess.run([pleno, "run", path], capture_output=True, text=True)
+    elapsed = time.perf_counter() - start
+    if result.returncode != 0:
+        sys.exit(f"{case} failed with {pleno}:\n{result.stdout}{result.stderr}")
+    return elapsed
 
-def load_baselines():
-    """Load baseline times from file."""
-    if os.path.exists(BASELINE_FILE):
-        with open(BASELINE_FILE, 'r') as f:
-            return json.load(f)
-    return {}
 
-def save_baselines(baselines):
-    """Save baseline times to file."""
-    with open(BASELINE_FILE, 'w') as f:
-        json.dump(baselines, f, indent=2)
-    print(f"Baselines saved to {BASELINE_FILE}")
+def best_time(pleno, case, runs):
+    """The fastest of several runs: noise from other processes only adds time."""
+    run_once(pleno, case)  # warm-up: file cache, page faults
+    return min(run_once(pleno, case) for _ in range(runs))
+
 
 def main():
-    update_mode = "--update" in sys.argv
-    
-    # Ensure release build exists
-    if not os.path.exists(PLENO_BIN):
-        print(f"Error: Release binary not found at {PLENO_BIN}")
-        print("Run: cargo build --release")
-        sys.exit(1)
-    
-    baselines = load_baselines()
-    results = {}
+    parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
+    parser.add_argument("--base", required=True, help="pleno built from the base branch")
+    parser.add_argument("--head", required=True, help="pleno built from the change")
+    parser.add_argument("--runs", type=int, default=5)
+    parser.add_argument("--threshold", type=float, default=0.15,
+                        help="allowed slowdown, as a fraction (0.15 = 15%%)")
+    args = parser.parse_args()
+    args.base, args.head = os.path.abspath(args.base), os.path.abspath(args.head)
+
     regressions = []
-    
-    print("=" * 60)
-    print("Pleno Benchmark Regression Test")
-    print("=" * 60)
-    
-    for name, pln_file in BENCHMARKS:
-        pln_path = os.path.join(CASES_DIR, pln_file)
-        if not os.path.exists(pln_path):
-            print(f"  SKIP: {name} (file not found)")
-            continue
-            
-        current_time = run_benchmark(pln_file)
-        results[name] = current_time
-        
-        if name in baselines:
-            baseline_time = baselines[name]
-            change_pct = (current_time - baseline_time) / baseline_time
-            status = "✓" if change_pct <= REGRESSION_THRESHOLD else "✗ REGRESSION"
-            
-            print(f"  {name}: {current_time:.4f}s (baseline: {baseline_time:.4f}s, {change_pct*100:+.1f}%) {status}")
-            
-            if change_pct > REGRESSION_THRESHOLD:
-                regressions.append((name, baseline_time, current_time, change_pct))
-        else:
-            print(f"  {name}: {current_time:.4f}s (no baseline)")
-    
-    print("=" * 60)
-    
-    if update_mode:
-        save_baselines(results)
-        print("Baselines updated successfully!")
-        sys.exit(0)
-    
+    print(f"{'benchmark':<12}{'base':>10}{'head':>10}{'change':>10}")
+    for case in BENCHMARKS:
+        base = best_time(args.base, case, args.runs)
+        head = best_time(args.head, case, args.runs)
+        change = (head - base) / base
+        marker = "  REGRESSION" if change > args.threshold else ""
+        print(f"{case:<12}{base:>9.3f}s{head:>9.3f}s{change * 100:>+9.1f}%{marker}")
+        if change > args.threshold:
+            regressions.append(case)
+
     if regressions:
-        print(f"\n❌ {len(regressions)} regression(s) detected!")
-        for name, baseline, current, pct in regressions:
-            print(f"   - {name}: {baseline:.4f}s → {current:.4f}s ({pct*100:+.1f}%)")
-        print("\nTo update baselines, run: python3 bench/regression_test.py --update")
+        print(f"\n{len(regressions)} benchmark(s) slower than the base by more than "
+              f"{args.threshold:.0%}: {', '.join(regressions)}")
         sys.exit(1)
-    else:
-        print("\n✓ All benchmarks within acceptable range")
-        sys.exit(0)
+    print(f"\nAll benchmarks within {args.threshold:.0%} of the base.")
+
 
 if __name__ == "__main__":
     main()

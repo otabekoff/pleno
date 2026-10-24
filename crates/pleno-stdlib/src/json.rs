@@ -80,6 +80,43 @@ pub fn json_stringify(
     Ok(Value::String(Rc::new(s)))
 }
 
+/// `JSON.stringifyPretty(value, indent = 2)`: JSON on several lines, nested
+/// values indented by `indent` spaces.
+pub fn json_stringify_pretty(
+    vm: &mut dyn pleno_value::VMProvider,
+    args: &[Value],
+) -> Result<Value, pleno_value::RuntimeError> {
+    let val = args.first().unwrap_or(&Value::Null);
+    // The indent may be passed by name: `stringifyPretty(value, indent: 4)`.
+    let named_indent = vm.get_named_args().get("indent").cloned();
+    let indent = match args.get(1).or(named_indent.as_ref()) {
+        None | Some(Value::Missing) => 2,
+        Some(Value::Int(n)) if (0..=16).contains(n) => *n as usize,
+        Some(_) => {
+            return Err(pleno_value::RuntimeError::new(
+                "stringifyPretty indent must be an Int from 0 to 16",
+            ));
+        }
+    };
+    let compact = value_to_json_string(val)?;
+    let parsed: serde_json::Value = serde_json::from_str(&compact)
+        .map_err(|e| pleno_value::RuntimeError::new(format!("stringifyPretty failed: {e}")))?;
+    let pretty = serde_json::to_string_pretty(&parsed)
+        .map_err(|e| pleno_value::RuntimeError::new(format!("stringifyPretty failed: {e}")))?;
+    // serde_json indents by two spaces; JSON strings never contain a raw
+    // newline, so re-indenting line by line is safe.
+    let unit = " ".repeat(indent);
+    let lines: Vec<String> = pretty
+        .lines()
+        .map(|line| {
+            let body = line.trim_start_matches(' ');
+            let depth = (line.len() - body.len()) / 2;
+            format!("{}{}", unit.repeat(depth), body)
+        })
+        .collect();
+    Ok(Value::String(Rc::new(lines.join("\n"))))
+}
+
 pub(crate) fn value_to_json_string(val: &Value) -> Result<String, pleno_value::RuntimeError> {
     match val {
         Value::Null => Ok("null".to_string()),

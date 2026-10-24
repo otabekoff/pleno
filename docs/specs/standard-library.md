@@ -35,6 +35,8 @@ let multiline = `
 ### 13.2 Math Operations
 
 ```pleno
+import { Math } from "std:math";
+
 Math.abs(-5);           // 5
 Math.ceil(4.3);         // 5
 Math.floor(4.7);        // 4
@@ -83,13 +85,11 @@ try {
 } finally {
     file.close();
 }
-
-// Using with auto-close
-with (file = File.open("data.txt", FileMode.Read)) {
-    let content = file.read();
-    print(content);
-}  // Automatically closed
 ```
+
+::: warning Planned
+A `with (file = File.open(...)) { ... }` statement that closes the file automatically is planned. Until then, close files in a `finally` block as above.
+:::
 
 ### 13.4 Directory Operations
 
@@ -114,7 +114,7 @@ Directory.deleteRecursive("folder_with_contents");
 import { JSON } from "std:json";
 
 // Parse JSON
-let data = JSON.parse('{"name": "Alice", "age": 30}');
+let data = JSON.parse(`{"name": "Alice", "age": 30}`);
 print(data.name);  // "Alice"
 
 // Stringify to JSON
@@ -201,7 +201,7 @@ if (pattern.test("123")) {
 
 // Find matches
 let matches = pattern.findAll("abc 123 def 456");
-// ["123", "456"]
+// Two Match objects; matches[0].value is "123".
 
 // Replace
 let result = pattern.replace("abc 123 def", "XXX");
@@ -209,10 +209,10 @@ let result = pattern.replace("abc 123 def", "XXX");
 
 // Capture groups
 let emailPattern = Regex(r"(\w+)@(\w+\.\w+)");
-let match = emailPattern.match("user@example.com");
-if (match) {
-    print(match.group(1));  // "user"
-    print(match.group(2));  // "example.com"
+let found = emailPattern.match("user@example.com");
+if (found) {
+    print(found.group(1));  // "user"
+    print(found.group(2));  // "example.com"
 }
 ```
 

@@ -49,11 +49,12 @@ fetchData()
 Waits for all promises to resolve. Returns array of results.
 
 ```pleno
-let [a, b, c] = await Promise.all([
+let results = await Promise.all([
     fetchA(),
     fetchB(),
     fetchC()
 ]);
+let first = results[0];
 ```
 
 ### `Promise.race(promises: Promise[]): Promise`

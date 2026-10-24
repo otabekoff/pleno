@@ -408,7 +408,7 @@ fn evaluates_map_property_access() {
 #[test]
 fn property_access_on_non_map_errors() {
     let err = eval_result("let a = 1; a.b;").unwrap_err();
-    assert!(err.contains("non-object"));
+    assert!(err.contains("cannot read property 'b' of Int"), "{err}");
 }
 
 #[test]
@@ -433,4 +433,63 @@ fn evaluates_set_literal_and_has() {
 fn evaluates_map_property_access_via_object() {
     let value = eval("let o = {\"x\": 1}; o.x;");
     assert_eq!(value, pleno_value::Value::Int(1));
+}
+
+#[test]
+fn infinities_and_nan_are_floats() {
+    use pleno_value::Value;
+    assert_eq!(
+        eval("let big = 1e308; big * 10.0;"),
+        Value::Float(f64::INFINITY)
+    );
+    assert_eq!(
+        eval("let big = 1e308; 0.0 - big * 10.0;"),
+        Value::Float(f64::NEG_INFINITY)
+    );
+    assert_eq!(
+        eval("let big = 1e308; big * 10.0 > 1.0;"),
+        Value::Bool(true)
+    );
+    match eval("let big = 1e308; let inf = big * 10.0; inf - inf;") {
+        Value::Float(f) => assert!(f.is_nan()),
+        other => panic!("expected NaN, got {other:?}"),
+    }
+    assert_eq!(
+        eval("let big = 1e308; let n = big * 10.0 - big * 10.0; n == n;"),
+        Value::Bool(false)
+    );
+}
+
+#[test]
+fn division_by_zero_is_an_error_for_ints_and_floats() {
+    for source in ["5 / 0;", "5 / 0.0;", "5.0 / 0;", "5.0 / 0.0;"] {
+        let err = eval_result(&format!("let z = 0; {source}")).unwrap_err();
+        assert!(err.contains("division by zero"), "{source}: {err}");
+    }
+    for source in ["5 % 0;", "5 % 0.0;", "5.0 % 0;"] {
+        let err = eval_result(source).unwrap_err();
+        assert!(err.contains("modulo by zero"), "{source}: {err}");
+    }
+}
+
+#[test]
+fn integer_negation_and_modulo_report_overflow() {
+    let min = "let m = -9223372036854775807 - 1;";
+    let err = eval_result(&format!("{min} -m;")).unwrap_err();
+    assert!(err.contains("integer overflow in negation"), "{err}");
+    let err = eval_result(&format!("{min} m % -1;")).unwrap_err();
+    assert!(err.contains("integer overflow in modulo"), "{err}");
+}
+
+#[test]
+fn uncaught_exceptions_report_their_message() {
+    let err = eval_result("let z = 0; 1 / z;").unwrap_err();
+    assert!(
+        err.contains("uncaught exception: division by zero"),
+        "{err}"
+    );
+    assert!(!err.contains("peakMemory"), "{err}");
+    let err =
+        eval_result("class MyError extends Error {} throw MyError(\"bad input\");").unwrap_err();
+    assert!(err.contains("MyError: bad input"), "{err}");
 }

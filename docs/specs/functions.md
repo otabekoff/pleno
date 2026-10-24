@@ -44,7 +44,7 @@ createUser(age: 25, name: "Bob", active: false);
 ### 3.4 Variable Arguments
 ```pleno
 fn sum(...numbers: Int[]): Int {
-    let total = 0;
+    let mut total = 0;
     for (num in numbers) {
         total += num;
     }

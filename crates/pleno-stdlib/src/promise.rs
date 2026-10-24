@@ -126,7 +126,7 @@ pub fn promise_reject_static(
 
 /// Registers a `then`/`catch`/`finally` callback on `parent` and returns the
 /// dependent promise. `kind` is 0 for then/catch and 1 for finally.
-fn register_callback(
+pub(crate) fn register_callback(
     vm: &mut dyn VMProvider,
     parent: &Value,
     on_fulfilled: Value,

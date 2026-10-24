@@ -723,11 +723,7 @@ pub fn start() -> io::Result<()> {
                     if let Some(text) = state.documents.get(uri_str) {
                         let lines: Vec<&str> = text.lines().collect();
                         if let Some(current_line) = lines.get(line as usize) {
-                            let prefix = if (character as usize) <= current_line.len() {
-                                &current_line[..character as usize]
-                            } else {
-                                ""
-                            };
+                            let prefix = &current_line[..utf16_to_byte(current_line, character)];
 
                             if prefix.trim_end().ends_with('.') {
                                 // Property completion
@@ -1014,17 +1010,19 @@ pub fn start() -> io::Result<()> {
                                 }));
                             }
 
-                            // Example 2: Unused variable (placeholder logic)
-                            if message.contains("unused variable") {
+                            // Unused variable: prefix it with `_`, which the linter
+                            // treats as intentionally unused.
+                            if message.contains("is declared but never used") {
+                                let start = range.get("start").cloned().unwrap_or(Value::Null);
                                 actions.push(json!({
-                                    "title": "Remove unused variable",
+                                    "title": "Prefix with `_` to mark as unused",
                                     "kind": "quickfix",
                                     "diagnostics": [diag],
                                     "edit": {
                                         "changes": {
                                             uri_str: [{
-                                                "range": range,
-                                                "newText": ""
+                                                "range": { "start": start, "end": start },
+                                                "newText": "_"
                                             }]
                                         }
                                     }
@@ -1383,7 +1381,8 @@ fn offset_to_position(source: &str, offset: usize) -> (u32, u32) {
             line += 1;
             col = 0;
         } else {
-            col += 1; // Simplification, should handle utf16/utf8 diffs for LSP
+            // LSP positions count UTF-16 code units.
+            col += ch.len_utf16() as u32;
         }
         current += ch.len_utf8();
     }
@@ -1681,23 +1680,10 @@ fn get_signature_context(source: &str, line: u32, character: u32) -> Option<(Str
     None
 }
 
-// Very basic URI to Path conversion (Windows/Unix support)
+/// Converts a `file://` URI to a path, decoding percent-escapes and drive
+/// letters (`file:///c%3A/My%20Files/a.pln` -> `c:\My Files\a.pln`).
 fn uri_to_path(uri: &str) -> Option<PathBuf> {
-    if uri.starts_with("file://") {
-        if cfg!(windows) {
-            // file:///c%3A/foo/bar -> c:/foo/bar
-            // Simple hack for now, real implementation needs url decoding
-            let part = uri.trim_start_matches("file:///");
-            // Replace / with \ ? Windows can handle /, but C%3A needs handling
-            // Basic unescape
-            let decoded = part.replace("%3A", ":").replace("%20", " ");
-            Some(PathBuf::from(decoded))
-        } else {
-            Some(PathBuf::from(uri.trim_start_matches("file://")))
-        }
-    } else {
-        None
-    }
+    url::Url::parse(uri).ok()?.to_file_path().ok()
 }
 
 fn collect_calls_to(
@@ -1868,22 +1854,66 @@ fn collect_calls_from_in_expr(
     }
 }
 
+/// Converts an LSP position (line, UTF-16 column) to a byte offset. Works with
+/// both `\n` and `\r\n` line endings; a column past the end of the line
+/// maps to the line's end.
 fn position_to_offset(source: &str, line: u32, character: u32) -> Option<usize> {
-    let lines: Vec<&str> = source.lines().collect();
-    if line as usize >= lines.len() {
-        return None;
+    let mut offset = 0;
+    for (index, text) in source.split_inclusive('\n').enumerate() {
+        if index == line as usize {
+            let content = text.trim_end_matches(['\n', '\r']);
+            return Some(offset + utf16_to_byte(content, character));
+        }
+        offset += text.len();
+    }
+    // The position just after a final newline starts an empty last line.
+    let line_count = source.split_inclusive('\n').count();
+    (line as usize == line_count && (source.is_empty() || source.ends_with('\n')))
+        .then_some(source.len())
+}
+
+/// The byte index in `line` of an LSP (UTF-16) column, clamped to the line end.
+fn utf16_to_byte(line: &str, character: u32) -> usize {
+    let mut units = 0;
+    for (byte, ch) in line.char_indices() {
+        if units >= character as usize {
+            return byte;
+        }
+        units += ch.len_utf16();
+    }
+    line.len()
+}
+
+#[cfg(test)]
+mod position_tests {
+    use super::*;
+
+    #[test]
+    fn positions_handle_crlf_and_utf16() {
+        let source = "let a = 1;\r\nlet 😀b = 2;\r\n";
+        // Line 1 starts after "let a = 1;\r\n" (12 bytes).
+        assert_eq!(position_to_offset(source, 1, 0), Some(12));
+        // The emoji is 2 UTF-16 units and 4 bytes: column 6 is just after it.
+        assert_eq!(position_to_offset(source, 1, 6), Some(12 + 4 + 4));
+        // Columns past the end clamp to the end of the line, before "\r\n".
+        assert_eq!(position_to_offset(source, 0, 99), Some(10));
+        assert_eq!(position_to_offset(source, 2, 0), Some(source.len()));
+        assert_eq!(position_to_offset(source, 3, 0), None);
+
+        assert_eq!(offset_to_position(source, 12 + 4 + 4), (1, 6));
     }
 
-    let mut offset = 0;
-    for (i, l) in lines.iter().enumerate() {
-        if i == line as usize {
-            // Relaxed check: if char is within line len + 1 (newline/EOF)
-            if character as usize > l.len() + 1 {
-                return None;
-            }
-            return Some(offset + character as usize);
-        }
-        offset += l.len() + 1; // +1 for newline
+    #[test]
+    fn uris_are_percent_decoded() {
+        let uri = if cfg!(windows) {
+            "file:///c%3A/My%20Files/%D0%BF%D1%80%D0%BE%D0%B5%D0%BA%D1%82/a.pln"
+        } else {
+            "file:///home/My%20Files/%D0%BF%D1%80%D0%BE%D0%B5%D0%BA%D1%82/a.pln"
+        };
+        let path = uri_to_path(uri).unwrap();
+        let text = path.to_string_lossy();
+        assert!(text.contains("My Files"), "{text}");
+        assert!(text.contains("проект"), "{text}");
+        assert!(uri_to_path("untitled:Untitled-1").is_none());
     }
-    None
 }

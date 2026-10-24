@@ -45,7 +45,7 @@ const deep obj = {
 ### 1.3 Type System
 
 #### Primitive Types
-```pleno
+```text
 Int      // 64-bit signed integer
 Float    // 64-bit floating point
 String   // UTF-8 string
@@ -79,7 +79,7 @@ let mixed = null;            // Inferred as Null (can be reassigned)
 
 #### Union Types
 ```pleno
-let result: Int | String = 42;
+let mut result: Int | String = 42;
 result = "error";  // Valid
 
 fn process(value: Int | Float | String): String {

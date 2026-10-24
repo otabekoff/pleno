@@ -32,7 +32,8 @@ export default defineConfig({
       { text: 'Stdlib', link: '/stdlib/' },
       { text: 'Blog', link: '/blog/' },
       { text: 'Showcase', link: '/showcase' },
-      { text: 'Examples', link: '/examples' }
+      { text: 'Examples', link: '/examples' },
+      { text: 'Code signing policy', link: '/code-signing-policy' }
     ],
 
     sidebar: {

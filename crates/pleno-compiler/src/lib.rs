@@ -93,7 +93,8 @@ pub struct Compiler {
     source: String,
     current_span: pleno_ast::Span,
     next_labels: Vec<String>,
-    type_aliases: HashMap<String, String>,
+    /// Type aliases by name: their type parameters and the aliased type.
+    type_aliases: HashMap<String, (Vec<String>, String)>,
     macros: HashMap<String, MacroDef>,
     boxed_vars: Vec<HashSet<String>>,
     finally_stack: Vec<Option<Stmt>>,
@@ -265,8 +266,11 @@ impl Compiler {
                 }
                 Ok(())
             }
-            StmtKind::TypeAlias { name, ty, .. } => {
-                self.type_aliases.insert(name.clone(), ty.clone());
+            StmtKind::TypeAlias {
+                name, params, ty, ..
+            } => {
+                self.type_aliases
+                    .insert(name.clone(), (params.clone(), ty.clone()));
                 Ok(())
             }
             StmtKind::Expr(expr) => {
@@ -1040,29 +1044,27 @@ impl Compiler {
 
                 match (op, l_val, r_val) {
                     (BinaryOp::Add, Value::Int(a), Value::Int(b)) => {
-                        Some(Value::Int(a.wrapping_add(b)))
+                        a.checked_add(b).map(Value::Int)
                     }
                     (BinaryOp::Add, Value::Float(a), Value::Float(b)) => Some(Value::Float(a + b)),
                     (BinaryOp::Subtract, Value::Int(a), Value::Int(b)) => {
-                        Some(Value::Int(a.wrapping_sub(b)))
+                        a.checked_sub(b).map(Value::Int)
                     }
                     (BinaryOp::Subtract, Value::Float(a), Value::Float(b)) => {
                         Some(Value::Float(a - b))
                     }
                     (BinaryOp::Multiply, Value::Int(a), Value::Int(b)) => {
-                        Some(Value::Int(a.wrapping_mul(b)))
+                        a.checked_mul(b).map(Value::Int)
                     }
                     (BinaryOp::Multiply, Value::Float(a), Value::Float(b)) => {
                         Some(Value::Float(a * b))
                     }
-                    (BinaryOp::Divide, Value::Int(a), Value::Int(b)) => {
-                        if b == 0 {
-                            None
-                        } else {
-                            Some(Value::Int(a.wrapping_div(b)))
-                        }
+                    // Folding must agree with the VM: integer `/` produces a
+                    // Float, and division by zero is left to fail at runtime.
+                    (BinaryOp::Divide, Value::Int(a), Value::Int(b)) if b != 0 => {
+                        Some(Value::Float(a as f64 / b as f64))
                     }
-                    (BinaryOp::Divide, Value::Float(a), Value::Float(b)) => {
+                    (BinaryOp::Divide, Value::Float(a), Value::Float(b)) if b != 0.0 => {
                         Some(Value::Float(a / b))
                     }
                     _ => None,
@@ -1352,9 +1354,17 @@ impl Compiler {
                 body,
                 return_ty,
                 annotations,
+                is_async,
             } => {
                 let is_pure = annotations.iter().any(|a| a.name == "pure");
-                Ok(self.compile_lambda(params, body, return_ty.as_deref(), is_pure, annotations)?)
+                Ok(self.compile_lambda(
+                    params,
+                    body,
+                    return_ty.as_deref(),
+                    is_pure,
+                    annotations,
+                    *is_async,
+                )?)
             }
             ExprKind::Range {
                 start,
@@ -1394,6 +1404,29 @@ impl Compiler {
             ExprKind::TupleLiteral(items) => self.compile_tuple_literal(items),
             ExprKind::SetLiteral(items) => self.compile_set_literal(items),
             ExprKind::Block(stmts) => self.compile_block_expr(stmts),
+            // `x |> f(a)` is `f(x, a)`; `x |> f(a, _)` puts `x` at the placeholder.
+            ExprKind::Pipeline { left, right } if matches!(right.kind, ExprKind::Call { .. }) => {
+                let ExprKind::Call { callee, args } = &right.kind else {
+                    unreachable!()
+                };
+                let mut args = args.clone();
+                let piped = pleno_ast::CallArg::Positional((**left).clone());
+                match args
+                    .iter()
+                    .position(|arg| matches!(arg, pleno_ast::CallArg::Placeholder))
+                {
+                    Some(index) => args[index] = piped,
+                    None => args.insert(0, piped),
+                }
+                let call = Expr::new(
+                    ExprKind::Call {
+                        callee: callee.clone(),
+                        args,
+                    },
+                    expr.span,
+                );
+                self.compile_expr(&call)
+            }
             ExprKind::Pipeline { left, right } => {
                 let left_reg = self.compile_expr(left)?;
                 let right_reg = self.compile_expr(right)?;
@@ -1459,13 +1492,17 @@ impl Compiler {
                     self.compile_inlined_call(&decl, args, dest, expr.span)?;
                     return Ok(dest);
                 }
-                if let Some(params) = match &callee.kind {
+                // Arguments passed to `move` parameters become unusable after the call.
+                let moved_regs = match match &callee.kind {
                     ExprKind::Ident(name) => self.resolve_fn_signature(name),
                     _ => None,
                 } {
-                    let params = params.to_vec();
-                    self.enforce_call_ownership(&params, args, expr.span)?;
-                }
+                    Some(params) => {
+                        let params = params.to_vec();
+                        self.enforce_call_ownership(&params, args, expr.span)?
+                    }
+                    None => Vec::new(),
+                };
                 // Handle super() constructor call
                 if matches!(&callee.kind, ExprKind::Super) {
                     if self.current_super.is_none() {
@@ -1512,6 +1549,9 @@ impl Compiler {
                 let dest = self.registers.allocate()?;
                 self.compile_call_internal(callee_reg, args, dest, expr.span)?;
                 self.free_temp(callee_reg);
+                for reg in moved_regs {
+                    self.ownership_states.insert(reg, OwnershipState::Moved);
+                }
                 Ok(dest)
             }
             ExprKind::SafeCall { callee, args } => {
@@ -1947,7 +1987,11 @@ impl Compiler {
 
             self.push_scope();
             self.finally_stack.push(finally_branch.cloned());
-            self.insert_local(catch.name.clone(), error_reg, false, catch.ty.clone())?;
+            // The catch variable gets its own register: leaving this scope frees
+            // it, and `error_reg` must stay live for the following catches.
+            let catch_reg = self.registers.allocate()?;
+            self.emit(Opcode::Move, catch_reg, error_reg, 0);
+            self.insert_local(catch.name.clone(), catch_reg, false, catch.ty.clone())?;
             self.compile_stmt(&catch.body)?;
             self.finally_stack.pop();
             self.pop_scope();
@@ -2699,6 +2743,10 @@ impl Compiler {
         let mut compiler = Compiler::new(self.source.clone());
         compiler.is_top_level = false;
         compiler.is_async = decl.is_async;
+        // Calls inside the function check ownership against enclosing
+        // signatures, and annotations use the enclosing type aliases.
+        compiler.fn_signatures = self.fn_signatures.clone();
+        compiler.type_aliases = self.type_aliases.clone();
         compiler.push_scope();
         compiler.module_name = self.module_name.clone();
         compiler.captures = captures
@@ -2725,7 +2773,12 @@ impl Compiler {
                     .find(|p| p.name == *param)
                     .and_then(|p| p.ty.clone())
             };
-            compiler.insert_local(param.clone(), reg, true, ty)?;
+            // A `&` (read-only borrow) parameter cannot be reassigned.
+            let borrowed = decl
+                .params
+                .iter()
+                .any(|p| p.name == *param && p.ownership == pleno_ast::Ownership::Borrow);
+            compiler.insert_local(param.clone(), reg, !borrowed, ty)?;
         }
         for param in decl.params.iter() {
             if let Some(default) = &param.default {
@@ -2963,6 +3016,13 @@ impl Compiler {
         let is_callable_reg = self.registers.allocate()?;
         self.emit(Opcode::Is, is_callable_reg, callee_reg, fn_type_reg);
         let skip_jump = self.emit_jump(Opcode::JumpIfNot, is_callable_reg);
+        // A class used as an annotation (`@Entity`, `@Route("/users")`) is
+        // metadata, not a decorator, even though classes are callable.
+        let class_name_idx = self.add_constant(Value::String(Rc::new("Class".to_string())));
+        self.emit(Opcode::TypeOf, is_callable_reg, callee_reg, 0);
+        self.emit(Opcode::LoadConst, fn_type_reg, class_name_idx, 0);
+        self.emit(Opcode::Eq, is_callable_reg, is_callable_reg, fn_type_reg);
+        let skip_class_jump = self.emit_jump(Opcode::JumpIf, is_callable_reg);
         self.free_temp(fn_type_reg);
         self.free_temp(is_callable_reg);
 
@@ -2983,6 +3043,19 @@ impl Compiler {
             );
             self.compile_expr(&call)?
         };
+        // A factory that returns something other than a function is metadata.
+        let skip_result_jump = if decorator_reg != callee_reg {
+            let fn_type_reg = self.registers.allocate()?;
+            self.emit(Opcode::LoadConst, fn_type_reg, fn_type_idx, 0);
+            let is_callable_reg = self.registers.allocate()?;
+            self.emit(Opcode::Is, is_callable_reg, decorator_reg, fn_type_reg);
+            let jump = self.emit_jump(Opcode::JumpIfNot, is_callable_reg);
+            self.free_temp(fn_type_reg);
+            self.free_temp(is_callable_reg);
+            Some(jump)
+        } else {
+            None
+        };
 
         let args_reg = self.registers.allocate()?;
         self.emit(Opcode::NewArray, args_reg, 0, 0);
@@ -3000,6 +3073,10 @@ impl Compiler {
         self.free_temp(is_null_reg);
         self.free_temp(result_reg);
 
+        if let Some(jump) = skip_result_jump {
+            self.patch_jump(jump)?;
+        }
+        self.patch_jump(skip_class_jump)?;
         self.patch_jump(skip_jump)?;
         if decorator_reg != callee_reg {
             self.free_temp(decorator_reg);
@@ -3015,6 +3092,7 @@ impl Compiler {
         return_ty: Option<&str>,
         is_pure: bool,
         annotations: &[pleno_ast::Annotation],
+        is_async: bool,
     ) -> Result<u8, CompileError> {
         let body_stmt = match &body.kind {
             ExprKind::Block(stmts) => Stmt {
@@ -3040,16 +3118,23 @@ impl Compiler {
             body: Box::new(body_stmt),
             is_static: false,
             is_abstract: false,
-            is_async: false,
+            is_async,
             visibility: None,
             kind: FunctionKind::Method,
             annotations: Vec::new(),
             doc: None,
         };
+        // An async lambda compiles like an async function declaration, which
+        // sets up its promise.
+        if is_async {
+            return self.compile_function(&decl, false, true, None, None);
+        }
 
         let captures = self.analyze_captures(&decl, false);
         let mut compiler = Compiler::new(self.source.clone());
         compiler.is_top_level = false;
+        compiler.fn_signatures = self.fn_signatures.clone();
+        compiler.type_aliases = self.type_aliases.clone();
         compiler.push_scope();
         compiler.module_name = self.module_name.clone();
         compiler.captures = captures
@@ -3672,8 +3757,14 @@ impl Compiler {
                 // Check if this is a generic type (contains '<')
                 if let Some(lt_pos) = interface_name.find('<') {
                     // Parse generic: "Container<Int>" -> base="Container", args=["Int"]
+                    if !interface_name.ends_with('>') || lt_pos + 1 >= interface_name.len() - 1 {
+                        return Err(self.error(
+                            &format!("invalid interface type '{interface_name}'"),
+                            self.current_span,
+                        ));
+                    }
                     let base_name = &interface_name[..lt_pos];
-                    let args_str = &interface_name[lt_pos + 1..interface_name.len() - 1]; // Strip < and >
+                    let args_str = &interface_name[lt_pos + 1..interface_name.len() - 1];
 
                     // Load base interface
                     let base_reg = self.registers.allocate()?;
@@ -4288,30 +4379,33 @@ impl Compiler {
         }
     }
 
+    /// Checks the arguments against the callee's ownership hints and returns
+    /// the registers of variables passed to `move` parameters, which the
+    /// caller marks as moved once the call is compiled.
     fn enforce_call_ownership(
         &mut self,
         params: &[ParamOwnership],
         args: &[pleno_ast::CallArg],
         span: pleno_ast::Span,
-    ) -> Result<(), CompileError> {
+    ) -> Result<Vec<u8>, CompileError> {
+        let mut moved = Vec::new();
         let mut positional_idx = 0;
         for arg in args {
-            match arg {
+            let (param, expr) = match arg {
                 pleno_ast::CallArg::Positional(expr) => {
-                    if let Some(param) = params.get(positional_idx) {
-                        self.enforce_arg_ownership(param, expr, span)?;
-                    }
                     positional_idx += 1;
+                    (params.get(positional_idx - 1), expr)
                 }
                 pleno_ast::CallArg::Named(name, expr) => {
-                    if let Some(param) = params.iter().find(|p| p.name == *name) {
-                        self.enforce_arg_ownership(param, expr, span)?;
-                    }
+                    (params.iter().find(|p| p.name == *name), expr)
                 }
-                pleno_ast::CallArg::Placeholder | pleno_ast::CallArg::Spread(_) => {}
+                pleno_ast::CallArg::Placeholder | pleno_ast::CallArg::Spread(_) => continue,
+            };
+            if let Some(param) = param {
+                moved.extend(self.enforce_arg_ownership(param, expr, span)?);
             }
         }
-        Ok(())
+        Ok(moved)
     }
 
     fn expand_stmt(
@@ -4574,7 +4668,7 @@ impl Compiler {
         param: &ParamOwnership,
         expr: &Expr,
         span: pleno_ast::Span,
-    ) -> Result<(), CompileError> {
+    ) -> Result<Option<u8>, CompileError> {
         if let Some(local) = match &expr.kind {
             ExprKind::Ident(name) => self.resolve_local(name),
             _ => None,
@@ -4587,10 +4681,7 @@ impl Compiler {
                 return Err(self.error("use of moved value", span));
             }
             match param.ownership {
-                pleno_ast::Ownership::Move => {
-                    self.ownership_states
-                        .insert(local.reg, OwnershipState::Moved);
-                }
+                pleno_ast::Ownership::Move => return Ok(Some(local.reg)),
                 pleno_ast::Ownership::BorrowMut => {
                     if !local.mutable {
                         return Err(
@@ -4601,7 +4692,7 @@ impl Compiler {
                 pleno_ast::Ownership::Borrow | pleno_ast::Ownership::None => {}
             }
         }
-        Ok(())
+        Ok(None)
     }
 
     fn resolve_inline_function(&self, name: &str) -> Option<&FunctionDecl> {
@@ -4759,12 +4850,8 @@ impl Compiler {
             name = name.strip_suffix('?').unwrap().trim();
         }
 
-        // Expand alias if it exists
-        let expanded = self
-            .type_aliases
-            .get(name)
-            .map(|s| s.as_str())
-            .unwrap_or(name);
+        let expanded = self.expand_type_alias(name);
+        let expanded = expanded.as_str();
 
         let union_parts = self.split_aware(expanded, '|');
         let mut union_types = Vec::new();
@@ -4779,15 +4866,63 @@ impl Compiler {
         (union_types, is_optional)
     }
 
+    /// Expands a type alias once: `Pair<Int>` with `type Pair<T> = (T, T);`
+    /// becomes `(Int, Int)`. Other types are returned unchanged.
+    fn expand_type_alias(&self, name: &str) -> String {
+        let (base, args) = match name.find('<') {
+            Some(open) if name.ends_with('>') => (
+                &name[..open],
+                self.split_aware(&name[open + 1..name.len() - 1], ','),
+            ),
+            _ => (name, Vec::new()),
+        };
+        let Some((params, ty)) = self.type_aliases.get(base.trim()) else {
+            return name.to_string();
+        };
+        if params.is_empty() || params.len() != args.len() {
+            return if params.is_empty() && args.is_empty() {
+                ty.clone()
+            } else {
+                name.to_string()
+            };
+        }
+        let mut expanded = String::new();
+        let mut word = String::new();
+        for ch in ty.chars().chain(std::iter::once(' ')) {
+            if ch.is_alphanumeric() || ch == '_' {
+                word.push(ch);
+                continue;
+            }
+            match params.iter().position(|param| *param == word) {
+                Some(index) => expanded.push_str(args[index].trim()),
+                None => expanded.push_str(&word),
+            }
+            word.clear();
+            expanded.push(ch);
+        }
+        expanded.pop();
+        expanded
+    }
+
     fn emit_reified_type(&mut self, ty_name: &str) -> Result<u8, CompileError> {
-        let ty_name = ty_name.trim();
-        // Built-in generic collections are checked from the annotation text by the VM.
-        let builtin_generic = ty_name
-            .split_once('<')
-            .is_some_and(|(base, _)| matches!(base.trim(), "Array" | "Map" | "Set"));
+        let expanded = self.expand_type_alias(ty_name.trim());
+        let ty_name = expanded.as_str();
+        // Built-in generic collections, `Result` and `Option` are checked from
+        // the annotation text by the VM.
+        let builtin_generic = ty_name.split_once('<').is_some_and(|(base, _)| {
+            matches!(base.trim(), "Array" | "Map" | "Set" | "Result" | "Option")
+        });
         if let Some(start_idx) = ty_name.find('<').filter(|_| !builtin_generic) {
+            // `Name<Args>`: anything else (`a<b`, a union part like `x<y`) is
+            // not a type this can reify.
+            if !ty_name.ends_with('>') || start_idx + 1 >= ty_name.len() - 1 {
+                return Err(self.error(
+                    &format!("invalid type annotation '{ty_name}'"),
+                    self.current_span,
+                ));
+            }
             let base_name = ty_name[..start_idx].trim();
-            let args_str = &ty_name[start_idx + 1..ty_name.len() - 1]; // Assuming it ends with >
+            let args_str = &ty_name[start_idx + 1..ty_name.len() - 1];
             let args = self.split_aware(args_str, ',');
 
             let base_reg = self.registers.allocate()?;
@@ -4900,7 +5035,7 @@ impl Compiler {
     }
 
     pub fn compile_lazy_thunk(&mut self, expr: &Expr) -> Result<u8, CompileError> {
-        let callable_reg = self.compile_lambda(&[], expr, None, false, &[])?;
+        let callable_reg = self.compile_lambda(&[], expr, None, false, &[], false)?;
         let thunk_reg = self.registers.allocate()?;
         self.emit(Opcode::MakeThunk, thunk_reg, callable_reg, 0);
         self.free_temp(callable_reg);

@@ -98,25 +98,8 @@ impl ScopeTracker {
     fn new() -> Self {
         let mut globals = HashSet::new();
         let builtins = [
-            "print",
-            "println",
-            "id",
-            "typeof",
-            "map",
-            "Int",
-            "Float",
-            "String",
-            "Array",
-            "Map",
-            "JSON",
-            "Math",
-            "OS",
-            "Promise",
-            "Channel",
-            "Mutex",
-            "spawn",
-            "await",
-            "__native_sleep",
+            "print", "println", "id", "typeof", "map", "Int", "Float", "String", "Array", "Map",
+            "JSON", "Math", "OS", "Promise", "Channel", "Mutex", "spawn", "await",
         ];
         for b in builtins {
             globals.insert(b.to_string());

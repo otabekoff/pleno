@@ -1,39 +1,41 @@
 # Getting Started with Pleno
 
-Welcome to Pleno! This walkthrough will help you set up your environment and run your first Pleno program.
+This walkthrough sets up the toolchain and runs your first Pleno program.
 
 ## 1. Install the Toolchain
 
-Ensure you have the Pleno toolchain installed on your system. You can build it from source or download a pre-built binary.
+Run **Pleno: Install or Update Toolchain** from the Command Palette. It downloads the latest release for your system from GitHub, checks its SHA-256 checksum, and puts `pleno`, `plm`, `pleno-lsp`, `pleno-dap` and `pleno-repl` on PATH in VS Code's terminals.
 
-[Install Instructions](https://github.com/otabekoff/pleno#installation)
+[Install the Toolchain](command:pleno.installToolchain)
 
-## 2. Initialize a New Project
+Prefer a system-wide install? See the [installation instructions](https://github.com/otabekoff/pleno#installation).
 
-Open a folder in VSCode and run the following command in your terminal:
+## 2. Create a Project
+
+Open an empty folder and run **Pleno: Create New Project**, or in a terminal:
 
 ```bash
-pleno init my-project
+plm init my-project
 ```
-
-Or use the Pleno: Project Overview sidebar to get started.
 
 ## 3. Your First Program
 
-Create a file named `hello.pln` and add the following code:
+Create `hello.pln`:
 
 ```pleno
-fun main() {
-    print("Hello, Pleno!")
+fn greet(name: String): String {
+    return "Hello, ${name}!";
 }
+
+print(greet("Pleno"));
 ```
 
 ## 4. Run and Debug
 
-Click the **Run** button in the top right corner or run `pleno run hello.pln` in your terminal.
+Click **Run** in the editor title bar, or run `pleno run hello.pln`. Press `F5` to debug with breakpoints.
 
-Check the **Problems** tab for any syntax or type errors detected by the Pleno Language Server.
+Errors appear in the **Problems** panel as you type.
 
-## 5. Explore the Ecosystem
+## 5. Learn More
 
-Visit the [Documentation](https://github.com/otabekoff/pleno/docs) to learn more about the language features and standard library.
+Read the [documentation](https://otabekoff.github.io/pleno/) for the language guide and the standard library.

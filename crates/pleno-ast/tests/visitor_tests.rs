@@ -89,6 +89,7 @@ fn test_symbol_collection() {
                 is_keyword_only: false,
                 ownership: Ownership::None,
             }],
+            return_ty: None,
             body: Box::new(func_body),
             annotations: Vec::new(),
             is_async: false,

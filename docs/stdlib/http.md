@@ -27,7 +27,7 @@ let data = HTTP.get("https://api.example.com/users");
 Make a POST request with optional body.
 
 ```pleno
-let result = HTTP.post("https://api.example.com/users", '{"name": "John"}');
+let result = HTTP.post("https://api.example.com/users", `{"name": "John"}`);
 ```
 
 #### `static` `fn put(url: string, body?: string): string`
@@ -77,8 +77,8 @@ let response = HTTP.request("GET", "https://api.example.com/users");
 print(response.status, response.ok);
 
 // With custom headers
-let response = HTTP.request("POST", "https://api.example.com/data",
-    '{"key": "value"}',
+let created = HTTP.request("POST", "https://api.example.com/data",
+    `{"key": "value"}`,
     { "Content-Type": "application/json", "Authorization": "Bearer token123" }
 );
 

@@ -22,15 +22,24 @@ fn test_regression_nested_tuples_crash() {
 
 #[test]
 fn test_recursion_limit_expr() {
-    let source = "(".repeat(1000) + &")".repeat(1000);
-    let tokens = lex(&source).unwrap();
-    let mut parser = Parser::new(tokens, &source);
-    let result = parser.parse_program();
-    assert!(result.is_err());
-    assert!(
-        result
-            .unwrap_err()
-            .message
-            .contains("Recursion limit exceeded")
-    );
+    // The pleno binaries parse on a thread with a 64 MB stack; the default
+    // 2 MB test thread is too small for a debug build at the depth limit.
+    std::thread::Builder::new()
+        .stack_size(64 * 1024 * 1024)
+        .spawn(|| {
+            let source = "(".repeat(1000) + &")".repeat(1000);
+            let tokens = lex(&source).unwrap();
+            let mut parser = Parser::new(tokens, &source);
+            let result = parser.parse_program();
+            assert!(result.is_err());
+            assert!(
+                result
+                    .unwrap_err()
+                    .message
+                    .contains("Recursion limit exceeded")
+            );
+        })
+        .unwrap()
+        .join()
+        .unwrap();
 }

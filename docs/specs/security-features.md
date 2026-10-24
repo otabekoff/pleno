@@ -46,8 +46,8 @@ try {
         return process(data);
     });
 } catch (e) {
-    println("Sandbox violation: " + e.message);
-    println("Peak Memory: " + e.peakMemory.toString());
+    print("Sandbox violation: " + e.message);
+    print("Peak Memory: " + e.peakMemory.toString());
 }
 ```
 

@@ -27,6 +27,9 @@ suite("Pleno Extension Test Suite", () => {
             "pleno.checkFile",
             "pleno.refreshProject",
             "pleno.showControlPanel",
+            "pleno.installToolchain",
+            "pleno.uninstallToolchain",
+            "pleno.showStatus",
         ];
 
         for (const cmd of plenoCommands) {
@@ -47,9 +50,4 @@ suite("Pleno Extension Test Suite", () => {
         });
     });
 
-    test("Tree view should be available", () => {
-        // This just checks if the view ID is valid
-        // The actual tree view provider registration is tested implicitly
-        assert.ok(true, "Tree view test placeholder");
-    });
 });

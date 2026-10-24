@@ -1188,6 +1188,33 @@ for (value in channel) {
 }
 ```
 
+### 9.5 Mutex (std:concurrency)
+
+`Mutex` and `Channel` come from `std:concurrency`. A mutex guards shared state between tasks.
+
+```pleno
+import { Mutex, Channel } from "std:concurrency";
+
+let lock = Mutex();
+lock.lock();
+// ... update shared state ...
+lock.unlock();
+
+let channel = Channel();
+channel.send(5);
+print(channel.recv());  // 5
+```
+
+| Method | Description |
+| --- | --- |
+| `Mutex()` | Creates an unlocked mutex |
+| `mutex.lock()` | Acquires the lock |
+| `mutex.unlock()` | Releases the lock |
+| `Channel()` | Creates a channel |
+| `channel.send(value)` | Sends a value |
+| `channel.recv()` | Receives the next value |
+| `channel.close()` | Closes the channel; `for (v in channel)` then ends |
+
 ---
 
 ## 10. Generics
@@ -1746,6 +1773,54 @@ set.with(5);              // Return copy with element added
 // Iteration
 set.iterator();           // Get iterator
 ```
+
+### 13.12 Garbage Collector (std:gc)
+
+`std:gc` exposes the collector that manages Pleno's heap. Collection runs automatically; these functions are for diagnostics and tuning.
+
+```pleno
+import GC from "std:gc";
+
+GC.collect();             // Run a collection now
+print(GC.heapSize());     // Bytes currently allocated
+print(GC.isEnabled());    // true
+let stats = GC.stats();   // Map of collector statistics
+GC.report();              // Print the statistics
+```
+
+### 13.13 Sandboxing (std:security)
+
+`Sandbox` runs a function in an isolated VM with its own limits. A limit that is exceeded throws an error in the caller.
+
+```pleno
+import { Sandbox } from "std:security";
+
+let sandbox = Sandbox({
+    allowIO: false,          // Block printing and file access
+    allowNetwork: false,     // Block std:http and std:net
+    maxMemory: 1024 * 1024,  // Bytes
+    maxInstructions: 10000,
+    allowedReadPaths: ["data/"],
+    allowedWritePaths: [],
+});
+
+try {
+    sandbox.run(fn() { while (true) {} });
+} catch (e) {
+    print("stopped: " + e.message);  // instruction limit exceeded
+}
+```
+
+| Option | Type | Default | Meaning |
+| --- | --- | --- | --- |
+| `allowIO` | `Bool` | `true` | Allow console and file I/O |
+| `allowNetwork` | `Bool` | `true` | Allow network access |
+| `maxMemory` | `Int` | none | Heap limit in bytes |
+| `maxInstructions` | `Int` | none | Instruction limit |
+| `allowedReadPaths` | `String[]` | all | Paths the function may read |
+| `allowedWritePaths` | `String[]` | all | Paths the function may write |
+
+The same limits apply to a whole program with the CLI flags `--allow-io`, `--allow-network`, `--max-memory` and `--max-instructions`.
 
 ---
 

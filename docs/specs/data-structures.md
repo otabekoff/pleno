@@ -95,6 +95,10 @@ set1.difference(set2);      // {1, 2}
 
 ### 5.4 Tuples
 
+::: warning Planned
+Tuple type annotations such as `(String, Int, Bool)` and destructuring with `let (name, age, active) = person;` are not implemented yet. Tuples, `.0`/`.1` access and named tuples work.
+:::
+
 ```pleno
 // Tuple with different types
 let person: (String, Int, Bool) = ("Alice", 30, true);

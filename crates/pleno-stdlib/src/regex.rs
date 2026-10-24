@@ -53,6 +53,13 @@ pub fn regex_constructor(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Valu
                 function: regex_replace,
             })?),
         );
+        state.entries.insert(
+            "split".to_string(),
+            Value::BoundNativeMethod(gc.allocate(BoundNativeMethodState {
+                receiver: map_val.clone(),
+                function: regex_split,
+            })?),
+        );
     }
 
     Ok(map_val)
@@ -231,4 +238,28 @@ pub fn regex_replace(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, 
         .map_err(|e| RuntimeError::new(format!("invalid regex: {}", e)))?;
     let result = re.replace_all(text, replacement);
     Ok(Value::String(Rc::new(result.to_string())))
+}
+
+/// `pattern.split(text)`: the pieces of `text` between matches.
+pub fn regex_split(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    let pattern = match args.first() {
+        Some(Value::Map(m)) => match m.borrow().get("pattern") {
+            Some(Value::String(s)) => s.to_string(),
+            _ => return Err(RuntimeError::new("Regex instance missing pattern")),
+        },
+        _ => return Err(RuntimeError::new("Regex.split: invalid receiver")),
+    };
+    let text = match args.get(1) {
+        Some(Value::String(s)) => s.clone(),
+        _ => return Err(RuntimeError::new("Regex.split expects text string")),
+    };
+    let re = regex::Regex::new(&pattern)
+        .map_err(|e| RuntimeError::new(format!("invalid regex: {}", e)))?;
+    let parts = re
+        .split(&text)
+        .map(|part| Value::String(Rc::new(part.to_string())))
+        .collect();
+    Ok(Value::Array(
+        vm.get_gc().allocate(pleno_value::ArrayState::new(parts))?,
+    ))
 }

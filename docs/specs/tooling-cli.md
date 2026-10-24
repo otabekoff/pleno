@@ -113,11 +113,9 @@ pleno lsp --log-level debug
 ## Debugging
 
 ```bash
-# Run with debugger
-pleno debug script.pln
-
-# Connect to DAP (Debug Adapter Protocol)
-pleno dap --port 4711
+# Start the debug adapter (Debug Adapter Protocol over stdio).
+# Editors start it for you: in VS Code, open a .pln file and press F5.
+pleno dap
 ```
 
 ## Package Manager

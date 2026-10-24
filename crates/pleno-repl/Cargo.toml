@@ -14,3 +14,6 @@ pleno-stdlib = { workspace = true }
 pleno-diagnostics = { workspace = true }
 pleno-common = { workspace = true }
 rustyline = { workspace = true }
+
+[build-dependencies]
+winresource = "0.1"

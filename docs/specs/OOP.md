@@ -57,6 +57,8 @@ print(person.active);   // OK: Public field
 ### 4.2 Properties (Getters/Setters)
 
 ```pleno
+import { Math } from "std:math";
+
 class Circle {
     private radius: Float;
     

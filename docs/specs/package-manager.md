@@ -75,16 +75,15 @@ plm install           # Install all dependencies
 plm install <pkg>     # Install a package
 plm update            # Update dependencies
 plm remove <pkg>      # Remove a package
-plm list              # List installed packages
 
 # Run scripts
 plm run <script>      # Run a script from pleno.toml
 plm run start         # Run 'start' script
 plm run test          # Run 'test' script
 
-# Publishing
+# Publishing (the registry URL comes from PLENO_REGISTRY)
 plm publish           # Publish to registry
-plm login             # Authenticate with registry
+plm search <term>     # Search the registry
 ```
 
 ## Lock File
