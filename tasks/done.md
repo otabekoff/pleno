@@ -43,6 +43,17 @@ History & motivation. This becomes your project diary. Very powerful psychologic
 - [x] `vm_errors.rs` covers bytecode and corrupted-chunk errors; empty tests removed
 - [x] Specs document `std:gc`, `std:security` and `Mutex`; no `__native_` globals remain
 - [x] Fuzz and benchmark-regression workflows added; root `.vitepress` cache untracked
+- [x] Docs checked by running every code block (308): syntax and API drift fixed, unimplemented features marked as planned
+- [x] Backtick strings; `assert.true/false/null`; enum methods after `;`; `return`/`throw` in match arms; generic type aliases; `extend <T> Array<T>`
+- [x] Type checks: enum values against their enum, generic enums, `Result`/`Option` annotations, contravariant interfaces, aliases inside functions
+- [x] A skipped typed `catch` no longer overwrites the error for the next one
+- [x] `x |> f(a)` calls `f(x, a)` (and fills a `_` placeholder)
+- [x] Channels: `for (x in ch)` waits for values and ends on `close()`; values sent before `close()` are delivered
+- [x] Class annotations (`@Route("/users")`) are metadata, not decorators
+- [x] Every std module offers a namespace and named imports (`Path`, `HTTP`, `OS`, ...); `std:core` and `std:promise` exist
+- [x] `std:log` levels and prefixed loggers; `DateTime.parse/add/subtract/isAfter`, `Duration`; `JSON.stringifyPretty`; `Regex.split`; `Benchmark.measure`; `OS.hostname/uptime`; `Set/Map.isEmpty`, `Range.contains/toArray`, `Array.clone`, function `.name`
+- [x] `pleno check` prints `file:line:col` and real JSON with `--json`; `pleno --help` lists every command
+- [x] VS Code extension 0.2.0: toolchain install/update, accurate tool detection, no duplicate diagnostics or formatters, fixed snippets and walkthrough
 
 ## 2026-01-23
 - [x] Setup project structure

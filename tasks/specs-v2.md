@@ -4,6 +4,12 @@ Status checked against the code on 2026-10-24. Completed items have been removed
 
 ## Open work
 
+### Language
+
+- [ ] **Tuple types and destructuring**. Status: tuples, `.0` access and named tuples work. Missing: tuple type annotations (`let p: (String, Int)`) and destructuring (`let (a, b) = p;`, `let [x, y] = arr;`), which `notes/specs.md` 5.4 describes.
+- [ ] **`with` statement** for resources that close themselves (`with (f = File.open(...)) { ... }`). Status: not started; the docs mark it as planned.
+- [ ] **One error shape**. Status: runtime errors are thrown as maps with `message`, but compiler-generated type errors are thrown as strings, so `catch (e) { e.message }` works for one and not the other.
+
 ### Performance
 
 - [ ] **JIT compilation** (spec 19.1). Status: not started. Execution is the bytecode interpreter only. A JIT also needs a design (Cranelift or LLVM; see the roadmap).
@@ -23,12 +29,13 @@ Status checked against the code on 2026-10-24. Completed items have been removed
 - [ ] **Central package registry**. Status: partly built. `crates/pleno-registry` is a registry server (Axum + SQLite), and `plm` can query and publish to a registry URL, but no public registry is deployed and the protocol is undocumented.
 - [ ] **LSP completeness**. Status: definition, references, rename, hover, completion, signature help, inlay hints, semantic tokens, folding, formatting, code lens, call hierarchy and code actions are implemented. Missing: refactorings beyond rename, workspace-wide symbol search, and integration tests for the server.
 - [ ] **Formatter**. Status: every test and example still passes after formatting, a second pass changes nothing, and comments, doc comments and blank lines between statements and members are kept. Missing: comments inside a multi-line expression (an array or call split over lines) move below the statement, and long lines are not wrapped (`max_line_length` is unused).
-- [ ] **Error messages with suggestions**. Status: errors now report the right line and operand types; there are no "did you mean" suggestions yet.
+- [ ] **Error messages with suggestions**. Status: errors report the right line, operand types, and the actual type in type errors (`expected Color, found Size`). Missing: "did you mean" suggestions, and the name of the value in "value is not callable".
+- [ ] **`pleno check` coverage**. Status: reports lex, parse and compile errors with positions (`--json` for editors). It does not report undefined names: `println(1);` passes `check` and fails at run time.
 
 ### Standard library
 
 - [ ] **Express-like web framework**. Status: `std:http` has a router with `:param` routes, query strings, headers, bodies, `res.status/header/send/json` and async handlers. Missing: middleware (`app.use`), static files, cookies.
-- [ ] **StdLib design consistency**. Status: needs a decision. Some modules export functions (`std:time`, `std:path`), others objects (`File`, `Directory`, `Regex`); most now offer both a namespace and named imports.
+- [ ] **TCP sockets (`std:net`)**. Status: `listen` binds and `connect` connects, but both close the socket at once and return a plain map. Missing: a socket resource with `accept`, `read`, `write` and `close`.
 - [ ] **Code Runner support**. Status: not done. The VS Code extension has its own "Run" command; Code Runner's executor map is a user setting the extension cannot safely change.
 
 ## Ideas and notes
