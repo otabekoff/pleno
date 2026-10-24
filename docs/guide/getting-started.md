@@ -20,7 +20,7 @@ Run it:
 pleno run hello.pln
 ```
 
-`pleno check hello.pln` finds syntax errors and misspelled names without running the file.
+`pleno check hello.pln` finds syntax errors, misspelled names, calls with the wrong number of arguments and literals that do not match their type annotation, without running the file.
 
 ## A project
 

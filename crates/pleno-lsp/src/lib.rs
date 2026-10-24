@@ -127,6 +127,22 @@ impl ServerState {
         let mut parser = pleno_parser::Parser::new(tokens, &text);
         match parser.parse_program() {
             Ok(program) => {
+                // The static checks `pleno check` runs: argument counts, unknown
+                // methods on `this`, literals that do not match their annotation.
+                for found in pleno_compiler::check::check_program(&program) {
+                    let (start, end) = span_to_range(&text, found.span.start, found.span.end);
+                    let severity = match found.severity {
+                        pleno_compiler::check::Severity::Error => 1,
+                        pleno_compiler::check::Severity::Warning => 2,
+                    };
+                    diagnostics.push(json!({
+                        "range": { "start": start, "end": end },
+                        "severity": severity,
+                        "source": "pleno check",
+                        "message": found.message
+                    }));
+                }
+
                 // Index symbols
                 if let Some(path) = uri_to_path(&uri) {
                     let symbols = extract_symbols(&program, &path);
@@ -1901,6 +1917,32 @@ mod position_tests {
         assert_eq!(position_to_offset(source, 3, 0), None);
 
         assert_eq!(offset_to_position(source, 12 + 4 + 4), (1, 6));
+    }
+
+    #[test]
+    fn documents_get_static_check_diagnostics() {
+        let mut state = ServerState::new();
+        let text = "fn greet(name) {}\ngreet(1, 2);\nlet x: Int = \"hi\";\n".to_string();
+        let diagnostics = state.update_document("untitled:Untitled-1".to_string(), text);
+        let messages: Vec<&str> = diagnostics
+            .iter()
+            .filter(|d| d["source"] == "pleno check")
+            .filter_map(|d| d["message"].as_str())
+            .collect();
+        assert_eq!(
+            messages,
+            [
+                "greet expects 1 argument, got 2",
+                "'x' is declared Int but given a String literal"
+            ]
+        );
+        let first = diagnostics
+            .iter()
+            .find(|d| d["source"] == "pleno check")
+            .unwrap();
+        assert_eq!(first["severity"], 1);
+        assert_eq!(first["range"]["start"]["line"], 1);
+        assert_eq!(first["range"]["start"]["character"], 0);
     }
 
     #[test]

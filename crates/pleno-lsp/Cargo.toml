@@ -10,6 +10,7 @@ pleno-parser = { workspace = true }
 pleno-ast = { workspace = true }
 pleno-formatter = { workspace = true }
 pleno-linter = { workspace = true }
+pleno-compiler = { workspace = true }
 serde_json = { workspace = true }
 url = { workspace = true }
 
