@@ -2,9 +2,9 @@ use indexmap::{IndexMap, IndexSet};
 use pleno_bytecode::{Chunk, Opcode, ParamSpec};
 use pleno_value::{
     ArrayState, BoundMethodState, BoundNativeMethodState, CallOptions, Class, ClosureState,
-    EnumType, EnumVariantDef, MapState, MethodOwner, MultiWaiter, MultiWaiterMode, NativeFunction,
-    Object, Range, RuntimeError, SetState, StaticMethodState, ThunkState, TupleState, VMProvider,
-    Value, ValueKey, gc::GcObject, nan_value::NanValue,
+    EnumType, EnumVariantDef, GcRc, MapState, MethodOwner, MultiWaiter, MultiWaiterMode,
+    NativeFunction, Object, Range, RuntimeError, SetState, StaticMethodState, ThunkState,
+    TupleState, VMProvider, Value, ValueKey, gc::GcObject, nan_value::NanValue,
 };
 // use std::collections::HashSet;
 use std::fs;
@@ -64,6 +64,9 @@ pub struct VM {
     pub event_loop: event_loop::EventLoop,
     pub debug_context: DebugContext,
     pub output: Option<String>,
+    /// The built-in `Error` class, which runtime errors are instances of even
+    /// when a program shadows the global `Error`.
+    pub error_class: GcRc<Class>,
 }
 
 #[derive(Debug, Clone)]
@@ -271,7 +274,10 @@ impl VMProvider for VM {
             // `finally`: run the callback, then pass the original outcome through.
             match self.call(on_fulfilled, vec![]) {
                 Ok(_) => self.settle_promise(child_id, value.clone(), rejected),
-                Err(e) => self.reject_promise(child_id, rejection_reason(e)),
+                Err(e) => {
+                    let reason = self.rejection_reason(e);
+                    self.reject_promise(child_id, reason)
+                }
             }
             return;
         }
@@ -283,7 +289,10 @@ impl VMProvider for VM {
         }
         match self.call(handler, vec![value.clone()]) {
             Ok(res) => self.resolve_promise(child_id, res),
-            Err(e) => self.reject_promise(child_id, rejection_reason(e)),
+            Err(e) => {
+                let reason = self.rejection_reason(e);
+                self.reject_promise(child_id, reason)
+            }
         }
     }
 
@@ -426,6 +435,10 @@ impl VMProvider for VM {
             .as_ref()
             .map(|c| c.max_memory)
             .unwrap_or(0)
+    }
+
+    fn instruction_count(&self) -> u64 {
+        self.instruction_count
     }
 
     fn get_max_instructions(&self) -> u64 {
@@ -673,8 +686,14 @@ impl VM {
 
     pub fn new() -> Self {
         let gc = pleno_value::gc::GCManager::new(4 * 1024 * 1024);
-        let globals = IndexMap::new();
+        let mut globals = IndexMap::new();
         let modules = IndexMap::new();
+        // Never handed to the collector: it lives as long as the VM.
+        let error_class = GcRc::new(Class::error());
+        globals.insert(
+            pleno_value::ERROR_CLASS.to_string(),
+            Value::Class(error_class.clone()),
+        );
 
         Self {
             sandbox_config: None,
@@ -700,6 +719,7 @@ impl VM {
             event_loop: event_loop::EventLoop::new(),
             debug_context: DebugContext::new(),
             output: None,
+            error_class,
         }
     }
 
@@ -1156,7 +1176,10 @@ impl VM {
                                 self.resolve_promise(task.promise_id, res);
                             }
                         }
-                        Err(e) => self.reject_promise(task.promise_id, rejection_reason(e)),
+                        Err(e) => {
+                            let reason = self.rejection_reason(e);
+                            self.reject_promise(task.promise_id, reason)
+                        }
                     }
                 }
                 continue;
@@ -1990,7 +2013,7 @@ impl VM {
                                     if !self.is_instance(&value, &ty_val) {
                                         let actual_type_name = value.type_name();
                                         let msg = format!(
-                                            "Type error: field '{}' expected {}, got {}",
+                                            "TypeError: field '{}' expected {}, got {}",
                                             name,
                                             ty_val.as_str().unwrap_or_default(),
                                             actual_type_name
@@ -2354,7 +2377,7 @@ impl VM {
                                     if !self.is_instance(&value.to_value(), &ty_val) {
                                         let actual_type_name = value.type_name();
                                         let msg = format!(
-                                            "Type error: field '{}' expected {}, got {}",
+                                            "TypeError: field '{}' expected {}, got {}",
                                             name,
                                             ty_val.as_str().unwrap_or_default(),
                                             actual_type_name
@@ -2412,7 +2435,7 @@ impl VM {
                                 if !self.is_instance(&value.to_value(), &ty_val) {
                                     let actual_type_name = value.type_name();
                                     let msg = format!(
-                                        "Type error: static field '{}' expected {}, got {}",
+                                        "TypeError: static field '{}' expected {}, got {}",
                                         name,
                                         ty_val.as_str().unwrap_or_default(),
                                         actual_type_name
@@ -2629,6 +2652,9 @@ impl VM {
                                         owner: info.owner.clone(),
                                         visibility: info.visibility,
                                     })?)
+                                } else if name == "toString" && class.borrow().extends_error() {
+                                    // `Error: message`, as errors print.
+                                    self.bind_to_string(Value::Object(object.clone()))?
                                 } else {
                                     return Err(self.handle_property_error(&name, "Object"));
                                 }
@@ -2896,7 +2922,13 @@ impl VM {
                             },
                         )?;
                     } else {
-                        // No constructor, just return null
+                        // The built-in `Error` has a native constructor; other
+                        // classes without a constructor have nothing to run.
+                        self.call_native_constructor(
+                            &superclass,
+                            &Value::Object(this_obj.clone()),
+                            &args,
+                        )?;
                         self.registers[base + a] = NanValue::null();
                     }
                 }
@@ -2996,6 +3028,13 @@ impl VM {
                             .borrow()
                             .entries
                             .get(&key.to_string())
+                            .cloned()
+                            .unwrap_or(Value::Null)),
+                        // A Float reads the key it prints as, so `map[5.0]` is `map[5]`.
+                        (Value::Map(map), Value::Float(key)) => Ok(map
+                            .borrow()
+                            .entries
+                            .get(&Value::Float(*key).to_string())
                             .cloned()
                             .unwrap_or(Value::Null)),
                         (Value::Set(set), value) => {
@@ -3209,11 +3248,7 @@ impl VM {
                     if (left_nan.is_f64() || left_nan.tag() < 7)
                         && (right_nan.is_f64() || right_nan.tag() < 7)
                     {
-                        let res = if left_nan.is_f64() && right_nan.is_f64() {
-                            left_nan.as_f64() == right_nan.as_f64()
-                        } else {
-                            left_nan == right_nan
-                        };
+                        let res = numbers_or_bits_equal(left_nan, right_nan);
                         self.registers[base + a] = NanValue::from_bool(res);
                         continue;
                     }
@@ -3227,7 +3262,8 @@ impl VM {
                     )? {
                         continue;
                     }
-                    self.registers[base + a] = NanValue::from_bool(left == right);
+                    self.registers[base + a] =
+                        NanValue::from_bool(pleno_value::values_equal(&left, &right));
                 }
                 Opcode::Ne => {
                     let left_nan = self.registers[base + b];
@@ -3235,11 +3271,7 @@ impl VM {
                     if (left_nan.is_f64() || left_nan.tag() < 7)
                         && (right_nan.is_f64() || right_nan.tag() < 7)
                     {
-                        let res = if left_nan.is_f64() && right_nan.is_f64() {
-                            left_nan.as_f64() != right_nan.as_f64()
-                        } else {
-                            left_nan != right_nan
-                        };
+                        let res = !numbers_or_bits_equal(left_nan, right_nan);
                         self.registers[base + a] = NanValue::from_bool(res);
                         continue;
                     }
@@ -3253,7 +3285,8 @@ impl VM {
                     )? {
                         continue;
                     }
-                    self.registers[base + a] = NanValue::from_bool(left != right);
+                    self.registers[base + a] =
+                        NanValue::from_bool(!pleno_value::values_equal(&left, &right));
                 }
                 Opcode::Lt | Opcode::Le | Opcode::Gt | Opcode::Ge => {
                     let left_nan = self.registers[base + b];
@@ -4664,7 +4697,14 @@ impl VM {
                         .ok_or_else(|| RuntimeError::new("pop handler underflow"))?;
                 }
                 Opcode::Throw => {
-                    let error_value = self.registers[base + a].to_value();
+                    let mut error_value = self.registers[base + a].to_value();
+                    // `c == 1`: an error the compiler raises (a failed type
+                    // check), thrown as an `Error` like other runtime errors.
+                    if c == 1
+                        && let Value::String(message) = &error_value
+                    {
+                        error_value = self.new_error(&message.clone());
+                    }
                     match self.unwind_to_handler(error_value) {
                         Ok(_) => unreachable!(),
                         Err(err) => return Err(err),
@@ -5430,7 +5470,13 @@ impl VM {
                             ..Default::default()
                         },
                     )
-                } else if positional.is_empty() && named.is_empty() {
+                } else if named.is_empty()
+                    && (self.call_native_constructor(
+                        &class,
+                        &Value::Object(object.clone()),
+                        &positional,
+                    )? || positional.is_empty())
+                {
                     self.registers[return_reg] = NanValue::from_value(&Value::Object(object));
                     Ok(())
                 } else {
@@ -5470,7 +5516,13 @@ impl VM {
                             ..Default::default()
                         },
                     )
-                } else if positional.is_empty() && named.is_empty() {
+                } else if named.is_empty()
+                    && (self.call_native_constructor(
+                        class,
+                        &Value::Object(object.clone()),
+                        &positional,
+                    )? || positional.is_empty())
+                {
                     self.registers[return_reg] = NanValue::from_value(&Value::Object(object));
                     Ok(())
                 } else {
@@ -5734,37 +5786,60 @@ impl VM {
         }
     }
 
+    /// An instance of the built-in `Error` class for a runtime error message:
+    /// a prefix such as `TypeError: ` becomes its `name`, the rest its `message`.
+    /// It is allocated outside the memory limit, so it can always be thrown.
+    fn new_error(&mut self, message: &str) -> Value {
+        let (name, message) = pleno_value::split_error_message(message);
+        let mut object = Object::new(Some(self.error_class.clone()), None);
+        object.fields.insert(
+            "message".to_string(),
+            Value::String(Rc::new(message.to_string())),
+        );
+        object
+            .fields
+            .insert("name".to_string(), Value::String(Rc::new(name.to_string())));
+        Value::Object(self.gc.gc.allocate(object))
+    }
+
+    /// The value a promise is rejected with when a callback or task fails.
+    fn rejection_reason(&mut self, error: RuntimeError) -> Value {
+        let message = error
+            .message
+            .strip_prefix("uncaught exception: ")
+            .unwrap_or(&error.message)
+            .to_string();
+        self.new_error(&message)
+    }
+
     fn throw_runtime_error(&mut self, message: &str) -> RuntimeError {
         // Provide a small grace buffer for error handling if we hit memory limits
         if self.gc.max_bytes > 0 && self.gc.grace_bytes == 0 {
             self.gc.grace_bytes = 64 * 1024; // 64KB grace for emergency handling
         }
 
-        let mut map = IndexMap::new();
-        map.insert(
-            "message".to_string(),
-            Value::String(Rc::new(message.to_string())),
-        );
-        map.insert(
-            "peakMemory".to_string(),
-            Value::Int(self.gc.peak_bytes as i64),
-        );
-        map.insert(
-            "instructions".to_string(),
-            Value::Int(self.instruction_count as i64),
-        );
-        let error_val = match self.gc.allocate(MapState::new(map.clone())) {
-            Ok(v) => Value::Map(v),
-            Err(_) => {
-                // If allocation still fails, try allocating WITHOUT tracking
-                // to ensure the exception can be thrown and caught.
-                Value::Map(self.gc.gc.allocate(MapState::new(map)))
-            }
-        };
+        let error_val = self.new_error(message);
         match self.unwind_to_handler(error_val) {
             Ok(_) => unreachable!("unwind_to_handler should always return Err"),
             Err(err) => err,
         }
+    }
+
+    /// Runs the native constructor `class` inherits (the built-in `Error`'s) on
+    /// `object`; `false` if it has none.
+    fn call_native_constructor(
+        &mut self,
+        class: &GcRc<Class>,
+        object: &Value,
+        args: &[Value],
+    ) -> Result<bool, RuntimeError> {
+        let Some(constructor) = class.borrow().resolve_native_constructor() else {
+            return Ok(false);
+        };
+        let mut full_args = vec![object.clone()];
+        full_args.extend_from_slice(args);
+        constructor(self, &full_args)?;
+        Ok(true)
     }
 
     fn is_callable(&self, value: &Value) -> bool {
@@ -5912,6 +5987,7 @@ impl VM {
                         },
                     )?;
                 } else {
+                    self.call_native_constructor(&class, &val, &args)?;
                     self.registers[return_reg] = NanValue::from_value(&val);
                 }
             }
@@ -5944,6 +6020,7 @@ impl VM {
                         },
                     )?;
                 } else {
+                    self.call_native_constructor(class, &val, &args)?;
                     self.registers[return_reg] = NanValue::from_value(&val);
                 }
             }
@@ -6261,6 +6338,25 @@ fn pending_promise_id(value: &Value) -> Option<u64> {
 
 /// How an uncaught exception is reported: the `message` of an error map or
 /// object (after the class name for custom exceptions), or else the value.
+/// `==` for NaN-boxed scalars: numbers compare by value across Int and Float
+/// (`5 == 5.0`), anything else by its bits.
+fn numbers_or_bits_equal(left: NanValue, right: NanValue) -> bool {
+    match (left.is_f64(), right.is_f64()) {
+        (true, true) => left.as_f64() == right.as_f64(),
+        (true, false) => right
+            .as_int()
+            .is_some_and(|int| pleno_value::int_equals_float(int, left.as_f64())),
+        (false, true) => left
+            .as_int()
+            .is_some_and(|int| pleno_value::int_equals_float(int, right.as_f64())),
+        (false, false) => match (left.as_int(), right.as_int()) {
+            // Large Ints are boxed, so equal ones can differ in their bits.
+            (Some(a), Some(b)) => a == b,
+            _ => left == right,
+        },
+    }
+}
+
 fn describe_exception(value: &Value) -> String {
     match value {
         Value::Map(map) => {
@@ -6270,6 +6366,9 @@ fn describe_exception(value: &Value) -> String {
         }
         Value::Object(object) => {
             let object = object.borrow();
+            if let Some(report) = object.error_report() {
+                return report;
+            }
             if let Some(Value::String(message)) = object.fields.get("message") {
                 return match &object.class {
                     Some(class) => format!("{}: {}", class.borrow().name, message),
@@ -6280,16 +6379,6 @@ fn describe_exception(value: &Value) -> String {
         _ => {}
     }
     value.to_string()
-}
-
-/// The value a promise is rejected with when a callback or task fails.
-fn rejection_reason(error: RuntimeError) -> Value {
-    let message = error
-        .message
-        .strip_prefix("uncaught exception: ")
-        .unwrap_or(&error.message)
-        .to_string();
-    Value::String(Rc::new(message))
 }
 
 /// Splits `text` on `sep` outside of `<>`, `()` and `[]`; `None` if `sep` never

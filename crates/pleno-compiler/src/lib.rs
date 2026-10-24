@@ -187,7 +187,6 @@ impl Compiler {
     }
 
     pub fn compile(&mut self, program: &mut Program) -> Result<Chunk, CompileError> {
-        prelude::add_error_class(program);
         pleno_optimizer::optimize(program);
         self.module_mode = false;
         self.module_exports.clear();
@@ -219,7 +218,6 @@ impl Compiler {
     }
 
     pub fn compile_module(&mut self, program: &mut Program) -> Result<Chunk, CompileError> {
-        prelude::add_error_class(program);
         pleno_optimizer::optimize(program);
         self.module_mode = true;
         self.module_exports.clear();
@@ -2982,7 +2980,7 @@ impl Compiler {
                 let skip_jump = compiler.emit_jump(Opcode::JumpIf, result_reg);
 
                 let msg = format!(
-                    "Type error: parameter '{}' expected {}, got ",
+                    "TypeError: parameter '{}' expected {}, got ",
                     param.name, ty_name
                 );
                 let msg_reg = compiler.registers.allocate()?;
@@ -2994,7 +2992,8 @@ impl Compiler {
                 compiler.emit(Opcode::TypeOf, type_name_reg, param_reg, 0);
                 compiler.emit(Opcode::Add, msg_reg, msg_reg, type_name_reg);
 
-                compiler.emit(Opcode::Throw, msg_reg, 0, 0);
+                // `c = 1`: thrown as an `Error`, like the VM's own errors.
+                compiler.emit(Opcode::Throw, msg_reg, 0, 1);
 
                 compiler.patch_jump(skip_jump)?;
 
@@ -5195,7 +5194,7 @@ impl Compiler {
 
         // If we get here, none of the groups matched
         // Throw type error - use original type name to preserve optional/union syntax
-        let error_msg = format!("Type error: expected {}, found ", original_ty_name);
+        let error_msg = format!("TypeError: expected {}, found ", original_ty_name);
         let msg_idx = self.add_constant(Value::String(error_msg.into()));
         let msg_reg = self.registers.allocate()?;
         self.emit(Opcode::LoadConst, msg_reg, msg_idx, 0);
@@ -5206,7 +5205,7 @@ impl Compiler {
         let final_msg_reg = self.registers.allocate()?;
         self.emit(Opcode::Add, final_msg_reg, msg_reg, actual_type_reg);
 
-        self.emit(Opcode::Throw, final_msg_reg, 0, 0);
+        self.emit(Opcode::Throw, final_msg_reg, 0, 1);
 
         // Patch all success jumps to skip error
         let final_ok_jump = self.emit_jump(Opcode::Jump, 0);

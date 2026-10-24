@@ -28,6 +28,7 @@ The `std:security` module allows creating isolated execution environments.
 
 ```pleno
 import { Sandbox } from "std:security";
+import { vmStats } from "std:reflect";
 
 // Define a sandbox with restricted permissions
 let sandbox = Sandbox({
@@ -46,8 +47,8 @@ try {
         return process(data);
     });
 } catch (e) {
-    print("Sandbox violation: " + e.message);
-    print("Peak Memory: " + e.peakMemory.toString());
+    print("Sandbox violation: " + e);   // e.g. SandboxError: memory limit exceeded
+    print("Peak Memory: " + vmStats().peakMemory.toString());
 }
 ```
 

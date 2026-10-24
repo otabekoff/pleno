@@ -241,7 +241,7 @@ let handler: Handler = fn(req, res) => {
 processUser(1, "Ann");
 ```
 
-Aliases are checked at runtime like the types they name. `let x: UserId = "oops";` throws `Type error: expected UserId, found String`.
+Aliases are checked at runtime like the types they name. `let x: UserId = "oops";` throws `TypeError: expected UserId, found String`.
 
 ## Union & Intersection Types
 
@@ -286,4 +286,4 @@ let ann = Employee();
 print(ann.getName() + " is " + ann.getAge() + " years old");  // Ann is 40 years old
 ```
 
-> **Note**: The runtime check for an intersection type currently rejects class instances that implement all of its interfaces. `displayPerson(Employee())` throws `Type error: parameter 'p' expected Person, got Employee`.
+> **Note**: The runtime check for an intersection type currently rejects class instances that implement all of its interfaces. `displayPerson(Employee())` throws `TypeError: parameter 'p' expected Person, got Employee`.

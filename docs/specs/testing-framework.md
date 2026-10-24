@@ -56,7 +56,7 @@ describe("Calculator", fn() {
 });
 ```
 
-`/` returns a Float, and `assert.equal` does not treat a Float and an Int as equal: `assert.equal(10 / 2, 5)` fails, `assert.equal(10 / 2, 5.0)` passes.
+`/` returns a Float, and a Float equals an Int of the same value, so `assert.equal(10 / 2, 5)` passes.
 
 ### Lifecycle Hooks
 

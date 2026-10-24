@@ -37,6 +37,46 @@ for (kind in ["network", "input", "other"]) {
 
 An error that nothing catches stops the program with its message and a stack trace.
 
+## What an error looks like
+
+Every error a `catch` receives from the runtime or from `throw Error(...)` is an `Error` instance with two String fields:
+
+- `message`: what went wrong, such as `division by zero`.
+- `name`: the kind of error. It is `Error` unless the runtime says more: `TypeError` for a value that does not match a type annotation, `SecurityError` for an operation a sandbox or permission flag denies, `SandboxError` for an exceeded instruction or memory limit, `AssertionError` for a failed `assert`. For a class that extends `Error`, it is the class name.
+
+Printing an error, or putting it in a string, gives `name: message`. Because runtime errors are `Error` instances, `catch (e: Error)` handles them too:
+
+```pleno
+fn half(n: Int): Int {
+    return n / 2;
+}
+
+try {
+    half("ten");
+} catch (e: Error) {
+    print(e);           // TypeError: parameter 'n' expected Int, got String
+    print(e.name);      // TypeError
+    print(e.message);   // parameter 'n' expected Int, got String
+}
+
+try {
+    let zero = 0;
+    print(1 / zero);
+} catch (e) {
+    print(`caught ${e}`);   // caught Error: division by zero
+}
+
+class NetworkError extends Error {}
+
+try {
+    throw NetworkError("connection refused");
+} catch (e: Error) {
+    print(e);           // NetworkError: connection refused
+}
+```
+
+`throw` also accepts any other value, such as a string, and `catch` receives it unchanged; throwing an `Error` keeps errors uniform. For how much memory or how many instructions a program used, call `vmStats()` from `std:reflect`.
+
 ## Custom errors
 
 Extend `Error` to carry extra information:

@@ -484,6 +484,10 @@ pub fn register(vm: &mut dyn VMProvider) {
         "getAnnotations".to_string(),
         Value::NativeFunction(reflect::reflect_get_annotations),
     );
+    reflect_module.insert(
+        "vmStats".to_string(),
+        Value::NativeFunction(reflect::reflect_vm_stats),
+    );
     // `import { Reflect } from "std:reflect"` gives the same functions as a namespace.
     let reflect_namespace = Value::Map(gc.allocate(MapState::new(reflect_module.clone())).unwrap());
     reflect_module.insert("Reflect".to_string(), reflect_namespace);

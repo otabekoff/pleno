@@ -133,7 +133,7 @@ print(points.length);   // 2
 try {
     let wrong: (String, Int) = ("Bob", "thirty");
 } catch (e) {
-    print(e);           // Type error: expected (String, Int), found Tuple
+    print(e);           // TypeError: expected (String, Int), found Tuple
 }
 ```
 

@@ -1,0 +1,83 @@
+// Every caught error is an Error with `name` and `message`, and Ints and
+// Floats compare by value.
+import { assert as check } from "std:test";
+import { vmStats } from "std:reflect";
+
+fn typed(x: Int): Int {
+    return x;
+}
+
+class NotFound extends Error {}
+
+class FieldError extends Error {
+    public field: String;
+    constructor(message: String, field: String) {
+        super(message);
+        this.field = field;
+    }
+}
+
+// Runtime errors raised by the VM
+try {
+    let zero = 0;
+    print(1 / zero);
+} catch (e: Error) {
+    check.equal(`${e}`, "Error: division by zero");
+    check.equal(e.name, "Error");
+    check.equal(e.message, "division by zero");
+}
+
+// Type annotation errors
+try {
+    typed("seven");
+} catch (e: NotFound) {
+    check.isTrue(false);
+} catch (e: Error) {
+    check.equal(e.name, "TypeError");
+    check.equal(e.message, "parameter 'x' expected Int, got String");
+    check.equal("" + e, "TypeError: parameter 'x' expected Int, got String");
+}
+
+// Errors the program throws
+try {
+    throw FieldError("too long", "name");
+} catch (e: Error) {
+    check.equal(e.toString(), "FieldError: too long");
+    check.equal(e.name, "FieldError");
+    check.equal(e.field, "name");
+}
+try {
+    throw NotFound("user 7");
+} catch (e: NotFound) {
+    check.equal(`${e}`, "NotFound: user 7");
+}
+
+// A callback that fails rejects its promise with an Error
+let failing = Promise.resolve(1).then(fn(v) {
+    let zero = 0;
+    return v / zero;
+});
+try {
+    await failing;
+} catch (e: Error) {
+    check.equal(e.message, "division by zero");
+}
+
+// VM statistics are in std:reflect, not on errors
+let stats = vmStats();
+check.isTrue(stats.instructions > 0);
+check.isTrue(stats.peakMemory >= stats.memory);
+
+// Int and Float equality
+check.isTrue(5.0 == 5);
+check.isTrue(5 == 5.0);
+check.isFalse(5.5 == 5);
+check.isFalse(5.0 != 5);
+check.isTrue(5.5 != 5);
+check.equal(10 / 2, 5);
+check.equal(Set([5, 5.0]).size(), 1);
+check.isTrue(Set([5]).contains(5.0));
+check.isTrue([1, 2, 3].contains(3.0));
+check.isTrue(3 < 3.5 && 4.0 >= 4);
+
+print("error shape and numeric equality: ok");

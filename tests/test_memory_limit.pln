@@ -1,4 +1,5 @@
 // test_memory_limit.pln
+import { vmStats } from "std:reflect";
 fn main() {
     print("Starting memory test...");
     let arr = [];
@@ -8,9 +9,10 @@ fn main() {
         }
         print("Success? This should have failed.");
     } catch (e) {
-        print("Caught: " + e.message);
-        print("Peak Memory: " + e.peakMemory.toString());
-        print("Instructions: " + e.instructions.toString());
+        print("Caught: " + e.name + ": " + e.message);
+        let stats = vmStats();
+        print("Peak Memory: " + stats.peakMemory.toString());
+        print("Instructions: " + stats.instructions.toString());
     }
 }
 main();
