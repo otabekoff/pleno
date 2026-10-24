@@ -42,7 +42,7 @@ History & motivation. This becomes your project diary. Very powerful psychologic
 - [x] LSP: UTF-16 positions, CRLF, file URIs with spaces; "Prefix with `_`" quick fix
 - [x] `vm_errors.rs` covers bytecode and corrupted-chunk errors; empty tests removed
 - [x] Specs document `std:gc`, `std:security` and `Mutex`; no `__native_` globals remain
-- [x] Fuzz and benchmark-regression workflows added; root `.vitepress` cache untracked
+- [x] Fuzzing (lexer, parser, compiler) and benchmark-regression checks run in CI and pass; root `.vitepress` cache untracked
 - [x] Docs checked by running every code block (308): syntax and API drift fixed, unimplemented features marked as planned
 - [x] Backtick strings; `assert.true/false/null`; enum methods after `;`; `return`/`throw` in match arms; generic type aliases; `extend <T> Array<T>`
 - [x] Type checks: enum values against their enum, generic enums, `Result`/`Option` annotations, contravariant interfaces, aliases inside functions
