@@ -1,121 +1,86 @@
-# Pleno Language Support for VS Code
+# Pleno for VS Code
 
-Official VS Code extension for the [Pleno programming language](https://github.com/otabekoff/pleno) - a modern, expressive language designed for simplicity and power.
+Language support for the [Pleno programming language](https://github.com/otabekoff/pleno): highlighting, a language server, a debugger, a test explorer, and a one-click toolchain install.
+
+## Getting started
+
+1. Install the extension.
+2. Run **Pleno: Install or Update Toolchain** from the Command Palette. It downloads the latest Pleno release for your system from GitHub, verifies its SHA-256 checksum, and installs `pleno`, `plm`, `pleno-lsp`, `pleno-dap` and `pleno-repl`. VS Code's integrated terminals get them on PATH.
+3. Open a `.pln` file and click **Run** in the editor title bar, or press `F5` to debug.
+
+Already have Pleno installed? The extension finds it on PATH. See [Finding the toolchain](#finding-the-toolchain).
 
 ## Features
 
-### Syntax Highlighting
+### Editing
 
-Full syntax highlighting support for `.pln` files, including:
+- Syntax highlighting for `.pln` files and for ` ```pleno ` blocks in Markdown.
+- Diagnostics as you type, hover, completion, signature help, inlay hints and semantic highlighting.
+- Go to definition, find references, rename, call hierarchy, code lens and quick fixes.
+- Format Document (`Shift+Alt+F`).
+- Snippets: `fn`, `fnr`, `async`, `class`, `classex`, `constructor`, `interface`, `enum`, `let`, `lett`, `letm`, `const`, `if`, `ife`, `for`, `forr`, `while`, `match`, `import`, `importfrom`, `try`, `tryf`, `prop`, `get`, `set`, `op`, `macro`, `print`.
 
-- Keywords, operators, and control flow
-- Functions, classes, and interfaces
-- Strings, numbers, and comments
-- Type annotations
+### Running and debugging
 
-### Code Snippets
+- **Run Current File** and **Check Current File** in the editor title bar and context menus. Files are saved first.
+- Debugging with `pleno-dap`: breakpoints, stepping, call stack and variables (`F5`).
+- **Open Interactive REPL**.
+- Test Explorer integration for Pleno tests.
 
-Quick insertion of common Pleno constructs:
-| Prefix | Description |
-|--------|-------------|
-| `fn` | Function declaration |
-| `fnr` | Function with return type |
-| `class` | Class declaration |
-| `classex` | Class with extends |
-| `prop` | Property declaration |
-| `get` / `set` | Getter / Setter declaration |
-| `op` | Operator overload |
-| `macro` | Macro declaration |
-| `for` | For-in loop |
-| `while` | While loop |
-| `if` / `ife` | If / If-else statement |
-| `tryf` | Try-catch-finally block |
+### Projects
 
-### Language Server (LSP)
+- A **Pleno** sidebar with the project from `pleno.toml`: modules, dependencies and scripts.
+- Tasks for `plm build`, `plm test`, `plm install` and `plm update`, and for running scripts from `pleno.toml`.
+- **Create New Project** (`plm init`) and **Open Project Manifest**.
 
-- **Diagnostics**: Real-time syntax error reporting
-- **Go to Definition**: Navigate to function, class, and variable definitions
-- **Hover Information**: View symbol signatures on hover
-- **Smart Completion**: Property-aware completions (e.g. `.length`)
-- **Outline view**: Easily navigate classes and functions
-- **Formatting**: Auto-format code on save (using `pleno-formatter`)
+## Commands
 
-### Project Management
+| Command | What it does |
+| --- | --- |
+| Pleno: Install or Update Toolchain | Downloads and installs the latest release |
+| Pleno: Uninstall Toolchain | Removes the toolchain installed by the extension |
+| Pleno: Run Current File | `pleno run` on the active file |
+| Pleno: Check Current File | `pleno check` on the active file |
+| Pleno: Start Debugging | Debugs the active file |
+| Pleno: Open Interactive REPL | Starts `pleno-repl` in a terminal |
+| Pleno: Restart Language Server | Restarts `pleno-lsp` |
+| Pleno: Show Pleno Status | Prints where each tool was found |
+| Pleno: Create New Project | `plm init` in the workspace folder |
 
-- **Pleno Project Explorer**: A dedicated sidebar view to explore modules, dependencies, and scripts from your `pleno.toml`.
-- **Integrated Tasks**: Automatic detection of build, run, and test tasks for Pleno projects.
-- **Project Dashboard**: A beautiful overview of your project health and quick access to resources.
-- **Getting Started Walkthrough**: A native VSCode guide to help you set up and write your first Pleno code.
+Click **Pleno** in the status bar for a menu of these.
 
-### Commands
+## Finding the toolchain
 
-- **Run Current File**: Execute the active `.pln` file in the terminal.
-- **Open Interactive REPL**: Launch the Pleno REPL for interactive experimentation.
-- **Show Dashboard**: Open the Pleno Dashboard for project overview.
-- **Restart Server**: Manually restart the Pleno Language Server with a single click.
+For each tool the extension uses, in order:
 
-### Markdown Support
+1. The setting: `pleno.cli.path`, `pleno.lsp.path` or `pleno.dap.path`.
+2. The toolchain installed by **Install or Update Toolchain**.
+3. Your PATH.
+4. A build in the Pleno repository (`target/release` or `target/debug`), when you work on Pleno itself.
 
-Full syntax highlighting in Markdown fenced code blocks using ` ```pleno ` or ` ```pln `.
+Changing a path setting restarts the language server. Without `pleno-lsp`, diagnostics (on open and save) and formatting fall back to the `pleno` command.
 
-### File Icons
+## Settings
 
-Custom file icons for `.pln` and `.pleno` files.
+| Setting | Default | Description |
+| --- | --- | --- |
+| `pleno.cli.path` | empty | Path to `pleno` |
+| `pleno.lsp.path` | `pleno-lsp` | Path to the language server |
+| `pleno.dap.path` | empty | Path to the debug adapter |
+| `pleno.inlayHints.enabled` | `true` | Show inlay hints |
+| `pleno.semanticHighlighting.enabled` | `true` | Use semantic highlighting |
+| `pleno.trace.server` | `off` | Log language server traffic |
 
-## Installation
+## File icons
 
-### 1. Install Pleno CLI & LSP
-
-The extension requires `pleno` and `pleno-lsp` to be in your PATH.
-
-1.  Clone the [Pleno repository](https://github.com/otabekoff/pleno).
-2.  Install via Makefile: `make install`.
-
-### 2. Install Extension
-
-1.  Open the "Extensions" view in VS Code (`Ctrl+Shift+X`).
-2.  Search for "Pleno" or install from VSIX.
-
-## Configuration
-
-You can configure the extension in `settings.json`:
-
-```json
-{
-  "pleno.lsp.path": "pleno-lsp",
-  "pleno.trace.server": "messages"
-}
-```
-
-## Icons
-
-To enable Pleno file icons:
-
-1. Select "Pleno" in "Preferences: File Icon Theme".
+`.pln` files show the Pleno icon in any icon theme that has no icon of its own for them. For Pleno icons everywhere, select **Pleno** under **Preferences: File Icon Theme**.
 
 ## Links
 
-- [Pleno Repository](https://github.com/otabekoff/pleno)
-- [Language Specification](https://github.com/otabekoff/pleno/blob/main/specs.md)
-- [Report Issues](https://github.com/otabekoff/pleno/issues)
+- [Documentation](https://otabekoff.github.io/pleno/)
+- [Language specification](https://github.com/otabekoff/pleno/blob/main/notes/specs.md)
+- [Report an issue](https://github.com/otabekoff/pleno/issues)
 
 ## License
 
 MIT
-
-
-<!-- 
-"onStartupFinished",
-    "onLanguage:pleno",
-    "onView:plenoProject",
-    "onView:plenoOutline",
-    "onCommand:pleno.showDashboard",
-    "onCommand:pleno.showControlPanel",
-    "onCommand:pleno.runFile",
-    "onCommand:pleno.checkFile",
-    "onCommand:pleno.refreshProject",
-    "onCommand:pleno.reloadWorkspace",
-    "onCommand:pleno.openDocs",
-    "onCommand:pleno.openWalkthrough",
-    "onCommand:pleno.createProject",
- -->

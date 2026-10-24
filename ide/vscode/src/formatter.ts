@@ -1,41 +1,42 @@
 import * as vscode from 'vscode';
-import { exec } from 'child_process';
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
+import { execFile } from 'child_process';
 import { getPlenoPath } from './utils';
 
+/**
+ * Formatting with `pleno fmt`, used only when the language server is not
+ * available (the server formats documents itself). The editor's current text,
+ * including unsaved changes, is formatted through a temporary file.
+ */
 export class PlenoFormattingProvider implements vscode.DocumentFormattingEditProvider {
     constructor(private context: vscode.ExtensionContext) { }
 
     public provideDocumentFormattingEdits(
         document: vscode.TextDocument,
-        _options: vscode.FormattingOptions,
-        _token: vscode.CancellationToken
     ): vscode.ProviderResult<vscode.TextEdit[]> {
-        return new Promise((resolve, _reject) => {
-            const plenoPath = getPlenoPath(this.context);
-            const filePath = document.fileName;
+        const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pleno-fmt-'));
+        const file = path.join(dir, path.basename(document.fileName) || 'document.pln');
+        fs.writeFileSync(file, document.getText());
 
-            // Use 'pleno fmt' to format the code.
-            // We use a temporary file or pipe to avoid modifying the file on disk directly.
-            // For simplicity in V1, we just run 'pleno fmt' on the file if it's saved,
-            // or we could use stdin if supported.
-
-            // Assuming 'pleno fmt <file>' formats in place, but we want to return edits.
-            // Better: 'pleno fmt --stdout <file>'
-
-            exec(`${plenoPath} fmt "${filePath}" --stdout`, (error, stdout, stderr) => {
+        return new Promise((resolve) => {
+            execFile(getPlenoPath(this.context), ['fmt', '--stdout', file], (error, stdout, stderr) => {
+                fs.rmSync(dir, { recursive: true, force: true });
                 if (error) {
-                    console.error(`Formatting failed: ${stderr}`);
-                    return resolve([]);
+                    vscode.window.setStatusBarMessage(`Pleno: formatting failed: ${stderr.trim() || error.message}`, 5000);
+                    resolve([]);
+                    return;
                 }
-
-                if (stdout) {
-                    const lastLine = document.lineCount - 1;
-                    const lastChar = document.lineAt(lastLine).text.length;
-                    const range = new vscode.Range(0, 0, lastLine, lastChar);
-                    return resolve([vscode.TextEdit.replace(range, stdout)]);
+                if (stdout === document.getText()) {
+                    resolve([]);
+                    return;
                 }
-
-                resolve([]);
+                const whole = new vscode.Range(
+                    document.positionAt(0),
+                    document.positionAt(document.getText().length),
+                );
+                resolve([vscode.TextEdit.replace(whole, stdout)]);
             });
         });
     }
