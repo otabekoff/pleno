@@ -1,7 +1,6 @@
-History & motivation. This becomes your project diary. Very powerful psychologically.
-
-
 # Done
+
+What was finished, newest first. Open work is in `v1.md` and `later.md`.
 
 ## 2026-10-24
 - [x] Compound assignment operators (`+=`, `-=`, `*=`, `/=`, `%=`)
@@ -54,6 +53,14 @@ History & motivation. This becomes your project diary. Very powerful psychologic
 - [x] `std:log` levels and prefixed loggers; `DateTime.parse/add/subtract/isAfter`, `Duration`; `JSON.stringifyPretty`; `Regex.split`; `Benchmark.measure`; `OS.hostname/uptime`; `Set/Map.isEmpty`, `Range.contains/toArray`, `Array.clone`, function `.name`
 - [x] `pleno check` prints `file:line:col` and real JSON with `--json`; `pleno --help` lists every command
 - [x] VS Code extension 0.2.0: toolchain install/update, accurate tool detection, no duplicate diagnostics or formatters, fixed snippets and walkthrough
+- [x] Undefined names are errors (`undefined variable 'foo'`) and `pleno check` reports them; calling a non-function names its type
+- [x] Unhandled promise rejections fail the program; inputs to `Promise.race`/`Promise.all` count as handled
+- [x] Failing `std:test` tests fail `pleno test`, `plm test` and `pleno run`
+- [x] New projects: `plm test` finds `tests/`, the generated test uses `std:test`, `plm init` will not overwrite `pleno.toml`
+- [x] Relative imports resolve from the importing file's folder, not the working directory
+- [x] Colored CLI output with the logo gradient, only on terminals (`NO_COLOR`, `FORCE_COLOR`)
+- [x] The compiler rejects malformed generic annotations instead of panicking (found by fuzzing)
+- [x] `tasks/` reorganized into `v1.md`, `later.md`, `ideas.md` and `done.md`
 
 ## 2026-01-23
 - [x] Setup project structure

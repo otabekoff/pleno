@@ -87,7 +87,7 @@ pleno run hello.pln
 
 - [Language Specification](notes/specs.md)
 - [Architecture](ARCHITECTURE.md)
-- [Roadmap](notes/ROADMAP.v2.md)
+- [Roadmap to 1.0](tasks/v1.md)
 - [Contributing](CONTRIBUTING.md)
 - [Development Guide](README.dev.md)
 

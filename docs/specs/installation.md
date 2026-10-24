@@ -23,7 +23,7 @@ This script will:
 Run the following command in PowerShell:
 
 ```powershell
-iwr https://raw.githubusercontent.com/otabekoff/pleno/main/tasks/install.ps1 -useb | iex
+iwr https://raw.githubusercontent.com/otabekoff/pleno/main/scripts/install.ps1 -useb | iex
 ```
 
 This script will:

@@ -352,7 +352,7 @@ println!("{:?}", bytecode);
 ## Resources
 
 - **Specs**: See `specs.md` for language specification
-- **Roadmap**: See `tasks/roadmap.md` for development roadmap
+- **Roadmap**: See `tasks/v1.md` for what is left before 1.0
 - **Contributing**: See `CONTRIBUTING.md` for contribution guidelines
 - **Code of Conduct**: See `CODE_OF_CONDUCT.md`
 
