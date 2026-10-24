@@ -1,4 +1,4 @@
-// EXPECT_RUNTIME_ERROR
+// expect-error: division by zero
 fn level3() {
     let x = 10;
     return x / 0; // DIVISION_BY_ZERO

@@ -1,3 +1,4 @@
+// expect-error: Unexpected token in expression: Semicolon
 fn bad_syntax() {
     let x = ; // Missing expression
 }

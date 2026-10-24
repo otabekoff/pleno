@@ -1,4 +1,4 @@
-import Utils from "./utils.pln"; // Relative import? Or "modules/utils.pln"?
+import Utils from "./modules/utils.pln";
 // Spec says: import "path/to/module.pln"; OR import ModuleName from ...
 
 print("8. Modules:");

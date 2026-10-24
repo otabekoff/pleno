@@ -18,7 +18,7 @@ if (duration > 0) {
 }
  
 let start = time.DateTime.now_ns();
-time.DateTime.sleep(10);
+await time.DateTime.sleep(10);
 let end = time.DateTime.now_ns();
 let diff = end - start;
 print("10ms sleep measured as: " + diff + " ns (" + (diff / 1000000) + " ms)");

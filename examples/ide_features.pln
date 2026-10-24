@@ -7,8 +7,8 @@
  */
 
 class User {
-    public let name: String;
-    public let email: String;
+    public name: String;
+    public email: String;
 
     public fn constructor(name: String, email: String) {
         this.name = name;

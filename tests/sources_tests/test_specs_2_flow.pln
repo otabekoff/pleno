@@ -28,7 +28,7 @@ if (matchRes != "zero") throw "Match failed";
 // }
 // if (sum != 10) throw "For loop failed";
 
-sum = 0;
+let mut sum = 0;
 for (i in 0..5) {
     sum = sum + i;
 }

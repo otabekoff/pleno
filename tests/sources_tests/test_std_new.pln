@@ -1,3 +1,4 @@
+// requires: network
 import http from "std:http";
 import math from "std:math";
 import regex from "std:regex";
