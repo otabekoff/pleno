@@ -17,7 +17,7 @@ try {
     Write-Error "Failed to fetch latest release version."
 }
 
-$AssetName = "pleno-$Tag-windows-$Arch.zip"
+$AssetName = "pleno-$Tag-$Arch-pc-windows-msvc.zip"
 $DownloadUrl = "https://github.com/$Repo/releases/download/$Tag/$AssetName"
 $InstallDir = "$HOME\.pleno\bin"
 $ZipPath = "$env:TEMP\$AssetName"
@@ -29,6 +29,17 @@ if (-not (Test-Path $InstallDir)) {
 
 Write-Host "Downloading Pleno $Tag..."
 Invoke-WebRequest -Uri $DownloadUrl -OutFile $ZipPath
+
+# Verify checksum against the published .sha256 file
+Write-Host "Verifying checksum..."
+Invoke-WebRequest -Uri "$DownloadUrl.sha256" -OutFile "$ZipPath.sha256"
+$ExpectedHash = ((Get-Content "$ZipPath.sha256" -Raw).Trim() -split '\s+')[0]
+Remove-Item "$ZipPath.sha256"
+$ActualHash = (Get-FileHash -Path $ZipPath -Algorithm SHA256).Hash
+if ($ActualHash -ne $ExpectedHash) {
+    Remove-Item $ZipPath
+    Write-Error "Checksum mismatch for $AssetName (expected $ExpectedHash, got $ActualHash)"
+}
 
 Write-Host "Extracting to $InstallDir..."
 Expand-Archive -Path $ZipPath -DestinationPath $InstallDir -Force
