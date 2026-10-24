@@ -1,16 +1,23 @@
-# yaml-language-server: $schema=https://aka.ms/winget-manifest.installer.1.4.0.schema.json
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.installer.1.6.0.schema.json
 PackageIdentifier: Pleno.Pleno
-PackageVersion: 0.1.0
+PackageVersion: 0.2.0
 InstallerType: zip
+NestedInstallerType: portable
+NestedInstallerFiles:
+  - RelativeFilePath: pleno.exe
+    PortableCommandAlias: pleno
+  - RelativeFilePath: plm.exe
+    PortableCommandAlias: plm
+  - RelativeFilePath: pleno-lsp.exe
+    PortableCommandAlias: pleno-lsp
+  - RelativeFilePath: pleno-dap.exe
+    PortableCommandAlias: pleno-dap
+  - RelativeFilePath: pleno-repl.exe
+    PortableCommandAlias: pleno-repl
+ReleaseDate: 2026-10-24
 Installers:
   - Architecture: x64
-    InstallerUrl: https://github.com/otabekoff/pleno/releases/download/v0.1.0/pleno-v0.1.0-x86_64-pc-windows-msvc.zip
-    InstallerSha256: REPLACE_WITH_ACTUAL_HASH
-    NestedInstallerType: portable
-    NestedInstallerFiles:
-      - RelativeFilePath: pleno.exe
-        PortableCommandAlias: pleno
-      - RelativeFilePath: plm.exe
-        PortableCommandAlias: plm
+    InstallerUrl: https://github.com/otabekoff/pleno/releases/download/v0.2.0/pleno-v0.2.0-x86_64-pc-windows-msvc.zip
+    InstallerSha256: 2B26D51C972DDB99422442408A4E562E5AC79E5A09E60D852902FEBB9AD339BA
 ManifestType: installer
-ManifestVersion: 1.4.0
+ManifestVersion: 1.6.0
