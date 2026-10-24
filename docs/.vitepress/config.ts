@@ -273,6 +273,20 @@ export default defineConfig({
       text: 'Edit this page on GitHub'
     }
   },
+  vite: {
+    // The editor's libraries are loaded on demand; listing them lets the dev
+    // server bundle them at start, instead of mid-session, which reloads
+    // the page and can leave an open tab blank.
+    optimizeDeps: {
+      include: [
+        '@codemirror/state',
+        '@codemirror/view',
+        '@codemirror/commands',
+        '@codemirror/language',
+        '@lezer/highlight',
+      ],
+    },
+  },
   markdown: {
     config: playgroundLinks,
     theme: {
