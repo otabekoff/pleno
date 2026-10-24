@@ -1,4 +1,6 @@
 // Inspect Channel
+import { Channel } from "std:concurrency";
+
 print("Inspecting Channel...");
 try {
     print("Type of Channel: " + typeof(Channel));

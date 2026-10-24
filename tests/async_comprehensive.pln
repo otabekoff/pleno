@@ -1,4 +1,7 @@
 // Comprehensive Async/Concurrency Test
+import { Channel } from "std:concurrency";
+import { exit } from "std:process";
+
 print("Testing Advanced Async/Concurrency...");
 
 fn assert(condition: Bool, message: String) {

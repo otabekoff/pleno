@@ -1,4 +1,6 @@
 // 10.1 Generic Functions
+import { exit } from "std:process";
+
 print("Testing Generic Functions...");
 
 fn assert(condition: Bool, message: String) {

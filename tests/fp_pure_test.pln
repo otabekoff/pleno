@@ -1,4 +1,6 @@
 // Test 6.2: Pure Functions
+import { exit } from "std:process";
+
 print("Testing Pure Functions...");
 
 fn assert(condition: Bool, message: String) {

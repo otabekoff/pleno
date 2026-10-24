@@ -1,4 +1,6 @@
 // Test 6.4: Pipeline Operator
+import { exit } from "std:process";
+
 print("Testing Pipeline Operator...");
 
 fn assert(condition: Bool, message: String) {

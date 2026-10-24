@@ -1,4 +1,6 @@
 // Test 7.1: Try-Catch-Finally
+import { exit } from "std:process";
+
 print("Testing Try-Catch-Finally...");
 
 fn assert(condition: Bool, message: String) {

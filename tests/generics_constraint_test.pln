@@ -1,4 +1,6 @@
 // 10.3 Generic Constraints
+import { exit } from "std:process";
+
 print("Testing Generic Constraints...");
 
 fn assert(condition: Bool, message: String) {

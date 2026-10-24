@@ -1,4 +1,6 @@
 // Test custom exceptions
+import { exit } from "std:process";
+
 print("Testing Custom Exceptions...");
 
 fn assert(condition: Bool, message: String) {

@@ -1,4 +1,6 @@
 // Comprehensive Error Handling Test
+import { exit } from "std:process";
+
 print("Testing Error Handling Features...");
 
 fn assert(condition: Bool, message: String) {

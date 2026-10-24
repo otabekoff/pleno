@@ -1,4 +1,6 @@
 // 10.4 Generic Interfaces
+import { exit } from "std:process";
+
 print("Testing Generic Interfaces...");
 
 fn assert(condition: Bool, message: String) {

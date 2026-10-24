@@ -51,6 +51,9 @@ pub struct VM {
     pub promises: IndexMap<u64, Value>,
     pub next_promise_id: u64,
     pub multi_waiters: Vec<MultiWaiter>,
+    /// Promises passed to `Promise.all` or `Promise.race`: those observe their
+    /// rejections, even after the combined promise has settled.
+    combined_promises: std::collections::HashSet<u64>,
     pub builtin_resolver: Option<fn(&str, &str) -> Option<NativeFunction>>,
     pub run_depths: Vec<usize>,
     pub current_named_args: IndexMap<String, Value>,
@@ -145,7 +148,7 @@ impl VMProvider for VM {
                 if let Some(callable) = callable {
                     return self.call_ext(callable, args, opts);
                 } else {
-                    return Err(RuntimeError::new("value is not callable"));
+                    return Err(RuntimeError::new("Map is not callable"));
                 }
             }
             Value::Object(obj) => {
@@ -153,10 +156,15 @@ impl VMProvider for VM {
                 if let Some(callable) = callable {
                     return self.call_ext(callable, args, opts);
                 } else {
-                    return Err(RuntimeError::new("value is not callable"));
+                    return Err(RuntimeError::new("Object is not callable"));
                 }
             }
-            _ => return Err(RuntimeError::new("value is not callable")),
+            other => {
+                return Err(RuntimeError::new(format!(
+                    "{} is not callable",
+                    other.type_name()
+                )));
+            }
         }
 
         // If it's an async function call, call_ext will have placed a promise map in return_reg_idx.
@@ -297,6 +305,8 @@ impl VMProvider for VM {
     }
 
     fn register_multi_waiter(&mut self, waiter: MultiWaiter) {
+        self.combined_promises
+            .extend(waiter.dependencies.iter().copied());
         self.multi_waiters.push(waiter);
     }
 
@@ -678,6 +688,7 @@ impl VM {
             promises: IndexMap::new(),
             next_promise_id: 1,
             multi_waiters: Vec::new(),
+            combined_promises: std::collections::HashSet::new(),
             builtin_resolver: None,
             run_depths: Vec::new(),
             current_named_args: IndexMap::new(),
@@ -812,8 +823,15 @@ impl VM {
             // 5. If no frames, no pending tasks, and event loop empty -> Done
             break;
         }
-        for (_, reason) in std::mem::take(&mut self.unhandled_rejections) {
-            eprintln!("Warning: unhandled promise rejection: {reason}");
+        // A rejection nothing handled is an error, like an uncaught exception:
+        // otherwise a failing async task would end the program successfully.
+        let rejections = std::mem::take(&mut self.unhandled_rejections);
+        if !rejections.is_empty() {
+            let reasons: Vec<String> = rejections.values().map(describe_exception).collect();
+            return Err(RuntimeError::new(format!(
+                "unhandled promise rejection: {}",
+                reasons.join("; ")
+            )));
         }
         Ok(last_result)
     }
@@ -1218,6 +1236,7 @@ impl VM {
             for (id, reason) in rejections {
                 self.reject_promise(id, reason);
             }
+            handled |= self.combined_promises.remove(&task.promise_id);
             if rejected && !handled {
                 self.unhandled_rejections
                     .insert(task.promise_id, task.value.clone());
@@ -3363,9 +3382,16 @@ impl VM {
                         }
                     }
 
+                    // `c = 1` marks a name read by the program, which must exist;
+                    // the compiler's own type lookups use `c = 0` and get null.
                     let value = match value {
                         Some(value) => value,
                         None if is_type_param => Value::String(Rc::new("Any".to_string())),
+                        None if c == 1 => {
+                            return Err(
+                                self.throw_runtime_error(&format!("undefined variable '{name}'"))
+                            );
+                        }
                         None => Value::Null,
                     };
                     log::trace!("VM: GetGlobal '{}' => {:?}", name, value);
@@ -5913,7 +5939,7 @@ impl VM {
                 if let Some(callable) = callable {
                     self.call_any_value(callable, args, return_reg)?;
                 } else {
-                    return Err(RuntimeError::new("value is not callable"));
+                    return Err(RuntimeError::new("Map is not callable"));
                 }
             }
             Value::Object(obj) => {
@@ -5921,10 +5947,15 @@ impl VM {
                 if let Some(callable) = callable {
                     self.call_any_value(callable, args, return_reg)?;
                 } else {
-                    return Err(RuntimeError::new("value is not callable"));
+                    return Err(RuntimeError::new("Object is not callable"));
                 }
             }
-            _ => return Err(RuntimeError::new("value is not callable")),
+            other => {
+                return Err(RuntimeError::new(format!(
+                    "{} is not callable",
+                    other.type_name()
+                )));
+            }
         }
         Ok(())
     }

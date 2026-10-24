@@ -794,9 +794,9 @@ fn check_file(path: &str, json_output: bool) {
         }
     };
 
-    let problem = check_source(&source);
+    let problems = check_source(&source);
     if json_output {
-        let problems: Vec<serde_json::Value> = problem
+        let problems: Vec<serde_json::Value> = problems
             .iter()
             .map(|(message, start, end)| {
                 let (line, column) = line_and_column(&source, *start);
@@ -812,41 +812,50 @@ fn check_file(path: &str, json_output: bool) {
             })
             .collect();
         println!("{}", serde_json::Value::Array(problems));
-    } else if let Some((message, start, _)) = &problem {
-        let (line, column) = line_and_column(&source, *start);
-        eprintln!("{path}:{line}:{column}: error: {message}");
-    } else {
+    } else if problems.is_empty() {
         println!("Type check passed for {}", path);
+    } else {
+        for (message, start, _) in &problems {
+            let (line, column) = line_and_column(&source, *start);
+            eprintln!("{path}:{line}:{column}: error: {message}");
+        }
     }
-    if problem.is_some() {
+    if !problems.is_empty() {
         process::exit(1);
     }
 }
 
-/// The first problem in `source`, as a message and a byte range.
-fn check_source(source: &str) -> Option<(String, usize, usize)> {
+/// The problems in `source`, as messages and byte ranges: a lex, parse or
+/// compile error, or else every name read but never defined.
+fn check_source(source: &str) -> Vec<(String, usize, usize)> {
     let tokens = match pleno_lexer::lex(source) {
         Ok(tokens) => tokens,
-        Err(err) => return Some((err.message, err.span.start, err.span.end)),
+        Err(err) => return vec![(err.message, err.span.start, err.span.end)],
     };
     let mut parser = pleno_parser::Parser::new(tokens, source);
     let mut program = match parser.parse_program() {
         Ok(program) => program,
-        Err(err) => return Some((err.message, err.span.start, err.span.end)),
+        Err(err) => return vec![(err.message, err.span.start, err.span.end)],
     };
     let mut compiler = pleno_compiler::Compiler::new(source.to_string());
-    match compiler.compile(&mut program) {
-        Ok(_) => None,
-        Err(err) => {
-            let span = err
-                .diagnostic
-                .labels
-                .first()
-                .map(|label| (label.span.start, label.span.end))
-                .unwrap_or((0, 0));
-            Some((err.diagnostic.message, span.0, span.1))
-        }
+    if let Err(err) = compiler.compile(&mut program) {
+        let span = err
+            .diagnostic
+            .labels
+            .first()
+            .map(|label| (label.span.start, label.span.end))
+            .unwrap_or((0, 0));
+        return vec![(err.diagnostic.message, span.0, span.1)];
     }
+
+    // Built-in globals are whatever the standard library registers.
+    let mut vm = pleno_vm::VM::new();
+    pleno_stdlib::register(&mut vm);
+    compiler
+        .undefined_globals(|name| vm.globals.contains_key(name))
+        .into_iter()
+        .map(|(name, span)| (format!("undefined variable '{name}'"), span.start, span.end))
+        .collect()
 }
 
 /// The 1-based line and UTF-16 column of a byte offset.

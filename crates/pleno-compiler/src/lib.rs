@@ -72,6 +72,10 @@ impl pleno_diagnostics::ToDiagnostic for CompileError {
 }
 
 pub struct Compiler {
+    /// Names the program reads as globals, with where (for `pleno check`).
+    global_reads: Vec<(String, Span)>,
+    /// Names the program defines as globals: functions, classes, enums, interfaces.
+    global_defs: HashSet<String>,
     chunk: Chunk,
     registers: RegisterAllocator,
     last_expr_register: Option<u8>,
@@ -123,6 +127,8 @@ impl Default for Compiler {
 impl Compiler {
     pub fn new(source: String) -> Self {
         Self {
+            global_reads: Vec::new(),
+            global_defs: HashSet::new(),
             chunk: Chunk::new(),
             registers: RegisterAllocator::new(),
             last_expr_register: None,
@@ -160,6 +166,17 @@ impl Compiler {
     pub fn with_profile(mut self, profile: BuildProfile) -> Self {
         self.profile = profile;
         self
+    }
+
+    /// Globals the program reads but never defines, other than those
+    /// `is_builtin` accepts, with where each is read. Code removed as unused
+    /// is not checked.
+    pub fn undefined_globals(&self, is_builtin: impl Fn(&str) -> bool) -> Vec<(String, Span)> {
+        self.global_reads
+            .iter()
+            .filter(|(name, _)| !self.global_defs.contains(name) && !is_builtin(name))
+            .cloned()
+            .collect()
     }
 
     fn error(&self, message: &str, span: Span) -> CompileError {
@@ -614,6 +631,7 @@ impl Compiler {
                 if self.is_top_level {
                     let name_idx = self.add_constant(Value::String(name.clone().into()));
                     self.emit(Opcode::SetGlobal, class_reg, name_idx, 0);
+                    self.global_defs.insert(name.clone());
                     self.free_temp(class_reg);
                 } else {
                     if self
@@ -686,6 +704,7 @@ impl Compiler {
                 if self.is_top_level {
                     let name_idx = self.add_constant(Value::String(name.clone().into()));
                     self.emit(Opcode::SetGlobal, func_reg, name_idx, 0);
+                    self.global_defs.insert(name.clone());
                     self.free_temp(func_reg);
                 } else {
                     if self
@@ -971,6 +990,7 @@ impl Compiler {
                 let name_idx_global =
                     self.add_constant(Value::String(std::rc::Rc::new(name.clone())));
                 self.emit(Opcode::SetGlobal, interface_reg, name_idx_global, 0);
+                self.global_defs.insert(name.clone());
 
                 self.free_temp(interface_reg);
                 self.free_temp(methods_reg);
@@ -981,6 +1001,7 @@ impl Compiler {
                 if self.is_top_level {
                     let name_idx = self.add_constant(Value::String(decl.name.clone().into()));
                     self.emit(Opcode::SetGlobal, enum_reg, name_idx, 0);
+                    self.global_defs.insert(decl.name.clone());
                     self.free_temp(enum_reg);
                 } else {
                     self.insert_local(decl.name.clone(), enum_reg, false, None)?;
@@ -1272,7 +1293,9 @@ impl Compiler {
                 } else {
                     let dest = self.registers.allocate()?;
                     let name_idx = self.add_constant(Value::String(name.clone().into()));
-                    self.emit(Opcode::GetGlobal, dest, name_idx, 0);
+                    // `c = 1`: reading an undefined name is an error.
+                    self.emit(Opcode::GetGlobal, dest, name_idx, 1);
+                    self.global_reads.push((name.clone(), expr.span));
                     let forced = self.registers.allocate()?;
                     self.emit(Opcode::ForceThunk, forced, dest, 0);
                     self.free_temp(dest);
@@ -2879,6 +2902,8 @@ impl Compiler {
         compiler.emit(Opcode::Return, return_reg, 0, 0);
         compiler.chunk.max_registers = compiler.registers.max_used.max(params.len());
         compiler.chunk.module_name = self.module_name.clone();
+        self.global_reads.append(&mut compiler.global_reads);
+        self.global_defs.extend(compiler.global_defs.drain());
         let func_index = self.chunk.functions.len();
         let arity = params.len() as u8;
         let param_specs = params
@@ -3008,7 +3033,16 @@ impl Compiler {
     ) -> Result<(), CompileError> {
         let no_span = Span::new(0, 0);
         let name = Expr::new(ExprKind::Ident(annotation.name.clone()), no_span);
-        let callee_reg = self.compile_expr(&name)?;
+        // An annotation that names nothing (`@Version("1.0")`) is metadata, so
+        // the global lookup must not fail when the name is undefined.
+        let callee_reg = if self.resolve_local(&annotation.name).is_some() {
+            self.compile_expr(&name)?
+        } else {
+            let reg = self.registers.allocate()?;
+            let name_idx = self.add_constant(Value::String(annotation.name.clone().into()));
+            self.emit(Opcode::GetGlobal, reg, name_idx, 0);
+            reg
+        };
 
         let fn_type_idx = self.add_constant(Value::String(Rc::new("() => Any".to_string())));
         let fn_type_reg = self.registers.allocate()?;
@@ -3026,7 +3060,9 @@ impl Compiler {
         self.free_temp(fn_type_reg);
         self.free_temp(is_callable_reg);
 
-        // `@factory(args)` first calls the factory to get the decorator.
+        // `@factory(args)` first calls the factory to get the decorator. It
+        // runs only when the name is callable, so it is not a global read.
+        let reads_before = self.global_reads.len();
         let decorator_reg = if annotation.args.is_empty() {
             callee_reg
         } else {
@@ -3043,6 +3079,7 @@ impl Compiler {
             );
             self.compile_expr(&call)?
         };
+        self.global_reads.truncate(reads_before);
         // A factory that returns something other than a function is metadata.
         let skip_result_jump = if decorator_reg != callee_reg {
             let fn_type_reg = self.registers.allocate()?;
@@ -3181,6 +3218,8 @@ impl Compiler {
         compiler.emit(Opcode::Return, return_reg, 0, 0);
         compiler.chunk.max_registers = compiler.registers.max_used.max(params.len());
         compiler.chunk.module_name = self.module_name.clone();
+        self.global_reads.append(&mut compiler.global_reads);
+        self.global_defs.extend(compiler.global_defs.drain());
 
         let func_index = self.chunk.functions.len();
         let arity = params.len() as u8;

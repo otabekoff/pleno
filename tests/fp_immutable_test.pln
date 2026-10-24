@@ -1,4 +1,6 @@
 // Test 6.3: Immutable Data Structures
+import { exit } from "std:process";
+
 print("Testing Immutable Data Structures...");
 
 fn assert(condition: Bool, message: String) {
