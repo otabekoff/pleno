@@ -2,6 +2,12 @@
 
 Notable changes to Pleno. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Before 1.0, any release may change behavior.
 
+## Unreleased
+
+### Added
+
+- Destructuring in `let`: `let (a, b) = pair;`, `let mut (x, (y, _)) = nested;` and `let [first, ...rest] = items;`, with runtime errors such as `tuple has 2 elements, pattern expects 3`. Tuple type annotations such as `(Int, String)` and `(Int, Int)[]` are checked at runtime.
+
 ## 0.2.0 - 2026-10-24
 
 ### Changed

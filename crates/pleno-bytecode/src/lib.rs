@@ -127,7 +127,17 @@ pub enum Opcode {
     SetStaticFieldType,
     /// a = enum, b = variant name constant, c = value constant
     SetVariantValue,
+    /// Checks the shape of a value before a destructuring `let` reads it:
+    /// a = value, b = mode (`DESTRUCTURE_*`), c = element count.
+    Destructure,
 }
+
+/// `Destructure` mode: a tuple with exactly `c` elements.
+pub const DESTRUCTURE_TUPLE: u8 = 0;
+/// `Destructure` mode: an array with exactly `c` elements.
+pub const DESTRUCTURE_ARRAY: u8 = 1;
+/// `Destructure` mode: an array with at least `c` elements (the pattern has a rest).
+pub const DESTRUCTURE_ARRAY_AT_LEAST: u8 = 2;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Instruction(u32);

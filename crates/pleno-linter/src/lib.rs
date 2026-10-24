@@ -442,6 +442,13 @@ impl<'a> LintVisitor<'a> {
                 }
                 self.scope_tracker.declare(name.clone(), line, col);
             }
+            StmtKind::LetPattern { pattern, value, .. } => {
+                self.visit_expr(value);
+                for (name, span) in pattern.bindings() {
+                    let (line, col) = position_from_offset(self.source, span.start);
+                    self.scope_tracker.declare(name.to_string(), line, col);
+                }
+            }
             StmtKind::AssignProperty { object, value, .. } => {
                 self.visit_expr(object);
                 self.visit_expr(value);

@@ -29,7 +29,7 @@ impl ConstantFolder {
                 }
             }
             StmtKind::Module { body: None, .. } => {}
-            StmtKind::Let { value: Some(v), .. } => {
+            StmtKind::Let { value: Some(v), .. } | StmtKind::LetPattern { value: v, .. } => {
                 self.fold_expr(v);
             }
             StmtKind::Let { value: None, .. } => {}
