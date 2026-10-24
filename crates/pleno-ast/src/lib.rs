@@ -205,6 +205,62 @@ pub enum PatternKind {
     Or(Vec<Pattern>),
 }
 
+/// The left-hand side of a destructuring `let`: `let (a, [b, ...rest]) = value;`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct BindingPattern {
+    pub kind: BindingPatternKind,
+    pub span: Span,
+}
+
+impl BindingPattern {
+    pub fn new(kind: BindingPatternKind, span: Span) -> Self {
+        Self { kind, span }
+    }
+
+    /// The names this pattern binds with their spans, in source order.
+    pub fn bindings(&self) -> Vec<(&str, Span)> {
+        let mut out = Vec::new();
+        self.collect_bindings(&mut out);
+        out
+    }
+
+    fn collect_bindings<'a>(&'a self, out: &mut Vec<(&'a str, Span)>) {
+        match &self.kind {
+            BindingPatternKind::Name(name) => out.push((name.as_str(), self.span)),
+            BindingPatternKind::Ignore => {}
+            BindingPatternKind::Tuple(items) => {
+                for item in items {
+                    item.collect_bindings(out);
+                }
+            }
+            BindingPatternKind::Array { elements, rest } => {
+                for item in elements {
+                    item.collect_bindings(out);
+                }
+                if let Some(rest) = rest {
+                    rest.collect_bindings(out);
+                }
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum BindingPatternKind {
+    /// Binds the value to a name; the pattern's span is the name's span.
+    Name(String),
+    /// `_`: skips the value.
+    Ignore,
+    /// `(a, b)`: a tuple with exactly this many elements.
+    Tuple(Vec<BindingPattern>),
+    /// `[a, b]` or `[a, ...rest]`: an array. Without `rest` the length must
+    /// match exactly. `rest` is a `Name` or, for a bare `...`, `Ignore`.
+    Array {
+        elements: Vec<BindingPattern>,
+        rest: Option<Box<BindingPattern>>,
+    },
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Stmt {
     pub kind: StmtKind,
@@ -243,6 +299,14 @@ pub enum StmtKind {
         is_const: bool,
         is_deep: bool,
         is_lazy: bool,
+        doc: Option<String>,
+    },
+    /// `let (a, b) = pair;` or `let [x, ...rest] = items;`
+    LetPattern {
+        pattern: BindingPattern,
+        mutable: bool,
+        ty: Option<String>,
+        value: Expr,
         doc: Option<String>,
     },
     MacroDecl {

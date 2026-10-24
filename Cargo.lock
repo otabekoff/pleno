@@ -1528,6 +1528,7 @@ name = "pleno-lsp"
 version = "0.2.0"
 dependencies = [
  "pleno-ast",
+ "pleno-compiler",
  "pleno-formatter",
  "pleno-lexer",
  "pleno-linter",

@@ -93,6 +93,9 @@ pub fn walk_stmt<'ast, V: Visitor<'ast, T> + ?Sized, T: Default>(
                 visitor.visit_expr(v);
             }
         }
+        StmtKind::LetPattern { value, .. } => {
+            visitor.visit_expr(value);
+        }
         StmtKind::MacroDecl { body, .. } => {
             visitor.visit_stmt(body);
         }

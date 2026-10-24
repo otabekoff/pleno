@@ -1050,6 +1050,17 @@ impl VM {
         if let Some(inner) = ty.strip_suffix('?') {
             return matches!(value, Value::Null) || self.matches_type_name(value, inner);
         }
+        if let Some(element_types) = tuple_type_elements(ty) {
+            let Value::Tuple(tuple) = value else {
+                return false;
+            };
+            let elements = tuple.borrow().elements.clone();
+            return elements.len() == element_types.len()
+                && elements
+                    .iter()
+                    .zip(&element_types)
+                    .all(|(element, ty)| self.matches_type_name(element, ty));
+        }
         if ty == "Function" || (ty.starts_with('(') && ty.contains("=>")) {
             return self.is_callable(value);
         }
@@ -4315,6 +4326,9 @@ impl VM {
                         _ => return Err(RuntimeError::new("AddVariant on non-enum value")),
                     }
                 }
+                Opcode::Destructure => {
+                    check_destructure(&self.registers[base + a].to_value(), b as u8, c)?;
+                }
                 Opcode::SetVariantValue => {
                     let variant_name = match &function.chunk.constants[b] {
                         Value::String(s) => s.to_string(),
@@ -6369,6 +6383,99 @@ fn describe_exception(value: &Value) -> String {
 
 /// Splits `text` on `sep` outside of `<>`, `()` and `[]`; `None` if `sep` never
 /// occurs at the top level.
+/// The shape check of a destructuring `let`: `let (a, b) = value;` needs a
+/// tuple with two elements, `let [a, ...rest] = value;` an array with at least one.
+fn check_destructure(value: &Value, mode: u8, count: usize) -> Result<(), RuntimeError> {
+    let elements = |n: usize| {
+        if n == 1 {
+            "1 element".to_string()
+        } else {
+            format!("{n} elements")
+        }
+    };
+    let type_name = || match value {
+        Value::Object(object) => object
+            .borrow()
+            .class
+            .as_ref()
+            .map(|class| class.borrow().name.to_string())
+            .unwrap_or_else(|| "Object".to_string()),
+        other => other.type_name().to_string(),
+    };
+    match mode {
+        pleno_bytecode::DESTRUCTURE_TUPLE => {
+            let Value::Tuple(tuple) = value else {
+                return Err(RuntimeError::new(format!(
+                    "cannot destructure {} as a tuple",
+                    type_name()
+                )));
+            };
+            let len = tuple.borrow().elements.len();
+            if len != count {
+                return Err(RuntimeError::new(format!(
+                    "tuple has {}, pattern expects {count}",
+                    elements(len)
+                )));
+            }
+        }
+        _ => {
+            let Value::Array(array) = value else {
+                return Err(RuntimeError::new(format!(
+                    "cannot destructure {} as an array",
+                    type_name()
+                )));
+            };
+            let len = array.borrow().elements.len();
+            if mode == pleno_bytecode::DESTRUCTURE_ARRAY_AT_LEAST {
+                if len < count {
+                    return Err(RuntimeError::new(format!(
+                        "array has {}, pattern expects at least {count}",
+                        elements(len)
+                    )));
+                }
+            } else if len < count {
+                return Err(RuntimeError::new(format!(
+                    "array has {}, pattern expects {count}",
+                    elements(len)
+                )));
+            } else if len > count {
+                return Err(RuntimeError::new(format!(
+                    "array has {}, pattern expects {count} (add '...rest' or '...' to the \
+                     pattern to allow more)",
+                    elements(len)
+                )));
+            }
+        }
+    }
+    Ok(())
+}
+
+/// The element types of a tuple type such as `(Int, String)`, or `None` for
+/// anything else (a function type `(Int) => Int`, a grouping, a plain name).
+fn tuple_type_elements(ty: &str) -> Option<Vec<String>> {
+    let inner = ty.strip_prefix('(')?;
+    // The '(' that opens the type must close at the very end.
+    let mut depth = 1i32;
+    let mut prev = ' ';
+    for (index, ch) in inner.char_indices() {
+        match ch {
+            '(' | '[' | '<' => depth += 1,
+            '>' if prev != '=' => depth -= 1,
+            ')' | ']' => depth -= 1,
+            _ => {}
+        }
+        if depth == 0 {
+            if index + ch.len_utf8() != inner.len() {
+                return None;
+            }
+            let parts = split_top_level(&inner[..index], ',')?;
+            return (parts.len() >= 2).then_some(parts);
+        }
+        prev = ch;
+    }
+    None
+}
+
 fn split_top_level(text: &str, sep: char) -> Option<Vec<String>> {
     let mut parts = Vec::new();
     let mut depth = 0i32;

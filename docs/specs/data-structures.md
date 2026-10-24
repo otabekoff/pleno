@@ -97,10 +97,6 @@ print(set1.difference(set2));     // {1, 2}
 
 ## Tuples
 
-::: warning Planned
-Tuple type annotations such as `(String, Int, Bool)` are not implemented yet; the parser reports `Invalid type grouping`. Destructuring with `let (name, age, active) = person;` is not implemented either. Tuple values, `.0`/`.1` access and named tuples work.
-:::
-
 ```pleno
 // Tuple with different types
 let person = ("Alice", 30, true);
@@ -113,7 +109,110 @@ print(person.1);  // 30
 let point = (x: 10.5, y: 20.3);
 print(point.x);   // 10.5
 print(point.0);   // 10.5
+
+// A one-element tuple needs a trailing comma
+let single = (42,);
+print(single.0);  // 42
 ```
+
+### Tuple types
+
+A tuple type lists the type of each element: `(String, Int, Bool)`. Like other annotations, it is checked when the code runs: the value must be a tuple with exactly that many elements, each of the listed type. Tuple types combine with the other type forms, as in `(Int, Int)[]`, `(Int, String)?` and `Map<String, (Int, Int)>`.
+
+```pleno
+let person: (String, Int, Bool) = ("Alice", 30, true);
+
+fn sumAndProduct(a: Int, b: Int): (Int, Int) {
+    return (a + b, a * b);
+}
+print(sumAndProduct(3, 5));   // (8, 15)
+
+let points: (Int, Int)[] = [(0, 0), (3, 4)];
+print(points.length);   // 2
+
+try {
+    let wrong: (String, Int) = ("Bob", "thirty");
+} catch (e) {
+    print(e);           // TypeError: expected (String, Int), found Tuple
+}
+```
+
+A function's return type annotation, `(Int, Int)` above, documents the result but is not checked yet, as with every return annotation.
+
+## Destructuring
+
+`let` can take a tuple or an array apart into names. A pattern is a name, `_` to skip a value, a tuple pattern `(a, b)` or an array pattern `[a, b]`, and patterns nest.
+
+```pleno
+let person = ("Alice", 30, true);
+let (name, age, active) = person;
+print(name, age, active);   // Alice 30 true
+
+// `_` skips an element; patterns nest
+let (_, (x, y)) = ("origin", (0, 0));
+print(x + y);               // 0
+
+// `let mut` makes every name mutable
+let mut (low, high) = (10, 1);
+if (low > high) {
+    let (a, b) = (high, low);
+    low = a;
+    high = b;
+}
+print(low, high);           // 1 10
+
+// Arrays, with an optional rest element at the end
+let [first, second] = [1, 2];
+let [head, ...tail] = [1, 2, 3, 4];
+print(head, tail);          // 1 [2, 3, 4]
+let [top, ...] = [9, 8, 7]; // a bare `...` ignores the rest
+print(top);                 // 9
+
+// Several results from a function
+fn minMax(items: Int[]): (Int, Int) {
+    let mut lowest = items[0];
+    let mut highest = items[0];
+    for (item in items) {
+        if (item < lowest) { lowest = item; }
+        if (item > highest) { highest = item; }
+    }
+    return (lowest, highest);
+}
+let (lowest, highest) = minMax([3, 9, 1, 4]);
+print(lowest, highest);     // 1 9
+
+// An annotation after the pattern checks the whole value
+let (id, label): (Int, String) = (7, "seven");
+print(label);               // seven
+```
+
+The pattern must fit the value, or the `let` fails with a runtime error:
+
+- A tuple pattern needs a tuple (a named tuple works too, by position) with exactly as many elements: `let (a, b, c) = (1, 2);` fails with `tuple has 2 elements, pattern expects 3`.
+- An array pattern needs an array with exactly as many elements. With a rest element, `[a, ...rest]`, the array needs at least as many elements as the names before the rest, and `rest` is a new array of the remaining ones (possibly empty).
+- Any other value fails with `cannot destructure Int as a tuple` (or `as an array`).
+
+```pleno
+try {
+    let (a, b, c) = (1, 2);
+} catch (e) {
+    print(e.message);   // tuple has 2 elements, pattern expects 3
+}
+
+try {
+    let [first, second] = [1];
+} catch (e) {
+    print(e.message);   // array has 1 element, pattern expects 2
+}
+
+try {
+    let (a, b) = 5;
+} catch (e) {
+    print(e.message);   // cannot destructure Int as a tuple
+}
+```
+
+A tuple pattern with one element needs a trailing comma, `let (a,) = single;`, and a rest element is only allowed in array patterns. A destructuring `let` always has a value, and cannot be `lazy`, `deep` or exported. `for` loops do not take patterns yet: `for (key, value in map)` iterates a map's entries, and `for (pair in pairs) { let (a, b) = pair; ... }` destructures each element.
 
 ## Ranges
 

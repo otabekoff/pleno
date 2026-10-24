@@ -283,6 +283,24 @@ impl Formatter {
                 result.push_str(";\n");
                 result
             }
+            StmtKind::LetPattern {
+                pattern,
+                mutable,
+                ty,
+                value,
+                ..
+            } => {
+                let mut result = current_indent;
+                result.push_str(if *mutable { "let mut " } else { "let " });
+                result.push_str(&Self::format_binding_pattern(pattern));
+                if let Some(type_name) = ty {
+                    result.push_str(&format!(": {}", type_name));
+                }
+                result.push_str(" = ");
+                result.push_str(&self.format_expression(value, indent_level));
+                result.push_str(";\n");
+                result
+            }
             StmtKind::Assign { name, value } => {
                 format!(
                     "{}{} = {};\n",
@@ -1449,6 +1467,33 @@ impl Formatter {
             result.push_str(&format!(" = {}", self.format_expression(default, 0)));
         }
         result
+    }
+
+    fn format_binding_pattern(pattern: &pleno_ast::BindingPattern) -> String {
+        use pleno_ast::BindingPatternKind;
+        match &pattern.kind {
+            BindingPatternKind::Name(name) => name.clone(),
+            BindingPatternKind::Ignore => "_".to_string(),
+            BindingPatternKind::Tuple(items) => {
+                let items: Vec<String> = items.iter().map(Self::format_binding_pattern).collect();
+                if items.len() == 1 {
+                    format!("({},)", items[0])
+                } else {
+                    format!("({})", items.join(", "))
+                }
+            }
+            BindingPatternKind::Array { elements, rest } => {
+                let mut items: Vec<String> =
+                    elements.iter().map(Self::format_binding_pattern).collect();
+                if let Some(rest) = rest {
+                    items.push(match &rest.kind {
+                        BindingPatternKind::Name(name) => format!("...{name}"),
+                        _ => "...".to_string(),
+                    });
+                }
+                format!("[{}]", items.join(", "))
+            }
+        }
     }
 
     fn format_pattern(&self, pattern: &Pattern) -> String {

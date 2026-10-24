@@ -20,6 +20,16 @@ let name: String = "Alice";    // Explicit type
 let mut counter = 0;           // Explicitly mutable
 ```
 
+#### Destructuring
+```pleno
+let (name, age) = ("Alice", 30);       // Tuple
+let [first, ...rest] = [1, 2, 3];      // Array, with a rest element
+let mut (x, _) = (1, 2);               // `_` skips a value
+print(name, age, first, rest, x);      // Alice 30 1 [2, 3] 1
+```
+
+See [Destructuring](./data-structures#destructuring) for the rules.
+
 #### Constants (truly immutable)
 ```pleno
 const PI = 3.14159;            // Compile-time constant

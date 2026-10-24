@@ -361,6 +361,38 @@ impl Parser {
         let is_lazy = self.matches(&TokenKind::KeywordLazy);
         let mutable = self.matches(&TokenKind::KeywordMut) || forced_mutable;
         let is_deep = self.matches(&TokenKind::KeywordDeep);
+        if matches!(self.peek_kind(), TokenKind::LParen | TokenKind::LBracket) {
+            if is_lazy || is_deep {
+                let modifier = if is_lazy { "lazy" } else { "deep" };
+                return Err(self.error(
+                    format!("'let {modifier}' cannot destructure; bind a single name"),
+                    self.peek_span(),
+                ));
+            }
+            let pattern = self.parse_binding_pattern()?;
+            let ty = if self.matches(&TokenKind::Colon) {
+                Some(self.parse_type()?)
+            } else {
+                None
+            };
+            if !self.matches(&TokenKind::Equal) {
+                return Err(self.error(
+                    "A destructuring 'let' needs a value: let (a, b) = pair;".to_string(),
+                    self.peek_span(),
+                ));
+            }
+            let value = self.parse_expr()?;
+            return Ok(self.wrap_stmt(
+                StmtKind::LetPattern {
+                    pattern,
+                    mutable,
+                    ty,
+                    value,
+                    doc,
+                },
+                start_span,
+            ));
+        }
         let name_span = self.peek_span();
         let name = match self.advance().kind.clone() {
             TokenKind::Ident(value) => value,
@@ -398,6 +430,120 @@ impl Parser {
             },
             start_span,
         ))
+    }
+
+    /// Parses the left-hand side of a destructuring `let`: a name, `_`,
+    /// a tuple `(a, b)` or an array `[a, b, ...rest]`, nested freely.
+    fn parse_binding_pattern(&mut self) -> Result<pleno_ast::BindingPattern, ParseError> {
+        self.enter_recursive()?;
+        let res = self.parse_binding_pattern_inner();
+        self.leave_recursive();
+        res
+    }
+
+    fn parse_binding_pattern_inner(&mut self) -> Result<pleno_ast::BindingPattern, ParseError> {
+        use pleno_ast::{BindingPattern, BindingPatternKind};
+        let start_span = self.peek_span();
+        match self.peek_kind().clone() {
+            TokenKind::Underscore => {
+                self.advance();
+                Ok(BindingPattern::new(BindingPatternKind::Ignore, start_span))
+            }
+            TokenKind::Ident(name) => {
+                self.advance();
+                Ok(BindingPattern::new(
+                    BindingPatternKind::Name(name),
+                    start_span,
+                ))
+            }
+            kind if contextual_keyword_name(&kind).is_some() => {
+                self.advance();
+                let name = contextual_keyword_name(&kind)
+                    .unwrap_or_default()
+                    .to_string();
+                Ok(BindingPattern::new(
+                    BindingPatternKind::Name(name),
+                    start_span,
+                ))
+            }
+            TokenKind::LParen => {
+                self.advance();
+                let mut items = Vec::new();
+                let mut trailing_comma = false;
+                while !self.check(&TokenKind::RParen) {
+                    if matches!(self.peek_kind(), TokenKind::Ellipsis | TokenKind::DotDot) {
+                        return Err(self.error(
+                            "A rest element '...' is only allowed in array patterns".to_string(),
+                            self.peek_span(),
+                        ));
+                    }
+                    items.push(self.parse_binding_pattern()?);
+                    trailing_comma = self.matches(&TokenKind::Comma);
+                    if !trailing_comma {
+                        break;
+                    }
+                }
+                self.expect(TokenKind::RParen, "Expected ')' after tuple pattern")?;
+                if items.len() == 1 && !trailing_comma {
+                    return Err(self.error(
+                        "A tuple pattern with one element needs a trailing comma: (a,)".to_string(),
+                        Span::new(start_span.start, self.previous_span().end),
+                    ));
+                }
+                Ok(BindingPattern::new(
+                    BindingPatternKind::Tuple(items),
+                    Span::new(start_span.start, self.previous_span().end),
+                ))
+            }
+            TokenKind::LBracket => {
+                self.advance();
+                let mut elements = Vec::new();
+                let mut rest = None;
+                while !self.check(&TokenKind::RBracket) {
+                    if matches!(self.peek_kind(), TokenKind::Ellipsis | TokenKind::DotDot) {
+                        let rest_start = self.peek_span();
+                        self.advance();
+                        let rest_pattern = match self.peek_kind().clone() {
+                            TokenKind::Ident(name) => {
+                                let span = self.peek_span();
+                                self.advance();
+                                BindingPattern::new(BindingPatternKind::Name(name), span)
+                            }
+                            TokenKind::Underscore => {
+                                self.advance();
+                                BindingPattern::new(BindingPatternKind::Ignore, rest_start)
+                            }
+                            _ => BindingPattern::new(BindingPatternKind::Ignore, rest_start),
+                        };
+                        rest = Some(Box::new(rest_pattern));
+                        self.matches(&TokenKind::Comma);
+                        if !self.check(&TokenKind::RBracket) {
+                            return Err(self.error(
+                                "The rest element '...' must be the last element of the pattern"
+                                    .to_string(),
+                                self.peek_span(),
+                            ));
+                        }
+                        break;
+                    }
+                    elements.push(self.parse_binding_pattern()?);
+                    if !self.matches(&TokenKind::Comma) {
+                        break;
+                    }
+                }
+                self.expect(TokenKind::RBracket, "Expected ']' after array pattern")?;
+                Ok(BindingPattern::new(
+                    BindingPatternKind::Array { elements, rest },
+                    Span::new(start_span.start, self.previous_span().end),
+                ))
+            }
+            other => Err(self.error(
+                format!(
+                    "Expected a name, '_', '(' or '[' in a destructuring pattern, found {other:?}"
+                ),
+                start_span,
+            )),
+        }
     }
 
     fn parse_const_stmt(&mut self, doc: Option<String>) -> Result<Stmt, ParseError> {
@@ -4130,6 +4276,10 @@ impl Parser {
                 let return_ty = self.parse_type()?;
                 return Ok(format!("({}) => {}", params.join(", "), return_ty));
             } else {
+                // Tuple type: (Int, String)
+                if params.len() >= 2 {
+                    return self.parse_type_postfix(format!("({})", params.join(", ")));
+                }
                 // Grouping: (Int | String)
                 if params.len() != 1 {
                     return Err(self.error("Invalid type grouping".to_string(), start));

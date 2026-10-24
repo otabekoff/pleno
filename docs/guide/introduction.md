@@ -36,7 +36,7 @@ print(`Balance: ${account.total()}`);
 Pleno is at version 0.1, before 1.0. The language can change between releases, and the [changelog](https://github.com/otabekoff/pleno/blob/main/CHANGELOG.md) lists what did. The [1.0 plan](https://github.com/otabekoff/pleno/blob/main/tasks/v1.md) lists what is left, including:
 
 - **Speed:** the interpreter is currently slower than CPython on simple benchmarks.
-- **Static checking:** `pleno check` finds syntax errors and undefined names, but most type errors appear only when the code runs.
-- **Missing features:** destructuring, TCP sockets and a public package registry. Pages that describe features which do not exist yet mark them as **Planned**.
+- **Static checking:** `pleno check` finds syntax errors, undefined names, wrong argument counts and literals that contradict their annotations, but most type errors appear only when the code runs.
+- **Missing features:** TCP sockets and a public package registry. Pages that describe features which do not exist yet mark them as **Planned**.
 
 Ready to try it? [Install Pleno](./installation).
