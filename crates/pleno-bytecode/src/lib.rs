@@ -3,6 +3,12 @@ use pleno_common::Span;
 use pleno_value::Value;
 use serde::{Deserialize, Serialize};
 
+pub mod format;
+pub use format::{
+    BYTECODE_FORMAT_VERSION, BYTECODE_HEADER_LEN, BYTECODE_MAGIC, BytecodeFormatError,
+    decode_chunk, encode_chunk,
+};
+
 use num_derive::{FromPrimitive, ToPrimitive};
 use num_traits::FromPrimitive;
 

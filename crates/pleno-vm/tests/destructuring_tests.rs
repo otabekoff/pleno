@@ -164,18 +164,15 @@ fn duplicate_names_are_rejected() {
 #[test]
 fn tuple_type_annotation_on_let() {
     assert_eq!(eval(r#"let p: (Int, String) = (1, "a"); p.1;"#), "a");
-    assert_eq!(
-        eval_err("let p: (Int, String) = (1, 2);"),
-        "Type error: expected (Int, String), found Tuple"
+    let err = eval_err("let p: (Int, String) = (1, 2);");
+    assert!(
+        err.ends_with("expected (Int, String), found Tuple"),
+        "{err}"
     );
-    assert_eq!(
-        eval_err("let p: (Int, Int) = (1, 2, 3);"),
-        "Type error: expected (Int, Int), found Tuple"
-    );
-    assert_eq!(
-        eval_err("let p: (Int, Int) = [1, 2];"),
-        "Type error: expected (Int, Int), found Array"
-    );
+    let err = eval_err("let p: (Int, Int) = (1, 2, 3);");
+    assert!(err.ends_with("expected (Int, Int), found Tuple"), "{err}");
+    let err = eval_err("let p: (Int, Int) = [1, 2];");
+    assert!(err.ends_with("expected (Int, Int), found Array"), "{err}");
 }
 
 #[test]

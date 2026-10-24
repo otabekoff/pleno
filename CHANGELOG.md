@@ -7,6 +7,11 @@ Notable changes to Pleno. The format follows [Keep a Changelog](https://keepacha
 ### Added
 
 - Destructuring in `let`: `let (a, b) = pair;`, `let mut (x, (y, _)) = nested;` and `let [first, ...rest] = items;`, with runtime errors such as `tuple has 2 elements, pattern expects 3`. Tuple type annotations such as `(Int, String)` and `(Int, Int)[]` are checked at runtime.
+- `pleno run file.plc` runs bytecode written by `pleno compile`.
+
+### Changed
+
+- `.plc` files start with a `PLNC` magic number and a bytecode format version, checked on load; files from another Pleno version, older headerless files and truncated files are rejected with an error asking to recompile.
 
 ## 0.2.0 - 2026-10-24
 
