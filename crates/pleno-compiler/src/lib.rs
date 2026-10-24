@@ -3757,8 +3757,14 @@ impl Compiler {
                 // Check if this is a generic type (contains '<')
                 if let Some(lt_pos) = interface_name.find('<') {
                     // Parse generic: "Container<Int>" -> base="Container", args=["Int"]
+                    if !interface_name.ends_with('>') || lt_pos + 1 >= interface_name.len() - 1 {
+                        return Err(self.error(
+                            &format!("invalid interface type '{interface_name}'"),
+                            self.current_span,
+                        ));
+                    }
                     let base_name = &interface_name[..lt_pos];
-                    let args_str = &interface_name[lt_pos + 1..interface_name.len() - 1]; // Strip < and >
+                    let args_str = &interface_name[lt_pos + 1..interface_name.len() - 1];
 
                     // Load base interface
                     let base_reg = self.registers.allocate()?;
@@ -4907,8 +4913,16 @@ impl Compiler {
             matches!(base.trim(), "Array" | "Map" | "Set" | "Result" | "Option")
         });
         if let Some(start_idx) = ty_name.find('<').filter(|_| !builtin_generic) {
+            // `Name<Args>`: anything else (`a<b`, a union part like `x<y`) is
+            // not a type this can reify.
+            if !ty_name.ends_with('>') || start_idx + 1 >= ty_name.len() - 1 {
+                return Err(self.error(
+                    &format!("invalid type annotation '{ty_name}'"),
+                    self.current_span,
+                ));
+            }
             let base_name = ty_name[..start_idx].trim();
-            let args_str = &ty_name[start_idx + 1..ty_name.len() - 1]; // Assuming it ends with >
+            let args_str = &ty_name[start_idx + 1..ty_name.len() - 1];
             let args = self.split_aware(args_str, ',');
 
             let base_reg = self.registers.allocate()?;
