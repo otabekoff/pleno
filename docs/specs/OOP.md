@@ -1,8 +1,10 @@
 # Object-Oriented Programming
 
-### 4.1 Class Definition
+## Class Definition
 
 ```pleno
+import { Math } from "std:math";
+
 class Person {
     // Private fields (truly encapsulated)
     private name: String;
@@ -18,7 +20,7 @@ class Person {
     constructor(name: String, age: Int) {
         this.name = name;
         this.age = age;
-        this.id = generateId();
+        this.id = this.generateId();
         this.active = true;
     }
     
@@ -49,12 +51,17 @@ class Person {
 
 // Usage
 let person = Person("Alice", 30);
-print(person.greet());
-// print(person.name);  // ERROR: Cannot access private field
-print(person.active);   // OK: Public field
+print(person.greet());  // Hello, I'm Alice
+print(person.active);   // true: public field
+
+try {
+    print(person.name);
+} catch (e) {
+    print(e.message);   // field access denied
+}
 ```
 
-### 4.2 Properties (Getters/Setters)
+## Properties (Getters/Setters)
 
 ```pleno
 import { Math } from "std:math";
@@ -85,11 +92,12 @@ class Circle {
 }
 
 let circle = Circle(5.0);
-print(circle.area);      // 78.54 (computed)
+print(circle.area);      // 78.53981633974483 (computed)
 circle.diameter = 20.0;  // Sets radius to 10
+print(circle.diameter);  // 20
 ```
 
-### 4.3 Inheritance
+## Inheritance
 
 ```pleno
 class Animal {
@@ -124,10 +132,10 @@ class Dog extends Animal {
 }
 
 let dog = Dog("Buddy", "Golden Retriever");
-print(dog.speak());  // "Woof! I'm Buddy"
+print(dog.speak());  // Woof! I'm Buddy
 ```
 
-### 4.4 Abstract Classes
+## Abstract Classes
 
 ```pleno
 abstract class Shape {
@@ -162,12 +170,18 @@ class Rectangle extends Shape {
     }
 }
 
-// let shape = Shape("red");  // ERROR: Cannot instantiate abstract class
 let rect = Rectangle("blue", 10.0, 5.0);
-print(rect.area());  // 50.0
+print(rect.area());      // 50
+print(rect.describe());  // A blue shape
+
+try {
+    Shape("red");
+} catch (e) {
+    print(e.message);  // cannot instantiate abstract class 'Shape'
+}
 ```
 
-### 4.5 Interfaces
+## Interfaces
 
 ```pleno
 interface Drawable {
@@ -201,9 +215,15 @@ class Canvas implements Drawable, Resizable {
         this.size *= factor;
     }
 }
+
+let canvas = Canvas("red", 1.0);
+canvas.draw();               // Drawing canvas
+print(canvas.getColor());    // red
 ```
 
-### 4.6 Static Members
+A class that does not define every method of its interfaces fails when the class is declared: `Class 'Canvas' missing method 'draw' required by interface 'Drawable'`.
+
+## Static Members
 
 ```pleno
 class MathUtils {
@@ -228,20 +248,22 @@ class MathUtils {
 }
 
 // Usage without instance
-print(MathUtils.PI);
-print(MathUtils.square(5.0));
-MathUtils.version = "1.0";
-print(MathUtils.version);
+print(MathUtils.PI);             // 3.14159
+print(MathUtils.square(5.0));    // 25
+
+MathUtils();
+MathUtils();
+print(MathUtils.getInstanceCount());  // 2
 ```
 
-### 4.7 Access Modifiers
+## Access Modifiers
 
-- `public` - Accessible everywhere (default for methods)
+- `public` - Accessible everywhere (the default for fields and methods)
 - `private` - Accessible only within the class
-- `protected` - Accessible within class and subclasses
+- `protected` - Accessible within the class and its subclasses
 - `internal` - Accessible within the same module
 
-Access modifiers are enforced for methods and class fields (including static fields), including `internal`.
+Access modifiers are checked at runtime for methods and fields, including static fields. A denied access throws `field access denied`, `method access denied` or `static field access denied`.
 
 ```pleno
 class Example {

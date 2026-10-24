@@ -1,0 +1,108 @@
+/**
+ * Pleno design tokens, layered on the VitePress default theme.
+ * https://github.com/vuejs/vitepress/blob/main/src/client/theme-default/styles/vars.css
+ *
+ * Neutral surfaces, one accent (the violet of the logo), Inter for text and
+ * JetBrains Mono for code. The logo's red-to-violet gradient appears only in
+ * the logo and one word of the home page headline.
+ */
+
+:root {
+  --pl-red: #ef4857;
+  --pl-magenta: #d211ec;
+  --pl-violet: #7f52ff;
+  --pl-gradient: linear-gradient(100deg, var(--pl-red) 0%, var(--pl-magenta) 50%, var(--pl-violet) 100%);
+
+  --vp-font-family-mono: 'JetBrains Mono Variable', ui-monospace, 'SFMono-Regular', 'Menlo', 'Consolas', monospace;
+
+  /* One radius scale: small controls and chips, buttons and code, panels. */
+  --pl-radius-sm: 6px;
+  --pl-radius: 8px;
+  --pl-radius-lg: 12px;
+
+  /* Light */
+  --vp-c-bg: #ffffff;
+  --vp-c-bg-alt: #f7f7f9;
+  --vp-c-bg-soft: #f2f2f5;
+  --vp-c-bg-elv: #ffffff;
+  --vp-c-divider: #e8e8ec;
+  --vp-c-border: #dcdce2;
+  --vp-c-gutter: #e8e8ec;
+  --pl-border-strong: #c4c4cc;
+  --vp-sidebar-bg-color: var(--vp-c-bg);
+  --vp-code-block-bg: #f7f7f9;
+
+  --vp-c-brand-1: #6236e0;
+  --vp-c-brand-2: #6f45f2;
+  --vp-c-brand-3: #7f52ff;
+  --vp-c-brand-soft: rgba(127, 82, 255, 0.1);
+
+  --vp-c-tip-1: var(--vp-c-brand-1);
+  --vp-c-tip-2: var(--vp-c-brand-2);
+  --vp-c-tip-3: var(--vp-c-brand-3);
+  --vp-c-tip-soft: var(--vp-c-brand-soft);
+
+  --pl-shadow-pop: 0 1px 2px rgba(15, 15, 25, 0.06), 0 8px 24px -6px rgba(15, 15, 25, 0.16);
+  --pl-shadow-panel: 0 1px 2px rgba(15, 15, 25, 0.05);
+
+  /* Code colors (GitHub Light), shared by Markdown blocks, the editor and
+     static samples. */
+  --pl-tok-keyword: #cf222e;
+  --pl-tok-type: #953800;
+  --pl-tok-string: #0a3069;
+  --pl-tok-number: #0550ae;
+  --pl-tok-comment: #6e7781;
+  --pl-tok-function: #8250df;
+
+  --vp-button-brand-border: transparent;
+  --vp-button-brand-text: #ffffff;
+  --vp-button-brand-bg: var(--vp-c-brand-3);
+  --vp-button-brand-hover-border: transparent;
+  --vp-button-brand-hover-text: #ffffff;
+  --vp-button-brand-hover-bg: var(--vp-c-brand-2);
+  --vp-button-brand-active-border: transparent;
+  --vp-button-brand-active-text: #ffffff;
+  --vp-button-brand-active-bg: var(--vp-c-brand-1);
+
+  --vp-custom-block-tip-border: color-mix(in srgb, var(--vp-c-brand-3) 30%, transparent);
+  --vp-custom-block-tip-text: var(--vp-c-text-1);
+  --vp-custom-block-tip-bg: var(--vp-c-brand-soft);
+  --vp-custom-block-tip-code-bg: rgba(127, 82, 255, 0.14);
+
+  /* The announcement bar's height; the inline script in <head> sets it to 0
+     before the first paint when the bar was dismissed. */
+  --pl-banner-height: 36px;
+  --vp-layout-top-height: var(--pl-banner-height);
+}
+
+.dark {
+  --vp-c-bg: #0e0e11;
+  --vp-c-bg-alt: #121216;
+  --vp-c-bg-soft: #18181d;
+  --vp-c-bg-elv: #1a1a20;
+  --vp-c-divider: #222228;
+  --vp-c-border: #2c2c34;
+  --vp-c-gutter: #000000;
+  --pl-border-strong: #3d3d47;
+  --vp-code-block-bg: #131317;
+
+  --vp-c-brand-1: #ab92ff;
+  --vp-c-brand-2: #9878ff;
+  --vp-c-brand-3: #7f52ff;
+  --vp-c-brand-soft: rgba(127, 82, 255, 0.16);
+
+  --pl-shadow-pop: 0 1px 2px rgba(0, 0, 0, 0.4), 0 12px 32px -8px rgba(0, 0, 0, 0.7);
+  --pl-shadow-panel: none;
+
+  /* GitHub Dark */
+  --pl-tok-keyword: #ff7b72;
+  --pl-tok-type: #ffa657;
+  --pl-tok-string: #a5d6ff;
+  --pl-tok-number: #79c0ff;
+  --pl-tok-comment: #8b949e;
+  --pl-tok-function: #d2a8ff;
+}
+
+html.pl-banner-dismissed {
+  --pl-banner-height: 0px;
+}

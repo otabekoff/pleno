@@ -281,3 +281,27 @@ fn std_modules_offer_namespaces() {
     "#;
     assert_eq!(eval_string(source), "b.pln true 1");
 }
+
+#[test]
+fn undefined_names_are_errors_not_null() {
+    let err = eval_result("print(foo);").unwrap_err();
+    assert!(err.contains("undefined variable 'foo'"), "{err}");
+    let err = eval_result("bar(1);").unwrap_err();
+    assert!(err.contains("undefined variable 'bar'"), "{err}");
+    // Catchable like other runtime errors.
+    assert_eq!(
+        eval("let mut ok = false; try { missing; } catch (e) { ok = true; } ok;"),
+        Value::Bool(true)
+    );
+    // Metadata annotations may name nothing.
+    assert_eq!(
+        eval("@Version(\"1.0\") fn f() { return 1; } f();"),
+        Value::Int(1)
+    );
+}
+
+#[test]
+fn calling_a_non_function_names_its_type() {
+    let err = eval_result("let x = 5; x();").unwrap_err();
+    assert!(err.contains("Int is not callable"), "{err}");
+}

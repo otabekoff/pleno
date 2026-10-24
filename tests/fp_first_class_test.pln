@@ -1,4 +1,6 @@
 // Test 6.1: First-Class Functions
+import { exit } from "std:process";
+
 print("Testing First-Class Functions...");
 
 fn assert(condition: Bool, message: String) {

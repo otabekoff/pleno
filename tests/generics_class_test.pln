@@ -1,4 +1,6 @@
 // 10.2 Generic Classes
+import { exit } from "std:process";
+
 print("Testing Generic Classes...");
 
 fn assert(condition: Bool, message: String) {

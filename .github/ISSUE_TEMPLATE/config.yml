@@ -1,5 +1,8 @@
 blank_issues_enabled: true
 contact_links:
-  - name: Discussions
-    url: https://github.com/pleno-lang/pleno/discussions
-    about: Please ask and answer questions here.
+  - name: Documentation
+    url: https://pleno.mohirlab.uz/
+    about: Guides, the language reference and the standard library.
+  - name: Report a security vulnerability
+    url: https://github.com/otabekoff/pleno/security/advisories/new
+    about: Report security issues privately, not in a public issue.

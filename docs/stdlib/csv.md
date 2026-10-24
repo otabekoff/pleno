@@ -8,29 +8,34 @@ CSV parsing.
 import { CSV } from "std:csv";
 ```
 
+`parse` can also be imported directly.
+
 ## Functions
 
 ### `parse(csv: String): Array<Array<String>>`
 
-Parses a CSV string into a 2D array of strings.
+Parses a CSV string into an array of rows. Each row is an array of strings. Quoted fields may contain commas.
+
+The first row is treated as the header and is not included in the result. Rows with a different number of fields than the header throw an error.
 
 ```pleno
-let data = CSV.parse(`
-name,age,city
+import { CSV } from "std:csv";
+
+let data = CSV.parse(`name,age,city
 Alice,30,NYC
 Bob,25,LA
-Charlie,35,Chicago
+"Smith, J",35,Chicago
 `);
 
-// data[0] = ["name", "age", "city"]  (header)
-// data[1] = ["Alice", "30", "NYC"]
-// data[2] = ["Bob", "25", "LA"]
+// data[0] = ["Alice", "30", "NYC"]
+// data[1] = ["Bob", "25", "LA"]
+// data[2] = ["Smith, J", "35", "Chicago"]
 
 for (row in data) {
     print(row[0] + " is " + row[1] + " years old");
 }
 ```
 
-> **Note**: The first row is typically the header. Parse accordingly in your application logic.
+> **Note**: Fields are always strings. Convert numbers yourself, for example with `Int.parse(row[1])`.
 
 ---

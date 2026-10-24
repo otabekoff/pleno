@@ -9,13 +9,58 @@ const plenoGrammar = JSON.parse(
   )
 )
 
+const BASE = '/'
+
+// Modules the browser build cannot use; examples importing them stay offline.
+const OFFLINE_MODULES = /from\s+"std:(io|path|os|process|http|net|db|dotenv)"/
+
+const PLAY_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4.5v15l12-7.5z"/></svg>'
+
+// Hides the announcement bar before the first paint when it was dismissed
+// (see theme/components/AnnouncementBar.vue), so the layout does not jump.
+const BANNER_SCRIPT = `try{if(localStorage.getItem('pleno-announcement-1.0-road')==='dismissed')document.documentElement.classList.add('pl-banner-dismissed')}catch(e){}`
+
+// Pleno code blocks get a "Run" link to the playground carrying their source.
+// ```pleno norun marks a fragment that cannot run by itself (see
+// scripts/check-doc-examples.py), and gets no link.
+function playgroundLinks(md: any) {
+  const fence = md.renderer.rules.fence
+  md.renderer.rules.fence = (tokens: any[], idx: number, ...rest: any[]) => {
+    const token = tokens[idx]
+    const words = token.info.trim().split(/\s+/)
+    const norun = words.includes('norun')
+    if (norun) token.info = words.filter((w: string) => w !== 'norun').join(' ')
+    const html: string = fence(tokens, idx, ...rest)
+    const lang = token.info.trim().split(/[\s{:\[]/)[0]
+    if (lang !== 'pleno' && lang !== 'pln') return html
+    if (norun || OFFLINE_MODULES.test(token.content)) return html
+    const code = Buffer.from(token.content, 'utf-8').toString('base64url')
+    const link = `<a class="pl-run-link" href="${BASE}playground#code=${code}" title="Open in the playground">${PLAY_ICON}Run</a>`
+    return html.replace(/<\/div>\s*$/, `${link}</div>`)
+  }
+}
+
 // https://vitepress.dev/reference/site-config
 export default defineConfig({
   title: "Pleno",
-  description: "Clarity, Safety, Expressiveness",
-  base: "/pleno/",
+  description: "A readable language with optional type annotations, async built in, and the tools to go with it.",
+  base: BASE,
   srcDir: '.',
-  ignoreDeadLinks: true,
+  // Broken internal links fail the build.
+  ignoreDeadLinks: [/^https?:\/\/localhost/],
+  lastUpdated: true,
+  appearance: 'dark',
+  // Blog posts read as articles: no sidebars and no prev/next links.
+  transformPageData(pageData) {
+    const path = pageData.relativePath
+    if (path.startsWith('blog/') && path !== 'blog/index.md') {
+      Object.assign(pageData.frontmatter, { sidebar: false, aside: false, prev: false, next: false })
+    }
+  },
+  head: [
+    ['link', { rel: 'icon', href: `${BASE}logo.svg` }],
+    ['script', {}, BANNER_SCRIPT],
+  ],
   themeConfig: {
     search: {
       provider: 'local',
@@ -26,49 +71,116 @@ export default defineConfig({
     },
     logo: '/logo.svg',
     nav: [
-      { text: 'Home', link: '/' },
-      { text: 'Guide', link: '/guide/getting-started' },
-      { text: 'Specs', link: '/specs/' },
-      { text: 'Stdlib', link: '/stdlib/' },
-      { text: 'Blog', link: '/blog/' },
-      { text: 'Showcase', link: '/showcase' },
-      { text: 'Examples', link: '/examples' },
-      { text: 'Code signing policy', link: '/code-signing-policy' }
+      { text: 'Tutorial', link: '/tutorial/', activeMatch: '/tutorial/' },
+      { text: 'Guide', link: '/guide/introduction', activeMatch: '/guide/' },
+      {
+        text: 'Reference',
+        activeMatch: '/(specs|stdlib)/',
+        items: [
+          { text: 'Language', link: '/specs/' },
+          { text: 'Standard library', link: '/stdlib/' },
+          { text: 'CLI and tools', link: '/specs/tooling-cli' },
+          { text: 'Examples', link: '/examples' },
+        ]
+      },
+      { text: 'Playground', link: '/playground' },
+      { text: 'Blog', link: '/blog/', activeMatch: '/blog/' },
+      {
+        text: 'v0.2',
+        items: [
+          {
+            items: [
+              { text: 'Changelog', link: 'https://github.com/otabekoff/pleno/blob/main/CHANGELOG.md' },
+              { text: 'Releases', link: 'https://github.com/otabekoff/pleno/releases' },
+              { text: 'Roadmap to 1.0', link: 'https://github.com/otabekoff/pleno/blob/main/tasks/v1.md' },
+            ]
+          },
+          {
+            items: [
+              { text: 'Showcase', link: '/showcase' },
+              { text: 'Community', link: '/community' },
+              { text: 'Contributing', link: '/guide/contributing' },
+              { text: 'Code signing policy', link: '/code-signing-policy' },
+            ]
+          }
+        ]
+      }
     ],
 
     sidebar: {
       '/guide/': [
         {
-          text: 'Guide',
+          text: 'Introduction',
           items: [
-            { text: 'Getting Started', link: '/guide/getting-started' },
+            { text: 'Why Pleno', link: '/guide/introduction' },
+            { text: 'Installation', link: '/guide/installation' },
+            { text: 'Getting started', link: '/guide/getting-started' },
+          ]
+        },
+        {
+          text: 'Working with Pleno',
+          items: [
+            { text: 'Editor setup', link: '/guide/editor' },
+            { text: 'Packages', link: '/guide/packages' },
+            { text: 'Testing', link: '/guide/testing' },
+          ]
+        },
+        {
+          text: 'Project',
+          items: [
             { text: 'Contributing', link: '/guide/contributing' },
           ]
         }
       ],
       '/specs/': [
         {
-          text: 'Language Specification',
+          text: 'Basics',
           items: [
-            { text: 'Introduction', link: '/specs/' },
-            { text: 'Core Syntax', link: '/specs/core-syntax-fundamentals' },
-            { text: 'Control Flow', link: '/specs/control-flow' },
+            { text: 'Overview', link: '/specs/' },
+            { text: 'Syntax and types', link: '/specs/core-syntax-fundamentals' },
+            { text: 'Control flow', link: '/specs/control-flow' },
             { text: 'Functions', link: '/specs/functions' },
-            { text: 'Object-Oriented Programming', link: '/specs/OOP' },
-            { text: 'Data Structures', link: '/specs/data-structures' },
-            { text: 'Functional Features', link: '/specs/functional-programming' },
-            { text: 'Async & Concurrency', link: '/specs/async-concurrency' },
-            { text: 'Modules & Imports', link: '/specs/modules-imports' },
-            { text: 'Error Handling', link: '/specs/error-handling' },
+            { text: 'Data structures', link: '/specs/data-structures' },
+            { text: 'Error handling', link: '/specs/error-handling' },
+            { text: 'Modules and imports', link: '/specs/modules-imports' },
+          ]
+        },
+        {
+          text: 'Types and objects',
+          items: [
+            { text: 'Classes and interfaces', link: '/specs/OOP' },
             { text: 'Generics', link: '/specs/generics' },
             { text: 'Decorators', link: '/specs/decorators-attributes' },
-            { text: 'Standard Library', link: '/specs/standard-library' },
-            { text: 'Memory & Performance', link: '/specs/memory-performance' },
+          ]
+        },
+        {
+          text: 'Beyond the basics',
+          items: [
+            { text: 'Functional programming', link: '/specs/functional-programming' },
+            { text: 'Async and concurrency', link: '/specs/async-concurrency' },
+            { text: 'Advanced features', link: '/specs/advanced-features' },
+            { text: 'Standard library tour', link: '/specs/standard-library' },
+            { text: 'Example programs', link: '/specs/example-programs' },
+          ]
+        },
+        {
+          text: 'Tools',
+          items: [
+            { text: 'CLI and tools', link: '/specs/tooling-cli' },
+            { text: 'Testing framework', link: '/specs/testing-framework' },
+            { text: 'Package manager', link: '/specs/package-manager' },
+          ]
+        },
+        {
+          text: 'Runtime and internals',
+          collapsed: true,
+          items: [
+            { text: 'Memory and performance', link: '/specs/memory-performance' },
+            { text: 'Performance features', link: '/specs/performance-features' },
             { text: 'Security', link: '/specs/security-features' },
-            { text: 'Tooling & CLI', link: '/specs/tooling-cli' },
-            { text: 'Testing', link: '/specs/testing-framework' },
-            { text: 'Package Manager', link: '/specs/package-manager' },
-            { text: 'Release', link: '/specs/release' },
+            { text: 'Bytecode VM', link: '/specs/bytecode_vm' },
+            { text: 'Distribution plan', link: '/specs/distribution' },
+            { text: 'Release plan', link: '/specs/release' },
           ]
         }
       ],
@@ -142,15 +254,6 @@ export default defineConfig({
           ]
         }
       ],
-      '/blog/': [
-        {
-          text: 'Blog',
-          items: [
-            { text: 'All Posts', link: '/blog/' },
-            { text: 'Announcing Phase 5', link: '/blog/announcing-phase-5' },
-          ]
-        }
-      ],
       '/examples': [
         {
           text: 'Examples',
@@ -165,15 +268,17 @@ export default defineConfig({
       { icon: 'github', link: 'https://github.com/otabekoff/pleno' }
     ],
 
-    footer: {
-      message: 'Released under the MIT License.',
-      copyright: 'Copyright © 2026-present Pleno Team'
+    editLink: {
+      pattern: 'https://github.com/otabekoff/pleno/edit/main/docs/:path',
+      text: 'Edit this page on GitHub'
     }
   },
   markdown: {
+    config: playgroundLinks,
     theme: {
-      light: 'light-plus',
-      dark: 'dark-plus'
+      // The same palette as the editor (--pl-tok-* in theme/styles/vars.css).
+      light: 'github-light',
+      dark: 'github-dark'
     },
     languages: [
       {

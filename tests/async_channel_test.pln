@@ -1,4 +1,7 @@
 // Test Channel functionality
+import { Channel } from "std:concurrency";
+import { exit } from "std:process";
+
 print("Testing Channel...");
 
 fn assert(condition: Bool, message: String) {

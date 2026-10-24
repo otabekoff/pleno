@@ -4,7 +4,7 @@
 
 class Pleno < Formula
   desc "Modern programming language with clarity, safety, and expressiveness"
-  homepage "https://otabekoff.github.io/pleno/"
+  homepage "https://pleno.mohirlab.uz/"
   license "MIT"
   head "https://github.com/otabekoff/pleno.git", branch: "main"
 

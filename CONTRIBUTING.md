@@ -26,6 +26,18 @@ cd pleno
 make setup
 ```
 
+### Documentation site
+
+The site in `docs/` uses VitePress and [Bun](https://bun.sh). Its playground and tutorial run Pleno compiled to WebAssembly, which you build once (and again after changing the Rust code):
+
+```bash
+rustup target add wasm32-unknown-unknown
+cargo install wasm-bindgen-cli --version 0.2.108   # the version in Cargo.lock
+bun install
+bun run docs:wasm
+bun run docs:dev
+```
+
 ## 🧪 Testing Guidelines
 
 We value correctness above all. Every new feature must be accompanied by tests.

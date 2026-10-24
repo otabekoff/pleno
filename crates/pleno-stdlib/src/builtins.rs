@@ -803,8 +803,12 @@ fn native_global_map(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, R
         Value::Array(_) => native_array_map(vm, args),
         Value::Map(_) => native_map_map(vm, args),
         Value::Set(_) => native_set_map(vm, args),
+        Value::Range(_) => {
+            let args = range_args_as_array(vm, args)?;
+            native_array_map(vm, &args)
+        }
         _ => Err(RuntimeError::new(
-            "map expects collection (Array, Map, or Set)",
+            "map expects a collection (Array, Map, Set or Range)",
         )),
     }
 }
@@ -817,8 +821,12 @@ fn native_global_filter(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value
         Value::Array(_) => native_array_filter(vm, args),
         Value::Map(_) => native_map_filter(vm, args),
         Value::Set(_) => native_set_filter(vm, args),
+        Value::Range(_) => {
+            let args = range_args_as_array(vm, args)?;
+            native_array_filter(vm, &args)
+        }
         _ => Err(RuntimeError::new(
-            "filter expects collection (Array, Map, or Set)",
+            "filter expects a collection (Array, Map, Set or Range)",
         )),
     }
 }
@@ -829,8 +837,24 @@ fn native_global_reduce(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value
     }
     match &args[0] {
         Value::Array(_) => native_array_reduce(vm, args),
-        _ => Err(RuntimeError::new("reduce expects Array")),
+        Value::Range(_) => {
+            let args = range_args_as_array(vm, args)?;
+            native_array_reduce(vm, &args)
+        }
+        _ => Err(RuntimeError::new("reduce expects an Array or Range")),
     }
+}
+
+/// `args` with the range in front replaced by an array of its values, so the
+/// array versions of map, filter and reduce handle ranges.
+fn range_args_as_array(
+    vm: &mut dyn VMProvider,
+    args: &[Value],
+) -> Result<Vec<Value>, RuntimeError> {
+    let array = native_range_to_array(vm, &args[..1])?;
+    Ok(std::iter::once(array)
+        .chain(args[1..].iter().cloned())
+        .collect())
 }
 
 // Result/Option constructors
@@ -1600,7 +1624,8 @@ fn native_result_unwrap(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Valu
     {
         return Ok(map.get("value").cloned().unwrap_or(Value::Null));
     }
-    Err(RuntimeError::new("called unwrap on Err"))
+    let error = map.get("error").cloned().unwrap_or(Value::Null);
+    Err(RuntimeError::new(format!("called unwrap on Err({error})")))
 }
 fn native_result_unwrap_or(
     _vm: &mut dyn VMProvider,

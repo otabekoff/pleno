@@ -41,9 +41,9 @@ let data: String? = null;  // Optional
 
 ### REST API
 
-A simple REST API using `std:http`.
+A small REST API using `std:http`. The server keeps running until you stop it.
 
-```pleno
+```pleno norun
 import { HTTP } from "std:http";
 import { JSON } from "std:json";
 
@@ -78,21 +78,12 @@ server.listen(8080, fn() {
 
 ### Todo Manager
 
-Command-line task manager with file persistence.
+Command-line task manager that saves its tasks to `todos.json`. Tasks are stored as maps, because `JSON.stringify` writes class instances as `null`.
 
 ```pleno
 import { File } from "std:io";
 import { JSON } from "std:json";
 import { Process } from "std:process";
-
-class Todo {
-    public title: String;
-    public completed: Bool = false;
-
-    constructor(title: String) {
-        this.title = title;
-    }
-}
 
 class TodoManager {
     private todos: Array;
@@ -104,7 +95,7 @@ class TodoManager {
     }
 
     fn add(title: String) {
-        this.todos.push(Todo(title));
+        this.todos.push({ "title": title, "completed": false });
         this.save();
         print("Added: " + title);
     }
@@ -116,7 +107,7 @@ class TodoManager {
         }
         for (i in 0..this.todos.length) {
             let todo = this.todos[i];
-            let status = todo.completed ? "[✓]" : "[ ]";
+            let status = todo.completed ? "[x]" : "[ ]";
             print((i + 1).toString() + ". " + status + " " + todo.title);
         }
     }
@@ -141,23 +132,32 @@ class TodoManager {
 }
 
 fn main() {
+    // args is [pleno, run, todo.pln, command, ...]
     let args = Process.args();
     let manager = TodoManager();
 
-    if (args.length <= 1) {
-        print("Usage: todo [add|list|complete] ...");
+    if (args.length <= 3) {
+        print("Usage: pleno run todo.pln [add|list|complete] ...");
         return;
     }
 
-    match (args[1]) {
-        case "add" => manager.add(args[2]),
+    match (args[3]) {
+        case "add" => manager.add(args[4]),
         case "list" => manager.list(),
-        case "complete" => manager.complete(Int.parse(args[2]) - 1),
+        case "complete" => manager.complete(Int.parse(args[4]) - 1),
         case _ => print("Unknown command")
     }
 }
 
 main();
+```
+
+Run it with a command:
+
+```sh
+pleno run todo.pln add "Buy milk"
+pleno run todo.pln list
+pleno run todo.pln complete 1
 ```
 
 ---
@@ -166,88 +166,105 @@ main();
 
 ### Basic Async/Await
 
-```pleno
-import { HTTP } from "std:http";
+Calling an `async fn` returns a Promise. `await` waits for it. Top-level code can use `await` directly.
 
-async fn fetchData(url: String): String {
-    let response = await HTTP.get(url);
-    return response.body;
+```pleno
+import { sleep } from "std:time";
+
+// Stands in for a slow operation such as a network request.
+async fn fetchData(id: Int): String {
+    await sleep(50);
+    return "item " + id.toString();
 }
 
 async fn main() {
-    let data = await fetchData("https://api.example.com/data");
-    print("Received: " + data);
+    let data = await fetchData(1);
+    print("Received: " + data);  // Received: item 1
 }
 
-main();
+await main();
 ```
 
 ### Promise.all
 
+Start several tasks, then wait for all of them. The results keep the order of the input.
+
 ```pleno
+import { sleep } from "std:time";
+
+// Stands in for a slow request.
+async fn fetchUser(id: Int): Map {
+    await sleep(50);
+    return { "id": id, "name": "User " + id.toString() };
+}
+
 async fn fetchMultiple() {
-    let urls = [
-        "https://api.example.com/user",
-        "https://api.example.com/posts",
-        "https://api.example.com/comments"
-    ];
+    let mut promises = [];
+    for (id in [1, 2, 3]) {
+        promises.push(fetchUser(id));
+    }
+    let users = await Promise.all(promises);
 
-    let promises = urls.map(fn(url) => HTTP.get(url));
-    let responses = await Promise.all(promises);
-
-    for (response in responses) {
-        print(response.body);
+    for (user in users) {
+        print(user.name);  // User 1, User 2, User 3
     }
 }
+
+await fetchMultiple();
 ```
 
 ### Channel Communication
 
-```pleno
-import { Channel, spawn } from "std:concurrency";
+`spawn` is a global. It runs a function as a separate task. A `for` loop over a channel receives values until the channel is closed.
 
-fn producer(ch: Channel) {
+```pleno
+import { Channel } from "std:concurrency";
+
+async fn producer(ch: Channel) {
     for (i in 0..10) {
-        ch.send(i * 2);
+        await ch.send(i * 2);
     }
     ch.close();
 }
 
 fn consumer(ch: Channel) {
     for (value in ch) {
-        print("Received: " + value.toString());
+        print("Received: " + value.toString());  // 0, 2, 4, ... 18
     }
 }
 
 let ch = Channel(5);  // Buffered channel
-spawn(fn() => producer(ch));
+spawn(producer, ch);
 consumer(ch);
 ```
 
 ### Mutex for Shared State
 
+Each task reads the counter, waits, then writes it back. The mutex keeps the tasks from overwriting each other's updates.
+
 ```pleno
-import { Mutex, spawn, sleep } from "std:concurrency";
+import { Mutex } from "std:concurrency";
+import { sleep } from "std:time";
 
 let mutex = Mutex();
-let counter = 0;
+let mut counter = 0;
 
 async fn increment(n: Int) {
     for (i in 0..n) {
         await mutex.lock();
-        counter = counter + 1;
+        let current = counter;
+        await sleep(0);
+        counter = current + 1;
         mutex.unlock();
     }
 }
 
-async fn main() {
-    spawn(fn() => increment(100));
-    spawn(fn() => increment(100));
-    spawn(fn() => increment(100));
-
-    await sleep(500);
-    print("Final count: " + counter.toString());  // 300
-}
+await Promise.all([
+    spawn(increment, 100),
+    spawn(increment, 100),
+    spawn(increment, 100)
+]);
+print("Final count: " + counter.toString());  // Final count: 300
 ```
 
 ---
@@ -278,12 +295,16 @@ print(output);
 import { CSV } from "std:csv";
 import { File } from "std:io";
 
+File.write("data.csv", "name,language\nAlice,Pleno\nBob,Rust\n");
+
 let content = File.read("data.csv");
-let rows = CSV.parse(content);
+let rows = CSV.parse(content);  // the header row is skipped
 
 for (row in rows) {
-    print(row[0] + ": " + row[1]);
+    print(row[0] + ": " + row[1]);  // Alice: Pleno, then Bob: Rust
 }
+
+File.delete("data.csv");
 ```
 
 ### Regex Matching
@@ -301,7 +322,7 @@ if (found != null) {
 
 let numbers = Regex(r"\d+");
 let all = numbers.findAll("abc 123 def 456");
-// ["123", "456"]
+print(all.map(fn(m) => m.value));     // [123, 456]
 ```
 
 ---

@@ -1,4 +1,6 @@
 // Test 9.1 & 9.2: Async/Await and Promises
+import { exit } from "std:process";
+
 print("Testing Async/Await and Promises...");
 
 fn assert(condition: Bool, message: String) {

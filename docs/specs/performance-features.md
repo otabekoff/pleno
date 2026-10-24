@@ -1,4 +1,4 @@
-# Performance Features ✅
+# Performance Features
 
 Pleno includes a suite of compiler and VM optimizations designed for high-performance execution.
 

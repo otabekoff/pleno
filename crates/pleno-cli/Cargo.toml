@@ -13,7 +13,7 @@ name = "plm"
 path = "src/bin/plm.rs"
 
 [package.metadata.deb]
-maintainer = "Otabek <otabek@plano.org>"
+maintainer = "Otabek <sadiridinovotabek@gmail.com>"
 copyright = "2026, Otabek"
 license-file = ["../../LICENSE", "0"]
 extended-description = """
@@ -41,6 +41,7 @@ pleno-parser = { workspace = true }
 pleno-compiler = { workspace = true }
 pleno-vm = { workspace = true }
 pleno-formatter = { workspace = true }
+pleno-ast = { workspace = true }
 pleno-common = { workspace = true }
 pleno-package = { workspace = true }
 pleno-diagnostics = { workspace = true }

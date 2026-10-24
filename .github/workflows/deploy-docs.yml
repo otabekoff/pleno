@@ -1,55 +1,73 @@
-name: Deploy Docs
+# Builds the docs (with the playground's WebAssembly) on every pull request and push, and from
+# `main` deploys them to GitHub Pages, served at pleno.mohirlab.uz (the custom domain is set in the
+# repository's Pages settings; DNS: CNAME pleno -> otabekoff.github.io).
+name: Docs
 
 on:
   push:
     branches: [main]
+  pull_request:
+  workflow_dispatch:
 
-# Sets permissions of the GITHUB_TOKEN to allow deployment to GitHub Pages
 permissions:
   contents: read
-  pages: write
-  id-token: write
 
-# Allow only one concurrent deployment, skipping runs queued between the run in-progress and latest queued.
-# However, do NOT cancel in-progress runs as we want to allow these production deployments to complete.
+# One deployment at a time; superseded PR runs are cancelled, production runs are not
 concurrency:
-  group: pages
-  cancel-in-progress: false
+  group: ${{ github.event_name == 'pull_request' && format('docs-pr-{0}', github.event.pull_request.number) || 'docs-production' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  # Build job
   build:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0 # Not strictly needed unless using git history extensions
+          fetch-depth: 0 # full history for "last updated" timestamps
 
       - name: Setup Bun
-        uses: oven-sh/setup-bun@v1
-        with:
-          bun-version: latest
+        uses: oven-sh/setup-bun@v2
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
+      # The playground and tutorial run Pleno compiled to WebAssembly.
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install wasm-bindgen
+        # Must match the wasm-bindgen version in Cargo.lock.
+        uses: taiki-e/install-action@v2
+        with:
+          tool: wasm-bindgen-cli@0.2.108
+
+      - name: Build the playground
+        run: bun run docs:wasm
+
       - name: Build with VitePress
         run: bun run docs:build
 
-      - name: Upload artifact
+      - if: github.event_name != 'pull_request'
         uses: actions/upload-pages-artifact@v3
         with:
           path: docs/.vitepress/dist
 
-  # Deployment job
   deploy:
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     needs: build
     runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: https://pleno.mohirlab.uz
     steps:
       - name: Deploy to GitHub Pages
-        id: deployment
         uses: actions/deploy-pages@v4

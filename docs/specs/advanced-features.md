@@ -1,6 +1,6 @@
 # Advanced Features
 
-### 14.1 Reflection & Metaprogramming
+## Reflection & Metaprogramming
 
 ```pleno
 import { Reflect } from "std:reflect";
@@ -17,13 +17,13 @@ class User {
 let user = User();
 
 // Get class info
-let className = Reflect.getTypeName(user);  // "User"
-let fields = Reflect.getFields(user);       // ["name", "age"]
-let methods = Reflect.getMethods(user);
+print(Reflect.getTypeName(user));  // User
+print(Reflect.getFields(user));    // [age, name]
+print(Reflect.getMethods(user));   // [constructor, greet]
 
 // Get/set field values dynamically
 Reflect.setField(user, "name", "Alice");
-let name = Reflect.getField(user, "name");
+print(Reflect.getField(user, "name"));  // Alice
 
 // Check type at runtime
 if (Reflect.isInstanceOf(user, User)) {
@@ -31,10 +31,10 @@ if (Reflect.isInstanceOf(user, User)) {
 }
 
 // Call method dynamically
-Reflect.callMethod(user, "greet", ["Hello"]);  // "Hello, Alice"
+print(Reflect.callMethod(user, "greet", ["Hello"]));  // Hello, Alice
 ```
 
-### 14.2 Macros (Compile-time Code Generation)
+## Macros (Compile-time Code Generation)
 
 ```pleno
 // Define macro
@@ -55,7 +55,7 @@ repeat!(3, {
 // print("Hello");
 ```
 
-### 14.3 Operator Overloading
+## Operator Overloading
 
 ```pleno
 class Vector {
@@ -96,11 +96,12 @@ let v1 = Vector(1.0, 2.0);
 let v2 = Vector(3.0, 4.0);
 let v3 = v1 + v2;          // Vector(4.0, 6.0)
 let v4 = v1 * 2.0;         // Vector(2.0, 4.0)
+print(v3[0], v3[1]);       // 4 6
 print(v1 == v2);           // false
-print(v1[0]);              // 1.0
+print(v1[0]);              // 1
 ```
 
-### 14.4 Extension Methods
+## Extension Methods
 
 ```pleno
 // Extend existing types
@@ -115,7 +116,7 @@ extend String {
 }
 
 // Usage
-print("hello".reversed());      // "olleh"
+print("hello".reversed());      // olleh
 print("racecar".isPalindrome()); // true
 
 // Extend generic types
@@ -129,40 +130,35 @@ extend <T> Array<T> {
 }
 
 let numbers = [1, 2, 3];
-print(numbers.second());  // Some(2)
+print(numbers.second().unwrap());  // 2
 ```
 
-### 14.5 Annotations & Metadata
+## Annotations & Metadata
+
+Annotations attach a name and constant arguments to a class or enum. An annotation does not need a definition. `Reflect.getAnnotations` returns them as maps with `name` and `args`; for an instance it returns the annotations of its class.
 
 ```pleno
-// Define custom annotation
-@annotation
-class Route {
-    public path: String;
-    public method: String;
-    
-    constructor(path: String, method: String = "GET") {
-        this.path = path;
-        this.method = method;
+import { Reflect } from "std:reflect";
+
+@Route("/users", "GET")
+@Version(2)
+class UserController {
+    fn list(): Array {
+        return [];
     }
 }
 
-// Use annotation
-@Route("/users", "GET")
-fn getUsers(): User[] {
-    // implementation
+let annotations = Reflect.getAnnotations(UserController);
+for (a in annotations) {
+    print(a.name, a.args);
 }
+// Route [/users, GET]
+// Version [2]
 
-@Route("/users", "POST")
-fn createUser(user: User): User {
-    // implementation
-}
-
-// Read annotations at runtime
-let annotations = Reflect.getAnnotations(getUsers);
+print(Reflect.getAnnotations(UserController()).length);  // 2
 ```
 
-### 14.6 Enum Types
+## Enum Types
 
 ```pleno
 // Simple enum
@@ -173,6 +169,7 @@ enum Color {
 }
 
 let color = Color.Red;
+print(color);  // Color.Red
 
 // Enum with values
 enum Status {
@@ -180,6 +177,7 @@ enum Status {
     Active = 1,
     Completed = 2
 }
+print(Status.Active.value);  // 1
 
 // Enum with associated data
 enum Result<T, E> {
@@ -212,9 +210,11 @@ enum Direction {
         }
     }
 }
+
+print(Direction.North.opposite());  // Direction.South
 ```
 
-### 14.7 Type Aliases
+## Type Aliases
 
 ```pleno
 // Simple type alias
@@ -237,9 +237,13 @@ fn processUser(id: UserId, name: UserName): Void {
 let handler: Handler = fn(req, res) => {
     res.send("Hello");
 };
+
+processUser(1, "Ann");
 ```
 
-### 14.8 Union & Intersection Types
+Aliases are checked at runtime like the types they name. `let x: UserId = "oops";` throws `Type error: expected UserId, found String`.
+
+## Union & Intersection Types
 
 ```pleno
 // Union type
@@ -252,6 +256,10 @@ fn process(value: StringOrNumber) {
         print(value * 2);
     }
 }
+
+process("hi");  // HI
+process(21);    // 42
+// process(true) throws: parameter 'value' expected StringOrNumber, got Bool
 
 // Intersection type (must satisfy all constraints)
 interface Nameable {
@@ -268,4 +276,14 @@ type Person = Nameable & Ageable;
 fn displayPerson(p: Person) {
     print(p.getName() + " is " + p.getAge() + " years old");
 }
+
+class Employee implements Nameable, Ageable {
+    fn getName(): String { return "Ann"; }
+    fn getAge(): Int { return 40; }
+}
+
+let ann = Employee();
+print(ann.getName() + " is " + ann.getAge() + " years old");  // Ann is 40 years old
 ```
+
+> **Note**: The runtime check for an intersection type currently rejects class instances that implement all of its interfaces. `displayPerson(Employee())` throws `Type error: parameter 'p' expected Person, got Employee`.

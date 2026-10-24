@@ -33,7 +33,7 @@ After the docs with the policy page are deployed (merging to `main` deploys them
 ```bash
 gh release edit v0.1.0 --notes "Pleno is an open-source (MIT) programming language: a compiler and bytecode VM with a package manager (plm), language server, REPL and debug adapter. Each archive contains pleno, plm, pleno-lsp, pleno-repl and pleno-dap for one platform.
 
-Downloads are verified by checksums and Sigstore signatures. See the [Code signing policy](https://otabekoff.github.io/pleno/code-signing-policy).
+Downloads are verified by checksums and Sigstore signatures. See the [Code signing policy](https://pleno.mohirlab.uz/code-signing-policy).
 
 **Full Changelog**: https://github.com/otabekoff/pleno/commits/v0.1.0"
 ```
@@ -54,7 +54,7 @@ https://github.com/otabekoff/pleno
 
 **Project home page**
 ```
-https://otabekoff.github.io/pleno/
+https://pleno.mohirlab.uz/
 ```
 
 **Download / release page**
@@ -64,12 +64,12 @@ https://github.com/otabekoff/pleno/releases
 
 **Code signing policy URL**
 ```
-https://otabekoff.github.io/pleno/code-signing-policy
+https://pleno.mohirlab.uz/code-signing-policy
 ```
 
 **Privacy policy**
 ```
-https://otabekoff.github.io/pleno/code-signing-policy#privacy-policy
+https://pleno.mohirlab.uz/code-signing-policy#privacy-policy
 ```
 
 **License**

@@ -129,6 +129,15 @@ pub fn path_is_dir(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, Run
     }
 }
 
+/// On Windows, `canonicalize` returns `\\?\C:\...` paths; the prefix is
+/// noise to users and other programs, so drive paths drop it.
+fn without_verbatim_prefix(path: String) -> String {
+    match path.strip_prefix(r"\\?\") {
+        Some(rest) if !rest.starts_with(r"UNC\") => rest.to_string(),
+        _ => path,
+    }
+}
+
 pub fn path_resolve(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
     let _gc = vm.get_gc();
     if args.len() != 1 {
@@ -139,9 +148,9 @@ pub fn path_resolve(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, Ru
         Value::String(s) => {
             let path = Path::new(s.as_str());
             match std::fs::canonicalize(path) {
-                Ok(abs_path) => Ok(Value::String(Rc::new(
+                Ok(abs_path) => Ok(Value::String(Rc::new(without_verbatim_prefix(
                     abs_path.to_string_lossy().into_owned(),
-                ))),
+                )))),
                 Err(_) => {
                     // Fallback: if file doesn't exist, try to resolve using cwd
                     if path.is_absolute() {
@@ -149,7 +158,10 @@ pub fn path_resolve(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, Ru
                     } else {
                         let mut abs_path = std::env::current_dir()
                             .map_err(|e| RuntimeError::new(format!("failed to get cwd: {}", e)))?;
-                        abs_path.push(path);
+                        // Component by component, so the separators match the platform.
+                        for component in path.components() {
+                            abs_path.push(component);
+                        }
                         Ok(Value::String(Rc::new(
                             abs_path.to_string_lossy().into_owned(),
                         )))

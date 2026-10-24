@@ -1,0 +1,343 @@
+/* ---------------------------------------------------------------- navbar */
+
+/* A solid bar with one full-width border; the sidebar starts below it. */
+.VPNavBar,
+.VPNavBar.has-sidebar,
+.VPNavBar:not(.home) {
+  background-color: var(--vp-c-bg) !important;
+  border-bottom: 1px solid var(--vp-c-divider);
+}
+
+.VPNavBar .divider,
+.VPNavBar .curtain {
+  display: none;
+}
+
+.VPNavBar.has-sidebar .title,
+.VPNavBar.has-sidebar .content-body,
+.VPNavBarTitle.has-sidebar .title {
+  background-color: transparent !important;
+  border-bottom-color: transparent !important;
+}
+
+/* The same bar on every page. The default theme pins the title to the
+   sidebar's width on pages with a sidebar, which moves the menu; here every
+   page uses the centred container of pages without one. At 1440px and up
+   that container's left edge lines up with the sidebar's text. (The
+   !important flags beat the default theme's scoped rules.) */
+@media (min-width: 960px) {
+  .VPNavBar.has-sidebar .wrapper {
+    padding: 0 32px !important;
+  }
+
+  .VPNavBar.has-sidebar .container {
+    max-width: calc(var(--vp-layout-max-width) - 64px) !important;
+  }
+
+  .VPNavBar.has-sidebar .title {
+    position: static !important;
+    width: auto !important;
+    padding: 0 !important;
+  }
+
+  .VPNavBar.has-sidebar .content {
+    padding: 0 !important;
+  }
+}
+
+/* The menu sits next to the logo; search and toggles on the right. */
+@media (min-width: 768px) {
+  .VPNavBar .content-body {
+    justify-content: flex-start;
+  }
+
+  .VPNavBar .content-body > .menu {
+    order: 0;
+    margin-left: 20px;
+  }
+
+  .VPNavBar .content-body > .search {
+    order: 1;
+    margin-left: auto;
+  }
+
+  .VPNavBar .content-body > *:not(.menu):not(.search) {
+    order: 2;
+  }
+}
+
+.VPNavBarTitle .title {
+  gap: 10px;
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--vp-c-text-1);
+}
+
+.VPNavBarMenuLink,
+.VPNavBarMenuGroup .button {
+  font-size: 14px !important;
+  font-weight: 500 !important;
+  color: var(--vp-c-text-2);
+  transition: color 0.15s;
+}
+
+.VPNavBarMenuLink:hover,
+.VPNavBarMenuGroup .button:hover {
+  color: var(--vp-c-text-1);
+}
+
+.VPNavBarMenuLink.active {
+  color: var(--vp-c-brand-1);
+}
+
+.VPNavBarSearch .DocSearch-Button {
+  border-radius: var(--pl-radius);
+  border: 1px solid var(--vp-c-border);
+  background: var(--vp-c-bg-alt);
+  transition: border-color 0.15s;
+}
+
+.VPNavBarSearch .DocSearch-Button:hover {
+  border-color: var(--pl-border-strong);
+  background: var(--vp-c-bg-alt);
+}
+
+.VPFlyout .menu {
+  border-radius: var(--pl-radius-lg);
+}
+
+.VPMenu {
+  border-radius: var(--pl-radius-lg) !important;
+  box-shadow: var(--pl-shadow-pop) !important;
+}
+
+.VPMenuLink .link {
+  border-radius: var(--pl-radius-sm) !important;
+}
+
+/* --------------------------------------------------------------- sidebar */
+
+@media (min-width: 960px) {
+  .VPSidebar {
+    /* !important: the default theme's scoped rule is more specific. */
+    top: calc(var(--vp-layout-top-height, 0px) + var(--vp-nav-height)) !important;
+    padding-top: 20px !important;
+    border-right: 1px solid var(--vp-c-divider);
+  }
+
+  .VPSidebar .curtain {
+    display: none;
+  }
+}
+
+.VPSidebarItem.level-0 {
+  padding-bottom: 20px;
+}
+
+.VPSidebarItem.level-0 > .item > .text,
+.VPSidebarItem.level-0 > .item > .link > .text {
+  padding: 4px 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--vp-c-text-1);
+}
+
+.VPSidebarItem.level-1 > .item {
+  margin-left: -10px;
+  padding-left: 10px;
+  border-radius: var(--pl-radius-sm);
+  transition: background-color 0.15s;
+}
+
+.VPSidebarItem.level-1 > .item > .link > .text {
+  padding: 6px 0;
+  line-height: 20px;
+  font-size: 14px;
+}
+
+.VPSidebarItem.level-1 + .VPSidebarItem.level-1 {
+  margin-top: 2px;
+}
+
+.VPSidebarItem.level-1 > .item:hover {
+  background-color: var(--vp-c-default-soft);
+}
+
+/* Hover changes the background only; the brand color marks the current page. */
+.VPSidebarItem.level-1:not(.is-active) > .item > .link:hover > .text {
+  color: var(--vp-c-text-1) !important;
+}
+
+.VPSidebarItem.level-1.is-active > .item {
+  background-color: var(--vp-c-brand-soft);
+}
+
+.VPSidebarItem.level-1.is-active > .item > .link > .text {
+  font-weight: 500;
+}
+
+.VPSidebarItem .indicator {
+  display: none;
+}
+
+.VPSidebar .group + .group {
+  padding-top: 16px;
+}
+
+/* ----------------------------------------------------------- doc content */
+
+.vp-doc h1 {
+  font-size: 32px;
+  font-weight: 700;
+  line-height: 1.25;
+}
+
+.vp-doc h2 {
+  font-size: 23px;
+  font-weight: 650;
+}
+
+.vp-doc a {
+  text-decoration-color: color-mix(in srgb, var(--vp-c-brand-1) 35%, transparent);
+  text-underline-offset: 3px;
+  transition: text-decoration-color 0.15s;
+}
+
+.vp-doc a:hover {
+  text-decoration-color: var(--vp-c-brand-1);
+}
+
+.vp-doc :not(pre) > code {
+  border-radius: 4px;
+  padding: 2px 5px;
+}
+
+/* Code blocks: a plain panel. Edge to edge on phones, as VitePress does. */
+.vp-doc div[class*='language-'] {
+  background-color: var(--vp-code-block-bg);
+}
+
+/* Even padding above and below the code; a sideways scrollbar sits in the
+   bottom padding instead of adding a gap under it. */
+.vp-doc div[class*='language-'] pre {
+  padding: 16px 0 !important;
+}
+
+.vp-doc div[class*='language-'] pre::-webkit-scrollbar-thumb {
+  border-width: 2px;
+}
+
+@media (min-width: 640px) {
+  .vp-doc div[class*='language-'],
+  .vp-doc .vp-code-group {
+    border: 1px solid var(--vp-c-divider);
+    border-radius: var(--pl-radius);
+  }
+
+  .vp-doc .vp-code-group div[class*='language-'] {
+    border: none;
+    border-top: 1px solid var(--vp-c-divider);
+    border-radius: 0 0 var(--pl-radius) var(--pl-radius);
+  }
+
+  .vp-doc .vp-code-group .tabs {
+    border-radius: var(--pl-radius) var(--pl-radius) 0 0;
+    box-shadow: none;
+  }
+}
+
+.vp-doc .vp-code-group .tabs {
+  background-color: var(--vp-code-block-bg);
+}
+
+/* The default theme gives every block a 16px vertical margin, which inside a
+   code group shows as empty space under the code. */
+.vp-doc .vp-code-group div[class*='language-'] {
+  margin: 0 !important;
+}
+
+.vp-doc div[class*='language-'] > span.lang {
+  font-family: var(--vp-font-family-mono);
+  font-size: 11px;
+  color: var(--vp-c-text-3);
+}
+
+/* "Run" on Pleno blocks (added by the markdown plugin in config.ts): shown
+   on hover where there is a mouse, always on touch screens. */
+.vp-doc .pl-run-link {
+  position: absolute;
+  right: 10px;
+  bottom: 10px;
+  z-index: 3;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 10px;
+  border: 1px solid var(--vp-c-border);
+  border-radius: var(--pl-radius-sm);
+  background-color: var(--vp-c-bg);
+  font-family: var(--vp-font-family-base);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--vp-c-text-2);
+  text-decoration: none;
+  opacity: 0;
+  transition: opacity 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.vp-doc .pl-run-link svg {
+  width: 10px;
+  height: 10px;
+  fill: currentColor;
+}
+
+.vp-doc .pl-run-link:hover {
+  color: var(--vp-c-brand-1);
+  border-color: var(--pl-border-strong);
+}
+
+.vp-doc div.language-pleno:hover .pl-run-link,
+.vp-doc .pl-run-link:focus-visible {
+  opacity: 1;
+}
+
+@media (hover: none) {
+  .vp-doc .pl-run-link {
+    opacity: 1;
+  }
+}
+
+.vp-doc .custom-block {
+  border-radius: var(--pl-radius);
+}
+
+.vp-doc table {
+  display: table;
+  width: 100%;
+}
+
+/* Prev / next links. */
+.VPDocFooter .pager-link {
+  border-radius: var(--pl-radius);
+  transition: border-color 0.15s;
+}
+
+.VPDocFooter .pager-link:hover {
+  border-color: var(--vp-c-brand-2);
+}
+
+/* -------------------------------------------------------------- local search */
+
+.VPLocalSearchBox .shell {
+  border-radius: var(--pl-radius-lg) !important;
+}
+
+.VPLocalSearchBox .search-bar {
+  border-radius: var(--pl-radius) !important;
+}
+
+.VPLocalSearchBox .result {
+  border-radius: var(--pl-radius) !important;
+}

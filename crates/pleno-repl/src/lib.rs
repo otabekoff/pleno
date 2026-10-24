@@ -327,8 +327,19 @@ pub fn start() -> Result<()> {
         // println!("Warning: Could not load history: {}", e);
     }
 
-    println!("Pleno REPL v{}", env!("CARGO_PKG_VERSION"));
-    println!("Type :help for commands, :quit to exit");
+    {
+        use pleno_common::style::{self, Stream};
+        let out = Stream::Stdout;
+        println!(
+            "{} {}",
+            style::gradient(out, "Pleno", &style::BRAND),
+            style::dim(out, &format!("REPL v{}", env!("CARGO_PKG_VERSION")))
+        );
+        println!(
+            "{}",
+            style::dim(out, "Type :help for commands, :quit to exit")
+        );
+    }
     println!();
 
     let mut input_buffer = String::new();

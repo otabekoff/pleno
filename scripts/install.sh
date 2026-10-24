@@ -3,7 +3,7 @@ set -e
 
 # Pleno Installer
 # This script detects your OS and architecture, downloads the latest release from GitHub,
-# and installs the 'pleno' and 'plm' binaries.
+# and installs pleno, plm, pleno-lsp, pleno-dap and pleno-repl.
 
 GITHUB_REPO="otabekoff/pleno"
 INSTALL_DIR="/usr/local/bin"
@@ -73,8 +73,14 @@ tar -xzf "$TMP_DIR/pleno.tar.gz" -C "$TMP_DIR"
 
 # Install binaries
 mkdir -p "$PLENO_DIR/bin"
-mv "$TMP_DIR/pleno" "$PLENO_DIR/bin/"
-mv "$TMP_DIR/plm" "$PLENO_DIR/bin/"
+# The language server, debugger and REPL are needed by editors; older
+# releases may not include all of them.
+for tool in pleno plm pleno-lsp pleno-dap pleno-repl; do
+    if [ -f "$TMP_DIR/$tool" ]; then
+        mv "$TMP_DIR/$tool" "$PLENO_DIR/bin/"
+        chmod +x "$PLENO_DIR/bin/$tool"
+    fi
+done
 
 # Suggest PATH update
 if ! echo "$PATH" | grep -q "$PLENO_DIR/bin"; then

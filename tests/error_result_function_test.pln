@@ -1,4 +1,6 @@
 // Test Result type with function
+import { exit } from "std:process";
+
 print("Testing Result Type with Functions...");
 
 fn assert(condition: Bool, message: String) {

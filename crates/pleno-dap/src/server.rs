@@ -334,6 +334,7 @@ impl<R: BufRead, W: Write> DapServer<R, W> {
         };
 
         let mut vm = VM::new();
+        vm.main_path = std::fs::canonicalize(program).ok();
         pleno_stdlib::register(&mut vm);
         // Capture program output so it is sent as DAP events, not mixed into
         // the protocol stream on stdout.

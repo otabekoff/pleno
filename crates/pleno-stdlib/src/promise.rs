@@ -206,6 +206,7 @@ pub fn promise_all(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, Run
 
     let (master_id, master_promise) = vm.create_promise()?;
     let mut dependencies = Vec::new();
+    let mut slots = Vec::new();
     let mut results = vec![Value::Null; promises.len()];
     let mut resolved_count = 0;
 
@@ -223,6 +224,7 @@ pub fn promise_all(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, Run
                 resolved_count += 1;
             } else if let Some(id) = id {
                 dependencies.push(id);
+                slots.push(i);
             } else {
                 results[i] = p.clone();
                 resolved_count += 1;
@@ -241,6 +243,7 @@ pub fn promise_all(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, Run
         vm.register_multi_waiter(MultiWaiter {
             promise_id: master_id,
             dependencies,
+            slots,
             resolved_count,
             results,
             mode: MultiWaiterMode::All,
@@ -304,6 +307,7 @@ pub fn promise_race(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, Ru
         vm.register_multi_waiter(MultiWaiter {
             promise_id: master_id,
             dependencies,
+            slots: Vec::new(),
             resolved_count: 0,
             results: Vec::new(),
             mode: MultiWaiterMode::Race,

@@ -170,6 +170,33 @@ pub fn sweep_boxed_values() {
 #[derive(Clone, Copy, PartialEq, PartialOrd)]
 pub struct NanValue(u64);
 
+/// The payload of a native function: its address with the low bit set to tell
+/// it apart from a bytecode function index. Code addresses on 64-bit targets
+/// are even and fit in 47 bits, so the bit is free. On 32-bit targets such as
+/// WebAssembly, function "addresses" are table indices and can be odd, so the
+/// address moves up a bit instead; 33 bits still fit the payload.
+fn native_payload(address: usize) -> u64 {
+    if cfg!(target_pointer_width = "32") {
+        ((address as u64) << 1) | 0x1
+    } else {
+        let address = address as u64;
+        debug_assert!(
+            address & 0x1 == 0 && address <= PAYLOAD_MASK,
+            "native function address {address:#x} cannot be NaN-boxed"
+        );
+        address | 0x1
+    }
+}
+
+/// The address stored by `native_payload`.
+fn native_address(payload: u64) -> usize {
+    if cfg!(target_pointer_width = "32") {
+        (payload >> 1) as usize
+    } else {
+        (payload & !0x1) as usize
+    }
+}
+
 const QNAN: u64 = 0x7ff8_0000_0000_0000;
 
 const TAG_INT: u64 = 1;
@@ -346,7 +373,7 @@ impl NanValue {
                 TAG_FUNC => {
                     let payload = self.0 & PAYLOAD_MASK;
                     if (payload & 0x1) != 0 {
-                        let ptr = (payload & !0x1) as usize as *const ();
+                        let ptr = native_address(payload) as *const ();
                         Value::NativeFunction(unsafe {
                             std::mem::transmute::<*const (), crate::NativeFunction>(ptr)
                         })
@@ -655,16 +682,7 @@ impl NanValue {
             Value::Float(f) => Self::from_f64(*f),
             Value::Char(c) => Self::from_char(*c),
             Value::Function(idx) => Self::encode(TAG_FUNC, (*idx as u64) << 1),
-            Value::NativeFunction(f) => {
-                let address = *f as usize as u64;
-                // The low bit tags native functions, and the address must fit the
-                // payload; both hold for code addresses on x86-64 and AArch64.
-                debug_assert!(
-                    address & 0x1 == 0 && address <= PAYLOAD_MASK,
-                    "native function address {address:#x} cannot be NaN-boxed"
-                );
-                Self::encode(TAG_FUNC, address | 0x1)
-            }
+            Value::NativeFunction(f) => Self::encode(TAG_FUNC, native_payload(*f as usize)),
             Value::String(s) => Self::encode(TAG_STRING, box_string(s) as u64),
             Value::Array(a) => Self::encode(TAG_ARRAY, a.as_refcell_ptr() as usize as u64),
             Value::Map(m) => Self::encode(TAG_MAP, m.as_refcell_ptr() as usize as u64),

@@ -56,7 +56,7 @@ irm https://raw.githubusercontent.com/otabekoff/pleno/main/scripts/install.ps1 |
 
 The installers put the binaries in `~/.pleno/bin`, add it to your `PATH`, and verify each download's checksum. To uninstall, run `scripts/uninstall.sh` or `scripts/uninstall.ps1` the same way.
 
-Prebuilt archives for Linux, macOS and Windows are on the [Releases page](https://github.com/otabekoff/pleno/releases). See the [Code signing policy](https://otabekoff.github.io/pleno/code-signing-policy) for how releases are signed and verified.
+Prebuilt archives for Linux, macOS and Windows are on the [Releases page](https://github.com/otabekoff/pleno/releases). See the [Code signing policy](https://pleno.mohirlab.uz/code-signing-policy) for how releases are signed and verified.
 
 ### Your First Script
 
@@ -85,15 +85,17 @@ pleno run hello.pln
 
 ## 📖 Documentation
 
+- [Documentation website](https://pleno.mohirlab.uz/)
 - [Language Specification](notes/specs.md)
 - [Architecture](ARCHITECTURE.md)
-- [Roadmap](notes/ROADMAP.v2.md)
-- [Contributing](CONTRIBUTING.md)
+- [Roadmap to 1.0](tasks/v1.md)
+- [Changelog](CHANGELOG.md)
+- [Contributing](CONTRIBUTING.md), [Governance](GOVERNANCE.md), [Getting help](SUPPORT.md)
 - [Development Guide](README.dev.md)
 
 ## 🔏 Code signing policy
 
-Free code signing provided by [SignPath.io](https://about.signpath.io), certificate by [SignPath Foundation](https://signpath.org). Read the full [Code signing policy](https://otabekoff.github.io/pleno/code-signing-policy), including team roles and the privacy policy.
+Free code signing provided by [SignPath.io](https://about.signpath.io), certificate by [SignPath Foundation](https://signpath.org). Read the full [Code signing policy](https://pleno.mohirlab.uz/code-signing-policy), including team roles and the privacy policy.
 
 ## 📜 License
 

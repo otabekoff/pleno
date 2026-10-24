@@ -51,6 +51,12 @@ pub struct VM {
     pub promises: IndexMap<u64, Value>,
     pub next_promise_id: u64,
     pub multi_waiters: Vec<MultiWaiter>,
+    /// The file being run: relative imports in it resolve from its folder,
+    /// not from the working directory.
+    pub main_path: Option<std::path::PathBuf>,
+    /// Promises passed to `Promise.all` or `Promise.race`: those observe their
+    /// rejections, even after the combined promise has settled.
+    combined_promises: std::collections::HashSet<u64>,
     pub builtin_resolver: Option<fn(&str, &str) -> Option<NativeFunction>>,
     pub run_depths: Vec<usize>,
     pub current_named_args: IndexMap<String, Value>,
@@ -145,7 +151,7 @@ impl VMProvider for VM {
                 if let Some(callable) = callable {
                     return self.call_ext(callable, args, opts);
                 } else {
-                    return Err(RuntimeError::new("value is not callable"));
+                    return Err(RuntimeError::new("Map is not callable"));
                 }
             }
             Value::Object(obj) => {
@@ -153,10 +159,15 @@ impl VMProvider for VM {
                 if let Some(callable) = callable {
                     return self.call_ext(callable, args, opts);
                 } else {
-                    return Err(RuntimeError::new("value is not callable"));
+                    return Err(RuntimeError::new("Object is not callable"));
                 }
             }
-            _ => return Err(RuntimeError::new("value is not callable")),
+            other => {
+                return Err(RuntimeError::new(format!(
+                    "{} is not callable",
+                    other.type_name()
+                )));
+            }
         }
 
         // If it's an async function call, call_ext will have placed a promise map in return_reg_idx.
@@ -297,6 +308,8 @@ impl VMProvider for VM {
     }
 
     fn register_multi_waiter(&mut self, waiter: MultiWaiter) {
+        self.combined_promises
+            .extend(waiter.dependencies.iter().copied());
         self.multi_waiters.push(waiter);
     }
 
@@ -678,6 +691,8 @@ impl VM {
             promises: IndexMap::new(),
             next_promise_id: 1,
             multi_waiters: Vec::new(),
+            main_path: None,
+            combined_promises: std::collections::HashSet::new(),
             builtin_resolver: None,
             run_depths: Vec::new(),
             current_named_args: IndexMap::new(),
@@ -751,6 +766,7 @@ impl VM {
 
     pub fn execute(&mut self, chunk: Chunk) -> Result<Value, RuntimeError> {
         self.load_script(chunk);
+        let script_index = self.functions.len() - 1;
 
         let mut last_result = Value::Null;
         let mut script_finished = false;
@@ -812,8 +828,26 @@ impl VM {
             // 5. If no frames, no pending tasks, and event loop empty -> Done
             break;
         }
-        for (_, reason) in std::mem::take(&mut self.unhandled_rejections) {
-            eprintln!("Warning: unhandled promise rejection: {reason}");
+        // Nothing is left that could settle the promise the script awaits, so
+        // the rest of the script would silently never run.
+        if self
+            .suspended_frames
+            .values()
+            .any(|suspended| suspended.frame.function_index == script_index)
+        {
+            return Err(RuntimeError::new(
+                "the program is waiting for a promise that can never settle",
+            ));
+        }
+        // A rejection nothing handled is an error, like an uncaught exception:
+        // otherwise a failing async task would end the program successfully.
+        let rejections = std::mem::take(&mut self.unhandled_rejections);
+        if !rejections.is_empty() {
+            let reasons: Vec<String> = rejections.values().map(describe_exception).collect();
+            return Err(RuntimeError::new(format!(
+                "unhandled promise rejection: {}",
+                reasons.join("; ")
+            )));
         }
         Ok(last_result)
     }
@@ -1186,9 +1220,12 @@ impl VM {
                             resolved = true;
                         }
                         MultiWaiterMode::All => {
-                            waiter.results[pos] = task.value.clone();
+                            // Each dependency fills its own slot once.
+                            waiter.dependencies.swap_remove(pos);
+                            let slot = waiter.slots.swap_remove(pos);
+                            waiter.results[slot] = task.value.clone();
                             waiter.resolved_count += 1;
-                            if waiter.resolved_count == waiter.dependencies.len() {
+                            if waiter.resolved_count == waiter.results.len() {
                                 let gc = self.get_gc();
                                 let results_val = Value::Array(
                                     gc.allocate(ArrayState::new(waiter.results.clone()))?,
@@ -1218,6 +1255,7 @@ impl VM {
             for (id, reason) in rejections {
                 self.reject_promise(id, reason);
             }
+            handled |= self.combined_promises.remove(&task.promise_id);
             if rejected && !handled {
                 self.unhandled_rejections
                     .insert(task.promise_id, task.value.clone());
@@ -1465,7 +1503,8 @@ impl VM {
                                         await_reg: a,
                                     },
                                 );
-                                return Ok(Some(ExecutionStatus::Finished(Value::Null)));
+                                // Callers below keep running; the run ends once it is back at `depth`.
+                                return Ok(None);
                             }
                             Ok(val) => {
                                 self.registers[base + a] = NanValue::from_value(&val);
@@ -2117,7 +2156,8 @@ impl VM {
                                             await_reg: a,
                                         },
                                     );
-                                    return Ok(Some(ExecutionStatus::Finished(Value::Null))); // Suspend
+                                    // Suspended: callers below keep running, as after a return.
+                                    return Ok(None);
                                 }
                                 Some(Value::String(s)) if s.as_str() == "Resolved" => {
                                     let val = map
@@ -3292,7 +3332,7 @@ impl VM {
                     if self.frames.len() > depth
                         || (self.suspended_frames.is_empty() && self.pending_tasks.is_empty())
                     {
-                        self.registers.truncate(frame.base);
+                        self.release_registers(frame.base);
                     }
 
                     if self.frames.len() == depth {
@@ -3363,9 +3403,16 @@ impl VM {
                         }
                     }
 
+                    // `c = 1` marks a name read by the program, which must exist;
+                    // the compiler's own type lookups use `c = 0` and get null.
                     let value = match value {
                         Some(value) => value,
                         None if is_type_param => Value::String(Rc::new("Any".to_string())),
+                        None if c == 1 => {
+                            return Err(
+                                self.throw_runtime_error(&format!("undefined variable '{name}'"))
+                            );
+                        }
                         None => Value::Null,
                     };
                     log::trace!("VM: GetGlobal '{}' => {:?}", name, value);
@@ -4524,6 +4571,11 @@ impl VM {
                 }
                 Opcode::Call => {
                     let callee = self.registers[base + b].to_value();
+                    if matches!(callee, Value::Null)
+                        && let Some(message) = self.describe_missing_method(ip, b)
+                    {
+                        return Err(RuntimeError::new(message));
+                    }
                     let args = match &self.registers[base + c].to_value() {
                         Value::Array(arr) => arr.borrow().elements.clone(),
                         _ => return Err(RuntimeError::new("Call expects array of arguments")),
@@ -5582,7 +5634,7 @@ impl VM {
             // An exception escaping an async function rejects its promise instead of
             // propagating; the caller already holds that promise.
             let promise_id = self.async_frame_promise_id(&frame);
-            self.registers.truncate(frame.base);
+            self.release_registers(frame.base);
             if let Some(id) = promise_id {
                 self.reject_promise(id, error_value);
                 return Err(RuntimeError::handled());
@@ -5913,7 +5965,7 @@ impl VM {
                 if let Some(callable) = callable {
                     self.call_any_value(callable, args, return_reg)?;
                 } else {
-                    return Err(RuntimeError::new("value is not callable"));
+                    return Err(RuntimeError::new("Map is not callable"));
                 }
             }
             Value::Object(obj) => {
@@ -5921,13 +5973,59 @@ impl VM {
                 if let Some(callable) = callable {
                     self.call_any_value(callable, args, return_reg)?;
                 } else {
-                    return Err(RuntimeError::new("value is not callable"));
+                    return Err(RuntimeError::new("Object is not callable"));
                 }
             }
-            _ => return Err(RuntimeError::new("value is not callable")),
+            other => {
+                return Err(RuntimeError::new(format!(
+                    "{} is not callable",
+                    other.type_name()
+                )));
+            }
         }
         Ok(())
     }
+    /// Frees the registers from `base` up, except those of suspended frames:
+    /// an async call that is waiting keeps its registers where they are, and
+    /// the function that called it may return before it resumes.
+    fn release_registers(&mut self, base: usize) {
+        let in_use = self
+            .suspended_frames
+            .values()
+            .map(|suspended| {
+                let function = &self.functions[suspended.frame.function_index];
+                suspended.frame.base + function.chunk.max_registers
+            })
+            .max()
+            .unwrap_or(0);
+        self.registers.truncate(base.max(in_use));
+    }
+
+    /// Explains a call of `null` that came from reading a property, as in
+    /// `map.contains(x)` when maps have no `contains` method: the read found
+    /// nothing, so "Null is not callable" would hide the real mistake.
+    fn describe_missing_method(&self, ip: usize, callee_register: usize) -> Option<String> {
+        let frame = self.frames.last()?;
+        let chunk = &self.functions[frame.function_index].chunk;
+        // The latest instruction before this call that wrote the callee register.
+        let source = chunk.code[..ip]
+            .iter()
+            .rev()
+            .find(|instruction| instruction.a() as usize == callee_register)?;
+        if source.opcode() != Opcode::GetProperty {
+            return None;
+        }
+        let Value::String(name) = chunk.constants.get(source.c() as usize)? else {
+            return None;
+        };
+        let receiver = self.registers[frame.base + source.b() as usize].to_value();
+        Some(match receiver {
+            Value::Map(_) => format!("Map has no method '{name}' (and no key '{name}')"),
+            Value::Null => format!("cannot call '{name}' on null"),
+            other => format!("{} has no method '{name}'", other.type_name()),
+        })
+    }
+
     fn execute_module(&mut self, path: &str) -> Result<Value, RuntimeError> {
         if let Some(mod_val) = self.modules.get(path) {
             return Ok(mod_val.clone());
@@ -5939,7 +6037,13 @@ impl VM {
             .and_then(|frame| frame.current_module_path.as_ref())
             .map(|path| std::path::Path::new(path.as_ref()))
             .and_then(|path| path.parent())
-            .map(|path| path.to_path_buf());
+            .map(|path| path.to_path_buf())
+            .or_else(|| {
+                self.main_path
+                    .as_ref()
+                    .and_then(|main| main.parent())
+                    .map(|dir| dir.to_path_buf())
+            });
         let resolved = resolve_module_path(path, base_dir)?;
         let resolved_key = resolved.to_string_lossy().to_string();
         if let Some(value) = self.modules.get(&resolved_key).cloned() {

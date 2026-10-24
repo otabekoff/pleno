@@ -1,0 +1,73 @@
+/* The tutorial's start page (docs/tutorial/index.md). */
+.tutorial-index {
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 64px 24px 24px;
+}
+
+.tutorial-index .eyebrow {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--vp-c-brand-1);
+}
+
+.tutorial-index h1 {
+  margin: 8px 0 16px;
+  font-size: clamp(32px, 6vw, 44px);
+  font-weight: 700;
+  line-height: 1.12;
+  letter-spacing: -0.03em;
+}
+
+.tutorial-index > p {
+  margin: 0;
+  font-size: 17px;
+  line-height: 1.7;
+  color: var(--vp-c-text-2);
+}
+
+.tutorial-index .start {
+  margin: 28px 0 44px;
+}
+
+.tutorial-index .lessons {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+@media (min-width: 640px) {
+  .tutorial-index .lessons {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+.tutorial-index .lessons a {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  height: 48px;
+  padding: 0 16px;
+  border: 1px solid var(--vp-c-border);
+  border-radius: var(--pl-radius);
+  color: var(--vp-c-text-1);
+  font-size: 15px;
+  font-weight: 500;
+  text-decoration: none;
+  transition: border-color 0.15s, background-color 0.15s;
+}
+
+.tutorial-index .lessons a:hover {
+  border-color: var(--pl-border-strong);
+  background-color: var(--vp-c-bg-alt);
+}
+
+.tutorial-index .lessons .n {
+  min-width: 20px;
+  font-family: var(--vp-font-family-mono);
+  font-size: 12px;
+  color: var(--vp-c-text-3);
+}

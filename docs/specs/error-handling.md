@@ -1,34 +1,55 @@
 # Error Handling
 
-### 7.1 Try-Catch
+Pleno has two ways to report failure: **throwing** an error, which unwinds until a `catch` handles it, and **returning** a `Result` or `Option`, which the caller has to look at.
+
+## Try and catch
+
+`throw` accepts an `Error` (or a class that extends it). `catch (e: Type)` handles only that type; a plain `catch (e)` handles anything. `finally` always runs.
 
 ```pleno
-try {
-    // Code that might throw
-    let result = riskyOperation();
-} catch (e: NetworkError) {
-    print("Network error: " + e.message);
-} catch (e: ValidationError) {
-    print("Validation error: " + e.message);
-} catch (e: Error) {
-    print("General error: " + e.message);
-} finally {
-    // Always executes
-    cleanup();
+class NetworkError extends Error {}
+class ValidationError extends Error {}
+
+fn load(kind: String) {
+    if (kind == "network") {
+        throw NetworkError("connection refused");
+    }
+    if (kind == "input") {
+        throw ValidationError("name is required");
+    }
+    throw Error("something else went wrong");
+}
+
+for (kind in ["network", "input", "other"]) {
+    try {
+        load(kind);
+    } catch (e: NetworkError) {
+        print("Network error: " + e.message);
+    } catch (e: ValidationError) {
+        print("Validation error: " + e.message);
+    } catch (e: Error) {
+        print("General error: " + e.message);
+    } finally {
+        print("attempt finished");
+    }
 }
 ```
 
-### 7.2 Custom Exceptions
+An error that nothing catches stops the program with its message and a stack trace.
+
+## Custom errors
+
+Extend `Error` to carry extra information:
 
 ```pleno
 class ValidationError extends Error {
     private field: String;
-    
+
     constructor(message: String, field: String) {
         super(message);
         this.field = field;
     }
-    
+
     public fn getField(): String {
         return this.field;
     }
@@ -39,12 +60,19 @@ fn validateAge(age: Int) {
         throw ValidationError("Invalid age", "age");
     }
 }
+
+try {
+    validateAge(200);
+} catch (e: ValidationError) {
+    print(`${e.getField()}: ${e.message}`);   // age: Invalid age
+}
 ```
 
-### 7.3 Result Type (Functional Error Handling)
+## Result
+
+A function that can fail in an expected way can return `Ok(value)` or `Err(error)` instead of throwing:
 
 ```pleno
-// Result type for functions that might fail
 fn divide(a: Float, b: Float): Result<Float, String> {
     if (b == 0.0) {
         return Err("Division by zero");
@@ -52,40 +80,38 @@ fn divide(a: Float, b: Float): Result<Float, String> {
     return Ok(a / b);
 }
 
-// Using Result
-let result = divide(10.0, 2.0);
-match (result) {
-    case Ok(value) => print("Result: " + value),
+match (divide(10.0, 2.0)) {
+    case Ok(value) => print("Result: " + value),   // Result: 5
     case Err(error) => print("Error: " + error)
 }
 
-// Result methods
-let value = result.unwrap();              // Panics if Err
-let orDefault = result.unwrapOr(0.0);     // Default value if Err
-let checked = result.expect("Failed");    // Panics with message if Err
+let result = divide(1.0, 0.0);
+print(result.isErr());          // true
+print(result.unwrapOr(0.0));    // 0
 ```
 
-### 7.4 Option Type
+`unwrap()` returns the value of an `Ok` and throws for an `Err`; `expect("message")` does the same with your message.
+
+## Option
+
+`Some(value)` or `None` says whether there is a value at all:
 
 ```pleno
-fn findUser(id: Int): Option<User> {
-    // Returns Some(user) or None
-    if (userExists(id)) {
-        return Some(getUser(id));
+let users = {"ada": "Ada Lovelace", "alan": "Alan Turing"};
+
+fn findUser(login: String): Option<String> {
+    if (users.containsKey(login)) {
+        return Some(users[login]);
     }
     return None;
 }
 
-// Using Option
-let user = findUser(123);
-match (user) {
-    case Some(u) => print("Found: " + u.name),
+match (findUser("ada")) {
+    case Some(name) => print("Found: " + name),   // Found: Ada Lovelace
     case None => print("Not found")
 }
 
-// Option methods
-user.unwrap();              // Panics if None
-user.unwrapOr(defaultUser); // Default if None
-user.isSome();              // Check if Some
-user.isNone();              // Check if None
+let missing = findUser("grace");
+print(missing.isNone());               // true
+print(missing.unwrapOr("nobody"));     // nobody
 ```

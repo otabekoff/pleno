@@ -2,19 +2,19 @@
 
 Explore projects, tools, and applications built using the Pleno programming language.
 
-## 🛠️ Official Tools
+## Official Tools
 
 | Project              | Description                                           | Link                                             |
 | -------------------- | ----------------------------------------------------- | ------------------------------------------------ |
-| **Pleno Playground** | Online interactive REPL with Monaco Editor.           | [/playground](/playground)                       |
+| **VS Code extension** | Highlighting, language server, debugger and toolchain install. | [/guide/editor](/guide/editor) |
 | **Plm**              | The Pleno Package Manager for ecosystem control.      | [/specs/package-manager](/specs/package-manager) |
 | **Pleno LSP**        | Professional Language Server Protocol implementation. | [/specs/tooling-cli](/specs/tooling-cli)         |
 
-## 🌟 Community Projects
+## Community Projects
 
 _Coming soon! We're just getting started. If you've built something with Pleno, [submit a PR](https://github.com/otabekoff/pleno/pulls) to add it here._
 
-### ✨ Featured Ideas
+### Featured Ideas
 
 - **Pleno Raytracer**: High-performance CPU raytracer built entirely in Pleno. (In development)
 - **Pleno Web Framework**: A lightweight, async-first web framework for Pleno. (Concept)

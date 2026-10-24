@@ -136,16 +136,18 @@ impl DiagnosticReporter {
     pub fn report(diagnostic: &Diagnostic, source_map: &SourceMap) -> String {
         let mut output = String::new();
 
-        // Header colors
-        let severity_color = match diagnostic.severity {
+        // Colored only when stderr, where reports are printed, is a terminal.
+        let color = pleno_common::style::enabled(pleno_common::style::Stream::Stderr);
+        let code = |escape: &'static str| if color { escape } else { "" };
+        let severity_color = code(match diagnostic.severity {
             Severity::Error => "\x1b[31;1m",   // Bold Red
             Severity::Warning => "\x1b[33;1m", // Bold Yellow
             Severity::Info => "\x1b[34;1m",    // Bold Blue
             Severity::Hint => "\x1b[36;1m",    // Bold Cyan
-        };
-        let reset = "\x1b[0m";
-        let bold = "\x1b[1m";
-        let blue = "\x1b[34m";
+        });
+        let reset = code("\x1b[0m");
+        let bold = code("\x1b[1m");
+        let blue = code("\x1b[34m");
 
         // Pre-calculate line info and max width
         let mut label_infos = Vec::new();

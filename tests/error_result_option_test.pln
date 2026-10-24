@@ -1,4 +1,6 @@
 // Test 7.3 & 7.4: Result and Option Types
+import { exit } from "std:process";
+
 print("Testing Result and Option Types...");
 
 fn assert(condition: Bool, message: String) {

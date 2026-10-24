@@ -1,32 +1,37 @@
 # Modules & Imports
 
-Current implementation supports:
+Each `.pln` file can be a module. A module marks the names it shares with `export`. Another file loads it with `import`.
 
-```pleno
-import "path/to/module.pln";
-import ModuleName from "path/to/module.pln";
+The import forms are:
+
+```pleno norun
+import "path/to/module.pln";                          // run the module, bind no name
+import ModuleName from "path/to/module.pln";          // the module's exports as one map
 import { symbol, other as alias } from "path/to/module.pln";
-import * as Namespace from "path/to/module.pln";
+import * as Namespace from "path/to/module.pln";      // same as the default form
 ```
 
-Exports are limited to `export` on `fn`, `class`, `let`, and `const` declarations plus `export { name as alias };`. Import returns a module namespace map (accessed via `ModuleName.field`). Module declarations and structured imports are implemented for string paths; relative paths and `sources/` lookups are supported. A bare name such as `"mylib"` resolves to a package: `packages/mylib/` (the `main` file named in its `pleno.toml`, or `lib.pln`) or `packages/mylib.pln`, searched from the importing file's folder upward. Packages are installed into `packages/` by `plm install`; there is no central registry yet.
+A module runs once, the first time it is imported. Later imports reuse its exports.
 
-### 8.1 Module Definition
+## Module Definition
 
-```pleno
-// File: math_utils.pln
+`export` works on `fn`, `class`, `let` and `const` declarations. `export { name as alias };` exports an existing name under another name. Everything else stays private to the file.
+
+A module file may start with `module Name;`. The declaration names the module; it does not change how you import it. It is only allowed in a file that is imported, not in the file you run.
+
+`math_utils.pln`
+
+```pleno norun
 module MathUtils;
 
-// Public export
 export fn square(x: Float): Float {
     return x * x;
 }
 
 export const PI: Float = 3.14159;
 
-// Private (not exported)
+// Private: not exported
 fn helperFunction(): Void {
-    // Only available within module
 }
 
 export class Calculator {
@@ -36,63 +41,82 @@ export class Calculator {
 }
 ```
 
-### 8.2 Importing
+## Importing
 
-```pleno
-// Import entire module
-import "math_utils.pln";
-// Note: If no alias is provided, the module needs to be accessed
-// via its defined module name if present, or by filename.
+`main.pln`, in the same folder:
 
-// Import specific items
+```pleno norun
+// The whole module as a map
+import MathUtils from "math_utils.pln";
+print(MathUtils.square(5.0));   // 25
+
+// Specific items
 import { square, PI } from "math_utils.pln";
-square(5.0);
+print(square(5.0));             // 25
 
-// Import with alias
+// With an alias
 import { square as sq } from "math_utils.pln";
-sq(5.0);
+print(sq(3.0));                 // 9
 
-// Import all exported items with a namespace alias
-import * as Math from "math_utils.pln";
-Math.square(5.0);
-Math.PI;
+// All exports under a namespace
+import * as MU from "math_utils.pln";
+print(MU.PI);                   // 3.14159
+print(MU.Calculator().add(1.0, 2.0));   // 3
 
-// Relative imports
+// Relative paths start from the importing file's folder
 import { User } from "./models/user.pln";
-import { Database } from "../db/connection.pln";
 ```
 
-### 8.3 Package Management
+Importing a name that the module does not export gives `null`. The `.pln` extension can be left out.
+
+> **Note**: Currently, exported functions and classes also become visible as globals in the importing file, even when you import only other names. Do not rely on this.
+
+## Path Resolution
+
+A path is resolved in this order:
+
+1. A `std:` name is a standard library module.
+2. A path that does not start with `./`, `../` or `/`, such as `"mylib"`, is first looked up as a package: `packages/mylib/` (the `main` file named in its `pleno.toml`, or `lib.pln`) or `packages/mylib.pln`. Pleno searches the importing file's folder and then each parent folder.
+3. Otherwise the path is relative to the importing file's folder, with `.pln` added if missing. A name without a folder is also looked up in `sources/<name>.pln` under the current working directory.
+
+If nothing matches, the import throws `module not found: <path>`.
+
+## Package Management
+
+`plm init` writes a `pleno.toml`:
 
 ```toml
-# pleno.toml
 [package]
 name = "my-app"
-version = "1.0.0"
-entry = "main.pln"
+version = "0.1.0"
+main = "src/main.pln"
 
 [dependencies]
-http-client = "^2.0.0"
-json-parser = "^1.5.0"
+greet = { path = "../greet" }
+http-utils = { git = "https://github.com/user/http-utils", tag = "v1.2.0" }
 ```
 
-// Using external packages
-import { HttpClient } from "http-client";
-import { parse } from "json-parser";
+`plm install` puts dependencies into `packages/`. Import them by name:
 
-````
-### 8.4 Standard Library Imports
+```pleno norun
+import { hello } from "greet";
+print(hello("Ada"));
+```
 
-Pleno's standard library modules are accessed via the `std:` namespace prefix.
+There is no public package registry yet. See [Packages](/guide/packages).
+
+## Standard Library Imports
+
+Standard library modules use the `std:` prefix.
 
 ```pleno
 import { JSON } from "std:json";
 import { HTTP } from "std:http";
 import { File, Directory } from "std:io";
 
-// Native modules are often prefixed with _ in internal code
-import _math from "std:math";
-let res = _math.sin(_math.PI / 2);
-````
+// The default form binds the whole module
+import math from "std:math";
+print(math.sin(math.PI / 2));   // 1
+```
 
-For more details on available modules, see the [Standard Library Reference](../stdlib-ref.md).
+For the available modules, see the [Standard Library reference](/stdlib/).
