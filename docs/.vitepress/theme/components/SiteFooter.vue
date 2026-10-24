@@ -2,6 +2,7 @@
 import { computed } from 'vue'
 import { useData, withBase } from 'vitepress'
 import { useLayout } from 'vitepress/theme'
+import PlIcon, { type IconName } from './PlIcon.vue'
 
 // Shown on pages without a sidebar, unless the page sets `footer: false`.
 const { frontmatter } = useData()
@@ -29,10 +30,10 @@ const columns = [
   {
     title: 'Project',
     links: [
-      { text: 'GitHub', href: 'https://github.com/otabekoff/pleno' },
+      { text: 'Blog', href: '/blog/' },
       { text: 'Roadmap to 1.0', href: 'https://github.com/otabekoff/pleno/blob/main/tasks/v1.md' },
       { text: 'Changelog', href: 'https://github.com/otabekoff/pleno/blob/main/CHANGELOG.md' },
-      { text: 'Blog', href: '/blog/' },
+      { text: 'Releases', href: 'https://github.com/otabekoff/pleno/releases' },
     ],
   },
   {
@@ -45,31 +46,59 @@ const columns = [
   },
 ]
 
-const href = (link: string) => (link.startsWith('http') ? link : withBase(link))
+// The Telegram and Instagram accounts do not exist yet.
+const socials: { label: string; icon: IconName; href: string }[] = [
+  { label: 'GitHub', icon: 'github', href: 'https://github.com/otabekoff/pleno' },
+  { label: 'Telegram', icon: 'telegram', href: '#' },
+  { label: 'Instagram', icon: 'instagram', href: '#' },
+]
+
+const href = (link: string) => (link.startsWith('http') || link === '#' ? link : withBase(link))
 </script>
 
 <template>
   <footer v-if="show" class="site-footer">
     <div class="inner">
       <div class="brand">
-        <img :src="withBase('/logo.svg')" alt="" width="28" height="28" />
-        <span class="name">Pleno</span>
+        <a class="logo" :href="withBase('/')">
+          <img :src="withBase('/logo.svg')" alt="" width="24" height="24" />
+          <span>Pleno</span>
+        </a>
         <p>Code that says what it means.</p>
+        <div class="socials">
+          <a
+            v-for="social in socials"
+            :key="social.label"
+            class="pl-btn pl-btn-ghost pl-btn-sm pl-btn-icon"
+            :href="social.href"
+            :aria-label="social.label"
+            :title="social.label"
+            :target="social.href.startsWith('http') ? '_blank' : undefined"
+            rel="noopener"
+          >
+            <PlIcon :name="social.icon" :size="16" />
+          </a>
+        </div>
       </div>
       <nav v-for="column in columns" :key="column.title" class="column" :aria-label="column.title">
         <h4>{{ column.title }}</h4>
         <a v-for="link in column.links" :key="link.text" :href="href(link.href)">{{ link.text }}</a>
       </nav>
     </div>
-    <p class="legal">Released under the MIT License. © 2026-present Otabek and Pleno contributors.</p>
+    <div class="bottom">
+      <div class="bottom-inner">
+        <p>Released under the MIT License.</p>
+        <p>© 2026 Otabek and Pleno contributors</p>
+      </div>
+    </div>
   </footer>
 </template>
 
 <style scoped>
 .site-footer {
-  margin-top: 80px;
+  margin-top: 96px;
   border-top: 1px solid var(--vp-c-divider);
-  background: color-mix(in srgb, var(--vp-c-bg-alt) 70%, transparent);
+  background-color: var(--vp-c-bg-alt);
 }
 
 .inner {
@@ -77,73 +106,106 @@ const href = (link: string) => (link.startsWith('http') ? link : withBase(link))
   gap: 32px;
   max-width: 1200px;
   margin: 0 auto;
-  padding: 48px 24px 24px;
+  padding: 48px 24px 40px;
 }
 
-@media (min-width: 768px) {
+@media (min-width: 640px) {
   .inner {
-    grid-template-columns: 1.4fr repeat(4, 1fr);
-    padding: 56px 48px 24px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .brand {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (min-width: 960px) {
+  .inner {
+    grid-template-columns: 1.5fr repeat(4, 1fr);
+    padding: 56px 48px 48px;
+  }
+
+  .brand {
+    grid-column: auto;
   }
 }
 
 .brand {
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 10px;
+  flex-direction: column;
+  align-items: flex-start;
 }
 
-.name {
-  font-family: var(--pl-font-display);
-  font-size: 20px;
+.logo {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 17px;
   font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--vp-c-text-1);
 }
 
 .brand p {
-  flex-basis: 100%;
-  margin: 4px 0 0;
+  margin: 10px 0 0;
   font-size: 14px;
   color: var(--vp-c-text-2);
+}
+
+.socials {
+  display: flex;
+  gap: 4px;
+  margin: 16px 0 0 -6px;
 }
 
 .column {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  align-items: flex-start;
+  gap: 10px;
 }
 
 .column h4 {
-  margin: 0 0 4px;
-  font-family: var(--pl-font-display);
-  font-size: 12px;
+  margin: 0 0 2px;
+  font-size: 13px;
   font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--vp-c-text-3);
+  color: var(--vp-c-text-1);
 }
 
 .column a {
   font-size: 14px;
   color: var(--vp-c-text-2);
-  transition: color 0.2s;
+  transition: color 0.15s;
 }
 
 .column a:hover {
-  color: var(--vp-c-brand-1);
+  color: var(--vp-c-text-1);
 }
 
-.legal {
+.bottom {
   max-width: 1200px;
   margin: 0 auto;
-  padding: 16px 24px 32px;
+  padding: 0 24px 28px;
+}
+
+.bottom-inner {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 4px 24px;
+  padding-top: 20px;
+  border-top: 1px solid var(--vp-c-divider);
   font-size: 13px;
   color: var(--vp-c-text-3);
 }
 
-@media (min-width: 768px) {
-  .legal {
-    padding: 16px 48px 32px;
+.bottom p {
+  margin: 0;
+}
+
+@media (min-width: 960px) {
+  .bottom {
+    padding: 0 48px 32px;
   }
 }
 </style>

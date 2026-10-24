@@ -1,4 +1,9 @@
-# Announcing Phase 5: The Professional Ecosystem
+---
+title: "Announcing Phase 5: the professional ecosystem"
+date: 2026-02-03
+author: Otabek
+description: A semantic language server and package management with lockfiles.
+---
 
 Phase 5 represents a major milestone for Pleno. We've moved beyond the core language implementation to focus on the tools that make developers productive.
 

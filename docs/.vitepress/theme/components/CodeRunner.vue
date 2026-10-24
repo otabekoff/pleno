@@ -1,8 +1,12 @@
 <script setup lang="ts">
-// An editor with a Run button and an output panel. Pleno runs in the browser
+// An editor with a Run button and its output. Pleno runs in the browser
 // (WebAssembly in a Web Worker); nothing is sent to a server. Until
 // CodeMirror loads, the same code is shown highlighted with matching
 // metrics, so the switch is not visible.
+//
+// `swap` (the default): Run replaces the editor with the output in the same
+// box, which keeps its size, and a Code button goes back. `split`: the
+// output sits beside the editor (the playground).
 import { onBeforeUnmount, onMounted, ref, shallowRef, watch } from 'vue'
 import type { EditorView } from '@codemirror/view'
 import { runPleno, type RunResult } from '../runner/run'
@@ -14,12 +18,12 @@ const props = withDefaults(
     code: string
     /** Editor height, as CSS. */
     height?: string
-    /** `stack`: output under the editor. `split`: side by side on wide screens. */
-    layout?: 'stack' | 'split'
+    /** `swap`: output replaces the editor. `split`: side by side on wide screens. */
+    layout?: 'swap' | 'split'
     /** Title in the editor's header bar. */
     filename?: string
   }>(),
-  { height: '300px', layout: 'stack', filename: 'main.pln' },
+  { height: '300px', layout: 'swap', filename: 'main.pln' },
 )
 
 const emit = defineEmits<{ (e: 'change', code: string): void }>()
@@ -29,6 +33,8 @@ const view = shallowRef<EditorView>()
 const running = ref(false)
 const result = ref<RunResult | null>(null)
 const isMac = ref(false)
+/** What the `swap` layout shows. */
+const showing = ref<'code' | 'output'>('code')
 
 function currentCode(): string {
   return view.value?.state.doc.toString() ?? props.code
@@ -37,6 +43,7 @@ function currentCode(): string {
 async function run() {
   if (running.value) return
   running.value = true
+  showing.value = 'output'
   try {
     result.value = await runPleno(currentCode())
   } finally {
@@ -50,6 +57,12 @@ function setCode(code: string) {
   if (!v) return
   v.dispatch({ changes: { from: 0, to: v.state.doc.length, insert: code } })
   result.value = null
+  showing.value = 'code'
+}
+
+function showCode() {
+  showing.value = 'code'
+  view.value?.focus()
 }
 
 defineExpose({ run, setCode, getCode: currentCode })
@@ -105,29 +118,64 @@ onBeforeUnmount(() => view.value?.destroy())
 </script>
 
 <template>
-  <div class="code-runner" :class="layout">
+  <div class="code-runner" :class="[layout, { 'show-output': layout === 'swap' && showing === 'output' }]">
     <section class="pane editor-pane" aria-label="Code">
       <header class="bar">
-        <span class="filename">{{ filename }}</span>
-        <div class="actions">
-          <slot name="actions" />
-          <button
-            class="pl-btn pl-btn-primary pl-btn-sm run"
-            type="button"
-            :disabled="running"
-            :title="`Run (${isMac ? '⌘' : 'Ctrl'}+Enter)`"
-            @click="run"
-          >
-            <PlIcon :name="running ? 'spinner' : 'play'" :size="12" />
-            Run
-          </button>
-        </div>
+        <template v-if="layout === 'swap' && showing === 'output'">
+          <span class="label">Output</span>
+          <span v-if="running" class="status">
+            <PlIcon name="spinner" :size="13" />
+            Running
+          </span>
+          <span v-else-if="result" class="status" :class="result.ok ? 'ok' : 'error'">
+            <PlIcon :name="result.ok ? 'check' : 'x'" :size="13" />
+            {{ result.ok ? 'Finished' : 'Failed' }} in {{ result.elapsed }} ms
+          </span>
+          <div class="actions">
+            <button class="pl-btn pl-btn-secondary pl-btn-sm" type="button" @click="showCode">
+              <PlIcon name="code" :size="14" />
+              Code
+            </button>
+          </div>
+        </template>
+        <template v-else>
+          <span class="filename">{{ filename }}</span>
+          <div class="actions">
+            <slot name="actions" />
+            <button
+              class="pl-btn pl-btn-primary pl-btn-sm"
+              type="button"
+              :disabled="running"
+              :title="`Run (${isMac ? '⌘' : 'Ctrl'}+Enter)`"
+              @click="run"
+            >
+              <PlIcon :name="running ? 'spinner' : 'play'" :size="12" />
+              Run
+            </button>
+          </div>
+        </template>
       </header>
-      <div ref="host" class="editor" :style="{ height }">
-        <PlCode v-if="!view" class="fallback" :code="code" line-numbers />
+      <div class="body" :style="{ height }">
+        <div v-show="layout === 'split' || showing === 'code'" ref="host" class="editor">
+          <PlCode v-if="!view" class="fallback" :code="code" line-numbers />
+        </div>
+        <div
+          v-if="layout === 'swap'"
+          v-show="showing === 'output'"
+          class="output"
+          :class="{ failed: result && !result.ok }"
+          aria-live="polite"
+        >
+          <p v-if="running && !result" class="hint">Starting Pleno…</p>
+          <template v-else-if="result">
+            <pre v-if="result.output" class="stdout">{{ result.output }}</pre>
+            <pre v-if="result.error" class="stderr">{{ result.error }}</pre>
+            <p v-if="!result.output && !result.error" class="hint">The program printed nothing.</p>
+          </template>
+        </div>
       </div>
     </section>
-    <section class="pane output-pane" :class="{ failed: result && !result.ok }" aria-label="Output">
+    <section v-if="layout === 'split'" class="pane output-pane" aria-label="Output">
       <header class="bar">
         <span class="label">Output</span>
         <span v-if="result" class="status" :class="result.ok ? 'ok' : 'error'">
@@ -135,7 +183,7 @@ onBeforeUnmount(() => view.value?.destroy())
           {{ result.ok ? 'Finished' : 'Failed' }} in {{ result.elapsed }} ms
         </span>
       </header>
-      <div class="output" :style="layout === 'split' ? { height } : undefined" aria-live="polite">
+      <div class="output" :style="{ height }" aria-live="polite">
         <p v-if="!result" class="hint">
           <template v-if="running">Starting Pleno…</template>
           <template v-else>
@@ -217,8 +265,7 @@ onBeforeUnmount(() => view.value?.destroy())
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  margin-left: auto;
-  padding-right: 8px;
+  margin-left: 4px;
   font-size: 12px;
   color: var(--vp-c-text-3);
 }
@@ -231,10 +278,15 @@ onBeforeUnmount(() => view.value?.destroy())
   color: var(--vp-c-danger-1);
 }
 
+.body {
+  position: relative;
+}
+
 /* The editor and its first paint share these metrics. */
 .editor {
   --pl-code-size: 13.5px;
   --pl-code-line: 1.65;
+  height: 100%;
   overflow: auto;
 }
 
@@ -302,10 +354,9 @@ onBeforeUnmount(() => view.value?.destroy())
 }
 
 .output {
-  min-height: 84px;
-  max-height: 360px;
+  height: 100%;
   overflow: auto;
-  padding: 12px 16px;
+  padding: 14px 16px;
 }
 
 .output pre {

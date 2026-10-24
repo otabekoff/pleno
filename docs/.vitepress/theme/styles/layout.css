@@ -14,8 +14,35 @@
 }
 
 .VPNavBar.has-sidebar .title,
-.VPNavBar.has-sidebar .content-body {
+.VPNavBar.has-sidebar .content-body,
+.VPNavBarTitle.has-sidebar .title {
   background-color: transparent !important;
+  border-bottom-color: transparent !important;
+}
+
+/* The same bar on every page. The default theme pins the title to the
+   sidebar's width on pages with a sidebar, which moves the menu; here every
+   page uses the centred container of pages without one. At 1440px and up
+   that container's left edge lines up with the sidebar's text. (The
+   !important flags beat the default theme's scoped rules.) */
+@media (min-width: 960px) {
+  .VPNavBar.has-sidebar .wrapper {
+    padding: 0 32px !important;
+  }
+
+  .VPNavBar.has-sidebar .container {
+    max-width: calc(var(--vp-layout-max-width) - 64px) !important;
+  }
+
+  .VPNavBar.has-sidebar .title {
+    position: static !important;
+    width: auto !important;
+    padding: 0 !important;
+  }
+
+  .VPNavBar.has-sidebar .content {
+    padding: 0 !important;
+  }
 }
 
 /* The menu sits next to the logo; search and toggles on the right. */
@@ -129,8 +156,17 @@
   font-size: 14px;
 }
 
+.VPSidebarItem.level-1 + .VPSidebarItem.level-1 {
+  margin-top: 2px;
+}
+
 .VPSidebarItem.level-1 > .item:hover {
   background-color: var(--vp-c-default-soft);
+}
+
+/* Hover changes the background only; the brand color marks the current page. */
+.VPSidebarItem.level-1:not(.is-active) > .item > .link:hover > .text {
+  color: var(--vp-c-text-1) !important;
 }
 
 .VPSidebarItem.level-1.is-active > .item {
@@ -180,6 +216,16 @@
 /* Code blocks: a plain panel. Edge to edge on phones, as VitePress does. */
 .vp-doc div[class*='language-'] {
   background-color: var(--vp-code-block-bg);
+}
+
+/* Even padding above and below the code; a sideways scrollbar sits in the
+   bottom padding instead of adding a gap under it. */
+.vp-doc div[class*='language-'] pre {
+  padding: 16px 0 !important;
+}
+
+.vp-doc div[class*='language-'] pre::-webkit-scrollbar-thumb {
+  border-width: 2px;
 }
 
 @media (min-width: 640px) {

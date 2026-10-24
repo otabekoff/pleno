@@ -91,7 +91,8 @@ test("adds", fn() {
   },
 ]
 
-const stdlib = ['io', 'path', 'process', 'http', 'net', 'json', 'yaml', 'toml', 'csv', 'xml', 'regex', 'time', 'crypto', 'uuid', 'db', 'log', 'test', 'concurrency', 'reflect', 'math', 'random']
+// Each has a page at /stdlib/<name>.
+const stdlib = ['io', 'path', 'os', 'process', 'http', 'net', 'url', 'json', 'yaml', 'toml', 'csv', 'xml', 'base64', 'regex', 'time', 'crypto', 'uuid', 'log', 'test', 'benchmark', 'concurrency', 'promise', 'reflect', 'math', 'random', 'dotenv']
 
 const status = [
   {
@@ -116,7 +117,7 @@ const status = [
   <div class="home">
     <section class="hero">
       <div class="hero-text">
-        <a class="badge" :href="withBase('/blog/toward-1-0')">
+        <a class="badge badge-home" :href="withBase('/blog/toward-1-0')">
           <span class="badge-tag">v0.2</span>
           <span>The road to Pleno 1.0</span>
           <PlIcon name="chevron-right" :size="14" />
@@ -156,15 +157,21 @@ const status = [
           <div class="sample"><PlCode :code="feature.code" /></div>
         </a>
       </div>
-      <a class="stdlib" :href="withBase('/stdlib/')">
+      <div class="stdlib">
         <div class="stdlib-text">
           <h3>A standard library that covers the basics</h3>
-          <p>Files, processes, HTTP, data formats, regular expressions, time, crypto, SQLite and tests.</p>
+          <p>Files, processes, HTTP, data formats, regular expressions, time, crypto and tests.</p>
+          <a class="pl-link" :href="withBase('/stdlib/')">
+            All modules
+            <PlIcon name="arrow-right" :size="14" />
+          </a>
         </div>
         <ul class="modules" aria-label="Standard library modules">
-          <li v-for="name in stdlib" :key="name">std:{{ name }}</li>
+          <li v-for="name in stdlib" :key="name">
+            <a :href="withBase(`/stdlib/${name}`)">std:{{ name }}</a>
+          </li>
         </ul>
-      </a>
+      </div>
     </section>
 
     <section class="section tools">
@@ -268,7 +275,7 @@ src/main.pln:3:5: <span class="err">error:</span> undefined variable 'prnt'</pre
   align-items: center;
   gap: 8px;
   height: 30px;
-  padding: 0 10px 0 4px;
+  padding: 0 10px 0 0;
   border: 1px solid var(--vp-c-border);
   border-radius: 999px;
   font-size: 13px;
@@ -384,8 +391,7 @@ src/main.pln:3:5: <span class="err">error:</span> undefined variable 'prnt'</pre
   transition: border-color 0.15s;
 }
 
-.feature:hover,
-.stdlib:hover {
+.feature:hover {
   border-color: var(--pl-border-strong);
 }
 
@@ -405,9 +411,11 @@ src/main.pln:3:5: <span class="err">error:</span> undefined variable 'prnt'</pre
   color: var(--vp-c-text-2);
 }
 
+/* The sample fills the rest of the card, so cards in a row end together
+   without a gap between their text and code. */
 .sample {
-  margin-top: auto;
-  padding: 14px;
+  flex: 1;
+  padding: 14px 12px;
   overflow-x: auto;
   border: 1px solid var(--vp-c-divider);
   border-radius: var(--pl-radius);
@@ -433,7 +441,7 @@ src/main.pln:3:5: <span class="err">error:</span> undefined variable 'prnt'</pre
   }
 
   .stdlib p {
-    margin-bottom: 0;
+    margin-bottom: 12px;
   }
 }
 
@@ -446,7 +454,8 @@ src/main.pln:3:5: <span class="err">error:</span> undefined variable 'prnt'</pre
   list-style: none;
 }
 
-.modules li {
+.modules a {
+  display: block;
   padding: 3px 8px;
   border: 1px solid var(--vp-c-divider);
   border-radius: var(--pl-radius-sm);
@@ -454,20 +463,20 @@ src/main.pln:3:5: <span class="err">error:</span> undefined variable 'prnt'</pre
   font-family: var(--vp-font-family-mono);
   font-size: 12px;
   color: var(--vp-c-text-2);
+  transition: color 0.15s, border-color 0.15s, background-color 0.15s;
 }
 
-/* Tools */
+.modules a:hover {
+  color: var(--vp-c-brand-1);
+  border-color: color-mix(in srgb, var(--vp-c-brand-2) 45%, transparent);
+  background-color: var(--vp-c-brand-soft);
+}
+
+/* Tools: the text, then the terminal at full width. */
 .tools {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  gap: 40px;
-  align-items: center;
-}
-
-@media (min-width: 1024px) {
-  .tools {
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr);
-  }
+  gap: 32px;
 }
 
 .tools-text code {

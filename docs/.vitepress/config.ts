@@ -50,6 +50,13 @@ export default defineConfig({
   ignoreDeadLinks: [/^https?:\/\/localhost/],
   lastUpdated: true,
   appearance: 'dark',
+  // Blog posts read as articles: no sidebars and no prev/next links.
+  transformPageData(pageData) {
+    const path = pageData.relativePath
+    if (path.startsWith('blog/') && path !== 'blog/index.md') {
+      Object.assign(pageData.frontmatter, { sidebar: false, aside: false, prev: false, next: false })
+    }
+  },
   head: [
     ['link', { rel: 'icon', href: `${BASE}logo.svg` }],
     ['script', {}, BANNER_SCRIPT],
@@ -244,16 +251,6 @@ export default defineConfig({
           items: [
             { text: 'Reflect', link: '/stdlib/reflect' },
             { text: 'Regex', link: '/stdlib/regex' },
-          ]
-        }
-      ],
-      '/blog/': [
-        {
-          text: 'Blog',
-          items: [
-            { text: 'All Posts', link: '/blog/' },
-            { text: 'The road to 1.0', link: '/blog/toward-1-0' },
-            { text: 'Announcing Phase 5', link: '/blog/announcing-phase-5' },
           ]
         }
       ],

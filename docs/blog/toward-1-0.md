@@ -1,6 +1,9 @@
-# Toward 1.0: making Pleno dependable
-
-_October 24, 2026_
+---
+title: "Toward 1.0: making Pleno dependable"
+date: 2026-10-24
+author: Otabek
+description: Every documentation example runs now, undefined names and failing tests are errors, and the runtime handles numbers safely.
+---
 
 This month's work had one goal: when the documentation says something works, it should work, and when something is wrong, Pleno should say so clearly instead of carrying on.
 

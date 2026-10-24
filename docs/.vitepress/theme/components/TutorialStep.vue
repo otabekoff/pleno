@@ -94,16 +94,29 @@ function go(slug: string) {
 
 @media (min-width: 1024px) {
   .tutorial {
-    --editor-height: calc(100vh - var(--vp-nav-height) - var(--vp-layout-top-height, 0px) - 250px);
+    /* The page height, less the padding and the editor's header bar. */
+    --editor-height: calc(100vh - var(--vp-nav-height) - var(--vp-layout-top-height, 0px) - 94px);
     grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr);
     gap: 32px;
     height: calc(100vh - var(--vp-nav-height) - var(--vp-layout-top-height, 0px));
     padding: 24px 32px;
   }
 
+  /* The lesson picker stays at the top and the buttons at the bottom; only
+     the text between them scrolls. */
   .lesson {
+    min-height: 0;
+  }
+
+  .lesson-body {
+    min-height: 0;
     overflow-y: auto;
+    margin-right: -16px;
     padding-right: 16px;
+  }
+
+  .lesson-foot {
+    margin-top: 0;
   }
 }
 
@@ -148,6 +161,7 @@ function go(slug: string) {
 
 .lesson-body {
   flex: 1;
+  padding-bottom: 24px;
 }
 
 .lesson-body :deep(h1) {
@@ -160,7 +174,7 @@ function go(slug: string) {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  margin-top: 32px;
+  margin-top: 8px;
   padding-top: 16px;
   border-top: 1px solid var(--vp-c-divider);
 }
