@@ -1,0 +1,40 @@
+name: Fuzz
+
+on:
+  schedule:
+    - cron: "0 3 * * 1" # Mondays
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "fuzz/**"
+      - "crates/pleno-lexer/**"
+      - "crates/pleno-parser/**"
+      - "crates/pleno-compiler/**"
+      - ".github/workflows/fuzz.yml"
+
+jobs:
+  fuzz:
+    name: Fuzz ${{ matrix.target }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [fuzz_lexer, fuzz_parser, fuzz_compile]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust nightly
+        uses: dtolnay/rust-toolchain@nightly
+
+      - name: Install cargo-fuzz
+        run: cargo install cargo-fuzz --locked
+
+      - name: Fuzz for 2 minutes
+        run: cargo fuzz run ${{ matrix.target }} -- -max_total_time=120
+
+      - name: Upload crashing inputs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-artifacts-${{ matrix.target }}
+          path: fuzz/artifacts/${{ matrix.target }}

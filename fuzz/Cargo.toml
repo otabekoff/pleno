@@ -7,11 +7,15 @@ edition = "2024"
 [package.metadata]
 cargo-fuzz = true
 
+# Built by cargo-fuzz on its own, outside the main workspace.
+[workspace]
+
 [dependencies]
 libfuzzer-sys = "0.4"
 pleno-lexer = { path = "../crates/pleno-lexer" }
 pleno-parser = { path = "../crates/pleno-parser" }
 pleno-ast = { path = "../crates/pleno-ast" }
+pleno-compiler = { path = "../crates/pleno-compiler" }
 
 [[bin]]
 name = "fuzz_lexer"
@@ -23,6 +27,13 @@ bench = false
 [[bin]]
 name = "fuzz_parser"
 path = "fuzz_targets/fuzz_parser.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_compile"
+path = "fuzz_targets/fuzz_compile.rs"
 test = false
 doc = false
 bench = false
