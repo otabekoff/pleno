@@ -1,35 +1,34 @@
-name: Deploy Docs
+# Builds the docs (with the playground's WebAssembly) on every pull request and push; from `main`
+# it deploys to Netlify (pleno.mohirlab.uz) and points the old GitHub Pages URL at the new domain.
+#
+# Repository secrets: NETLIFY_AUTH_TOKEN (personal access token), NETLIFY_SITE_ID
+name: Docs
 
 on:
   push:
     branches: [main]
+  pull_request:
+  workflow_dispatch:
 
-# Sets permissions of the GITHUB_TOKEN to allow deployment to GitHub Pages
 permissions:
   contents: read
-  pages: write
-  id-token: write
 
-# Allow only one concurrent deployment, skipping runs queued between the run in-progress and latest queued.
-# However, do NOT cancel in-progress runs as we want to allow these production deployments to complete.
+# One deployment at a time; superseded PR runs are cancelled, production runs are not
 concurrency:
-  group: pages
-  cancel-in-progress: false
+  group: ${{ github.event_name == 'pull_request' && format('docs-pr-{0}', github.event.pull_request.number) || 'docs-production' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  # Build job
   build:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0 # Not strictly needed unless using git history extensions
+          fetch-depth: 0 # full history for "last updated" timestamps
 
       - name: Setup Bun
-        uses: oven-sh/setup-bun@v1
-        with:
-          bun-version: latest
+        uses: oven-sh/setup-bun@v2
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
@@ -55,18 +54,58 @@ jobs:
       - name: Build with VitePress
         run: bun run docs:build
 
-      - name: Upload artifact
+      - name: Upload site
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: site
+          path: docs/.vitepress/dist
+          retention-days: 7
+
+      # Served for the root and, as 404.html, for every old deep link
+      - name: Prepare GitHub Pages redirect
+        if: github.event_name != 'pull_request'
+        run: cp .github/pages-redirect/index.html .github/pages-redirect/404.html
+
+      - if: github.event_name != 'pull_request'
         uses: actions/upload-pages-artifact@v3
         with:
-          path: docs/.vitepress/dist
+          path: .github/pages-redirect
 
-  # Deployment job
-  deploy:
+  deploy-netlify:
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+      url: https://pleno.mohirlab.uz
+    steps:
+      - name: Download site
+        uses: actions/download-artifact@v4
+        with:
+          name: site
+          path: dist
+
+      # The commit message goes through env, never straight into the script, so it can't inject shell
+      - name: Deploy to Netlify
+        run: |
+          npx --yes netlify-cli@27 deploy --prod --no-build --dir dist --message "${GITHUB_SHA::7}: ${COMMIT_MESSAGE%%$'\n'*}"
+        env:
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          NETLIFY_SITE_ID: ${{ secrets.NETLIFY_SITE_ID }}
+          COMMIT_MESSAGE: ${{ github.event.head_commit.message || 'manual deploy' }}
+
+  # The old URL (otabekoff.github.io/pleno/) forwards every path to pleno.mohirlab.uz
+  deploy-pages-redirect:
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
-    needs: build
-    runs-on: ubuntu-latest
     steps:
       - name: Deploy to GitHub Pages
         id: deployment
