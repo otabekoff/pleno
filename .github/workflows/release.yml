@@ -92,11 +92,12 @@ jobs:
           cp target/${{ matrix.job.target }}/release/plm$EXT dist/plm$EXT
           cp target/${{ matrix.job.target }}/release/pleno-lsp$EXT dist/pleno-lsp$EXT
           cp target/${{ matrix.job.target }}/release/pleno-repl$EXT dist/pleno-repl$EXT
+          cp target/${{ matrix.job.target }}/release/pleno-dap$EXT dist/pleno-dap$EXT
 
           # Generate .deb for Linux x64
           if [ "${{ runner.os }}" == "Linux" ] && [ "${{ matrix.job.target }}" == "x86_64-unknown-linux-gnu" ]; then
              cargo install cargo-deb
-             cargo deb --target ${{ matrix.job.target }} --output dist/pleno_${{ github.ref_name }}_amd64.deb
+             cargo deb -p pleno-cli --target ${{ matrix.job.target }} --output pleno_${{ github.ref_name }}_amd64.deb
           fi
 
           # Archive
@@ -114,8 +115,8 @@ jobs:
              sha256sum "$PACKAGE_NAME.zip" > "$PACKAGE_NAME.zip.sha256"
           else
              sha256sum "$PACKAGE_NAME.tar.gz" > "$PACKAGE_NAME.tar.gz.sha256"
-             if [ -f "dist/pleno_${{ github.ref_name }}_amd64.deb" ]; then
-               sha256sum "dist/pleno_${{ github.ref_name }}_amd64.deb" > "pleno_${{ github.ref_name }}_amd64.deb.sha256"
+             if [ -f "pleno_${{ github.ref_name }}_amd64.deb" ]; then
+               sha256sum "pleno_${{ github.ref_name }}_amd64.deb" > "pleno_${{ github.ref_name }}_amd64.deb.sha256"
              fi
           fi
 
@@ -125,6 +126,7 @@ jobs:
           name: artifacts-${{ matrix.job.target }}
           path: |
             pleno-${{ github.ref_name }}-${{ matrix.job.target }}.*
+            pleno_*.deb
             dist/*
             *.sha256
 
@@ -176,7 +178,7 @@ jobs:
           merge-multiple: true
 
       - name: Install Cosign
-        uses: sigstore/cosign-installer@v3.3.0
+        uses: sigstore/cosign-installer@v3.8.1
 
       - name: Sign Release Assets
         run: |
@@ -194,7 +196,7 @@ jobs:
           cd ..
 
       - name: Upload Release Assets
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
           files: all-artifacts/*
           generate_release_notes: true

@@ -51,6 +51,26 @@ jobs:
         run: cargo test --workspace
       - name: Run integration tests
         run: cargo test --workspace --test '*'
+      - name: Build pleno
+        run: cargo build --bin pleno
+      - name: Run .pln test scripts and examples
+        run: bash scripts/run_pln_tests.sh
+      - name: HTTP server smoke test
+        run: bash scripts/test_http_server.sh
+
+  wasm:
+    name: WASM build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - name: Rust Cache
+        uses: Swatinem/rust-cache@v2
+      - name: Build pleno-wasm
+        run: cargo build -p pleno-wasm --target wasm32-unknown-unknown --release
 
   benchmark:
     name: Benchmark Regression Check
