@@ -2,7 +2,7 @@
 
 Notable changes to Pleno. The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Before 1.0, any release may change behavior.
 
-## Unreleased
+## 0.2.0 - 2026-10-24
 
 ### Changed
 

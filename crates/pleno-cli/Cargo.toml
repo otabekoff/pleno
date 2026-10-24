@@ -13,7 +13,7 @@ name = "plm"
 path = "src/bin/plm.rs"
 
 [package.metadata.deb]
-maintainer = "Otabek <otabek@plano.org>"
+maintainer = "Otabek <sadiridinovotabek@gmail.com>"
 copyright = "2026, Otabek"
 license-file = ["../../LICENSE", "0"]
 extended-description = """
