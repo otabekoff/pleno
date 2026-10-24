@@ -248,7 +248,10 @@ pub fn print_help() {
         (
             "Commands",
             &[
-                ("run <file.pln>", "Run a Pleno file"),
+                (
+                    "run <file.pln|.plc>",
+                    "Run a Pleno file or compiled bytecode",
+                ),
                 ("plm <command>", "Package management (see below)"),
                 (
                     "format <path>",
@@ -698,6 +701,18 @@ fn run_file(path: &str, config: Option<pleno_value::SandboxConfig>, profile: Bui
         }
     };
 
+    execute_main_chunk(path, chunk, config, Some((&source, &source_map)));
+}
+
+/// Runs the compiled main chunk of `path` and exits non-zero on failure.
+/// `source` is the script's text, used to point at errors; a `.plc` file has none.
+fn execute_main_chunk(
+    path: &str,
+    chunk: pleno_bytecode::Chunk,
+    config: Option<pleno_value::SandboxConfig>,
+    source: Option<(&str, &pleno_diagnostics::SourceMap)>,
+) {
+    use pleno_diagnostics::{DiagnosticReporter, ToDiagnostic};
     let mut vm = pleno_vm::VM::new();
     if let Some(cfg) = config {
         vm.apply_config(cfg);
@@ -719,10 +734,13 @@ fn run_file(path: &str, config: Option<pleno_value::SandboxConfig>, profile: Bui
             }
         }
         Ok(Err(err)) => {
-            eprintln!(
-                "{}",
-                DiagnosticReporter::report(&err.to_diagnostic(), &source_map)
-            );
+            match source {
+                Some((_, source_map)) => eprintln!(
+                    "{}",
+                    DiagnosticReporter::report(&err.to_diagnostic(), source_map)
+                ),
+                None => eprintln!("{} {}", style::red(Stream::Stderr, "Error:"), err.message),
+            }
 
             // Manual stack trace printing for now as Diagnostic doesn't support it fully yet
             if !err.stack_trace.is_empty() {
@@ -731,8 +749,10 @@ fn run_file(path: &str, config: Option<pleno_value::SandboxConfig>, profile: Bui
                     if let Some(span) = frame.span {
                         // Fallback line calculation if outside main file?
                         // For now assume main file or just print span
-                        if span.end <= source.len() {
-                            let (line, col) = get_line_col(&source, span.start);
+                        if let Some((source, _)) = source
+                            && span.end <= source.len()
+                        {
+                            let (line, col) = get_line_col(source, span.start);
                             eprintln!("  at {} ({}:{})", frame.function_name, line, col);
                         } else {
                             eprintln!("  at {} (unknown location)", frame.function_name);
@@ -1123,17 +1143,44 @@ fn compile_file(path: &str, profile: BuildProfile) {
     };
 
     let output_path = std::path::Path::new(path).with_extension("plc");
-    let file = fs::File::create(&output_path).expect("failed to create file");
-
-    match bincode::serialize_into(file, &chunk) {
-        Ok(_) => {
-            println!("Compiled {} -> {}", path, output_path.display());
-        }
+    // The file starts with the `PLNC` magic and the bytecode format version, so a
+    // `pleno` that reads another format rejects it instead of misreading it.
+    let bytes = match pleno_bytecode::encode_chunk(&chunk) {
+        Ok(bytes) => bytes,
         Err(err) => {
             eprintln!("Failed to write bytecode: {}", err);
             process::exit(1);
         }
+    };
+
+    match fs::write(&output_path, bytes) {
+        Ok(()) => {
+            println!("Compiled {} -> {}", path, output_path.display());
+        }
+        Err(err) => {
+            eprintln!("Failed to write {}: {}", output_path.display(), err);
+            process::exit(1);
+        }
     }
+}
+
+/// Runs a `.plc` file written by `pleno compile`.
+fn run_bytecode_file(path: &str, config: Option<pleno_value::SandboxConfig>) {
+    let bytes = match fs::read(path) {
+        Ok(bytes) => bytes,
+        Err(err) => {
+            eprintln!("Failed to read {path}: {err}");
+            process::exit(1);
+        }
+    };
+    let chunk = match pleno_bytecode::decode_chunk(&bytes) {
+        Ok(chunk) => chunk,
+        Err(err) => {
+            eprintln!("{} {path}: {err}", style::red(Stream::Stderr, "Error:"));
+            process::exit(1);
+        }
+    };
+    execute_main_chunk(path, chunk, config, None);
 }
 
 fn handle_init(args: &mut std::iter::Peekable<std::iter::Skip<std::env::Args>>) {
@@ -2159,6 +2206,8 @@ fn handle_run(args: &mut std::iter::Peekable<std::iter::Skip<std::env::Args>>) {
                 } else {
                     run_file(&t, config, BuildProfile::Debug);
                 }
+            } else if t.ends_with(".plc") {
+                run_bytecode_file(&t, config);
             } else {
                 match Manifest::load_from_file("pleno.toml") {
                     Ok(manifest) => {

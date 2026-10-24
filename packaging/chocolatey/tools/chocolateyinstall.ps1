@@ -1,27 +1,15 @@
 $ErrorActionPreference = 'Stop'
 
-$packageName = 'pleno'
 $toolsDir = "$(Split-Path -parent $MyInvocation.MyCommand.Definition)"
 
-$url64 = 'https://github.com/otabekoff/pleno/releases/download/v$version$/pleno-v$version$-x86_64-pc-windows-msvc.zip'
-$checksum64 = '$checksum64$'
-
+# Chocolatey puts a shim on the PATH for every .exe in the package folder:
+# pleno, plm, pleno-lsp, pleno-dap and pleno-repl.
 $packageArgs = @{
-  packageName    = $packageName
+  packageName    = $env:ChocolateyPackageName
   unzipLocation  = $toolsDir
-  url64bit       = $url64
-  checksum64     = $checksum64
+  url64bit       = 'https://github.com/otabekoff/pleno/releases/download/v0.2.0/pleno-v0.2.0-x86_64-pc-windows-msvc.zip'
+  checksum64     = '2b26d51c972ddb99422442408a4e562e5ac79e5a09e60d852902febb9ad339ba'
   checksumType64 = 'sha256'
 }
 
 Install-ChocolateyZipPackage @packageArgs
-
-# Add to PATH
-$binPath = Join-Path $toolsDir 'pleno.exe'
-Install-BinFile -Name 'pleno' -Path $binPath
-
-$plmPath = Join-Path $toolsDir 'plm.exe'
-Install-BinFile -Name 'plm' -Path $plmPath
-
-Write-Host "Pleno has been installed successfully!" -ForegroundColor Green
-Write-Host "Run 'pleno --version' to verify the installation." -ForegroundColor Cyan

@@ -7,6 +7,11 @@ Notable changes to Pleno. The format follows [Keep a Changelog](https://keepacha
 ### Added
 
 - `pleno check` and the language server report wrong argument counts and unknown named arguments for functions, constructors and `this` methods declared in the file, literals that cannot match a type annotation (`let x: Int = "hi";`), and, as a warning, unknown methods called on `this`.
+- `pleno run file.plc` runs bytecode written by `pleno compile`.
+
+### Changed
+
+- `.plc` files start with a `PLNC` magic number and a bytecode format version, checked on load; files from another Pleno version, older headerless files and truncated files are rejected with an error asking to recompile.
 
 ## 0.2.0 - 2026-10-24
 
