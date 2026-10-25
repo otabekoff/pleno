@@ -1,5 +1,6 @@
 pub mod gc;
 pub mod nan_value;
+pub mod suggest;
 pub mod text;
 
 pub use gc::{GcObject, GcRc, MarkAndSweepGC};
@@ -54,6 +55,9 @@ pub trait VMProvider {
     fn register_module(&mut self, name: String, value: Value);
     fn register_global(&mut self, name: String, value: Value);
     fn set_builtin_resolver(&mut self, resolver: fn(&str, &str) -> Option<NativeFunction>);
+    /// Every method name `set_builtin_resolver`'s resolver knows, for any type:
+    /// the names "did you mean" suggestions choose from.
+    fn set_builtin_method_names(&mut self, _names: &'static [&'static str]) {}
     fn add_timer(&mut self, delay_ms: u64, callback: Value, args: Vec<Value>) -> u64;
     #[cfg(feature = "net")]
     fn register_io(
@@ -1852,6 +1856,18 @@ impl std::hash::Hash for ValueKey {
                 value.hash(state);
             }
         }
+    }
+}
+
+/// The map key a value stands for. Map keys are strings; a number or Bool
+/// key is the string it prints as, so `m[1]`, `m["1"]` and `{1: x}` agree.
+pub fn map_key(value: &Value) -> Option<std::borrow::Cow<'_, str>> {
+    match value {
+        Value::String(s) => Some(std::borrow::Cow::Borrowed(s.as_str())),
+        Value::Int(_) | Value::Float(_) | Value::Bool(_) => {
+            Some(std::borrow::Cow::Owned(value.to_string()))
+        }
+        _ => None,
     }
 }
 

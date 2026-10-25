@@ -714,11 +714,14 @@ fn reason_phrase(status: i64) -> &'static str {
     }
 }
 
+/// Writes a response. For a `HEAD` request (`head_only`) the headers,
+/// `Content-Length` included, are those of the full response, but no body.
 fn write_response(
     stream: &mut std::net::TcpStream,
     status: i64,
     headers: &[(String, String)],
     body: &str,
+    head_only: bool,
 ) {
     use std::io::Write;
     let mut response = format!("HTTP/1.1 {} {}\r\n", status, reason_phrase(status));
@@ -732,10 +735,12 @@ fn write_response(
         response.push_str(&format!("{name}: {value}\r\n"));
     }
     response.push_str(&format!(
-        "Content-Length: {}\r\nConnection: close\r\n\r\n{}",
-        body.len(),
-        body
+        "Content-Length: {}\r\nConnection: close\r\n\r\n",
+        body.len()
     ));
+    if !head_only {
+        response.push_str(body);
+    }
     stream.write_all(response.as_bytes()).ok();
     stream.flush().ok();
 }
@@ -757,10 +762,17 @@ fn handle_request(
     };
 
     // Find the first route for this method whose pattern matches the path.
+    // A HEAD request is served by the `get` routes, without the body.
+    let head_only = request.method == "HEAD";
+    let route_method = if head_only {
+        "GET"
+    } else {
+        request.method.as_str()
+    };
     let mut matched = None;
     if let Some(Value::Map(router)) = router_ref
         && let Some(Value::Map(routes_store)) = router.borrow().entries.get("_routes")
-        && let Some(Value::Map(method_routes)) = routes_store.borrow().entries.get(&request.method)
+        && let Some(Value::Map(method_routes)) = routes_store.borrow().entries.get(route_method)
     {
         for (pattern, handler) in &method_routes.borrow().entries {
             if let Some(params) = match_route(pattern, &request.path) {
@@ -771,7 +783,7 @@ fn handle_request(
     }
 
     let Some((handler, params)) = matched else {
-        write_response(&mut stream, 404, &[], "Not Found");
+        write_response(&mut stream, 404, &[], "Not Found", head_only);
         return Ok(());
     };
 
@@ -803,6 +815,7 @@ fn handle_request(
                 Value::Resource(vm.get_gc().allocate(stream)?),
             );
             context.insert("res".to_string(), res);
+            context.insert("headOnly".to_string(), Value::Bool(head_only));
             context.insert(
                 "request".to_string(),
                 Value::String(Rc::new(format!("{} {}", request.method, request.path))),
@@ -826,18 +839,24 @@ fn handle_request(
                 0,
             )?;
         }
-        Ok(returned) => send_handler_response(&mut stream, &res, &returned),
+        Ok(returned) => send_handler_response(&mut stream, &res, &returned, head_only),
         Err(e) => send_handler_error(
             &mut stream,
             &format!("{} {}", request.method, request.path),
             &e.message,
+            head_only,
         ),
     }
     Ok(())
 }
 
 /// Writes the response a handler built on `res` (or the body it returned).
-fn send_handler_response(stream: &mut std::net::TcpStream, res: &Value, returned: &Value) {
+fn send_handler_response(
+    stream: &mut std::net::TcpStream,
+    res: &Value,
+    returned: &Value,
+    head_only: bool,
+) {
     let Value::Map(res_map) = res else {
         return;
     };
@@ -862,10 +881,15 @@ fn send_handler_response(stream: &mut std::net::TcpStream, res: &Value, returned
         (_, Value::String(body)) => body.to_string(),
         _ => String::new(),
     };
-    write_response(stream, status, &headers, &body);
+    write_response(stream, status, &headers, &body, head_only);
 }
 
-fn send_handler_error(stream: &mut std::net::TcpStream, request: &str, message: &str) {
+fn send_handler_error(
+    stream: &mut std::net::TcpStream,
+    request: &str,
+    message: &str,
+    head_only: bool,
+) {
     let message = message
         .strip_prefix("uncaught exception: ")
         .unwrap_or(message);
@@ -875,11 +899,12 @@ fn send_handler_error(stream: &mut std::net::TcpStream, request: &str, message: 
         500,
         &[],
         &format!("Internal Server Error: {message}"),
+        head_only,
     );
 }
 
 /// Takes the connection and request details stored for an async handler.
-fn async_context(args: &[Value]) -> Option<(std::net::TcpStream, Value, String)> {
+fn async_context(args: &[Value]) -> Option<(std::net::TcpStream, Value, String, bool)> {
     let Some(Value::Map(context)) = args.first() else {
         return None;
     };
@@ -889,25 +914,27 @@ fn async_context(args: &[Value]) -> Option<(std::net::TcpStream, Value, String)>
         .get("request")
         .map(|v| v.to_string())
         .unwrap_or_default();
+    let head_only = matches!(context.get("headOnly"), Some(Value::Bool(true)));
     let Some(Value::Resource(resource)) = context.get("stream") else {
         return None;
     };
     let stream = resource.borrow().inner.borrow_mut().take()?;
     let stream = stream.downcast::<std::net::TcpStream>().ok()?;
-    Some((*stream, res, request))
+    Some((*stream, res, request, head_only))
 }
 
 fn finish_async_response(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
-    if let Some((mut stream, res, _)) = async_context(args) {
-        send_handler_response(&mut stream, &res, args.get(1).unwrap_or(&Value::Null));
+    if let Some((mut stream, res, _, head_only)) = async_context(args) {
+        let returned = args.get(1).unwrap_or(&Value::Null);
+        send_handler_response(&mut stream, &res, returned, head_only);
     }
     Ok(Value::Null)
 }
 
 fn fail_async_response(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
-    if let Some((mut stream, _, request)) = async_context(args) {
+    if let Some((mut stream, _, request, head_only)) = async_context(args) {
         let reason = args.get(1).map(|v| v.to_string()).unwrap_or_default();
-        send_handler_error(&mut stream, &request, &reason);
+        send_handler_error(&mut stream, &request, &reason, head_only);
     }
     Ok(Value::Null)
 }

@@ -117,49 +117,126 @@ pub fn json_stringify_pretty(
     Ok(Value::String(Rc::new(lines.join("\n"))))
 }
 
+/// How deeply `stringify` follows nested values before it stops; a value that
+/// contains itself would otherwise recurse until the stack overflows.
+const MAX_JSON_DEPTH: usize = 512;
+
 pub(crate) fn value_to_json_string(val: &Value) -> Result<String, pleno_value::RuntimeError> {
+    let mut out = String::new();
+    write_json(val, &mut out, 0)?;
+    Ok(out)
+}
+
+fn write_json_key(key: &str, out: &mut String) {
+    out.push_str(&serde_json::to_string(key).unwrap_or_else(|_| format!("\"{}\"", key)));
+    out.push(':');
+}
+
+fn write_json(
+    val: &Value,
+    out: &mut String,
+    depth: usize,
+) -> Result<(), pleno_value::RuntimeError> {
+    if depth > MAX_JSON_DEPTH {
+        return Err(pleno_value::RuntimeError::new(
+            "JSON.stringify: value is nested too deeply (does it contain itself?)",
+        ));
+    }
     match val {
-        Value::Null => Ok("null".to_string()),
-        Value::Bool(b) => Ok(b.to_string()),
-        Value::Int(i) => Ok(i.to_string()),
+        Value::Null => out.push_str("null"),
+        Value::Bool(b) => out.push_str(&b.to_string()),
+        Value::Int(i) => out.push_str(&i.to_string()),
         Value::Float(f) => {
             if f.is_nan() || f.is_infinite() {
-                Ok("null".to_string())
+                out.push_str("null");
             } else {
-                Ok(f.to_string())
+                out.push_str(&f.to_string());
             }
         }
         Value::String(s) => {
             // Use serde_json for proper string escaping
-            Ok(serde_json::to_string(s.as_str()).unwrap_or_else(|_| format!("\"{}\"", s)))
+            out.push_str(
+                &serde_json::to_string(s.as_str()).unwrap_or_else(|_| format!("\"{}\"", s)),
+            )
         }
+        Value::Char(c) => out.push_str(&serde_json::to_string(&c.to_string()).unwrap_or_default()),
         Value::Array(arr) => {
-            let mut s = String::from("[");
-            let arr = arr.borrow();
-            for (i, elem) in arr.elements.iter().enumerate() {
+            out.push('[');
+            let elements = arr.borrow().elements.clone();
+            for (i, elem) in elements.iter().enumerate() {
                 if i > 0 {
-                    s.push(',');
+                    out.push(',');
                 }
-                s.push_str(&value_to_json_string(elem)?);
+                write_json(elem, out, depth + 1)?;
             }
-            s.push(']');
-            Ok(s)
+            out.push(']');
+        }
+        // A set is written as an array of its elements, in insertion order.
+        Value::Set(set) => {
+            out.push('[');
+            let elements: Vec<Value> = set.borrow().elements.iter().map(|k| k.to_value()).collect();
+            for (i, elem) in elements.iter().enumerate() {
+                if i > 0 {
+                    out.push(',');
+                }
+                write_json(elem, out, depth + 1)?;
+            }
+            out.push(']');
         }
         Value::Map(map) => {
-            let mut s = String::from("{");
-            let map = map.borrow();
-            for (i, (k, v)) in map.entries.iter().enumerate() {
+            out.push('{');
+            let entries: Vec<(String, Value)> = map
+                .borrow()
+                .entries
+                .iter()
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect();
+            for (i, (k, v)) in entries.iter().enumerate() {
                 if i > 0 {
-                    s.push(',');
+                    out.push(',');
                 }
-                // Keys in JSON must be strings
-                s.push_str(&serde_json::to_string(k).unwrap_or_else(|_| format!("\"{}\"", k)));
-                s.push(':');
-                s.push_str(&value_to_json_string(v)?);
+                write_json_key(k, out);
+                write_json(v, out, depth + 1)?;
             }
-            s.push('}');
-            Ok(s)
+            out.push('}');
         }
-        _ => Ok("null".to_string()), // Functions, Classes, etc. serialize to null in JSON
+        // A class instance is written as an object of its public fields, in
+        // the order they were assigned. Private, protected and internal
+        // fields are left out.
+        Value::Object(object) => {
+            out.push('{');
+            let object = object.borrow();
+            let fields: Vec<(String, Value)> = object
+                .fields
+                .iter()
+                .filter(|(name, _)| is_public_field(object.class.as_ref(), name))
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect();
+            drop(object);
+            for (i, (k, v)) in fields.iter().enumerate() {
+                if i > 0 {
+                    out.push(',');
+                }
+                write_json_key(k, out);
+                write_json(v, out, depth + 1)?;
+            }
+            out.push('}');
+        }
+        // Functions, classes and other values have no JSON form.
+        _ => out.push_str("null"),
     }
+    Ok(())
+}
+
+/// Whether instance field `name` is public: the nearest class in the chain
+/// that declares it says so, or no class declares it.
+fn is_public_field(class: Option<&pleno_value::gc::GcRc<pleno_value::Class>>, name: &str) -> bool {
+    let mut current = class.cloned();
+    while let Some(candidate) = current {
+        if let Some(visibility) = candidate.borrow().fields.get(name) {
+            return matches!(visibility, pleno_value::MethodVisibility::Public);
+        }
+        current = candidate.borrow().superclass.clone();
+    }
+    true
 }

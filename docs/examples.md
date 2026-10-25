@@ -78,7 +78,7 @@ server.listen(8080, fn() {
 
 ### Todo Manager
 
-Command-line task manager that saves its tasks to `todos.json`. Tasks are stored as maps, because `JSON.stringify` writes class instances as `null`.
+Command-line task manager that saves its tasks to `todos.json`. Tasks are stored as maps, because `JSON.parse` gives back maps, not class instances.
 
 ```pleno
 import { File } from "std:io";
@@ -367,7 +367,7 @@ print(hash);
 // Create JWT
 let token = Crypto.jwtSign({
     "sub": "user123",
-    "exp": 1735689600
+    "exp": 4102444800
 }, "my-secret-key");
 
 // Verify JWT
