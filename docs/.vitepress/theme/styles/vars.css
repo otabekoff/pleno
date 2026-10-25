@@ -44,8 +44,6 @@
 
   --pl-shadow-pop: 0 1px 2px rgba(15, 15, 25, 0.06), 0 8px 24px -6px rgba(15, 15, 25, 0.16);
 
-  /* The pattern behind the home page hero (PlenoHome.vue). */
-  --pl-pattern: rgba(98, 54, 224, 0.28);
   --pl-shadow-panel: 0 1px 2px rgba(15, 15, 25, 0.05);
 
   /* Code colors (GitHub Light), shared by Markdown blocks, the editor and
@@ -108,7 +106,6 @@
 
   --pl-shadow-pop: 0 1px 2px rgba(0, 0, 0, 0.4), 0 12px 32px -8px rgba(0, 0, 0, 0.7);
 
-  --pl-pattern: rgba(171, 146, 255, 0.22);
   --pl-shadow-panel: none;
 
   /* GitHub Dark */

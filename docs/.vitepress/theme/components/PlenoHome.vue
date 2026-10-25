@@ -121,166 +121,140 @@ const status = [
 </script>
 
 <template>
-  <div class="home-page">
-    <div class="backdrop" aria-hidden="true" />
-    <div class="home pl-container">
-      <section class="hero">
-        <div class="hero-text">
-          <a class="badge badge-home" :href="withBase('/blog/toward-1-0')">
-            <span class="badge-tag">v0.2</span>
-            <span>The road to Pleno 1.0</span>
-            <PlIcon name="chevron-right" :size="14" />
+  <div class="home pl-container">
+    <section class="hero">
+      <div class="hero-text">
+        <a class="badge badge-home" :href="withBase('/blog/toward-1-0')">
+          <span class="badge-tag">v0.2</span>
+          <span>The road to Pleno 1.0</span>
+          <PlIcon name="chevron-right" :size="14" />
+        </a>
+        <h1 class="pl-display">
+          Code that says<br />
+          <span class="pl-gradient-text">what it means.</span>
+        </h1>
+        <p class="lead">
+          Pleno is a readable, dynamically typed language with optional checked types, classes
+          and pattern matching, async built in, and the tools to go with it.
+        </p>
+        <div class="actions">
+          <a class="pl-btn pl-btn-primary" :href="withBase('/tutorial/')">
+            Start the tutorial
+            <PlIcon name="arrow-right" />
           </a>
-          <h1 class="pl-display">
-            Code that says<br />
-            <span class="pl-gradient-text">what it means.</span>
-          </h1>
-          <p class="lead">
-            Pleno is a readable, dynamically typed language with optional checked types, classes
-            and pattern matching, async built in, and the tools to go with it.
-          </p>
-          <div class="actions">
-            <a class="pl-btn pl-btn-primary" :href="withBase('/tutorial/')">
-              Start the tutorial
-              <PlIcon name="arrow-right" />
-            </a>
-            <a class="pl-btn pl-btn-secondary" :href="withBase('/guide/getting-started')">Read the guide</a>
-            <a class="pl-btn pl-btn-ghost" :href="withBase('/playground')">Open the playground</a>
-          </div>
-          <HomeInstall class="install" />
+          <a class="pl-btn pl-btn-secondary" :href="withBase('/guide/getting-started')">Read the guide</a>
+          <a class="pl-btn pl-btn-ghost" :href="withBase('/playground')">Open the playground</a>
         </div>
-        <div class="hero-code">
-          <CodeRunner :code="heroCode" height="404px" filename="shapes.pln" />
-        </div>
-      </section>
+        <HomeInstall class="install" />
+      </div>
+      <div class="hero-code">
+        <CodeRunner :code="heroCode" height="404px" filename="shapes.pln" />
+      </div>
+    </section>
 
-      <section class="section">
-        <header class="section-head">
-          <h2 class="pl-display">The language at a glance</h2>
-          <p>Familiar syntax, with the parts you would expect from a modern language.</p>
-        </header>
-        <div class="features">
-          <a v-for="feature in features" :key="feature.title" class="feature" :href="withBase(feature.link)">
-            <h3>{{ feature.title }}</h3>
-            <p>{{ feature.text }}</p>
-            <div class="sample"><PlCode :code="feature.code" /></div>
+    <section class="section">
+      <header class="section-head">
+        <h2 class="pl-display">The language at a glance</h2>
+        <p>Familiar syntax, with the parts you would expect from a modern language.</p>
+      </header>
+      <div class="features">
+        <a v-for="feature in features" :key="feature.title" class="feature" :href="withBase(feature.link)">
+          <h3>{{ feature.title }}</h3>
+          <p>{{ feature.text }}</p>
+          <div class="sample"><PlCode :code="feature.code" /></div>
+        </a>
+      </div>
+      <div class="stdlib">
+        <div class="stdlib-text">
+          <h3>A standard library that covers the basics</h3>
+          <p>Files, processes, HTTP, data formats, regular expressions, time, crypto and tests.</p>
+          <a class="pl-link" :href="withBase('/stdlib/')">
+            All modules
+            <PlIcon name="arrow-right" :size="14" />
           </a>
         </div>
-        <div class="stdlib">
-          <div class="stdlib-text">
-            <h3>A standard library that covers the basics</h3>
-            <p>Files, processes, HTTP, data formats, regular expressions, time, crypto and tests.</p>
-            <a class="pl-link" :href="withBase('/stdlib/')">
-              All modules
-              <PlIcon name="arrow-right" :size="14" />
-            </a>
-          </div>
-          <ul class="modules" aria-label="Standard library modules">
-            <li v-for="name in stdlib" :key="name">
-              <a :href="withBase(`/stdlib/${name}`)">std:{{ name }}</a>
-            </li>
-          </ul>
-        </div>
-      </section>
-
-      <section class="section tools">
-        <header class="tools-text">
-          <p class="eyebrow">Toolchain</p>
-          <h2 class="pl-display">Everything in one install</h2>
-          <p>
-            One command installs the compiler and every tool around it. The VS Code extension can
-            install them for you, too.
-          </p>
-          <div class="tools-actions">
-            <a class="pl-btn pl-btn-primary" :href="withBase('/guide/installation')">Install Pleno</a>
-            <a class="pl-btn pl-btn-secondary" :href="withBase('/guide/editor')">Set up your editor</a>
-          </div>
-        </header>
-        <ul class="tool-list">
-          <li v-for="tool in tools" :key="tool.name">
-            <code>{{ tool.name }}</code>
-            <p>{{ tool.text }}</p>
+        <ul class="modules" aria-label="Standard library modules">
+          <li v-for="name in stdlib" :key="name">
+            <a :href="withBase(`/stdlib/${name}`)">std:{{ name }}</a>
           </li>
         </ul>
-        <div class="terminal" role="img" aria-label="A terminal running plm init, plm test and pleno check">
-          <div class="terminal-bar">
-            <PlIcon name="terminal" :size="14" />
-            <span>~/my-app</span>
-          </div>
-  <pre class="terminal-body"><span class="prompt">$</span> plm init my-app
+      </div>
+    </section>
 
-    <span class="brand">Pleno</span>  <span class="dim">created my-app</span>
-
-    <span class="ok">✔</span> pleno.toml
-    <span class="ok">✔</span> src/main.pln
-    <span class="ok">✔</span> tests/integration_test.pln
-
-  <span class="prompt">$</span> plm test
-  math
-    <span class="ok">✓</span> adds numbers
-    <span class="ok">✓</span> compares numbers
-  <span class="ok">PASSED</span>
-
-  <span class="prompt">$</span> pleno check src/main.pln
-  src/main.pln:3:5: <span class="err">error:</span> undefined variable 'prnt'</pre>
+    <section class="section tools">
+      <header class="tools-text">
+        <p class="eyebrow">Toolchain</p>
+        <h2 class="pl-display">Everything in one install</h2>
+        <p>
+          One command installs the compiler and every tool around it. The VS Code extension can
+          install them for you, too.
+        </p>
+        <div class="tools-actions">
+          <a class="pl-btn pl-btn-primary" :href="withBase('/guide/installation')">Install Pleno</a>
+          <a class="pl-btn pl-btn-secondary" :href="withBase('/guide/editor')">Set up your editor</a>
         </div>
-      </section>
-
-      <section class="section">
-        <header class="section-head">
-          <h2 class="pl-display">Where Pleno is</h2>
-          <p>
-            Pleno is at 0.2. It runs real programs today; the
-            <a href="https://github.com/otabekoff/pleno/blob/main/tasks/v1.md">plan for 1.0</a>
-            lists what is left.
-          </p>
-        </header>
-        <div class="status">
-          <div v-for="column in status" :key="column.label" class="status-column">
-            <h3><span class="dot" :class="column.tone" aria-hidden="true" />{{ column.label }}</h3>
-            <ul>
-              <li v-for="item in column.items" :key="item">{{ item }}</li>
-            </ul>
-          </div>
+      </header>
+      <ul class="tool-list">
+        <li v-for="tool in tools" :key="tool.name">
+          <code>{{ tool.name }}</code>
+          <p>{{ tool.text }}</p>
+        </li>
+      </ul>
+      <div class="terminal" role="img" aria-label="A terminal running plm init, plm test and pleno check">
+        <div class="terminal-bar">
+          <PlIcon name="terminal" :size="14" />
+          <span>~/my-app</span>
         </div>
-      </section>
+<pre class="terminal-body"><span class="prompt">$</span> plm init my-app
 
-      <section class="section cta">
-        <h2 class="pl-display">Learn Pleno in an afternoon</h2>
-        <p>Fifteen short lessons, each with code you can edit and run in the page.</p>
-        <a class="pl-btn pl-btn-primary" :href="withBase('/tutorial/')">
-          Start the tutorial
-          <PlIcon name="arrow-right" />
-        </a>
-      </section>
-    </div>
+  <span class="brand">Pleno</span>  <span class="dim">created my-app</span>
+
+  <span class="ok">✔</span> pleno.toml
+  <span class="ok">✔</span> src/main.pln
+  <span class="ok">✔</span> tests/integration_test.pln
+
+<span class="prompt">$</span> plm test
+math
+  <span class="ok">✓</span> adds numbers
+  <span class="ok">✓</span> compares numbers
+<span class="ok">PASSED</span>
+
+<span class="prompt">$</span> pleno check src/main.pln
+src/main.pln:3:5: <span class="err">error:</span> undefined variable 'prnt'</pre>
+      </div>
+    </section>
+
+    <section class="section">
+      <header class="section-head">
+        <h2 class="pl-display">Where Pleno is</h2>
+        <p>
+          Pleno is at 0.2. It runs real programs today; the
+          <a href="https://github.com/otabekoff/pleno/blob/main/tasks/v1.md">plan for 1.0</a>
+          lists what is left.
+        </p>
+      </header>
+      <div class="status">
+        <div v-for="column in status" :key="column.label" class="status-column">
+          <h3><span class="dot" :class="column.tone" aria-hidden="true" />{{ column.label }}</h3>
+          <ul>
+            <li v-for="item in column.items" :key="item">{{ item }}</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section class="section cta">
+      <h2 class="pl-display">Learn Pleno in an afternoon</h2>
+      <p>Fifteen short lessons, each with code you can edit and run in the page.</p>
+      <a class="pl-btn pl-btn-primary" :href="withBase('/tutorial/')">
+        Start the tutorial
+        <PlIcon name="arrow-right" />
+      </a>
+    </section>
   </div>
 </template>
 
 <style scoped>
-/* The page is full width, so the backdrop can span it without making the
-   page scroll sideways; the content stays centered. */
-.home-page {
-  position: relative;
-  overflow: hidden;
-}
-
-/* Small dotted crosses on a 20px grid behind the hero, fading out below
-   it. Two dot rows offset against each other make each cross. */
-.backdrop {
-  position: absolute;
-  inset: 0 0 auto;
-  height: 900px;
-  pointer-events: none;
-  background-image:
-    radial-gradient(circle, var(--pl-pattern) 0.8px, transparent 0.8px),
-    radial-gradient(circle, var(--pl-pattern) 0.8px, transparent 0.8px);
-  background-size: 5px 20px, 20px 5px;
-  background-position: -2.5px -10px, -10px -2.5px;
-  -webkit-mask-image: radial-gradient(ellipse 85% 70% at 50% 0%, #000 30%, transparent 78%);
-  mask-image: radial-gradient(ellipse 85% 70% at 50% 0%, #000 30%, transparent 78%);
-}
-
 .home {
   position: relative;
   padding-bottom: 48px;
