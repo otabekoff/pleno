@@ -1,6 +1,6 @@
 # std:crypto
 
-> **Stability:** stable in 1.0. Except `jwtSign` and `jwtVerify`, which are experimental: they are not covered by the [1.x compatibility promise](../specs/compatibility.md).
+> **Stability:** stable in 1.0.
 
 Cryptographic functions for hashing, encryption, and JWT handling.
 
@@ -84,27 +84,36 @@ print(decrypted);  // secret message
 
 ## JWT (JSON Web Tokens)
 
-::: warning Experimental
-`jwtSign` and `jwtVerify` are not covered by the [1.x compatibility promise](../specs/compatibility.md). `jwtVerify` checks only the signature, not claims such as `exp` or `nbf`, and compares signatures in non-constant time, so it can leak timing information. Its behavior will change when these are fixed. Do not rely on it alone to protect anything that matters.
-:::
+Tokens are signed and verified with HS256 (HMAC-SHA256) only.
 
 ### `jwtSign(payload: Map, secret: String): String`
 
-**Experimental.** Creates a JWT signed with HS256.
+Creates a JWT signed with HS256. The payload is written as JSON, like `JSON.stringify`. Claims such as `exp` (expires at) and `nbf` (not before) are numbers of seconds since the Unix epoch, for example `Time.now() + 3600` (from `std:time`) for one hour from now.
 
 ```pleno
 import { Crypto } from "std:crypto";
 
 let token = Crypto.jwtSign({
     "sub": "user123",
-    "exp": 1735689600
+    "exp": 4102444800
 }, "my-secret");
 print(token);  // eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 ```
 
 ### `jwtVerify(token: String, secret: String): Map`
 
-**Experimental.** Verifies the signature of a JWT and returns its payload. Throws on an invalid signature or format. It does not check claims such as `exp`; check them yourself.
+Verifies a JWT and returns its payload. It throws an error when:
+
+| Problem                                                   | Error message                                |
+| --------------------------------------------------------- | -------------------------------------------- |
+| Not three dot-separated parts, or a part is not Base64url | `Invalid JWT format`, `Invalid ... encoding` |
+| The signature does not match the secret                   | `Invalid JWT signature`                      |
+| The header's `alg` is not `HS256`                         | `Unsupported JWT algorithm: none`            |
+| `exp` is present and the current time is at or after it   | `JWT expired`                                |
+| `nbf` is present and the current time is before it        | `JWT not valid yet`                          |
+| `exp` or `nbf` is present but not a number                | `Invalid JWT exp claim: expected a number`   |
+
+The signature is checked first, in constant time, so a forged token fails with `Invalid JWT signature` whatever its claims say. `exp` and `nbf` are compared with the system clock, without leeway. Other claims, such as `iss`, `aud` and `iat`, are returned in the payload but not checked; check them yourself.
 
 ```pleno
 import { Crypto } from "std:crypto";
@@ -116,6 +125,13 @@ print(payload.sub);  // user123
 try {
     Crypto.jwtVerify(token, "wrong-secret");
 } catch (e) {
-    print("invalid token");
+    print(e.message);  // Invalid JWT signature
+}
+
+let expired = Crypto.jwtSign({ "sub": "user123", "exp": 1 }, "my-secret");
+try {
+    Crypto.jwtVerify(expired, "my-secret");
+} catch (e) {
+    print(e.message);  // JWT expired
 }
 ```

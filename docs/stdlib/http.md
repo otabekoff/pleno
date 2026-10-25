@@ -140,7 +140,7 @@ import { Router, Server } from "std:http";
 ```
 
 ::: warning Experimental
-`Router`, `Server` and `listen` are not covered by the [1.x compatibility promise](../specs/compatibility.md). They work, but have no automated tests that serve requests yet, and middleware, static files and cookies are still to come, which may change the shape of `req` and `res`.
+`Router`, `Server` and `listen` are not covered by the [1.x compatibility promise](../specs/compatibility.md). They work and are tested by serving requests, but middleware, static files and cookies are still to come, which may change the shape of `req` and `res`.
 :::
 
 A small HTTP/1.1 server. Build a `Router`, pass it to `Server`, then call `listen`.
@@ -177,7 +177,7 @@ Creates a server for a router.
 
 ### `listen(port: Int, callback?: Function): Null`
 
-Starts listening on `0.0.0.0:port`, prints `Server listening on http://0.0.0.0:<port>`, and calls `callback` once the port is bound. The program keeps running and serves requests until it is stopped. Only the methods registered on the router are served: a `HEAD` request to a `get` route gets a 404.
+Starts listening on `0.0.0.0:port`, prints `Server listening on http://0.0.0.0:<port>`, and calls `callback` once the port is bound. The program keeps running and serves requests until it is stopped. Only the methods registered on the router are served, with one addition: a `HEAD` request is answered by the matching `get` route, with the status and headers (`Content-Length` included) of the `GET` response and no body. The handler sees `req.method` as `"HEAD"`.
 
 ```pleno norun
 import { Router, Server } from "std:http";

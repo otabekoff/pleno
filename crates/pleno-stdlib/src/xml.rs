@@ -110,7 +110,14 @@ pub fn xml_parse(
                     parent.2.push(Value::String(Rc::new(text.into_owned())));
                 }
             }
-            Ok(Event::Eof) => break,
+            Ok(Event::Eof) => {
+                if let Some((name, _, _)) = stack.last() {
+                    return Err(RuntimeError::new(format!(
+                        "XML parse error: element <{name}> is not closed"
+                    )));
+                }
+                break;
+            }
             Err(e) => return Err(RuntimeError::new(format!("XML parse error: {}", e))),
             _ => {
                 // Ignore Comments, Decl, DocType for simple parsing
@@ -119,8 +126,6 @@ pub fn xml_parse(
         buf.clear();
     }
 
-    match root_value {
-        Some(v) => Ok(v),
-        None => Ok(Value::Null), // Empty or comment-only XML
-    }
+    // Empty input, or only a declaration, comments or text: nothing to return.
+    root_value.ok_or_else(|| RuntimeError::new("XML parse error: no root element"))
 }
