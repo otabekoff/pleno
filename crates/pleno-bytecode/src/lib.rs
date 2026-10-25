@@ -137,10 +137,53 @@ pub enum Opcode {
     /// Checks the shape of a value before a destructuring `let` reads it:
     /// a = value, b = mode (`DESTRUCTURE_*`), c = element count.
     Destructure,
+    /// a = b, with an `Int` converted to a `Float`: emitted after a value
+    /// passes a check against an annotation that widens `Int` (see
+    /// [`annotation_widens_int`]).
+    ToFloat,
     /// Calls the value in register b with the c arguments in the registers
     /// after it (b + 1 ..= b + c) and stores the result in a. Unlike `Call`,
     /// it needs no argument array.
     CallRegs,
+}
+
+/// Whether a value checked against the annotation `ty` is stored as a `Float`
+/// when it is an `Int`: `Float`, `Float?` and unions with `Float` but no `Int`,
+/// `Number` or `Any` (`Float | String`). In `Int | Float` an `Int` stays an
+/// `Int`. Collections (`Float[]`, `Map<String, Float>`) accept `Int` elements
+/// without converting them. `ty` must already have its type aliases expanded.
+pub fn annotation_widens_int(ty: &str) -> bool {
+    let ty = ty.trim();
+    let ty = ty.strip_suffix('?').unwrap_or(ty);
+    let mut has_float = false;
+    let mut depth = 0i32;
+    let mut prev = ' ';
+    let mut start = 0;
+    let mut check = |part: &str| -> bool {
+        match part.trim().trim_end_matches('?').trim() {
+            "Float" => has_float = true,
+            "Int" | "Number" | "Any" => return false,
+            _ => {}
+        }
+        true
+    };
+    for (index, ch) in ty.char_indices() {
+        match ch {
+            '<' | '(' | '[' => depth += 1,
+            // `=>` in a function type is not a closing bracket.
+            '>' if prev != '=' => depth -= 1,
+            ')' | ']' => depth -= 1,
+            '|' if depth == 0 => {
+                if !check(&ty[start..index]) {
+                    return false;
+                }
+                start = index + 1;
+            }
+            _ => {}
+        }
+        prev = ch;
+    }
+    check(&ty[start..]) && has_float
 }
 
 /// The opcode with the highest discriminant: keep it the last variant.
@@ -267,5 +310,38 @@ mod tests {
             assert_eq!(decoded, expected, "opcode byte {byte}");
         }
         assert!(Opcode::from_u8(LAST_OPCODE as u8 + 1).is_none());
+    }
+
+    #[test]
+    fn float_annotations_widen_int() {
+        for ty in [
+            "Float",
+            " Float ",
+            "Float?",
+            "Float | String",
+            "String | Float?",
+            "Float | Null",
+        ] {
+            assert!(annotation_widens_int(ty), "{ty}");
+        }
+    }
+
+    #[test]
+    fn other_annotations_keep_int() {
+        for ty in [
+            "Int",
+            "Int | Float",
+            "Float | Number",
+            "Any | Float",
+            "Float[]",
+            "Map<String, Float>",
+            "Array<Float>",
+            "(Float, Int)",
+            "(Int) => Float",
+            "String",
+            "Float & Shape",
+        ] {
+            assert!(!annotation_widens_int(ty), "{ty}");
+        }
     }
 }

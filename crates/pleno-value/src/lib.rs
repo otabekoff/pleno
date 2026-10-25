@@ -853,6 +853,16 @@ pub struct Class {
     pub static_setters: IndexMap<String, MethodInfo>,
     pub module: Option<Rc<String>>,
     pub is_abstract: bool,
+    /// Methods this class declares `abstract`: a subclass must define them
+    /// before it can be instantiated.
+    #[serde(default)]
+    pub abstract_methods: Vec<String>,
+    /// Instance fields declared `const`: only a constructor may assign them.
+    #[serde(default)]
+    pub const_fields: Vec<String>,
+    /// Static fields declared `const`: set once, when the class is declared.
+    #[serde(default)]
+    pub const_static_fields: Vec<String>,
     pub is_pooled: bool,
     pub implements: Vec<Value>,
     pub type_params: Vec<GenericParamMetadata>,
@@ -1585,6 +1595,9 @@ impl Class {
             static_setters: IndexMap::new(),
             module: None,
             is_abstract: false,
+            abstract_methods: Vec::new(),
+            const_fields: Vec::new(),
+            const_static_fields: Vec::new(),
             is_pooled: false,
             implements: Vec::new(),
             type_params: Vec::new(),

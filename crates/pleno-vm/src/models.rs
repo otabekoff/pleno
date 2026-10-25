@@ -98,6 +98,7 @@ pub struct VmRoots<'a> {
     pub frames: &'a [CallFrame],
     pub globals: &'a IndexMap<String, Value>,
     pub modules: &'a IndexMap<String, Value>,
+    pub module_globals: &'a IndexMap<String, IndexMap<String, Value>>,
     pub pending_tasks: &'a [AsyncTask],
     pub suspended_frames: &'a IndexMap<u64, SuspendedFrame>,
     pub promises: &'a IndexMap<u64, Value>,
@@ -117,6 +118,13 @@ impl<'a> GcObject for VmRoots<'a> {
             val.mark(gc);
         }
         for val in self.modules.values() {
+            val.mark(gc);
+        }
+        for val in self
+            .module_globals
+            .values()
+            .flat_map(|names| names.values())
+        {
             val.mark(gc);
         }
         for task in self.pending_tasks {

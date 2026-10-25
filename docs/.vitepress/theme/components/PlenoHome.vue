@@ -121,7 +121,7 @@ const status = [
 </script>
 
 <template>
-  <div class="home">
+  <div class="home pl-container">
     <section class="hero">
       <div class="hero-text">
         <a class="badge badge-home" :href="withBase('/blog/toward-1-0')">
@@ -256,15 +256,8 @@ src/main.pln:3:5: <span class="err">error:</span> undefined variable 'prnt'</pre
 
 <style scoped>
 .home {
-  max-width: 1200px;
-  margin: 0 auto;
-  padding: 0 24px 32px;
-}
-
-@media (min-width: 768px) {
-  .home {
-    padding: 0 48px 48px;
-  }
+  position: relative;
+  padding-bottom: 48px;
 }
 
 /* Hero */

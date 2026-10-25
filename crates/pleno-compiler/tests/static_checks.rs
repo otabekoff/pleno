@@ -234,6 +234,43 @@ fn literal_type_mismatches() {
 }
 
 #[test]
+fn int_literals_widen_to_float_but_not_back() {
+    assert_clean("fn f(x: Float) {}\nf(3); let a: Float = 3; let b: Float? = 1;");
+    assert_clean("let c: Int | Float = 2.5; let d: Number = 1;");
+    assert_eq!(
+        messages("let x: Int = 2.5;"),
+        ["'x' is declared Int but given a Float literal"]
+    );
+    assert_eq!(
+        messages("fn f(n: Int) {}\nf(1.5);"),
+        ["f expects Int for 'n', found a Float literal"]
+    );
+}
+
+#[test]
+fn returned_literals_are_checked_against_the_return_annotation() {
+    assert_eq!(
+        messages("fn f(): Int { return \"s\"; }"),
+        ["f is declared to return Int but returns a String literal"]
+    );
+    assert_eq!(
+        messages("class A { fn m(): String { return 1; } }"),
+        ["m is declared to return String but returns an Int literal"]
+    );
+    assert_eq!(
+        messages("let g = fn(): Int => \"s\";"),
+        ["lambda is declared to return Int but returns a String literal"]
+    );
+    assert_eq!(
+        messages("async fn f(): Promise<Int> { return true; }"),
+        ["f is declared to return Int but returns a Bool literal"]
+    );
+    assert_clean("fn f(): Float { return 1; }\nfn g(): Void { return 1; }");
+    assert_clean("fn f<T>(): T { return 1; }\nfn h(): Int? { return null; }");
+    assert_clean("fn f(): Int { let g = fn() { return \"s\"; }; return 1; }");
+}
+
+#[test]
 fn literals_that_may_match_are_not_reported() {
     assert_clean("let a: Int? = null; let b: Float = 1; let c: Number = -2.5;");
     assert_clean("let d: Any = \"s\"; let e: Int | String = \"s\"; let f: String = `x ${1}`;");

@@ -57,7 +57,7 @@ print(person.active);   // true: public field
 try {
     print(person.name);
 } catch (e) {
-    print(e.message);   // field access denied
+    print(e.message);   // cannot read private field 'name' of Person outside its class
 }
 ```
 
@@ -179,7 +179,17 @@ try {
 } catch (e) {
     print(e.message);  // cannot instantiate abstract class 'Shape'
 }
+
+class Blob extends Shape {}
+
+try {
+    Blob("green");
+} catch (e) {
+    print(e.message);  // cannot create Blob: it does not implement abstract method area
+}
 ```
+
+An abstract class cannot be instantiated. A class that extends it can be instantiated only when it, or a class between the two, defines every abstract method; otherwise creating it throws `cannot create <Class>: it does not implement abstract method <name>`. Only an abstract class may declare abstract methods: `abstract fn` in another class is a compile error.
 
 ## Interfaces
 
@@ -254,16 +264,43 @@ print(MathUtils.square(5.0));    // 25
 MathUtils();
 MathUtils();
 print(MathUtils.getInstanceCount());  // 2
+
+try {
+    MathUtils.PI = 3.0;
+} catch (e) {
+    print(e.message);  // cannot assign to constant MathUtils.PI
+}
+```
+
+A `const` field cannot be reassigned. A `static const` field keeps the value it is declared with; assigning to it, even from inside the class, throws `cannot assign to constant <Class>.<field>`. An instance `const` field is set by a constructor (of its class or a subclass) and cannot change afterwards: assigning to it anywhere else throws `cannot assign to constant field '<field>' of <Class> outside its constructor`.
+
+```pleno
+class Point {
+    const x: Int;
+
+    constructor(x: Int) {
+        this.x = x;
+    }
+}
+
+let p = Point(1);
+try {
+    p.x = 2;
+} catch (e) {
+    print(e.message);  // cannot assign to constant field 'x' of Point outside its constructor
+}
 ```
 
 ## Access Modifiers
 
 - `public` - Accessible everywhere (the default for fields and methods)
-- `private` - Accessible only within the class
-- `protected` - Accessible within the class and its subclasses
-- `internal` - Accessible within the same module
+- `private` - Accessible only in the methods of the class that declares it, not in its subclasses
+- `protected` - Accessible in the methods of the declaring class and of its subclasses, at any depth
+- `internal` - Accessible anywhere in the module (file) that declares the class, including its constructor and methods and other functions in that file; not from a file that imports the class
 
-Access modifiers are checked at runtime for methods and fields, including static fields. A denied access throws `field access denied`, `method access denied` or `static field access denied`.
+A field's modifier applies wherever the field is used, also on an instance of a subclass: a `protected` field declared in `A` and read from `B(...).name` outside the classes is still denied.
+
+Access modifiers are checked at runtime for methods and fields, including static fields. A denied field access throws an `Error` that names the rule, for example `cannot read protected field 'name' of B outside its class`, `cannot assign to private static field 'count' of Counter outside its class` or `cannot read internal field 'f' of Ex2 outside its module`. A denied method call throws `method access denied` or `static method access denied`.
 
 ```pleno
 class Example {

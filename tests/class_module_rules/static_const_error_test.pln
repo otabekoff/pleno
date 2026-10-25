@@ -1,0 +1,7 @@
+// expect-error: cannot assign to constant MathUtils.PI
+// A `static const` field keeps the value it was declared with.
+class MathUtils {
+    public static const PI: Float = 3.14159;
+}
+
+MathUtils.PI = 3.0;

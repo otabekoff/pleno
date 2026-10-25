@@ -1,0 +1,114 @@
+// Runtime type annotations: an Int widens to a Float, return annotations are
+// checked, and intersection types accept values that satisfy every part.
+
+fn check(condition: Bool, message: String) {
+    if (!condition) {
+        throw "FAILED: " + message;
+    }
+}
+
+fn errorOf(f) {
+    try {
+        f();
+    } catch (e) {
+        return e.message;
+    }
+    return "no error";
+}
+
+// --- Int where a Float is expected ---
+fn area(width: Float, height: Float): Float {
+    return width * height;
+}
+check(area(2, 3) == 6, "Int arguments for Float parameters");
+check(typeof(area(2, 3)) == "Float", "an Int argument becomes a Float");
+
+fn half(x: Float): Float {
+    return x / 2;
+}
+check(half(7) == 3.5, "a widened Int divides as a Float");
+
+let ratio: Float = 1;
+check(typeof(ratio) == "Float", "let with Float annotation");
+let maybe: Float? = 2;
+check(typeof(maybe) == "Float", "Float? widens");
+let either: Int | Float = 2;
+check(typeof(either) == "Int", "an Int stays an Int when the union has Int");
+let values: Float[] = [1, 2.5];
+check(typeof(values[0]) == "Int", "Float[] elements are accepted, not converted");
+
+class Account {
+    balance: Float;
+    constructor(balance) {
+        this.balance = balance;
+    }
+}
+check(typeof(Account(10).balance) == "Float", "Float field");
+
+// --- return annotations ---
+fn parse(text: String): Int {
+    if (text == "") {
+        return "empty";
+    }
+    return text.length;
+}
+check(parse("abc") == 3, "matching return");
+check(
+    errorOf(fn() => parse("")) == "parse returned String, expected Int",
+    "early return is checked"
+);
+
+fn firstPositive(xs: Int[]): Int {
+    for (x in xs) {
+        if (x > 0) {
+            return x;
+        }
+    }
+}
+check(firstPositive([0, 4]) == 4, "found");
+check(
+    errorOf(fn() => firstPositive([0])) == "firstPositive returned Null, expected Int",
+    "falling off the end returns null"
+);
+
+fn find(xs: Int[], target: Int): Int? {
+    for (x in xs) {
+        if (x == target) {
+            return x;
+        }
+    }
+}
+check(find([1], 2) == null, "an optional return may be null");
+
+fn average(xs: Float[]): Float {
+    return 0;
+}
+check(typeof(average([])) == "Float", "a returned Int becomes a Float");
+
+// --- intersection types ---
+interface Named {
+    fn getName(): String;
+}
+interface Aged {
+    fn getAge(): Int;
+}
+type Person = Named & Aged;
+
+class Employee implements Named, Aged {
+    fn getName(): String { return "Ann"; }
+    fn getAge(): Int { return 40; }
+}
+class Robot implements Named {
+    fn getName(): String { return "R2"; }
+}
+
+fn describe(p: Person): String {
+    return p.getName() + " is " + p.getAge();
+}
+check(describe(Employee()) == "Ann is 40", "intersection accepts a value with every part");
+check(
+    errorOf(fn() => describe(Robot())) == "parameter 'p' expected Person, got Robot",
+    "intersection rejects a value missing a part"
+);
+
+print("type annotation tests passed");

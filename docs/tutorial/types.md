@@ -37,7 +37,7 @@ let id: Int | String = "user-7";   // either one
 let tags: String[] = ["new"];
 ```
 
-A wrong value stops the program with a clear message instead of failing somewhere later. An `Int` is accepted where a `Float` is expected.
+A wrong value stops the program with a clear message instead of failing somewhere later. The return type after `)` is checked too: `area` must return a `Float`. An `Int` is accepted where a `Float` is expected and becomes a `Float`, so `area(2, 3)` works.
 
 ## Your turn
 

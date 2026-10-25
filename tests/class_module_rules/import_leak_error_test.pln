@@ -1,0 +1,6 @@
+// expect-error: undefined variable 'square'
+// Importing `PI` does not make the module's other exports visible.
+import { PI } from "./shapes.pln";
+
+print(PI);
+print(square(3));
