@@ -16,9 +16,7 @@ Every ```` ```pleno ```` example on these pages is run by the documentation test
 
 Strings are UTF-8, in source files and at runtime. A position in a string counts Unicode characters (scalar values): `"héllo"[1]` is `"é"`.
 
-::: warning Known bug
-`length`, `indexOf`, `substring`, `charAt` and slices such as `s[1..3]` currently count UTF-8 bytes instead of characters. For ASCII text the two agree; for other text they give wrong results, and `substring` or `charAt` at a position inside a multi-byte character stops the program. These will be fixed to follow the rule above.
-:::
+`length`, `[i]`, slices such as `s[1..3]`, `indexOf`, `substring`, `charAt` and regex match positions all count characters the same way, so a position from one of them can be passed to another: `"héllo".length` is `5` and `"héllo".indexOf("l")` is `2`. A character is one scalar value, so an accent written as a separate combining mark (`e` followed by U+0301) counts as its own character. See [String operations](./standard-library.md#string-operations) for what each method does with positions out of range.
 
 ## Quick Reference
 
