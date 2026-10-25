@@ -149,39 +149,88 @@ pub fn can_access_method(
     }
 }
 
+/// The class that declares instance field `name`: `class` itself or the
+/// nearest superclass that declares it, with the field's visibility.
+pub fn find_field_owner(
+    class: &GcRc<Class>,
+    name: &str,
+) -> Option<(GcRc<Class>, MethodVisibility)> {
+    let mut current = Some(class.clone());
+    while let Some(candidate) = current {
+        if let Some(visibility) = candidate.borrow().fields.get(name) {
+            return Some((candidate.clone(), visibility.clone()));
+        }
+        current = candidate.borrow().superclass.clone();
+    }
+    None
+}
+
+/// Whether code running in `current_class` and `current_module` may use a
+/// field with `visibility` declared by `owner`.
+///
+/// - `private`: only inside `owner`'s own methods.
+/// - `protected`: inside the methods of `owner` and of its subclasses.
+/// - `internal`: anywhere in the module that declares `owner`.
 pub fn can_access_field(
     visibility: &MethodVisibility,
-    owner_name: &Rc<String>,
-    owner_module: Option<&Rc<String>>,
+    owner: &GcRc<Class>,
     current_class: Option<&GcRc<Class>>,
     current_module: Option<&Rc<String>>,
 ) -> bool {
     match visibility {
         MethodVisibility::Public => true,
-        MethodVisibility::Private => current_class
-            .map(|c| c.borrow().name.as_str() == owner_name.as_str())
-            .unwrap_or(false),
+        MethodVisibility::Private => current_class.map(|c| c == owner).unwrap_or(false),
         MethodVisibility::Protected => current_class
-            .map(|c| {
-                let class_name = c.borrow().name.to_string();
-                class_name == owner_name.as_str() || {
-                    let mut current = c.borrow().superclass.clone();
-                    while let Some(sc) = current {
-                        if sc.borrow().name.as_str() == owner_name.as_str() {
-                            return true;
-                        }
-                        current = sc.borrow().superclass.clone();
-                    }
-                    false
-                }
-            })
+            .map(|c| is_subclass_of(c, owner))
             .unwrap_or(false),
-        MethodVisibility::Internal => match (owner_module, current_module) {
+        MethodVisibility::Internal => match (owner.borrow().module.as_ref(), current_module) {
             (Some(o), Some(c)) => o.as_str() == c.as_str(),
             (None, None) => true,
             _ => false,
         },
     }
+}
+
+/// The error for code that may not use a field: `action` is `read` or
+/// `assign to`, `kind` is `field` or `static field`.
+pub fn field_access_error(
+    action: &str,
+    visibility: &MethodVisibility,
+    kind: &str,
+    name: &str,
+    class_name: &str,
+) -> String {
+    let (word, scope) = match visibility {
+        MethodVisibility::Public => ("public", "class"),
+        MethodVisibility::Private => ("private", "class"),
+        MethodVisibility::Protected => ("protected", "class"),
+        MethodVisibility::Internal => ("internal", "module"),
+    };
+    format!("cannot {action} {word} {kind} '{name}' of {class_name} outside its {scope}")
+}
+
+/// The abstract methods of `class` and its ancestors that no class between
+/// the declaring one and `class` defines.
+pub fn missing_abstract_methods(class: &GcRc<Class>) -> Vec<String> {
+    let mut chain = Vec::new();
+    let mut current = Some(class.clone());
+    while let Some(candidate) = current {
+        current = candidate.borrow().superclass.clone();
+        chain.push(candidate);
+    }
+    let mut missing: Vec<String> = Vec::new();
+    for ancestor in chain.iter().rev() {
+        let ancestor = ancestor.borrow();
+        missing.retain(|name| {
+            !ancestor.methods.contains_key(name) || ancestor.abstract_methods.contains(name)
+        });
+        for name in &ancestor.abstract_methods {
+            if !missing.contains(name) {
+                missing.push(name.clone());
+            }
+        }
+    }
+    missing
 }
 
 pub fn is_subclass_of(class: &GcRc<Class>, target: &GcRc<Class>) -> bool {
@@ -248,7 +297,7 @@ pub fn parse_method_info(
 }
 
 pub fn visibility_from_code(code: u8) -> Result<MethodVisibility, RuntimeError> {
-    match code {
+    match code & !pleno_compiler::CONST_FIELD_FLAG {
         0 => Ok(MethodVisibility::Public),
         1 => Ok(MethodVisibility::Private),
         2 => Ok(MethodVisibility::Protected),

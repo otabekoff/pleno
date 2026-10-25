@@ -1,0 +1,38 @@
+// An import binds the names it lists; the module's own code still sees all
+// of its top-level names, and `internal` fields work anywhere in the module.
+import { assert as check } from "std:test";
+import { square as sq, PI, Circle, readRadius, useHelper } from "./shapes.pln";
+import Shapes from "./shapes.pln";
+import * as S from "./shapes.pln";
+
+fn errorOf(f): String {
+    try {
+        f();
+    } catch (e: Error) {
+        return e.message;
+    }
+    return "no error";
+}
+
+check.equal(sq(3), 9);
+check.equal(PI, 3.14);
+check.equal(Shapes.square(4), 16);
+check.equal(S.Circle(5).radius(), 5);
+check.equal(useHelper(), 11);
+
+// The constructor and `readRadius` run inside the module that declares `r`.
+let c = Circle(3);
+check.equal(c.radius(), 3);
+check.equal(readRadius(c), 3);
+
+// Names the import did not list are not defined here.
+check.equal(errorOf(() => square(2)), "undefined variable 'square'");
+check.equal(errorOf(() => helper()), "undefined variable 'helper'");
+
+// The internal field is hidden from this file.
+check.equal(
+    errorOf(() => c.r),
+    "cannot read internal field 'r' of Circle outside its module"
+);
+
+print("imports ok");

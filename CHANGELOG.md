@@ -28,6 +28,15 @@ Notable changes to Pleno. The format follows [Keep a Changelog](https://keepacha
 
 - Intersection types (`type Person = Nameable & Ageable;`) accept a value that matches every part; before, a class implementing both interfaces was rejected with `expected Person, got Employee`.
 - Type aliases inside a larger annotation (`Money?`, `Money | String`, `Money[]`) and as class field types are expanded before checking.
+- An import makes visible only the names it binds. Other exports and the private names of an imported module no longer leak into the importing file (`import { PI } from "./m.pln"; square(2);` is now `undefined variable 'square'`), and names a module imports stay in that module.
+- A denied field access names the rule instead of `field access denied` or `static field access denied`: `cannot read protected field 'name' of B outside its class`, `cannot assign to private static field 'count' of Counter outside its class`, `cannot read internal field 'f' of Ex2 outside its module`.
+- Field visibility is checked against the class that declares the field, also on instances of subclasses: a subclass's methods can no longer use a `private` field of its parent.
+- `abstract fn` in a class that is not `abstract` is a compile error.
+- A class with an `internal` field can be created and used from another module: `internal` means visible within the declaring module, and the class's constructor and methods run in it.
+- Inherited `protected` fields can no longer be read or assigned from outside the class hierarchy.
+- Creating a class that does not implement an abstract method of its parent throws `cannot create B: it does not implement abstract method area`, also when constructed with named arguments; constructing an abstract class with named arguments is rejected too.
+- `static const` fields cannot be reassigned (`cannot assign to constant MathUtils.PI`), and instance `const` fields can be assigned only by a constructor.
+- `let mut y = x;` made `y` share `x`'s storage, so assigning either changed both (in every scope, for numbers and strings alike).
 
 ## 0.2.0 - 2026-10-24
 

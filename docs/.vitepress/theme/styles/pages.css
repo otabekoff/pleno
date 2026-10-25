@@ -1,8 +1,14 @@
 /* The tutorial's start page (docs/tutorial/index.md). */
 .tutorial-index {
-  max-width: 760px;
-  margin: 0 auto;
-  padding: 64px 24px 24px;
+  box-sizing: border-box;
+  width: 100%;
+  max-width: calc(var(--pl-page-width) + 2 * var(--pl-gutter));
+  margin-inline: auto;
+  padding: 64px var(--pl-gutter) 24px;
+}
+
+.tutorial-index > p {
+  max-width: 640px;
 }
 
 .tutorial-index .eyebrow {
@@ -42,6 +48,12 @@
 @media (min-width: 640px) {
   .tutorial-index .lessons {
     grid-template-columns: 1fr 1fr;
+  }
+}
+
+@media (min-width: 1024px) {
+  .tutorial-index .lessons {
+    grid-template-columns: repeat(3, 1fr);
   }
 }
 

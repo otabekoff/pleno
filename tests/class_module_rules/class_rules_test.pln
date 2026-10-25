@@ -1,0 +1,97 @@
+// Protected fields stay inside the class hierarchy, abstract methods must be
+// implemented, and `const` fields cannot be reassigned.
+import { assert as check } from "std:test";
+
+fn errorOf(f): String {
+    try {
+        f();
+    } catch (e: Error) {
+        return e.message;
+    }
+    return "no error";
+}
+
+// Protected: usable from A, B and C, not from outside.
+class A {
+    protected name: String;
+    constructor(n: String) {
+        this.name = n;
+    }
+    fn fromA(): String {
+        return this.name;
+    }
+}
+
+class B extends A {
+    constructor(n: String) {
+        super(n);
+    }
+    fn fromB(): String {
+        return this.name;
+    }
+}
+
+class C extends B {
+    fn rename(n: String) {
+        this.name = n;
+    }
+}
+
+let c = C("x");
+c.rename("y");
+check.equal(c.fromA() + c.fromB(), "yy");
+check.equal(
+    errorOf(() => B("x").name),
+    "cannot read protected field 'name' of B outside its class"
+);
+
+// Abstract methods
+abstract class Shape {
+    abstract fn area(): Int;
+    fn describe(): String {
+        return `area ${this.area()}`;
+    }
+}
+
+class Square extends Shape {
+    fn area(): Int {
+        return 4;
+    }
+}
+
+class Blank extends Shape {}
+
+check.equal(Square().describe(), "area 4");
+check.equal(errorOf(() => Shape()), "cannot instantiate abstract class 'Shape'");
+check.equal(
+    errorOf(() => Blank()),
+    "cannot create Blank: it does not implement abstract method area"
+);
+
+// Constants
+class MathUtils {
+    public static const PI: Float = 3.14159;
+    static calls: Int = 0;
+}
+
+class Point {
+    const x: Int;
+    constructor(x: Int) {
+        this.x = x;
+    }
+}
+
+MathUtils.calls = MathUtils.calls + 1;
+check.equal(MathUtils.calls, 1);
+check.equal(MathUtils.PI, 3.14159);
+check.equal(errorOf(() => { MathUtils.PI = 3.0; }), "cannot assign to constant MathUtils.PI");
+check.equal(MathUtils.PI, 3.14159);
+
+let p = Point(1);
+check.equal(p.x, 1);
+check.equal(
+    errorOf(() => { p.x = 2; }),
+    "cannot assign to constant field 'x' of Point outside its constructor"
+);
+
+print("class rules ok");

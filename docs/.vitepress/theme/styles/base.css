@@ -8,6 +8,15 @@ body {
   background-color: var(--vp-c-bg);
 }
 
+/* The shared page container (see --pl-page-width in vars.css). */
+.pl-container {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: calc(var(--pl-page-width) + 2 * var(--pl-gutter));
+  margin-inline: auto;
+  padding-inline: var(--pl-gutter);
+}
+
 ::selection {
   background: rgba(127, 82, 255, 0.24);
 }

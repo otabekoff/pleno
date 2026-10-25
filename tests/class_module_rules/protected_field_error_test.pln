@@ -1,0 +1,16 @@
+// expect-error: cannot read protected field 'name' of B outside its class
+// A protected field inherited from A cannot be read from outside the classes.
+class A {
+    protected name: String;
+    constructor(n: String) {
+        this.name = n;
+    }
+}
+
+class B extends A {
+    constructor(n: String) {
+        super(n);
+    }
+}
+
+print(B("x").name);
