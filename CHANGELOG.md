@@ -60,6 +60,7 @@ Notable changes to Pleno. The format follows [Keep a Changelog](https://keepacha
 - `let mut y = x;` made `y` share `x`'s storage, so assigning either changed both (in every scope, for numbers and strings alike).
 - `CSV.parse` errors no longer repeat their prefix (`CSV error: CSV error: ...`).
 - `XML.parse` throws on input without a complete root element: `XML parse error: no root element` for an empty string (or only comments or text) and `XML parse error: element <a> is not closed` for `<a>`. Before, it returned `null`.
+- The HTTP server answers `HEAD` on a `get` route like `GET` (same status and headers, `Content-Length` included) without a body; before, it answered 404. Tests now serve real requests to a running server.
 
 ### Documentation
 

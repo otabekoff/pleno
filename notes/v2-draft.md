@@ -105,7 +105,7 @@ Planned API:
 
 ### HTTP server
 
-Status: `Router` and `Server` are experimental in 1.0. Missing: middleware (`app.use`), static files, cookies, `HEAD` for `get` routes, and automated tests that serve requests.
+Status: `Router` and `Server` are experimental in 1.0. Missing: middleware (`app.use`), static files and cookies.
 
 ### Other module work
 
