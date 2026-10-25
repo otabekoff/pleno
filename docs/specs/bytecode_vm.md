@@ -62,8 +62,8 @@ Each instruction is 4 bytes:
 - `SetGlobal` (Globals[Constants[B]] = R[A])
 
 #### Calls
-- `Call` (R[A] = R[B](...R[C]): the arguments are in the array in R[C]; used for spread arguments)
-- `CallRegs` (R[A] = R[B](R[B+1], ..., R[B+C]): the usual call, with the arguments in the registers after the callee)
+- `Call` (`R[A] = R[B](...R[C])`: the arguments are in the array in R[C]; used for spread arguments)
+- `CallRegs` (`R[A] = R[B](R[B+1], ..., R[B+C])`: the usual call, with the arguments in the registers after the callee)
 - `GetMethod` (R[A] = method Constants[C] of R[B], R[A+1] = R[B], R[A+2] = how to call it: the lookup for `CallMethod`, done where `GetProperty` would read the method)
 - `CallMethod` (R[A] = R[B+1].method(R[B+3], ..., R[B+2+C]) for the method `GetMethod` looked up into R[B]..R[B+2]: `obj.name(args)` without allocating a bound method)
 - `Return`  (return R[A])
