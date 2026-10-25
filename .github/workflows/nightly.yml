@@ -18,6 +18,7 @@ jobs:
         job:
           - { target: x86_64-unknown-linux-gnu, os: ubuntu-latest }
           - { target: aarch64-unknown-linux-gnu, os: ubuntu-latest }
+          - { target: i686-unknown-linux-gnu, os: ubuntu-latest }
           - { target: x86_64-apple-darwin, os: macos-latest }
           - { target: aarch64-apple-darwin, os: macos-latest }
           - { target: x86_64-pc-windows-msvc, os: windows-latest }
@@ -33,12 +34,18 @@ jobs:
       - name: Rust Cache
         uses: Swatinem/rust-cache@v2
 
+      # The same setup as release.yml, so a nightly that passes means a tagged
+      # release builds too.
       - name: Install System Dependencies (Linux)
-        if: matrix.job.target == 'aarch64-unknown-linux-gnu'
+        if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y gcc-aarch64-linux-gnu
-          echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
+          if [ "${{ matrix.job.target }}" == "aarch64-unknown-linux-gnu" ]; then
+            sudo apt-get install -y gcc-aarch64-linux-gnu
+            echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
+          elif [ "${{ matrix.job.target }}" == "i686-unknown-linux-gnu" ]; then
+            sudo apt-get install -y gcc-multilib
+          fi
 
       - name: Build
         run: cargo build --release --workspace --target ${{ matrix.job.target }}
@@ -53,9 +60,10 @@ jobs:
             EXT=".exe"
           fi
 
-          # Copy binaries
-          cp target/${{ matrix.job.target }}/release/pleno$EXT dist/pleno$EXT
-          cp target/${{ matrix.job.target }}/release/plm$EXT dist/plm$EXT
+          # Copy binaries (every tool a release ships)
+          for tool in pleno plm pleno-lsp pleno-repl pleno-dap; do
+            cp target/${{ matrix.job.target }}/release/$tool$EXT dist/$tool$EXT
+          done
 
           # Archive
           PACKAGE_NAME="pleno-nightly-$DATE-${{ matrix.job.target }}"
@@ -67,7 +75,10 @@ jobs:
           fi
           cd ..
 
+      # Only the scheduled run on main publishes; a manual run (on any branch)
+      # just checks that every release target builds.
       - name: Create Nightly Release
+        if: github.event_name == 'schedule' && github.ref == 'refs/heads/main'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: nightly-${{ github.sha }}
