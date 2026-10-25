@@ -51,6 +51,13 @@ Notable changes to Pleno. The format follows [Keep a Changelog](https://keepacha
 - `static const` fields cannot be reassigned (`cannot assign to constant MathUtils.PI`), and instance `const` fields can be assigned only by a constructor.
 - `let mut y = x;` made `y` share `x`'s storage, so assigning either changed both (in every scope, for numbers and strings alike).
 
+### Documentation
+
+- The language reference (`docs/specs/`) describes only what Pleno implements and is the basis of the 1.0 specification. Claims that were not true were corrected, among them: `@pure` is a partial runtime check (now marked experimental), `@override`, `@sealed` and `@deprecated` have no effect, generic constraints are checked only with explicit type arguments, strings cannot be iterated, and `pleno check src/`, `lint --fix`, `format --check`, `test --coverage`, `doc --serve`, `run --timeout` and the `--verbose`/`--quiet`/`--color` options do not exist. New: truthiness rules, global functions, a collection method reference and a known-bug note on string positions.
+- New page: the [1.x compatibility promise](https://pleno.mohirlab.uz/specs/compatibility), saying what 1.x guarantees and what it does not (bytecode format, error wording, performance, experimental APIs).
+- The standard library list marks every module and API as stable or experimental. `std:net`, `std:security`, `std:gc` and `std:db` are experimental, as are the `std:http` server, `Crypto.jwtSign`/`jwtVerify` and `vmStats`.
+- Designs that are not implemented moved from `notes/specs.md` and `notes/v2-specs.md` to `notes/v2-draft.md`. The performance, bytecode VM, distribution and release pages are labelled as implementation or planning notes.
+
 ## 0.2.0 - 2026-10-24
 
 ### Changed
