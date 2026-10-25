@@ -33,6 +33,7 @@ Notable changes to Pleno. The format follows [Keep a Changelog](https://keepacha
 - Reassigning a `&mut` parameter (`value = ...`, `value++`) is a compile error, `cannot assign to '&mut' parameter 'value'`: the new value never reached the caller's variable. Changing a value in place (`items.push(x)`) is unchanged.
 - Faster still: Pleno now beats CPython 3.14 on every benchmark in `bench/cases` and on `bench/src/array` (`fib(30)` 0.09 s against 0.10 s, the array benchmark 0.16 s against 0.17 s). Method calls such as `items.push(x)` no longer allocate a bound method, `s = s + x` appends in place when nothing else holds the old string (building a string is linear instead of quadratic), values take 16 bytes instead of 40, simple instructions run in a smaller interpreter loop, and calls and `map`/`filter`/`reduce` callbacks set up their frames with less work.
 - The bytecode format version is 4 (new `ToFloat`, `CallRegs`, `GetMethod` and `CallMethod` instructions); recompile `.plc` files.
+- `pleno format` (and format on save in the editor) keeps lines within 100 characters, the linter's limit. A statement that does not fit is broken at its outermost construct: call arguments, array, map, set and tuple literals, parameter lists and import and export lists go one element per line with a trailing comma, chains of two or more method calls one call per line, and binary operator chains before each operator. A statement that fits is printed on one line, also when it was written over several; before, every statement was joined into one line however long. Strings and comments are never split.
 
 ### Fixed
 
@@ -52,6 +53,7 @@ Notable changes to Pleno. The format follows [Keep a Changelog](https://keepacha
 - Creating a class that does not implement an abstract method of its parent throws `cannot create B: it does not implement abstract method area`, also when constructed with named arguments; constructing an abstract class with named arguments is rejected too.
 - `static const` fields cannot be reassigned (`cannot assign to constant MathUtils.PI`), and instance `const` fields can be assigned only by a constructor.
 - `let mut y = x;` made `y` share `x`'s storage, so assigning either changed both (in every scope, for numbers and strings alike).
+- The formatter changed programs and moved comments: `else if` became `else { if ... }`, annotations on methods (`@override`) and the `out`/`in` of generic parameters were dropped, and comments inside a multi-line call, list, method chain, `match` or `enum` moved below the statement (a doc comment on an enum variant ended up on the next declaration). Comments now stay next to the element they belong to.
 
 ## 0.2.0 - 2026-10-24
 

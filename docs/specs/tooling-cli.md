@@ -78,15 +78,45 @@ The checks stay quiet whenever the code could still be right: a name that is bou
 ## Formatting
 
 ```bash
-# Format a file
+# Format a file in place (`pleno fmt` is the same command)
 pleno format main.pln
 
-# Format directory
+# Format every .pln file in a directory
 pleno format src/
 
-# Check formatting (CI mode)
-pleno format --check src/
+# Print the formatted file instead of writing it
+pleno format --stdout main.pln
 ```
+
+The editor's **Format Document** and format on save use the same formatter.
+
+Lines are kept within 100 characters, the limit the linter's `max-line-length` uses. A statement that fits on one line is printed on one line, also when it was written over several lines. A statement that does not fit is broken at its outermost construct first, and an element that is still too long is broken the same way:
+
+- call arguments, array, map, set and tuple literals, parameter lists of functions and methods, and `import { ... }` and `export { ... }` lists put each element on its own line, indented one level, with a comma after every element (except after a variadic `...rest` parameter, which must come last);
+- a chain of two or more method calls puts each `.call(...)` on its own line;
+- a chain of binary operators breaks before each operator, and `a ? b : c` before `?` and `:`.
+
+```pleno norun
+let report = summarizeMeasurements(
+    temperatureReadings,
+    pressureReadings,
+    humidityReadings,
+    options.precision,
+);
+
+let names = people
+    .filter((person) => person.age >= 18)
+    .map((person) => person.fullName)
+    .sort()
+    .join(", ");
+
+let valid = isWellFormed(input)
+    && hasNoDuplicateKeys(input)
+    && matchesTheSchema(input, schema)
+    && isFresh(input);
+```
+
+Strings, template literals and comments are never split, so a line that holds a long one can stay longer than the limit. A comment in a broken list stays with the element it follows or precedes, and a comment between elements keeps the list broken. Formatting a formatted file again changes nothing.
 
 ## Testing
 
