@@ -15,9 +15,12 @@ Already have Pleno installed? The extension finds it on PATH. See [Finding the t
 ### Editing
 
 - Syntax highlighting for `.pln` files and for ` ```pleno ` blocks in Markdown.
-- Diagnostics as you type, hover, completion, signature help, inlay hints and semantic highlighting.
-- Go to definition, find references, rename, call hierarchy, code lens and quick fixes.
-- Format Document (`Shift+Alt+F`).
+- Diagnostics as you type, hover, completion, signature help, inlay hints and semantic highlighting. Each problem shows where it comes from (`pleno` or `pleno-lint`) and its rule (`no-unused-vars`, `operator-spacing`, ...); unused names are faded out.
+- Quick fixes (`Ctrl+.`): remove an unused import or variable, prefix an unused name with `_`, add spaces around an operator.
+- Go to definition, find references, rename (keywords and built-ins are refused up front), call hierarchy and code lens.
+- Highlights every use of the name under the cursor, and **Expand Selection** (`Shift+Alt+Right`) grows by name, expression and statement.
+- **Go to Symbol in Workspace** (`Ctrl+T`) finds functions, classes, interfaces and top-level variables in open files and every `.pln` file in the workspace.
+- Format Document (`Shift+Alt+F`) and Format Selection, which formats the top-level declarations the selection touches.
 - Snippets: `fn`, `fnr`, `async`, `class`, `classex`, `constructor`, `interface`, `enum`, `let`, `lett`, `letm`, `const`, `if`, `ife`, `for`, `forr`, `while`, `match`, `import`, `importfrom`, `try`, `tryf`, `prop`, `get`, `set`, `op`, `macro`, `print`.
 
 ### Running and debugging
@@ -47,7 +50,7 @@ Already have Pleno installed? The extension finds it on PATH. See [Finding the t
 | Pleno: Show Pleno Status | Prints where each tool was found |
 | Pleno: Create New Project | `plm init` in the workspace folder |
 
-Click **Pleno** in the status bar for a menu of these.
+Click **Pleno** in the status bar for a menu of these. The status bar item also shows whether the language server is starting, running or stopped.
 
 ## Finding the toolchain
 
@@ -69,7 +72,12 @@ Changing a path setting restarts the language server. Without `pleno-lsp`, diagn
 | `pleno.dap.path` | empty | Path to the debug adapter |
 | `pleno.inlayHints.enabled` | `true` | Show inlay hints |
 | `pleno.semanticHighlighting.enabled` | `true` | Use semantic highlighting |
+| `pleno.lint.enabled` | `true` | Report lint warnings as you type |
+| `pleno.lint.maxLineLength` | `100` | Line length limit for `max-line-length` (`0` turns it off) |
+| `pleno.lint.rules` | `{}` | Rules to turn off, e.g. `{ "operator-spacing": false }` |
 | `pleno.trace.server` | `off` | Log language server traffic |
+
+Lint settings apply as soon as you change them. The rules are `no-unused-vars`, `no-undef`, `no-shadow`, `operator-spacing`, `max-line-length`, `no-trailing-spaces` and `semi-spacing`.
 
 ## File icons
 
