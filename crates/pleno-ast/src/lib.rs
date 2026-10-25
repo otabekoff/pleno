@@ -339,9 +339,16 @@ pub enum StmtKind {
         condition: Expr,
         body: Box<Stmt>,
     },
+    /// `for (x in xs)`, `for (k, v in m)` or, with a pattern,
+    /// `for ((k, v) in pairs)` / `for ([a, b] in rows)`.
     For {
         label: Option<String>,
+        /// The names the loop binds. With a `pattern`, these are the names
+        /// the pattern binds, in source order (`_` binds nothing).
         names: Vec<String>,
+        /// A destructuring pattern each item is matched against, like a
+        /// destructuring `let`. `None` for the plain one- and two-name forms.
+        pattern: Option<BindingPattern>,
         iterable: Expr,
         body: Box<Stmt>,
     },

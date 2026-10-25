@@ -940,21 +940,35 @@ impl Parser {
                 self.advance();
             }
 
-            loop {
-                let name = match self.advance().kind.clone() {
-                    TokenKind::Ident(name) => name,
-                    _ => {
-                        return Err(self.error(
-                            "Expected identifier in 'for' loop".to_string(),
-                            self.previous_span(),
-                        ));
+            // `for ((k, v) in pairs)` / `for ([a, b] in rows)`: a destructuring
+            // pattern, as in `let (a, b) = pair;`.
+            let mut pattern = None;
+            if matches!(self.peek_kind(), TokenKind::LParen | TokenKind::LBracket) {
+                let parsed = self.parse_binding_pattern()?;
+                names.extend(
+                    parsed
+                        .bindings()
+                        .into_iter()
+                        .map(|(name, _)| name.to_string()),
+                );
+                pattern = Some(parsed);
+            } else {
+                loop {
+                    let name = match self.advance().kind.clone() {
+                        TokenKind::Ident(name) => name,
+                        _ => {
+                            return Err(self.error(
+                                "Expected identifier in 'for' loop".to_string(),
+                                self.previous_span(),
+                            ));
+                        }
+                    };
+                    names.push(name);
+                    if self.matches(&TokenKind::Comma) {
+                        continue;
                     }
-                };
-                names.push(name);
-                if self.matches(&TokenKind::Comma) {
-                    continue;
+                    break;
                 }
-                break;
             }
 
             self.expect(TokenKind::KeywordIn, "Expected 'in' in 'for' loop")?;
@@ -967,6 +981,7 @@ impl Parser {
                 StmtKind::For {
                     label: None,
                     names,
+                    pattern,
                     iterable,
                     body,
                 },

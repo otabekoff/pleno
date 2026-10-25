@@ -1,0 +1,99 @@
+// Destructuring patterns in `for ... in` loops: tuples, arrays, nesting, `_`,
+// rest elements, map entries and the errors for an item of the wrong shape.
+
+fn check(condition: Bool, message: String) {
+    if (!condition) {
+        throw "FAILED: " + message;
+    }
+}
+
+fn errorOf(f) {
+    try {
+        f();
+    } catch (e) {
+        return e.message;
+    }
+    return "no error";
+}
+
+// Tuples
+let pairs = [(1, "one"), (2, "two")];
+let mut words = "";
+let mut total = 0;
+for ((n, word) in pairs) {
+    words = words + word;
+    total = total + n;
+}
+check(words == "onetwo" && total == 3, "tuple pattern");
+
+// Arrays and rest elements
+let mut products = [];
+for ([a, b] in [[1, 2], [3, 4]]) {
+    products.push(a * b);
+}
+check(products[0] == 2 && products[1] == 12, "array pattern");
+
+let mut heads = [];
+let mut restLengths = [];
+for ([head, ...rest] in [[1, 2, 3], [4]]) {
+    heads.push(head);
+    restLengths.push(rest.length);
+}
+check(heads[1] == 4 && restLengths[0] == 2 && restLengths[1] == 0, "rest element");
+
+// Nesting and `_`
+let mut sum = 0;
+for ((i, (x, _)) in [(1, (10, "skip")), (2, (20, "skip"))]) {
+    sum = sum + i * x;
+}
+check(sum == 50, "nested pattern with underscore");
+
+// Maps: a pattern matches each (key, value) entry
+let scores = {"ann": 3, "bob": 5};
+let mut names = "";
+let mut points = 0;
+for ((name, score) in scores) {
+    names = names + name;
+    points = points + score;
+}
+check(names == "annbob" && points == 8, "map entries");
+
+let mut keys = [];
+for ((k, _) in scores.entries()) {
+    keys.push(k);
+}
+check(keys.length == 2 && keys[0] == "ann", "entries() iterator");
+
+// The two-name form keeps working
+let mut viaNames = "";
+for (k, v in scores) {
+    viaNames = viaNames + k + v;
+}
+check(viaNames == "ann3bob5", "two-name form");
+
+// Each iteration has its own bindings, which can be reassigned
+let getters = [];
+for ((k, v) in [(1, 2), (3, 4)]) {
+    k = k + v;
+    getters.push(fn() => k);
+}
+check(getters[0]() == 3 && getters[1]() == 7, "fresh, reassignable bindings");
+
+// Errors read like a destructuring `let`
+check(errorOf(() => {
+    for ((u, v, w) in [(1, 2)]) {
+        print(u, v, w);
+    }
+}) == "tuple has 2 elements, pattern expects 3", "tuple length");
+check(errorOf(() => {
+    for ([u, v] in [[1]]) {
+        print(u, v);
+    }
+}) == "array has 1 element, pattern expects 2", "array length");
+check(errorOf(() => {
+    for ((u, v) in [1, 2]) {
+        print(u, v);
+    }
+}) == "cannot destructure Int as a tuple", "not a tuple");
+
+print("for destructuring: all checks passed");

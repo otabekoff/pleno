@@ -331,6 +331,14 @@ fn native_iterator_next(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value
     }
 }
 
+/// An iterator iterates itself, so `for (x in m.entries())` works.
+fn native_iterator_self(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    match args.first() {
+        Some(iter @ Value::Iterator(_)) => Ok(iter.clone()),
+        _ => Err(RuntimeError::new("iterator() called on non-iterator")),
+    }
+}
+
 fn native_array_iterator(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
     if args.is_empty() {
         return Err(RuntimeError::new("expected array"));
@@ -629,6 +637,7 @@ pub fn resolve_builtin_method(ty: &str, name: &str) -> Option<pleno_value::Nativ
         ("Range", "contains") => Some(native_range_contains),
         ("Range", "toArray") => Some(native_range_to_array),
         ("Iterator", "next") => Some(native_iterator_next),
+        ("Iterator", "iterator") => Some(native_iterator_self),
         ("Char", "isDigit") => Some(native_char_is_digit),
         ("Char", "isAlpha") => Some(native_char_is_alpha),
         ("Char", "isWhitespace") => Some(native_char_is_whitespace),
