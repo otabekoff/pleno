@@ -1,48 +1,38 @@
 # Performance Features
 
-Pleno includes a suite of compiler and VM optimizations designed for high-performance execution.
+::: info Implementation notes
+This page describes what the current compiler and VM do. It is not part of the language reference or the [compatibility promise](./compatibility.md): optimizations can be added, changed or removed in any release, and a program must not depend on them for its results.
+:::
 
-### 19.1 Basic Optimizations (Implemented)
-- **Dead Code Elimination (DCE)**: Removes unreachable code and unused bindings at compile time.
-- **Function Inlining**: Automatically inlines small, hot functions to reduce call overhead.
-- **Constant Folding**: Pre-calculates constant expressions during compilation.
+### Optimizations
 
-### 19.2 Advanced Features (Planned)
+- **Dead code elimination**: removes unreachable code and unused bindings at compile time. Compile errors in that code are still reported.
+- **Function inlining**: the optimizer can inline functions marked `@inline`.
+- **Constant folding**: computes constant expressions such as `2 * 60` during compilation.
 
-(Deferred for v2.0)
-
-*Note: Advanced performance features like JIT and advanced GC hints are planned for future releases.*
-
-#### 19.1 JIT Compilation
-- Hot path optimization
-- Automatic inlining of small functions
-- Dead code elimination
-
-#### 19.2 Memory Management
-- Generational garbage collection
-- Reference counting for immediate cleanup
-- Optional manual memory hints
-- Object pooling support
-
-
-### 19.3 Optimization Hints
+### Optimization hints
 
 ```pleno
-// Inline hint
+// Let the optimizer inline calls to this function
 @inline
 fn fastOperation(x: Int): Int {
     return x * 2;
 }
 
-// No optimization (for debugging)
+// Keep constant folding and dead code removal away from this function
 @no_optimize
 fn debugFunction() {
-    // Keep unoptimized for debugging
+    let unused = 1 + 2;
 }
 
-// Hot path hint
+// Recorded on the function; it has no effect today
 @hot
 fn criticalPath() {
-    // Prioritize optimization
 }
+
+print(fastOperation(21));   // 42
 ```
+
+A function marked `@inline` does not have its return annotation checked.
+
+For how the VM runs code, see [Bytecode VM](./bytecode_vm.md). Plans such as a JIT compiler and a generational garbage collector are in the [version 2 draft](https://github.com/otabekoff/pleno/blob/main/notes/v2-draft.md).

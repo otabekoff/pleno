@@ -1,5 +1,7 @@
 # std:yaml
 
+> **Stability:** stable in 1.0.
+
 YAML parsing and serialization.
 
 ## Import

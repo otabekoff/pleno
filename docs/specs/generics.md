@@ -9,8 +9,10 @@ fn identity<T>(value: T): T {
 
 let num = identity<Int>(42);
 let str = identity<String>("hello");
-let inferred = identity(3.14);  // Type inferred as Float
+let inferred = identity(3.14);  // No type argument: T is not checked
 ```
+
+With explicit type arguments, parameters annotated with the type parameter are checked: `identity<Int>("s")` throws `TypeError: parameter 'value' expected T, got String`. Without them, a type parameter accepts any value.
 
 ### 10.2 Generic Classes
 
@@ -35,29 +37,42 @@ let intBox = Box<Int>(42);
 let strBox = Box<String>("hello");
 ```
 
+An instance remembers the type arguments it was created with, or the types of the constructor arguments when none are given, and an annotation such as `Box<Int>` checks them: `let b: Box<Int> = Box("s");` throws `TypeError: expected Box<Int>, found Box`.
+
 ### 10.3 Generic Constraints
 
-```pleno
-// Constraint: T must implement Comparable
-fn findMax<T: Comparable>(items: T[]): T? {
-    if (items.isEmpty()) return None;
+`T: Name` requires the type argument to be, extend or implement `Name`, a class or interface you declare. There are no built-in interfaces such as `Comparable`; a constraint naming something undefined rejects every type argument. `T: A & B` requires both.
 
-    let mut max = items[0];
-    for (item in items) {
-        if (item > max) {
-            max = item;
-        }
-    }
-    return Some(max);
+```pleno
+interface Shape {
+    fn area(): Float;
 }
 
-// Multiple constraints
-fn process<T: Serializable & Cloneable>(item: T): T {
-    let copy = item.clone();
-    serialize(copy);
-    return copy;
+class Square implements Shape {
+    private side: Float;
+    constructor(side: Float) { this.side = side; }
+    fn area(): Float { return this.side * this.side; }
+}
+
+fn totalArea<T: Shape>(shapes: T[]): Float {
+    let mut total = 0.0;
+    for (shape in shapes) {
+        total += shape.area();
+    }
+    return total;
+}
+
+print(totalArea<Square>([Square(2.0), Square(3.0)]));   // 13
+
+try {
+    totalArea<Int>([1, 2]);
+} catch (e) {
+    print(e.message);
+    // Generic constraint failed: Type 'Int' does not satisfy constraint 'Shape' for parameter 'T' in function 'totalArea'
 }
 ```
+
+Constraints are checked only when the call or constructor gives explicit type arguments (`totalArea<Int>(...)`). A call without them, `totalArea([1, 2])`, is not checked and fails later, inside the function.
 
 ### 10.4 Generic Interfaces
 
@@ -90,7 +105,7 @@ class ArrayList<T> implements Container<T> {
 
 ### 10.5 Variance Annotations
 
-Pleno V2 supports variance annotations on generic parameters to enable safer and more flexible type relationships.
+Variance annotations on the type parameters of an interface say when an instance of one generic type matches an annotation with different type arguments. They are checked at runtime, when a value is checked against an annotation such as `Producer<Animal>`.
 
 #### Covariance (`out`)
 
@@ -138,4 +153,4 @@ let c: Consumer<Dog> = AnimalConsumer(); // Valid due to 'in'
 
 #### Invariance (Default)
 
-If no annotation is provided, the type is **invariant**. `Box<Dog>` cannot be assigned to `Box<Animal>` because a `Box` allows both reading and writing.
+If no annotation is provided, the type is **invariant**: `let b: Box<Animal> = Box<Dog>(Dog());` throws `TypeError: expected Box<Animal>, found Box`, because a `Box` allows both reading and writing.

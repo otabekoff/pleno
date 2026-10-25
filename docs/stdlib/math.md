@@ -1,5 +1,7 @@
 # std:math
 
+> **Stability:** stable in 1.0.
+
 The Math module provides mathematical constants and functions.
 
 ## Import
@@ -249,7 +251,7 @@ let r = Math.random();  // e.g. 0.4024525217869972
 
 ### `randomInt(min: Int, max: Int): Int`
 
-Returns a random integer between `min` and `max`, both inclusive. `min` must be less than `max`.
+Returns a random integer between `min` and `max`, both inclusive. `min` must not be greater than `max`; otherwise it throws.
 
 ```pleno
 import { Math } from "std:math";

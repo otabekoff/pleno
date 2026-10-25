@@ -5,7 +5,7 @@ Pleno is led by its creator and maintainer, [Otabek (@otabekoff)](https://github
 ## How decisions are made
 
 - **Changes** go through pull requests. Anyone may open one; the maintainer reviews and merges.
-- **Language and standard library changes** start as an issue describing the problem and the proposed behavior, so they can be discussed before code is written. Accepted changes are added to the specification ([`notes/specs.md`](notes/specs.md)).
+- **Language and standard library changes** start as an issue describing the problem and the proposed behavior, so they can be discussed before code is written. Accepted changes are added to the language reference ([`docs/specs/`](docs/specs/)), within the limits of the [compatibility promise](docs/specs/compatibility.md); designs for later go to [`notes/v2-draft.md`](notes/v2-draft.md).
 - **Priorities** are tracked in [`tasks/v1.md`](tasks/v1.md) (before 1.0) and [`tasks/later.md`](tasks/later.md).
 - **Releases** are made by the maintainer from the `main` branch. The roles for signed releases are listed in the [code signing policy](docs/code-signing-policy.md).
 

@@ -137,6 +137,7 @@ export default defineConfig({
           text: 'Basics',
           items: [
             { text: 'Overview', link: '/specs/' },
+            { text: 'Compatibility promise', link: '/specs/compatibility' },
             { text: 'Syntax and types', link: '/specs/core-syntax-fundamentals' },
             { text: 'Control flow', link: '/specs/control-flow' },
             { text: 'Functions', link: '/specs/functions' },
@@ -159,6 +160,8 @@ export default defineConfig({
             { text: 'Functional programming', link: '/specs/functional-programming' },
             { text: 'Async and concurrency', link: '/specs/async-concurrency' },
             { text: 'Advanced features', link: '/specs/advanced-features' },
+            { text: 'Memory and ownership', link: '/specs/memory-performance' },
+            { text: 'Security', link: '/specs/security-features' },
             { text: 'Standard library tour', link: '/specs/standard-library' },
             { text: 'Example programs', link: '/specs/example-programs' },
           ]
@@ -172,12 +175,10 @@ export default defineConfig({
           ]
         },
         {
-          text: 'Runtime and internals',
+          text: 'Implementation notes',
           collapsed: true,
           items: [
-            { text: 'Memory and performance', link: '/specs/memory-performance' },
             { text: 'Performance features', link: '/specs/performance-features' },
-            { text: 'Security', link: '/specs/security-features' },
             { text: 'Bytecode VM', link: '/specs/bytecode_vm' },
             { text: 'Distribution plan', link: '/specs/distribution' },
             { text: 'Release plan', link: '/specs/release' },

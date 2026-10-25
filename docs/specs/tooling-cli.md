@@ -1,6 +1,6 @@
 # Tooling & CLI
 
-The Pleno CLI provides tools for running, building, testing, and formatting Pleno code.
+The Pleno CLI provides tools for running, building, testing, and formatting Pleno code. `pleno --help` lists the commands, and `pleno <command> --help` shows the options of one. A command rejects options it does not take (`Error: 'format' has no option '--check'`, exit status 2).
 
 ## Running Code
 
@@ -8,7 +8,7 @@ The Pleno CLI provides tools for running, building, testing, and formatting Plen
 # Run a script
 pleno run script.pln
 
-# Run with arguments
+# Run with arguments; Process.args() returns [pleno, run, script.pln, arg1, arg2]
 pleno run script.pln arg1 arg2
 
 # Start interactive REPL
@@ -55,15 +55,12 @@ and must be recompiled.
 ## Type Checking & Linting
 
 ```bash
-# Type check without running
+# Check one file without running it
 pleno check main.pln
-pleno check src/
+pleno check --json main.pln
 
-# Lint code for style issues
+# Lint a file, or every .pln file in a folder, for style issues
 pleno lint src/
-
-# Fix auto-fixable issues
-pleno lint --fix src/
 ```
 
 `pleno check` reports, without running the file:
@@ -78,15 +75,17 @@ The checks stay quiet whenever the code could still be right: a name that is bou
 ## Formatting
 
 ```bash
-# Format a file
+# Format a file in place
 pleno format main.pln
 
-# Format directory
+# Format every .pln file in a folder
 pleno format src/
 
-# Check formatting (CI mode)
-pleno format --check src/
+# Print the formatted file instead of writing it
+pleno format --stdout main.pln
 ```
+
+There is no check-only mode; to check formatting in CI, run `pleno format` and fail if `git diff` shows changes.
 
 ## Testing
 
@@ -97,19 +96,18 @@ pleno test tests/
 # Run specific test file
 pleno test tests/unit/math_test.pln
 
-# Run with coverage
-pleno test --coverage tests/
+# Print the results as JSON
+pleno test --json tests/
 ```
 
 ## Documentation
 
 ```bash
-# Generate documentation
-pleno doc --output docs/
-
-# Serve docs locally
-pleno doc --serve
+# Generate HTML from the doc comments (///) in src/ into docs_out/
+pleno doc src docs_out
 ```
+
+Both arguments are optional: the path defaults to `.` and the output folder to `docs_out`.
 
 ## Sandboxing & Limits
 
@@ -126,18 +124,17 @@ pleno run script.pln \
     --allow-io false \
     --allow-network false
 
-# Timeout execution
-pleno run script.pln --timeout 5000
+# Allow reading and writing only under given path prefixes
+pleno run script.pln --allow-read data/ --allow-write out/
 ```
+
+There is no time limit; `--max-instructions` bounds how long a program runs. See [Security](./security-features.md) for what each flag does and its limits.
 
 ## Language Server (LSP)
 
 ```bash
-# Start LSP for IDE integration
+# Start the language server on stdio, for editors
 pleno lsp
-
-# LSP with debug logging
-pleno lsp --log-level debug
 ```
 
 ## Debugging
@@ -151,14 +148,15 @@ pleno dap
 ## Package Manager
 
 ```bash
-# Initialize project
-plm init
+# Create a project in a new folder, or in the current one
+pleno new my-app
+pleno init
 
 # Install dependencies
 plm install
 
-# Add a package
-plm install json-parser
+# Add a package from Git (or by name, from the registry in PLENO_REGISTRY)
+plm install https://github.com/user/http-utils
 
 # Update dependencies
 plm update
@@ -173,6 +171,5 @@ plm run <script>
 |------|-------------|
 | `--help`, `-h` | Show help |
 | `--version`, `-v` | Show version |
-| `--verbose` | Verbose output |
-| `--quiet` | Suppress output |
-| `--color <auto\|always\|never>` | Color output |
+
+Set the `NO_COLOR` environment variable to turn off colored output.

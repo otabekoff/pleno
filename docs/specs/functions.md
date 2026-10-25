@@ -8,7 +8,7 @@ fn greet(name: String): String {
     return "Hello, " + name;
 }
 
-// Without return type (inferred as Void)
+// Without a return type: returns null unless it returns a value
 fn logMessage(msg: String) {
     print(msg);
 }
@@ -54,6 +54,8 @@ fn sum(...numbers: Int[]): Int {
 sum(1, 2, 3, 4, 5);  // 15
 ```
 
+The rest parameter collects the remaining arguments into an array. Its annotation (`Int[]` here) is checked like any other, so `sum(1, "a")` throws a `TypeError`.
+
 ### 3.4.1 Keyword-Only Parameters
 ```pleno
 fn add(a: Int, *, b: Int): Int {
@@ -61,6 +63,7 @@ fn add(a: Int, *, b: Int): Int {
 }
 
 add(1, b: 2); // OK
+// add(1, 2) throws: keyword-only argument requires name
 ```
 
 ### 3.5 Higher-Order Functions

@@ -1,5 +1,5 @@
 //! Subcommands reject arguments they do not understand instead of ignoring
-//! them, print their own usage for `--help`, and the tools report a version.
+//! them, print their own usage for `--help`, and report their version.
 
 use std::path::PathBuf;
 use std::process::{Command, Output};
@@ -88,17 +88,47 @@ fn compile_writes_where_output_says() {
 }
 
 #[test]
-fn every_tool_reports_its_version() {
+fn pleno_and_plm_report_their_version() {
     let version = env!("CARGO_PKG_VERSION");
-    let bin = PathBuf::from(PLENO);
-    let dir = bin.parent().unwrap();
-    for tool in ["pleno", "pleno-dap", "pleno-repl", "pleno-lsp"] {
-        let exe = dir.join(format!("{tool}{}", std::env::consts::EXE_SUFFIX));
-        if !exe.exists() {
-            continue; // Built by another package's tests; checked when present.
-        }
-        let output = Command::new(&exe).arg("--version").output().unwrap();
-        let text = stdout(&output);
-        assert!(text.contains(version), "{tool}: {text}");
+    for exe in [PLENO, env!("CARGO_BIN_EXE_plm")] {
+        let output = Command::new(exe).arg("--version").output().unwrap();
+        assert!(
+            stdout(&output).contains(version),
+            "{exe}: {}",
+            stdout(&output)
+        );
     }
+}
+
+#[test]
+fn new_creates_a_package_in_a_new_folder() {
+    let dir = temp_dir("new");
+    let run_in = |args: &[&str]| {
+        Command::new(PLENO)
+            .args(args)
+            .current_dir(&dir)
+            .output()
+            .unwrap()
+    };
+    let created = run_in(&["new", "apps/hello"]);
+    assert!(created.status.success(), "{}", stderr(&created));
+    let manifest = std::fs::read_to_string(dir.join("apps/hello/pleno.toml")).unwrap();
+    assert!(manifest.contains("name = \"hello\""), "{manifest}");
+    assert!(manifest.contains("version = \"0.1.0\""), "{manifest}");
+    assert!(dir.join("apps/hello/src/main.pln").exists());
+
+    // A folder with files in it is not overwritten.
+    let again = run_in(&["new", "apps/hello"]);
+    assert_eq!(again.status.code(), Some(1));
+    assert!(
+        stderr(&again).contains("already exists"),
+        "{}",
+        stderr(&again)
+    );
+
+    let named = run_in(&["new", "lib", "--name", "cool-lib"]);
+    assert!(named.status.success(), "{}", stderr(&named));
+    let manifest = std::fs::read_to_string(dir.join("lib/pleno.toml")).unwrap();
+    assert!(manifest.contains("name = \"cool-lib\""), "{manifest}");
+    let _ = std::fs::remove_dir_all(&dir);
 }

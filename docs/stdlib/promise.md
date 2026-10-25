@@ -1,5 +1,7 @@
 # std:promise
 
+> **Stability:** stable in 1.0.
+
 Promises and tasks for asynchronous code. `Promise` and `spawn` are also globals, so the import is optional.
 
 ## Import

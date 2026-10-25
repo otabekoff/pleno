@@ -1,6 +1,32 @@
 # Standard Library Highlights
 
+## Global Functions
+
+These names are available in every program without an import:
+
+| Name | What it does |
+| --- | --- |
+| `print(...values, sep = " ", end = "\n")` | Writes the values to standard output, separated by `sep` and followed by `end` |
+| `input(prompt?)` | Prints the prompt, reads a line from standard input and returns it without the newline |
+| `assert(condition, message?)` | Throws an `AssertionError` when the condition is false or `null` |
+| `typeof(value)` | The type name: `"Int"`, `"String"`, `"Array"`, a class name, ... |
+| `Int.parse(s)`, `Float.parse(s)` | Parse a number; throw for text that is not one |
+| `map`, `filter`, `reduce` | Function forms of the array methods, for the pipeline operator `\|>` |
+| `id(value)` | Returns its argument |
+| `Set(array)`, `Error(message)`, `Promise(executor)`, `spawn(fn, ...args)` | See [Data structures](./data-structures.md), [Error handling](./error-handling.md) and [Async](./async-concurrency.md) |
+| `Ok`, `Err`, `Some`, `None` | See [std:core](/stdlib/core) |
+
+```pleno
+print("A", "B", "C", sep = ", ");   // A, B, C
+print("A", end = "!");
+print("B");                          // A!B
+print(Int.parse("42") + 1);          // 43
+print(typeof(2.5));                  // Float
+```
+
 ## String Operations
+
+Positions count characters. With text that is not ASCII, `length`, `indexOf`, `substring` and `charAt` currently count bytes; see [Strings](./index.md#strings).
 
 ```pleno
 let str = "Hello, World!";
@@ -91,9 +117,7 @@ File.delete("log.txt");
 File.delete("new.txt");
 ```
 
-::: warning Planned
-A `with (file = File.open(...)) { ... }` statement that closes the file automatically is planned. Until then, close files in a `finally` block as above.
-:::
+Pleno has no statement that closes a file automatically; close file handles in a `finally` block as above.
 
 ## Directory Operations
 
@@ -228,7 +252,7 @@ if (found) {
 
 ## Low-level Networking
 
-`listen` and `connect` only check that an address can be bound or reached; the socket is closed right away. See [std:net](/stdlib/net).
+`std:net` is experimental and not covered by the [compatibility promise](./compatibility.md). `listen` and `connect` only check that an address can be bound or reached; the socket is closed right away. See [std:net](/stdlib/net).
 
 ```pleno
 import { Net } from "std:net";

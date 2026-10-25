@@ -1,5 +1,7 @@
 # std:random
 
+> **Stability:** stable in 1.0.
+
 Random number generation and selection utilities.
 
 ## Import

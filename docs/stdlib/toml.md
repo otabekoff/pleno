@@ -1,5 +1,7 @@
 # std:toml
 
+> **Stability:** stable in 1.0.
+
 TOML parsing and serialization.
 
 ## Import

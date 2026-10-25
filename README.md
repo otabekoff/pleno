@@ -95,7 +95,7 @@ pleno run hello.pln
 ## 📖 Documentation
 
 - [Documentation website](https://pleno.mohirlab.uz/)
-- [Language Specification](notes/specs.md)
+- [Language reference](https://pleno.mohirlab.uz/specs/) and [compatibility promise](https://pleno.mohirlab.uz/specs/compatibility)
 - [Architecture](ARCHITECTURE.md)
 - [Roadmap to 1.0](tasks/v1.md)
 - [Changelog](CHANGELOG.md)

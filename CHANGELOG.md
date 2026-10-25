@@ -6,6 +6,7 @@ Notable changes to Pleno. The format follows [Keep a Changelog](https://keepacha
 
 ### Added
 
+- `pleno new <folder>` (and `plm new`) creates the folder and a package in it, named after the folder or `--name`; it refuses a folder that already has files. `pleno init` still sets up the current folder.
 - `pleno-dap --version`, `pleno-repl --version` and `--help` for both.
 - `vmStats()` in `std:reflect`: instructions executed, current and peak memory.
 - `Error` is a class: `Error(message)` instances print as `Error: message` and have `toString()`; subclasses get their class name as `name`.
@@ -16,6 +17,7 @@ Notable changes to Pleno. The format follows [Keep a Changelog](https://keepacha
 
 ### Changed
 
+- A package created by `pleno new` or `plm init` starts at version 0.1.0 instead of the version of Pleno that created it.
 - Programs run with an instruction or memory limit (`--max-instructions`, `--max-memory`, the playground) use the fast interpreter loop too, which checks the limits itself: about 1.6 times faster than before under a limit.
 - `pleno format`, `lint`, `check`, `test`, `compile`, `watch`, `doc`, `debug-ast` and `build` reject options and arguments they do not take (`Error: 'compile' has no option '--bogus'`, exit status 2) instead of ignoring them, and print their own usage with `--help`. `pleno compile` and `pleno build` take `-o <file.plc>` and create its folder.
 - `pleno build` with a target that is not a `.pln` file is an error; before, it built the package's main file instead.
@@ -55,6 +57,13 @@ Notable changes to Pleno. The format follows [Keep a Changelog](https://keepacha
 - Creating a class that does not implement an abstract method of its parent throws `cannot create B: it does not implement abstract method area`, also when constructed with named arguments; constructing an abstract class with named arguments is rejected too.
 - `static const` fields cannot be reassigned (`cannot assign to constant MathUtils.PI`), and instance `const` fields can be assigned only by a constructor.
 - `let mut y = x;` made `y` share `x`'s storage, so assigning either changed both (in every scope, for numbers and strings alike).
+
+### Documentation
+
+- The language reference (`docs/specs/`) describes only what Pleno implements and is the basis of the 1.0 specification. Claims that were not true were corrected, among them: `@pure` is a partial runtime check (now marked experimental), `@override`, `@sealed` and `@deprecated` have no effect, generic constraints are checked only with explicit type arguments, strings cannot be iterated, and `pleno check src/`, `lint --fix`, `format --check`, `test --coverage`, `doc --serve`, `run --timeout` and the `--verbose`/`--quiet`/`--color` options do not exist. New: truthiness rules, global functions, a collection method reference and a known-bug note on string positions.
+- New page: the [1.x compatibility promise](https://pleno.mohirlab.uz/specs/compatibility), saying what 1.x guarantees and what it does not (bytecode format, error wording, performance, experimental APIs).
+- The standard library list marks every module and API as stable or experimental. `std:net`, `std:security`, `std:gc` and `std:db` are experimental, as are the `std:http` server, `Crypto.jwtSign`/`jwtVerify` and `vmStats`.
+- Designs that are not implemented moved from `notes/specs.md` and `notes/v2-specs.md` to `notes/v2-draft.md`. The performance, bytecode VM, distribution and release pages are labelled as implementation or planning notes.
 
 ## 0.2.0 - 2026-10-24
 
