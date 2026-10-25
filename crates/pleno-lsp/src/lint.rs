@@ -3,7 +3,7 @@
 
 use crate::semantic::ast_utils::{Node, find_node_at};
 use pleno_ast::{Expr, ExprKind, ImportKind, Program, Stmt, StmtKind};
-use pleno_linter::{LintConfig, LintDiagnostic, Linter};
+use pleno_linter::{LintConfig, Linter};
 use serde_json::{Value, json};
 use std::collections::HashSet;
 
@@ -47,8 +47,7 @@ impl LintSettings {
         settings
     }
 
-    /// The linter configuration: rules the linter can switch off itself are
-    /// turned off there, the rest are filtered out by `allows`.
+    /// The linter configuration, with the disabled rules switched off.
     pub fn config(&self) -> LintConfig {
         let mut config = LintConfig::default();
         let rules = &mut config.rules;
@@ -59,6 +58,7 @@ impl LintSettings {
         rules.warn_semi_spacing &= on("semi-spacing");
         rules.no_undef &= on("no-undef");
         rules.warn_shadowed_vars &= on("no-shadow");
+        rules.warn_operator_spacing &= on("operator-spacing");
         config
     }
 
@@ -83,7 +83,7 @@ pub fn lint_diagnostics(text: &str, uri: &str, settings: &LintSettings) -> Vec<V
         let mut related = Vec::new();
         for ri in &ld.related_information {
             let line = ri.line.saturating_sub(1);
-            let character = utf16_column(text, line, ri.column.saturating_sub(1));
+            let character = ri.column.saturating_sub(1);
             related.push(json!({
                 "location": {
                     "uri": ri.file.clone().unwrap_or_else(|| uri.to_string()),
@@ -96,11 +96,11 @@ pub fn lint_diagnostics(text: &str, uri: &str, settings: &LintSettings) -> Vec<V
             }));
         }
 
-        let (line, start, end) = lint_range(text, &ld);
+        // The linter's lines and UTF-16 columns are 1-based; LSP's are 0-based.
         let mut diag = json!({
             "range": {
-                "start": { "line": line, "character": start },
-                "end": { "line": line, "character": end }
+                "start": { "line": ld.line.saturating_sub(1), "character": ld.column.saturating_sub(1) },
+                "end": { "line": ld.end_line.saturating_sub(1), "character": ld.end_column.saturating_sub(1) }
             },
             "severity": match ld.severity {
                 pleno_linter::Severity::Error => 1,
@@ -124,104 +124,12 @@ pub fn lint_diagnostics(text: &str, uri: &str, settings: &LintSettings) -> Vec<V
     diagnostics
 }
 
-/// The range a lint diagnostic covers, as (line, start, end) in LSP units.
-/// When the linter reports only a start position, this widens it to the whole
-/// name or operator the message quotes, or to the offending part of the line.
-fn lint_range(text: &str, ld: &LintDiagnostic) -> (usize, usize, usize) {
-    let line = ld.line.saturating_sub(1);
-    let content = line_text(text, line);
-    let chars: Vec<char> = content.chars().collect();
-    let col = ld.column.saturating_sub(1).min(chars.len());
-    // The exclusive end the linter reports (0-based).
-    let reported_end = col + 1;
-
-    let (start, end) = match ld.rule_name.as_str() {
-        _ if reported_end > col + 1 => (col, reported_end),
-        "max-line-length" => (col, chars.len()),
-        "no-trailing-spaces" => (content.trim_end().chars().count(), chars.len()),
-        _ => match quoted(&ld.message) {
-            Some(needle) => find_near(&chars, &needle, col).unwrap_or((col, col + 1)),
-            None => word_around(&chars, col).unwrap_or((col, col + 1)),
-        },
-    };
-    let end = end.min(chars.len()).max(start);
-    let to_utf16 = |n: usize| {
-        chars[..n.min(chars.len())]
-            .iter()
-            .map(|c| c.len_utf16())
-            .sum()
-    };
-    // A position past the end of the line (an empty line, say) still gets a
-    // one-character range, which editors clamp.
-    let start16: usize = to_utf16(start);
-    let end16: usize = if end > start {
-        to_utf16(end)
-    } else {
-        start16 + 1
-    };
-    (line, start16, end16)
-}
-
 /// The first `'...'` quoted text in a message, which names the variable or
 /// operator the diagnostic is about.
 fn quoted(message: &str) -> Option<String> {
     let start = message.find('\'')? + 1;
     let len = message[start..].find('\'')?;
     (len > 0).then(|| message[start..start + len].to_string())
-}
-
-fn is_ident_char(c: char) -> bool {
-    c.is_alphanumeric() || c == '_'
-}
-
-/// Finds `needle` in `chars` at `col`, else the nearest match after it, else
-/// the last one before it. Identifiers only match as whole words.
-fn find_near(chars: &[char], needle: &str, col: usize) -> Option<(usize, usize)> {
-    let needle: Vec<char> = needle.chars().collect();
-    let word = needle.iter().all(|&c| is_ident_char(c));
-    let matches = |at: usize| {
-        at + needle.len() <= chars.len()
-            && chars[at..at + needle.len()] == needle[..]
-            && (!word
-                || ((at == 0 || !is_ident_char(chars[at - 1]))
-                    && chars
-                        .get(at + needle.len())
-                        .is_none_or(|&c| !is_ident_char(c))))
-    };
-    let found = (col..chars.len())
-        .find(|&at| matches(at))
-        .or_else(|| (0..col).rev().find(|&at| matches(at)))?;
-    Some((found, found + needle.len()))
-}
-
-/// The identifier that `col` is in or just after.
-fn word_around(chars: &[char], col: usize) -> Option<(usize, usize)> {
-    let mut start = col.min(chars.len());
-    while start > 0 && is_ident_char(chars[start - 1]) {
-        start -= 1;
-    }
-    let mut end = col.min(chars.len());
-    while end < chars.len() && is_ident_char(chars[end]) {
-        end += 1;
-    }
-    (start < end).then_some((start, end))
-}
-
-/// Line `line` (0-based) without its line ending.
-fn line_text(text: &str, line: usize) -> &str {
-    text.split('\n')
-        .nth(line)
-        .map(|l| l.trim_end_matches('\r'))
-        .unwrap_or("")
-}
-
-/// The UTF-16 column of the character at index `col` of line `line`.
-fn utf16_column(text: &str, line: usize, col: usize) -> usize {
-    line_text(text, line)
-        .chars()
-        .take(col)
-        .map(|c| c.len_utf16())
-        .sum()
 }
 
 /// Quick fixes for one diagnostic from the client. `text` and `program` are
@@ -403,39 +311,6 @@ fn replace_edit(text: &str, start: usize, end: usize, new_text: &str) -> Value {
 mod tests {
     use super::*;
 
-    fn diag(rule: &str, message: &str, line: usize, column: usize) -> LintDiagnostic {
-        LintDiagnostic {
-            rule_name: rule.to_string(),
-            message: message.to_string(),
-            severity: pleno_linter::Severity::Warning,
-            line,
-            column,
-            related_information: vec![],
-        }
-    }
-
-    #[test]
-    fn ranges_cover_the_quoted_name() {
-        let text = "let total = 1;\nimport { a, bb } from \"m\";\n";
-        let unused = diag(
-            "no-unused-vars",
-            "Variable 'total' is declared but never used",
-            1,
-            5,
-        );
-        assert_eq!(lint_range(text, &unused), (0, 4, 9));
-        // Imports are reported at the `import` keyword: the name is found on the line.
-        let import = diag(
-            "no-unused-vars",
-            "Variable 'bb' is declared but never used",
-            2,
-            1,
-        );
-        assert_eq!(lint_range(text, &import), (1, 12, 14));
-        let long = diag("max-line-length", "Line too long", 1, 4);
-        assert_eq!(lint_range(text, &long), (0, 3, 14));
-    }
-
     #[test]
     fn settings_map_to_the_linter_config() {
         let settings = LintSettings::from_json(&json!({
@@ -445,6 +320,7 @@ mod tests {
         let config = settings.config();
         assert_eq!(config.rules.max_line_length, None);
         assert!(!config.rules.warn_shadowed_vars);
+        assert!(!config.rules.warn_operator_spacing);
         assert!(config.rules.no_undef);
         assert!(!settings.allows("operator-spacing"));
         assert!(settings.allows("no-undef"));

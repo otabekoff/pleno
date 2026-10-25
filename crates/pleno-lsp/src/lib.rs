@@ -791,18 +791,6 @@ pub fn start() -> io::Result<()> {
                                     "async",
                                     "await",
                                     "spawn",
-                                    "print",
-                                    "println",
-                                    "id",
-                                    "typeof",
-                                    "Int",
-                                    "Float",
-                                    "String",
-                                    "Array",
-                                    "Map",
-                                    "JSON",
-                                    "Math",
-                                    "OS",
                                 ];
 
                                 for kw in keywords {
@@ -810,6 +798,19 @@ pub fn start() -> io::Result<()> {
                                         "label": kw,
                                         "kind": 14,
                                         "detail": "Keyword"
+                                    }));
+                                }
+
+                                // The globals the standard library defines.
+                                let mut builtins: Vec<&String> =
+                                    pleno_linter::builtin_globals().iter().collect();
+                                builtins.sort();
+                                for name in builtins {
+                                    let is_type = name.starts_with(char::is_uppercase);
+                                    items.push(json!({
+                                        "label": name,
+                                        "kind": if is_type { 7 } else { 3 },
+                                        "detail": "Built-in"
                                     }));
                                 }
 

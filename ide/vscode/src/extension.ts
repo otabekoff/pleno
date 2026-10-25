@@ -625,7 +625,8 @@ async function startLanguageServer(serverPath: string): Promise<void> {
     };
 
     const languageClient = new LanguageClient(
-        "plenoLanguageServer",
+        // The id is the settings prefix the client reads: `pleno.trace.server`.
+        "pleno",
         "Pleno Language Server",
         serverOptions,
         clientOptions,

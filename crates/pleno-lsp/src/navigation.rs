@@ -11,12 +11,6 @@ use std::collections::HashSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-/// Names the runtime provides; they have no declaration to rename.
-const BUILTINS: &[&str] = &[
-    "print", "println", "id", "typeof", "map", "Int", "Float", "String", "Array", "Map", "JSON",
-    "Math", "OS", "Promise", "Channel", "Mutex", "spawn", "await",
-];
-
 /// Workspace symbol search stops after this many results or files.
 const MAX_WORKSPACE_SYMBOLS: usize = 1000;
 const MAX_WORKSPACE_FILES: usize = 5000;
@@ -72,7 +66,8 @@ pub fn prepare_rename(program: &Program, text: &str, offset: usize) -> Result<Va
         return Err(format!("'{name}' is a keyword and cannot be renamed."));
     }
     if find_usages(program, word.start).is_empty() {
-        return Err(if BUILTINS.contains(&name) {
+        // Names the runtime provides have no declaration to rename.
+        return Err(if pleno_linter::builtin_globals().contains(name) {
             format!("'{name}' is built in and cannot be renamed.")
         } else {
             format!("No declaration of '{name}' was found in this file.")
