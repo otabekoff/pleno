@@ -55,7 +55,7 @@ async function share() {
 </script>
 
 <template>
-  <div class="playground">
+  <div class="playground pl-container">
     <header class="head">
       <div>
         <h1 class="pl-display">Playground</h1>
@@ -95,15 +95,8 @@ async function share() {
 
 <style scoped>
 .playground {
-  max-width: 1440px;
-  margin: 0 auto;
-  padding: 32px 24px 48px;
-}
-
-@media (min-width: 768px) {
-  .playground {
-    padding: 40px 48px 56px;
-  }
+  padding-top: 40px;
+  padding-bottom: 56px;
 }
 
 .head {

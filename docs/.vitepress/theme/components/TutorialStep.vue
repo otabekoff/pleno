@@ -36,7 +36,7 @@ function go(slug: string) {
 </script>
 
 <template>
-  <div class="tutorial">
+  <div class="tutorial pl-container">
     <article class="lesson">
       <header class="lesson-head">
         <PlSelect
@@ -87,9 +87,8 @@ function go(slug: string) {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   gap: 24px;
-  max-width: 1440px;
-  margin: 0 auto;
-  padding: 20px 24px 40px;
+  padding-top: 20px;
+  padding-bottom: 40px;
 }
 
 @media (min-width: 1024px) {
@@ -99,7 +98,8 @@ function go(slug: string) {
     grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr);
     gap: 32px;
     height: calc(100vh - var(--vp-nav-height) - var(--vp-layout-top-height, 0px));
-    padding: 24px 32px;
+    padding-top: 24px;
+    padding-bottom: 24px;
   }
 
   /* The lesson picker stays at the top and the buttons at the bottom; only

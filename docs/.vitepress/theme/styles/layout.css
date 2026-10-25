@@ -341,3 +341,12 @@
 .VPLocalSearchBox .result {
   border-radius: var(--pl-radius) !important;
 }
+
+/* Between 768 and 959px the sidebar is a slide-out menu and the article is
+   a centered 688px column, so it started right of the logo. Start it at the
+   container edge, like every other page. */
+@media (max-width: 959px) {
+  .VPDoc .content-container {
+    margin-left: 0 !important;
+  }
+}
