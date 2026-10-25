@@ -27,6 +27,13 @@ impl pleno_diagnostics::ToDiagnostic for ParseError {
     }
 }
 
+/// The most operators and calls one statement may chain (`1 + 2 + ...`). Far
+/// more than people write; it keeps the trees the compiler walks within every
+/// stack the tools run on. Compiling one link takes about 2 KB of stack in a
+/// release build (about 40 KB in a debug build): the tools run on 64 MB
+/// threads, the fuzzers on 8 MB and the playground on 8 MB (.cargo/config.toml).
+const MAX_CHAIN_LENGTH: usize = 1_000;
+
 pub struct Parser {
     tokens: Vec<Token>,
     comments: Vec<Comment>,
@@ -36,6 +43,8 @@ pub struct Parser {
     last_stmt_end_line: usize,
     depth: usize,
     max_depth: usize,
+    /// Operators and calls chained in the current statement (see `extend_chain`).
+    chain_length: usize,
 }
 
 struct FunctionDeclarationConfig {
@@ -142,6 +151,7 @@ impl Parser {
             line_starts,
             last_stmt_end_line: 0,
             depth: 0,
+            chain_length: 0,
             // Each nesting level of source code uses about three units. The limit keeps
             // the recursive parser within a 2 MB thread stack in debug builds.
             max_depth: 128,
@@ -223,9 +233,27 @@ impl Parser {
 
     fn parse_stmt(&mut self) -> Result<Stmt, ParseError> {
         self.enter_recursive()?;
+        // Each statement has its own budget of chained operators and calls;
+        // a lambda body inside an expression starts a fresh one.
+        let outer_chain = std::mem::replace(&mut self.chain_length, 0);
         let res = self.parse_stmt_inner();
+        self.chain_length = outer_chain;
         self.leave_recursive();
         res
+    }
+
+    /// Counts one more link of an operator or call chain (`a + b + c`,
+    /// `x.f().g()`) in the current statement. Chains are parsed in loops, not
+    /// by recursion, but they still make a tree as deep as they are long, which
+    /// the compiler and the other tools walk recursively.
+    fn extend_chain(&mut self) -> Result<(), ParseError> {
+        self.chain_length += 1;
+        if self.chain_length > MAX_CHAIN_LENGTH {
+            return Err(self.error_at_current(format!(
+                "expression too long: more than {MAX_CHAIN_LENGTH} operators and calls in one statement; split it into smaller ones"
+            )));
+        }
+        Ok(())
     }
 
     fn parse_stmt_inner(&mut self) -> Result<Stmt, ParseError> {
@@ -2681,6 +2709,7 @@ impl Parser {
         let start_span = expr.span;
         while self.matches(&TokenKind::Pipeline) {
             let right = self.parse_or()?;
+            self.extend_chain()?;
             expr = self.wrap_expr(
                 ExprKind::Pipeline {
                     left: Box::new(expr),
@@ -2697,6 +2726,7 @@ impl Parser {
         let start_span = expr.span;
         while self.matches(&TokenKind::OrOr) {
             let right = self.parse_null_coalesce()?;
+            self.extend_chain()?;
             expr = self.wrap_expr(
                 ExprKind::Binary {
                     left: Box::new(expr),
@@ -2714,6 +2744,7 @@ impl Parser {
         let start_span = expr.span;
         while self.matches(&TokenKind::NullCoalesce) {
             let right = self.parse_and()?;
+            self.extend_chain()?;
             expr = self.wrap_expr(
                 ExprKind::Binary {
                     left: Box::new(expr),
@@ -2731,6 +2762,7 @@ impl Parser {
         let start_span = expr.span;
         while self.matches(&TokenKind::AndAnd) {
             let right = self.parse_equality()?;
+            self.extend_chain()?;
             expr = self.wrap_expr(
                 ExprKind::Binary {
                     left: Box::new(expr),
@@ -2753,6 +2785,7 @@ impl Parser {
                 _ => unreachable!(),
             };
             let right = self.parse_is_expr()?;
+            self.extend_chain()?;
             expr = self.wrap_expr(
                 ExprKind::Binary {
                     left: Box::new(expr),
@@ -2770,6 +2803,7 @@ impl Parser {
         if self.matches(&TokenKind::KeywordIs) {
             let start_span = expr.span;
             let ty = self.parse_type()?;
+            self.extend_chain()?;
             expr = self.wrap_expr(
                 ExprKind::Is {
                     left: Box::new(expr),
@@ -2798,6 +2832,7 @@ impl Parser {
             };
             let Some(op) = op else { break };
             let right = self.parse_range()?;
+            self.extend_chain()?;
             expr = self.wrap_expr(
                 ExprKind::Binary {
                     left: Box::new(expr),
@@ -2890,6 +2925,7 @@ impl Parser {
             };
             let Some(op) = op else { break };
             let right = self.parse_factor()?;
+            self.extend_chain()?;
             expr = self.wrap_expr(
                 ExprKind::Binary {
                     left: Box::new(expr),
@@ -2917,6 +2953,7 @@ impl Parser {
             };
             let Some(op) = op else { break };
             let right = self.parse_unary()?;
+            self.extend_chain()?;
             expr = self.wrap_expr(
                 ExprKind::Binary {
                     left: Box::new(expr),
@@ -3360,6 +3397,7 @@ impl Parser {
                             ));
                         }
                     };
+                    self.extend_chain()?;
                     expr = self.wrap_expr(
                         ExprKind::Property {
                             object: Box::new(expr),
@@ -3386,6 +3424,7 @@ impl Parser {
                         ));
                     }
                 };
+                self.extend_chain()?;
                 expr = self.wrap_expr(
                     ExprKind::Property {
                         object: Box::new(expr),
@@ -3398,6 +3437,7 @@ impl Parser {
             if self.matches(&TokenKind::QuestionDot) {
                 if self.matches(&TokenKind::LParen) {
                     let args = self.parse_call_args()?;
+                    self.extend_chain()?;
                     expr = self.wrap_expr(
                         ExprKind::SafeCall {
                             callee: Box::new(expr),
@@ -3410,6 +3450,7 @@ impl Parser {
                 if self.matches(&TokenKind::LBracket) {
                     let index = self.parse_expr()?;
                     self.expect(TokenKind::RBracket, "Expected ']' after safe index")?;
+                    self.extend_chain()?;
                     expr = self.wrap_expr(
                         ExprKind::SafeIndex {
                             collection: Box::new(expr),
@@ -3432,6 +3473,7 @@ impl Parser {
                         ));
                     }
                 };
+                self.extend_chain()?;
                 expr = self.wrap_expr(
                     ExprKind::SafeProperty {
                         object: Box::new(expr),
@@ -3456,6 +3498,7 @@ impl Parser {
                         self.expect(TokenKind::RBracket, "Expected ']' after slice")?;
                         Some(expr)
                     };
+                    self.extend_chain()?;
                     expr = self.wrap_expr(
                         ExprKind::Slice {
                             collection: Box::new(expr),
@@ -3482,6 +3525,7 @@ impl Parser {
                         self.expect(TokenKind::RBracket, "Expected ']' after slice")?;
                         Some(expr)
                     };
+                    self.extend_chain()?;
                     expr = self.wrap_expr(
                         ExprKind::Slice {
                             collection: Box::new(expr),
@@ -3495,6 +3539,7 @@ impl Parser {
 
                 // Regular index access
                 self.expect(TokenKind::RBracket, "Expected ']' after index")?;
+                self.extend_chain()?;
                 expr = self.wrap_expr(
                     ExprKind::Index {
                         collection: Box::new(expr),

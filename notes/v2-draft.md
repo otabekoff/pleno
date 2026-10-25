@@ -38,11 +38,11 @@ Status: `@pure` has an incomplete runtime check (experimental in 1.0). Planned: 
 
 ### Checked built-in annotations
 
-Status: `@override`, `@sealed` and `@deprecated` are plain annotations with no effect.
+Status: `@override` and `@sealed` are plain annotations with no effect. (`@deprecated` warns since 2026-10-26.)
 
 - `@override`: a compile error when no parent class has the method.
 - `@sealed`: a class that cannot be extended.
-- `@deprecated("message")`: a warning from `pleno check`, `pleno lint` and the language server where the name is used. The 1.x compatibility promise needs this mechanism for deprecations.
+- `@deprecated` on classes, fields and imported functions in `pleno check` (calls to deprecated top-level functions of the same file and every call at run time already warn).
 
 ### More runtime type checks
 
@@ -50,7 +50,7 @@ Status: partial.
 
 - Lambda parameter annotations are not checked.
 - Return annotations are not checked for `Void`, for annotations that mention a type parameter, and for `@inline` functions.
-- Generic constraints (`T: Shape`) are checked only with explicit type arguments; inferred type arguments are not checked.
+- With inferred type arguments, constraints are checked for parameters annotated `T`, not for the elements of a `T[]` parameter.
 
 ### Static type checking
 
@@ -134,4 +134,3 @@ Status: `std:security` is experimental. Planned: a time limit. (Path rules norma
 These are not features but differences between the reference and the implementation; the reference describes the intended behavior.
 
 - `@pure` rejects non-empty array and map literals.
-- Generic constraints report `Type 'Unknown'` for a class's explicit type argument (`Box<Int>(5)`), and `T: Comparable` rejects `Int` although `Int` is marked as implementing `Comparable` internally.

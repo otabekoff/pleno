@@ -42,6 +42,8 @@ pub struct VM {
     /// (on by default). Turning it off runs everything in the general loop,
     /// which must give the same results: tests and the fuzzer compare both.
     pub fast_loop: bool,
+    /// Names of deprecated functions already warned about.
+    deprecation_warnings: std::collections::HashSet<String>,
     /// How deeply calls from native code back into Pleno can nest before a
     /// `RecursionError`; lower it where the stack is small (WebAssembly).
     pub max_nested_runs: usize,
@@ -119,6 +121,9 @@ pub struct Function {
     /// The argument counts a call can pass straight into the parameters
     /// (see `plain_params`), worked out once from `params` and `arity`.
     plain_args: (usize, usize),
+    /// Set by `@deprecated` or `@deprecated("use g instead")`: calling the
+    /// function prints a warning (once per name), with this note if given.
+    deprecation: Option<Rc<String>>,
 }
 
 impl VMProvider for VM {
@@ -149,6 +154,7 @@ impl VMProvider for VM {
             Value::Closure(state) => (state.borrow().function, Some(state.clone())),
             _ => return self.call_ext_with(callee.clone(), args, CallOptions::default()),
         };
+        self.warn_if_deprecated(function_index);
         let Some(function) = self.functions.get(function_index) else {
             return self.call_ext_with(callee.clone(), args, CallOptions::default());
         };
@@ -863,6 +869,7 @@ impl VM {
         Self {
             sandbox_config: None,
             fast_loop: true,
+            deprecation_warnings: std::collections::HashSet::new(),
             max_nested_runs: DEFAULT_MAX_NESTED_RUNS,
             gc,
             registers: vec![NanValue::null(); 256],
@@ -928,6 +935,7 @@ impl VM {
             type_constraints: IndexMap::new(),
             annotations: Vec::new(),
             plain_args: (0, 0),
+            deprecation: None,
         };
 
         self.functions.push(function);
@@ -2013,6 +2021,7 @@ impl VM {
                         type_constraints: proto.type_constraints.clone(),
                         annotations: proto.annotations.clone(),
                         plain_args: plain_arg_range(&proto.params, proto.arity as usize),
+                        deprecation: deprecation_note(&proto.annotations),
                     });
                     let captures = vec![Value::Null; c];
                     let state = self.gc.allocate(ClosureState::new(func_index, captures))?;
@@ -2039,6 +2048,7 @@ impl VM {
                         type_constraints: proto.type_constraints.clone(),
                         annotations: proto.annotations.clone(),
                         plain_args: plain_arg_range(&proto.params, proto.arity as usize),
+                        deprecation: deprecation_note(&proto.annotations),
                     });
                     self.registers[base + a] = NanValue::from_value(&Value::Function(func_index));
                 }
@@ -2063,6 +2073,7 @@ impl VM {
                         type_constraints: proto.type_constraints.clone(),
                         annotations: proto.annotations.clone(),
                         plain_args: plain_arg_range(&proto.params, proto.arity as usize),
+                        deprecation: deprecation_note(&proto.annotations),
                     });
                     self.registers[base + a] = NanValue::from_value(&Value::Function(func_index));
                 }
@@ -3946,6 +3957,18 @@ impl VM {
 
                     // `c = 1` marks a name read by the program, which must exist;
                     // the compiler's own type lookups use `c = 0` and get null.
+                    // An inferred type parameter with constraints (`T: Named`,
+                    // `T: A & B`) stands for them, so `greet(Rock())` is checked too.
+                    if value.is_none()
+                        && is_type_param
+                        && let Some(constraints) = function.type_constraints.get(name.as_str())
+                    {
+                        value = match constraints.as_slice() {
+                            [] => None,
+                            [constraint] => self.lookup_type_name(constraint),
+                            several => Some(Value::String(Rc::new(several.join(" & ")))),
+                        };
+                    }
                     let value = match value {
                         Some(value) => value,
                         None if is_type_param => Value::String(Rc::new("Any".to_string())),
@@ -5592,6 +5615,9 @@ impl VM {
                 }
                 _ => false,
             },
+            Value::Interface(target_iface) if target_iface.borrow().is_builtin_comparable() => {
+                is_comparable_value(value)
+            }
             Value::Interface(target_iface) => match value {
                 Value::Object(obj) => {
                     let obj = obj.borrow();
@@ -5783,6 +5809,9 @@ impl VM {
                     }
                 }
                 false
+            }
+            Value::Interface(target_iface) if target_iface.borrow().is_builtin_comparable() => {
+                is_comparable_type(val_type)
             }
             Value::Interface(target_iface) => match val_type {
                 Value::Class(cls) => {
@@ -6176,7 +6205,8 @@ impl VM {
             return Ok(false);
         };
         let given = argc + usize::from(receiver.is_some());
-        if function.is_async || !plain_params(function, given) {
+        // A deprecated function goes through `call_function`, which warns.
+        if function.is_async || function.deprecation.is_some() || !plain_params(function, given) {
             return Ok(false);
         }
         let param_count = function.params.len();
@@ -6269,6 +6299,7 @@ impl VM {
             }
             _ => return Err(RuntimeError::new("expected function or closure")),
         };
+        self.warn_if_deprecated(function_index);
         // Copy out what the call needs instead of cloning the whole function
         // (its chunk, constants and parameter list) on every call.
         let function = self
@@ -6820,6 +6851,29 @@ impl VM {
         self.new_error(&message)
     }
 
+    /// Prints `warning: f is deprecated: note` the first time a deprecated
+    /// function is called, to the program's output when it is captured.
+    fn warn_if_deprecated(&mut self, function_index: usize) {
+        let Some(function) = self.functions.get(function_index) else {
+            return;
+        };
+        let Some(note) = &function.deprecation else {
+            return;
+        };
+        if !self.deprecation_warnings.insert(function.name.to_string()) {
+            return;
+        }
+        let message = if note.is_empty() {
+            format!("warning: {} is deprecated\n", function.name)
+        } else {
+            format!("warning: {} is deprecated: {}\n", function.name, note)
+        };
+        match &mut self.output {
+            Some(buffer) => buffer.push_str(&message),
+            None => eprint!("{message}"),
+        }
+    }
+
     /// Fails a call that would go deeper than `MAX_CALL_DEPTH` frames, so
     /// runaway recursion raises a catchable `RecursionError` instead of
     /// growing memory without bound.
@@ -7210,6 +7264,7 @@ impl VM {
             type_constraints: IndexMap::new(),
             annotations: Vec::new(),
             plain_args: (0, 0),
+            deprecation: None,
         };
         let func_index = self.functions.len();
         self.functions.push(function);
@@ -7280,6 +7335,61 @@ fn owner_from_nan(value: NanValue) -> Option<MethodOwner> {
         Value::String(name) => Some(MethodOwner::Builtin(name)),
         _ => None,
     }
+}
+
+/// Whether `<` and `>` work on `value`: numbers, strings and characters, and
+/// objects whose class (or a parent) defines `operator <` or `operator >`, or
+/// implements an interface named `Comparable`.
+fn is_comparable_value(value: &Value) -> bool {
+    match value {
+        Value::Int(_) | Value::Float(_) | Value::String(_) | Value::Char(_) => true,
+        Value::Object(obj) => obj.borrow().class.as_ref().is_some_and(is_comparable_class),
+        _ => false,
+    }
+}
+
+/// Whether a type argument names a comparable type (see `is_comparable_value`).
+fn is_comparable_type(type_value: &Value) -> bool {
+    match type_value {
+        Value::Map(map) => matches!(
+            map.borrow().entries.get("__native_type"),
+            Some(Value::String(name)) if matches!(name.as_str(), "Int" | "Float")
+        ),
+        Value::String(name) => matches!(name.as_str(), "String" | "Char" | "Int" | "Float"),
+        Value::Class(class) => is_comparable_class(class),
+        Value::BoundClass(bound) => is_comparable_class(&bound.borrow().class),
+        _ => false,
+    }
+}
+
+fn is_comparable_class(class: &GcRc<Class>) -> bool {
+    let mut current = Some(class.clone());
+    while let Some(class) = current {
+        let class_ref = class.borrow();
+        let implements = class_ref.implements.iter().any(|imp| match imp {
+            Value::Interface(i) => i.borrow().name.as_str() == "Comparable",
+            Value::BoundInterface(b) => b.borrow().interface.borrow().name.as_str() == "Comparable",
+            _ => false,
+        });
+        if implements
+            || class_ref.operators.contains_key("<")
+            || class_ref.operators.contains_key(">")
+        {
+            return true;
+        }
+        current = class_ref.superclass.clone();
+    }
+    false
+}
+
+/// The note of a `@deprecated` annotation: `Some("")` without an argument,
+/// `None` when the function is not deprecated.
+fn deprecation_note(annotations: &[pleno_value::RuntimeAnnotation]) -> Option<Rc<String>> {
+    let annotation = annotations.iter().find(|a| a.name == "deprecated")?;
+    Some(Rc::new(match annotation.args.first() {
+        Some(Value::String(note)) => note.to_string(),
+        _ => String::new(),
+    }))
 }
 
 /// The deepest a chain of calls can go. Frames live on the heap, so this only
