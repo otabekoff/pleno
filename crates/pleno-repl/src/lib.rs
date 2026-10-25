@@ -2,7 +2,7 @@ use pleno_diagnostics::{Diagnostic, DiagnosticReporter, SourceMap, ToDiagnostic}
 use pleno_lexer::{TokenKind, lex};
 use pleno_vm::VM;
 use rustyline::completion::{Completer, Pair};
-use rustyline::highlight::{Highlighter, MatchingBracketHighlighter};
+use rustyline::highlight::{CmdKind, Highlighter, MatchingBracketHighlighter};
 use rustyline::hint::Hinter;
 use rustyline::validate::Validator;
 use rustyline::{Context, Helper};
@@ -119,8 +119,8 @@ impl Highlighter for PlenoHelper {
         Cow::Owned(highlighted)
     }
 
-    fn highlight_char(&self, line: &str, pos: usize, forced: bool) -> bool {
-        self.highlighter.highlight_char(line, pos, forced)
+    fn highlight_char(&self, line: &str, pos: usize, kind: CmdKind) -> bool {
+        self.highlighter.highlight_char(line, pos, kind)
     }
 }
 
