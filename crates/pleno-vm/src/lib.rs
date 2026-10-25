@@ -537,10 +537,7 @@ impl VMProvider for VM {
                 return false;
             }
             if !config.allowed_read_paths.is_empty() {
-                return config
-                    .allowed_read_paths
-                    .iter()
-                    .any(|p| path.starts_with(p));
+                return path_allowed(path, &config.allowed_read_paths);
             }
         }
         true
@@ -552,10 +549,7 @@ impl VMProvider for VM {
                 return false;
             }
             if !config.allowed_write_paths.is_empty() {
-                return config
-                    .allowed_write_paths
-                    .iter()
-                    .any(|p| path.starts_with(p));
+                return path_allowed(path, &config.allowed_write_paths);
             }
         }
         true
@@ -7254,6 +7248,87 @@ fn owner_from_nan(value: NanValue) -> Option<MethodOwner> {
         Value::Interface(interface) => Some(MethodOwner::Interface(interface)),
         Value::String(name) => Some(MethodOwner::Builtin(name)),
         _ => None,
+    }
+}
+
+/// Whether `path` is inside one of the `allowed` folders (or is one of the
+/// allowed files). Both sides are compared as normalized absolute paths, one
+/// component at a time, so `data/../secret` is not inside `data` and `data2`
+/// is not inside `data`.
+fn path_allowed(path: &str, allowed: &[String]) -> bool {
+    let Some(path) = normalized_path(path) else {
+        return false;
+    };
+    allowed
+        .iter()
+        .filter_map(|base| normalized_path(base))
+        .any(|base| path_starts_with(&path, &base))
+}
+
+/// `path` made absolute against the working directory, with `.` and `..`
+/// removed and symbolic links resolved in the part of it that exists.
+fn normalized_path(path: &str) -> Option<std::path::PathBuf> {
+    use std::path::{Component, Path, PathBuf};
+    let path = Path::new(path);
+    let absolute = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        std::env::current_dir().ok()?.join(path)
+    };
+    let mut lexical = PathBuf::new();
+    for component in absolute.components() {
+        match component {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                lexical.pop();
+            }
+            other => lexical.push(other.as_os_str()),
+        }
+    }
+    // Resolve links in the longest part that exists; a file about to be
+    // written does not exist yet.
+    let mut existing = lexical.clone();
+    let mut missing = Vec::new();
+    while !existing.exists() {
+        match existing.file_name() {
+            Some(name) => {
+                missing.push(name.to_os_string());
+                existing.pop();
+            }
+            None => break,
+        }
+    }
+    let mut resolved = fs::canonicalize(&existing)
+        .map(strip_verbatim_prefix)
+        .unwrap_or(existing);
+    for name in missing.iter().rev() {
+        resolved.push(name);
+    }
+    Some(resolved)
+}
+
+/// `C:\dir` for Windows' `\\?\C:\dir`, so a canonical path compares equal to
+/// one that was not canonicalized.
+fn strip_verbatim_prefix(path: std::path::PathBuf) -> std::path::PathBuf {
+    match path.to_str().and_then(|text| text.strip_prefix(r"\\?\")) {
+        Some(rest) if !rest.starts_with("UNC") => std::path::PathBuf::from(rest),
+        _ => path,
+    }
+}
+
+/// `path` starts with `base`, component by component; on Windows without
+/// regard to case, as its file systems compare names.
+fn path_starts_with(path: &std::path::Path, base: &std::path::Path) -> bool {
+    if cfg!(windows) {
+        let lower = |p: &std::path::Path| {
+            p.components()
+                .map(|c| c.as_os_str().to_string_lossy().to_lowercase())
+                .collect::<Vec<_>>()
+        };
+        let (path, base) = (lower(path), lower(base));
+        path.len() >= base.len() && path[..base.len()] == base[..]
+    } else {
+        path.starts_with(base)
     }
 }
 
