@@ -80,14 +80,53 @@ impl<T> Slots<T> {
     }
 }
 
+/// A fast hasher for the integer and pointer keys of the slot tables: one
+/// multiplication instead of SipHash, which showed up in profiles of loops
+/// over big integers. Colliding keys only cost time, never correctness.
+#[derive(Default)]
+struct SlotKeyHasher(u64);
+
+impl std::hash::Hasher for SlotKeyHasher {
+    #[inline]
+    fn finish(&self) -> u64 {
+        self.0
+    }
+
+    #[inline]
+    fn write(&mut self, bytes: &[u8]) {
+        for &byte in bytes {
+            self.write_u64(byte as u64);
+        }
+    }
+
+    #[inline]
+    fn write_u64(&mut self, value: u64) {
+        // Fibonacci hashing: the high bits, which the table uses, depend on
+        // every bit of the key.
+        self.0 = (self.0.rotate_left(5) ^ value).wrapping_mul(0x9E37_79B9_7F4A_7C15);
+    }
+
+    #[inline]
+    fn write_i64(&mut self, value: i64) {
+        self.write_u64(value as u64);
+    }
+
+    #[inline]
+    fn write_usize(&mut self, value: usize) {
+        self.write_u64(value as u64);
+    }
+}
+
+type SlotMap<K> = HashMap<K, usize, std::hash::BuildHasherDefault<SlotKeyHasher>>;
+
 #[derive(Default)]
 struct BoxedValues {
     ints: Slots<i64>,
     /// Equal integers share a slot, so integers still compare by their bits.
-    int_slots: HashMap<i64, usize>,
+    int_slots: SlotMap<i64>,
     strings: Slots<Rc<String>>,
     /// The same string reuses its slot instead of growing the table.
-    string_slots: HashMap<*const String, usize>,
+    string_slots: SlotMap<*const String>,
     ranges: Slots<Range>,
 }
 
@@ -101,26 +140,25 @@ const INLINE_INT_MAX: i64 = (1 << 45) - 1;
 
 fn box_int(value: i64) -> usize {
     BOXED.with(|boxed| {
-        let mut boxed = boxed.borrow_mut();
-        if let Some(&slot) = boxed.int_slots.get(&value) {
-            return slot;
+        let boxed = &mut *boxed.borrow_mut();
+        match boxed.int_slots.entry(value) {
+            std::collections::hash_map::Entry::Occupied(entry) => *entry.get(),
+            std::collections::hash_map::Entry::Vacant(entry) => {
+                *entry.insert(boxed.ints.insert(value))
+            }
         }
-        let slot = boxed.ints.insert(value);
-        boxed.int_slots.insert(value, slot);
-        slot
     })
 }
 
 fn box_string(value: &Rc<String>) -> usize {
     BOXED.with(|boxed| {
-        let mut boxed = boxed.borrow_mut();
-        let key = Rc::as_ptr(value);
-        if let Some(&slot) = boxed.string_slots.get(&key) {
-            return slot;
+        let boxed = &mut *boxed.borrow_mut();
+        match boxed.string_slots.entry(Rc::as_ptr(value)) {
+            std::collections::hash_map::Entry::Occupied(entry) => *entry.get(),
+            std::collections::hash_map::Entry::Vacant(entry) => {
+                *entry.insert(boxed.strings.insert(Rc::clone(value)))
+            }
         }
-        let slot = boxed.strings.insert(Rc::clone(value));
-        boxed.string_slots.insert(key, slot);
-        slot
     })
 }
 
