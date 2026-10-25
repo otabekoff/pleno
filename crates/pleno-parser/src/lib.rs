@@ -2730,6 +2730,7 @@ impl Parser {
 
     fn parse_equality(&mut self) -> Result<Expr, ParseError> {
         let mut expr = self.parse_is_expr()?;
+        let start_span = expr.span;
         while self.matches(&TokenKind::EqualEqual) || self.matches(&TokenKind::BangEqual) {
             let op = match self.previous().kind {
                 TokenKind::EqualEqual => pleno_ast::BinaryOp::Equal,
@@ -2743,7 +2744,7 @@ impl Parser {
                     op,
                     right: Box::new(right),
                 },
-                self.previous_span(),
+                start_span,
             );
         }
         Ok(expr)
@@ -2752,13 +2753,14 @@ impl Parser {
     fn parse_is_expr(&mut self) -> Result<Expr, ParseError> {
         let mut expr = self.parse_comparison()?;
         if self.matches(&TokenKind::KeywordIs) {
+            let start_span = expr.span;
             let ty = self.parse_type()?;
             expr = self.wrap_expr(
                 ExprKind::Is {
                     left: Box::new(expr),
                     ty,
                 },
-                self.previous_span(),
+                start_span,
             );
         }
         Ok(expr)
