@@ -27,7 +27,7 @@
     "lint-staged": "^16.2.7",
     "standard-version": "^9.5.0",
     "vitepress": "^2.0.0-alpha.15",
-    "vue": "^3.5.27"
+    "vue": "^3.5.44"
   },
   "lint-staged": {
     "*.rs": [
@@ -35,7 +35,7 @@
     ]
   },
   "dependencies": {
-    "cosmiconfig-typescript-loader": "^6.2.0",
+    "cosmiconfig-typescript-loader": "^6.3.0",
     "jiti": "1.21.0",
     "shiki": "^3.21.0"
   }
