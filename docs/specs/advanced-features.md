@@ -101,7 +101,7 @@ print(v1 == v2);           // false
 print(v1[0]);              // 1
 ```
 
-Each operator is overloaded on its own. In particular `!=` does not call `operator ==`: without an `operator !=`, `a != b` on two instances compares them by identity. Define both when you define one.
+Each operator is overloaded on its own, with one exception: without an `operator !=`, `a != b` is `!(a == b)`, so defining `operator ==` is enough for both. A class can still define `operator !=` itself.
 
 ## Extension Methods
 

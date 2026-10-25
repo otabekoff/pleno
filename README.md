@@ -97,7 +97,7 @@ pleno run hello.pln
 - [Documentation website](https://pleno.mohirlab.uz/)
 - [Language reference](https://pleno.mohirlab.uz/specs/) and [compatibility promise](https://pleno.mohirlab.uz/specs/compatibility)
 - [Architecture](ARCHITECTURE.md)
-- [Roadmap to 1.0](tasks/v1.md)
+- [Road to 1.0](ROADMAP.md) (detailed tracker: [tasks/v1.md](tasks/v1.md))
 - [Changelog](CHANGELOG.md)
 - [Contributing](CONTRIBUTING.md), [Governance](GOVERNANCE.md), [Getting help](SUPPORT.md)
 - [Development Guide](README.dev.md)

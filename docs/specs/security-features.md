@@ -69,7 +69,7 @@ try {
         while (true) {}
     });
 } catch (e) {
-    print(e.message);   // uncaught exception: SandboxError: instruction limit exceeded
+    print(e.name, e.message);   // SandboxError instruction limit exceeded
 }
 ```
 
@@ -82,7 +82,7 @@ try {
 | `allowedReadPaths` | `String[]` | all | Path prefixes the function may read |
 | `allowedWritePaths` | `String[]` | all | Path prefixes the function may write |
 
-An error inside `run` reaches the caller as an `Error` whose `name` is `Error` and whose `message` starts with `uncaught exception:` followed by the original error, as above. This is expected to change so that the original `name` (`SandboxError`, `SecurityError`) is kept.
+An error inside `run` reaches the caller with its original `name` (`SandboxError` for a limit, `SecurityError` for a denied operation) and message. A limit cannot be caught inside the sandboxed function itself: reaching it ends that function, and only the caller of `run` sees the error.
 
 ### 20.3 Encapsulation
 

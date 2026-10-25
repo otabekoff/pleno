@@ -162,5 +162,13 @@ pub fn sandbox_run(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, Run
     // If 'func' is a closure with upvalues, they point to parent VM heap.
     // This is allowed in v1 but implies shared state.
 
-    sandbox_vm.call(func.clone(), Vec::new())
+    // A limit is fatal inside the sandbox, so the sandboxed code cannot catch
+    // it; the program that started the sandbox gets an error it can catch.
+    sandbox_vm.call(func.clone(), Vec::new()).map_err(|err| {
+        if err.fatal {
+            RuntimeError::new(err.message)
+        } else {
+            err
+        }
+    })
 }
