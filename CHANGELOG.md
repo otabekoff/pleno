@@ -15,6 +15,7 @@ Notable changes to Pleno. The format follows [Keep a Changelog](https://keepacha
 - `pleno run file.plc` runs bytecode written by `pleno compile`.
 - Return type annotations are checked at runtime, at every `return` and when a function ends without one: `fn f(): Int { return "s"; }` throws `TypeError: f returned String, expected Int`, and falling off the end of a function annotated `Int` throws `f returned Null, expected Int`. This covers functions, methods, getters, lambdas and `async` functions (whose annotation, `Int` or `Promise<Int>`, describes the resolved value). `Void`, `Any` and annotations mentioning a type parameter are not checked. `pleno check` also reports returned literals that cannot match (`f is declared to return Int but returns a String literal`).
 - `Regex(pattern, flags)` applies its flags: `i` (case-insensitive), `m` (multi-line), `s` (`.` matches newlines) and `x` (verbose); `regex.flags` returns them. Before, the second argument was ignored. Unknown flag letters and invalid patterns throw when the regex is created.
+- `CSV.parse(text, { header: false })` (or `header: false` as a named argument) returns every row, the first one included, for input without a header line. The default is unchanged: the first row is the header and is dropped.
 
 ### Changed
 
@@ -55,6 +56,7 @@ Notable changes to Pleno. The format follows [Keep a Changelog](https://keepacha
 - Creating a class that does not implement an abstract method of its parent throws `cannot create B: it does not implement abstract method area`, also when constructed with named arguments; constructing an abstract class with named arguments is rejected too.
 - `static const` fields cannot be reassigned (`cannot assign to constant MathUtils.PI`), and instance `const` fields can be assigned only by a constructor.
 - `let mut y = x;` made `y` share `x`'s storage, so assigning either changed both (in every scope, for numbers and strings alike).
+- `CSV.parse` errors no longer repeat their prefix (`CSV error: CSV error: ...`).
 
 ### Documentation
 

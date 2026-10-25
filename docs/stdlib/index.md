@@ -26,7 +26,7 @@ Behavior a page calls unspecified (for example the order of `Directory.list`, or
 | [`std:yaml`](yaml.md)                   | stable       |                                                                                                                                              |
 | [`std:toml`](toml.md)                   | stable       |                                                                                                                                              |
 | [`std:xml`](xml.md)                     | stable       | Input without a complete root element returns `null` instead of throwing; that case is unspecified.                                         |
-| [`std:csv`](csv.md)                     | stable       | The first row is always the header and is dropped.                                                                                           |
+| [`std:csv`](csv.md)                     | stable       |                                                                                                                                              |
 | [`std:base64`](base64.md)               | stable       |                                                                                                                                              |
 | [`std:promise`](promise.md)             | stable       | `Promise` and `spawn` are also globals.                                                                                                      |
 | [`std:concurrency`](concurrency.md)     | stable       | `MutexProto`, `ChannelProto` and a channel's `iterator`/`next` methods are internal.                                                         |

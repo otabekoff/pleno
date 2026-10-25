@@ -109,8 +109,6 @@ Status: `Router` and `Server` are experimental in 1.0. Missing: middleware (`app
 
 ### Other module work
 
-- `Regex(pattern, flags)`: honor the flags argument (status: ignored; inline `(?i)` works).
-- `CSV.parse`: an option for input without a header row (status: the first row is always the header).
 - `Crypto.jwtVerify`: check `exp` and `nbf` and compare signatures in constant time (status: experimental, neither is done).
 - `JSON.stringify`: write the fields of class instances, and sets as arrays (status: both become `null`).
 - `std:gc`, `std:db`, `std:security`: experimental, undocumented or thinly documented; decide their 1.x shape.

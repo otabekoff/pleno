@@ -88,3 +88,32 @@ fn regex_rejects_unknown_flags() {
     let message = eval_error(r#"import { Regex } from "std:regex"; Regex("abc", 1);"#);
     assert!(message.contains("flags must be a string"), "{message}");
 }
+
+#[test]
+fn csv_header_option() {
+    let source = r#"
+        import { CSV } from "std:csv";
+        let text = "name,age\nAnn,30\n";
+        [
+            CSV.parse(text).length,
+            CSV.parse(text)[0][0],
+            CSV.parse(text, { header: true }).length,
+            CSV.parse(text, { header: false }).length,
+            CSV.parse(text, { header: false })[0][0],
+            CSV.parse(text, header: false)[1][1],
+            CSV.parse("only,row").length,
+            CSV.parse("only,row", { header: false })[0][1],
+        ].map(|v| => v.toString()).join(" ")
+    "#;
+    assert_eq!(eval_string(source), "1 Ann 1 2 name 30 0 row");
+}
+
+#[test]
+fn csv_errors_have_one_prefix() {
+    let message = eval_error(r#"import { CSV } from "std:csv"; CSV.parse("a,b\n1\n");"#);
+    assert!(message.contains("CSV error: record 1"), "{message}");
+    assert!(!message.contains("CSV error: CSV error"), "{message}");
+    let message =
+        eval_error(r#"import { CSV } from "std:csv"; CSV.parse("a", { headers: false });"#);
+    assert!(message.contains("unknown option 'headers'"), "{message}");
+}

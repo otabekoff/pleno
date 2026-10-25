@@ -14,11 +14,13 @@ import { CSV } from "std:csv";
 
 ## Functions
 
-### `parse(csv: String): Array<Array<String>>`
+### `parse(csv: String, options?: Map): Array<Array<String>>`
 
 Parses a CSV string into an array of rows. Each row is an array of strings. Quoted fields may contain commas.
 
-The first row is always treated as the header and is not included in the result; there is no option to keep it. Input with only one row gives `[]`. If the first line is data, put a header line in front of the text before parsing. Rows with a different number of fields than the header throw an error.
+By default the first row is the header and is not included in the result, so input with only one row gives `[]`. Pass `{ header: false }` (or the named argument `header: false`) when the first line is data: every row is returned, the first one included. `header` is the only option; another key, or a `header` that is not a Bool, throws an error.
+
+Rows with a different number of fields than the first row throw an error, for example `CSV error: record 1 (line: 2, byte: 4): found record with 1 fields, but the previous record has 2 fields`.
 
 ```pleno
 import { CSV } from "std:csv";
@@ -36,6 +38,9 @@ Bob,25,LA
 for (row in data) {
     print(row[0] + " is " + row[1] + " years old");
 }
+
+let rows = CSV.parse("1,2\n3,4\n", { header: false });
+print(rows);  // [[1, 2], [3, 4]]
 ```
 
 > **Note**: Fields are always strings. Convert numbers yourself, for example with `Int.parse(row[1])`.
