@@ -1,6 +1,7 @@
 pub mod gc;
 pub mod nan_value;
 pub mod suggest;
+pub mod text;
 
 pub use gc::{GcObject, GcRc, MarkAndSweepGC};
 use indexmap::{IndexMap, IndexSet};
@@ -975,6 +976,18 @@ pub enum MethodVisibility {
     Private,
     Protected,
     Internal,
+}
+
+/// The annotation that marks the built-in `Comparable` interface.
+pub const BUILTIN_COMPARABLE: &str = "__builtin_comparable";
+
+impl Interface {
+    /// Whether this is the built-in `Comparable`, not one a program declared.
+    pub fn is_builtin_comparable(&self) -> bool {
+        self.annotations
+            .iter()
+            .any(|a| a.name == BUILTIN_COMPARABLE)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

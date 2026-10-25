@@ -3398,9 +3398,18 @@ impl Compiler {
 
                 let skip_jump = compiler.emit_jump(Opcode::JumpIf, result_reg);
 
+                // A constrained type parameter names its constraint: `T: Named`.
+                let expected = match decl
+                    .generics
+                    .iter()
+                    .find(|g| g.name == *ty_name && !g.constraints.is_empty())
+                {
+                    Some(generic) => format!("{}: {}", ty_name, generic.constraints.join(" & ")),
+                    None => ty_name.to_string(),
+                };
                 let msg = format!(
                     "TypeError: parameter '{}' expected {}, got ",
-                    param.name, ty_name
+                    param.name, expected
                 );
                 let msg_reg = compiler.registers.allocate()?;
                 let msg_const = compiler.add_constant(Value::String(Rc::new(msg)));

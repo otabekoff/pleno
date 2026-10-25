@@ -136,15 +136,25 @@ pub fn regex_match(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, Run
 
     let caps = re.captures(text);
     match caps {
-        Some(caps) => match_object(vm, &caps),
+        Some(caps) => {
+            let index = caps
+                .get(0)
+                .map_or(0, |m| pleno_value::text::char_index(text, m.start()));
+            match_object(vm, &caps, index)
+        }
         None => Ok(Value::Null),
     }
 }
 
-/// A `Match`: `value` (the whole match), `index` (its start), `groups`
+/// A `Match`: `value` (the whole match), `index` (the character position
+/// where it starts, passed in as `index`), `groups`
 /// (the capture groups) and `group(i)`. It can also be read like an array:
 /// `m[0]` is the whole match, `m[1]` the first group, and `m.length` the count.
-fn match_object(vm: &mut dyn VMProvider, caps: &regex::Captures) -> Result<Value, RuntimeError> {
+fn match_object(
+    vm: &mut dyn VMProvider,
+    caps: &regex::Captures,
+    index: usize,
+) -> Result<Value, RuntimeError> {
     let text_of = |i: usize| {
         caps.get(i)
             .map(|m| Value::String(Rc::new(m.as_str().to_string())))
@@ -156,7 +166,6 @@ fn match_object(vm: &mut dyn VMProvider, caps: &regex::Captures) -> Result<Value
     }
     entries.insert("length".to_string(), Value::Int(caps.len() as i64));
     entries.insert("value".to_string(), text_of(0));
-    let index = caps.get(0).map(|m| m.start()).unwrap_or(0);
     entries.insert("index".to_string(), Value::Int(index as i64));
     let groups = (1..caps.len()).map(text_of).collect();
     let groups = Value::Array(vm.get_gc().allocate(ArrayState::new(groups))?);
@@ -227,8 +236,14 @@ pub fn regex_find_all(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, 
 
     let all_caps: Vec<_> = re.captures_iter(text).collect();
     let mut matches = Vec::new();
+    // Count characters from the previous match on, so this stays linear.
+    let (mut byte, mut index) = (0, 0);
     for caps in &all_caps {
-        matches.push(match_object(vm, caps)?);
+        if let Some(m) = caps.get(0) {
+            index += text[byte..m.start()].chars().count();
+            byte = m.start();
+        }
+        matches.push(match_object(vm, caps, index)?);
     }
     Ok(Value::Array(
         vm.get_gc().allocate(ArrayState::new(matches))?,

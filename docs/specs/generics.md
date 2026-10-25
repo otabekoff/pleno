@@ -41,7 +41,9 @@ An instance remembers the type arguments it was created with, or the types of th
 
 ### 10.3 Generic Constraints
 
-`T: Name` requires the type argument to be, extend or implement `Name`, a class or interface you declare. There are no built-in interfaces such as `Comparable`; a constraint naming something undefined rejects every type argument. `T: A & B` requires both.
+`T: Name` requires the type argument to be, extend or implement `Name`, a class or interface you declare, and `T: A & B` requires both. The constraint is checked with explicit type arguments (`greet<Rock>(...)`) and with inferred ones: a parameter annotated `T` must hold a value that satisfies it (`parameter 'x' expected T: Named, got Rock`). A parameter annotated `T[]` does not check its elements. A constraint naming something undefined rejects every type argument.
+
+`Comparable` is built in: `T: Comparable` accepts `Int`, `Float`, `String` and `Char`, and classes that define `operator <` or `operator >` or implement an interface named `Comparable`, the types `<` and `>` work on.
 
 ```pleno
 interface Shape {

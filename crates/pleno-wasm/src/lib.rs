@@ -6,6 +6,10 @@ use pleno_parser::Parser;
 use pleno_vm::VM;
 use wasm_bindgen::prelude::*;
 
+/// How deeply native calls back into Pleno can nest in the browser, within
+/// WebAssembly's 1 MB stack (a nested call uses about 8 KB).
+const WASM_MAX_NESTED_RUNS: usize = 64;
+
 #[wasm_bindgen]
 pub fn init_panic_hook() {
     console_error_panic_hook::set_once();
@@ -37,6 +41,8 @@ pub fn run(bytecode: Vec<u8>) -> Result<String, String> {
 
     let mut vm = VM::new();
     vm.output = Some(String::new());
+    // WebAssembly has a 1 MB stack, so callbacks may nest less deeply.
+    vm.max_nested_runs = WASM_MAX_NESTED_RUNS;
 
     // Register stdlib
     pleno_stdlib::register(&mut vm);
@@ -111,6 +117,8 @@ fn run_with_limit(source: String, max_instructions: u64) -> String {
 
     let mut vm = VM::new();
     vm.output = Some(String::new());
+    // WebAssembly has a 1 MB stack, so callbacks may nest less deeply.
+    vm.max_nested_runs = WASM_MAX_NESTED_RUNS;
     // Console output needs `allow_io` (it also covers printing); the browser
     // build has no file system or network to reach anyway.
     vm.apply_config(pleno_value::SandboxConfig {

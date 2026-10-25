@@ -56,7 +56,7 @@ pub fn check_program(program: &Program) -> Vec<StaticDiagnostic> {
 
 /// Annotations that never change a function's signature; any other one may be
 /// a decorator that replaces the function.
-const SIGNATURE_PRESERVING: &[&str] = &["pure", "inline", "hot", "no_optimize"];
+const SIGNATURE_PRESERVING: &[&str] = &["pure", "inline", "hot", "no_optimize", "deprecated"];
 
 /// What the whole file says about names, gathered before checking.
 #[derive(Default)]
@@ -268,6 +268,8 @@ struct ClassInfo<'ast> {
 struct Tables<'ast> {
     functions: HashMap<&'ast str, &'ast [Param]>,
     classes: HashMap<&'ast str, ClassInfo<'ast>>,
+    /// Top-level functions marked `@deprecated`, with the note it gives.
+    deprecated: HashMap<&'ast str, Option<&'ast str>>,
 }
 
 impl<'ast> Tables<'ast> {
@@ -275,12 +277,25 @@ impl<'ast> Tables<'ast> {
         let mut tables = Tables {
             functions: HashMap::new(),
             classes: HashMap::new(),
+            deprecated: HashMap::new(),
         };
         for stmt in &program.statements {
             let stmt = match &stmt.kind {
                 StmtKind::Export(inner) => inner.as_ref(),
                 _ => stmt,
             };
+            if let StmtKind::Fn {
+                name, annotations, ..
+            } = &stmt.kind
+                && facts.is_unique(name)
+                && let Some(annotation) = annotations.iter().find(|a| a.name == "deprecated")
+            {
+                let note = annotation.args.first().and_then(|arg| match &arg.kind {
+                    ExprKind::Literal(Literal::String(note)) => Some(note.as_str()),
+                    _ => None,
+                });
+                tables.deprecated.insert(name, note);
+            }
             match &stmt.kind {
                 StmtKind::Fn {
                     name,
@@ -662,6 +677,15 @@ impl<'a, 'ast> Checker<'a, 'ast> {
             effective.insert(0, Arg::Positional(left));
         }
 
+        if let ExprKind::Ident(name) = &callee.kind
+            && let Some(note) = self.tables.deprecated.get(name.as_str())
+        {
+            let message = match note {
+                Some(note) => format!("'{name}' is deprecated: {note}"),
+                None => format!("'{name}' is deprecated"),
+            };
+            self.report(Severity::Warning, message, callee.span);
+        }
         match &callee.kind {
             ExprKind::Ident(name) => {
                 if let Some(params) = self.tables.functions.get(name.as_str()) {

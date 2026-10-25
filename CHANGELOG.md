@@ -6,6 +6,11 @@ Notable changes to Pleno. The format follows [Keep a Changelog](https://keepacha
 
 ### Added
 
+- `<`, `<=`, `>` and `>=` compare strings and characters, by Unicode code point (`"abc" < "abd"`); before, they were an error.
+- `Comparable` is a built-in constraint: `T: Comparable` accepts `Int`, `Float`, `String`, `Char` and classes that define `operator <` or `operator >`.
+- `<`, `<=`, `>` and `>=` compare strings and characters, by Unicode code point (`"abc" < "abd"`); before, they were an error.
+- `Comparable` is a built-in constraint: `T: Comparable` accepts `Int`, `Float`, `String`, `Char` and classes that define `operator <` or `operator >`.
+- `@deprecated` and `@deprecated("note")` on a function or method print `warning: f is deprecated: note` the first time it is called, and `pleno check` and the editor report calls to a deprecated top-level function. This is how stable APIs will be deprecated in 1.x.
 - `pleno new <folder>` (and `plm new`) creates the folder and a package in it, named after the folder or `--name`; it refuses a folder that already has files. `pleno init` still sets up the current folder.
 - `pleno-dap --version`, `pleno-repl --version` and `--help` for both.
 - `vmStats()` in `std:reflect`: instructions executed, current and peak memory.
@@ -47,6 +52,13 @@ Notable changes to Pleno. The format follows [Keep a Changelog](https://keepacha
 
 ### Fixed
 
+- A very long chain of operators or calls in one statement (`1 + 1 + ...` with tens of thousands of terms) overflowed the stack while compiling. A statement can now chain up to 1,000 operators and calls; a longer one is a parse error (`expression too long`). The browser playground gets an 8 MB WebAssembly stack instead of 1 MB. Found by the `fuzz_compile` fuzz target.
+- Generic constraints were checked only with explicit type arguments: `greet(Rock())` with `fn greet<T: Named>(x: T)` was accepted and failed later. A parameter annotated `T` is now checked against `T`'s constraints, and the error names them (`expected T: Named, got Rock`). `T: Comparable` rejected `Int`.
+- Generic constraints were checked only with explicit type arguments: `greet(Rock())` with `fn greet<T: Named>(x: T)` was accepted and failed later. A parameter annotated `T` is now checked against `T`'s constraints, and the error names them (`expected T: Named, got Rock`). `T: Comparable` rejected `Int`.
+- Runaway recursion crashed the process: plain recursion grew memory until an allocation failed, and recursion through callbacks (`map`, operators, `test` inside `afterEach`) overflowed the stack. Both now raise a catchable `RecursionError`: calls can nest 100,000 deep, and calls from built-in functions back into Pleno 200 deep (64 in the browser playground). Found by the `fuzz_run` fuzz target.
+- String positions and lengths count Unicode characters everywhere, as the reference says: `length`, `s[a..b]`, `indexOf`, `substring`, `charAt`, a regex match's `index` and `assert.lengthOf` counted UTF-8 bytes while `s[i]` counted characters, so `"héllo".length` was 6. `"héllo".substring(0, 2)` and `charAt(1)` stopped the VM with a panic; they now give `hé` and `é`. `split("")` returns the characters (`["a", "b", "c"]` instead of `["", "a", "b", "c", ""]`). `substring` clamps negative positions to 0 and swaps its arguments when `start > end`, like JavaScript (before, both gave `""`), and `repeat` with a negative count throws an error instead of stopping the VM.
+- Sandbox path rules (`--allow-read`, `--allow-write`, `allowedReadPaths`, `allowedWritePaths`) compared text prefixes, so `data/../secret.txt` passed a rule for `data/` and `data2/` passed a rule for `data`. They now compare normalized absolute paths, folder by folder. `Path.exists`, `isFile`, `isDir`, `resolve` and `dotenv.config` count as reading, and `process.cwd()` needs I/O.
+- A sandbox option with a value that does not parse (`--allow-io maybe`, `--max-memory 10MB`) meant "allowed" or "no limit"; it is now an error.
 - A sandbox limit (`--max-instructions`, `--max-memory`, `Sandbox` options) could be caught by `try`/`catch`, so a program could catch it and run on past its limit. Reaching a limit now ends the sandboxed program; the program that started a `Sandbox` still catches it as a `SandboxError` (before, that error arrived named `Error`).
 - `a != b` ignored a class's `operator ==`: with `==` overloaded, `V(1) != V(1)` was `true`. It is now `!(a == b)` unless the class defines its own `operator !=`.
 - An error thrown inside a callback (`map`, `filter`, ...) and caught outside read `uncaught exception: uncaught exception: ...`; it now has its own message.
