@@ -47,11 +47,11 @@ Status: `@pure` has an incomplete runtime check (experimental in 1.0). Planned: 
 
 ### Checked built-in annotations
 
-Status: `@override`, `@sealed` and `@deprecated` are plain annotations with no effect.
+Status: `@override` and `@sealed` are plain annotations with no effect. (`@deprecated` warns since 2026-10-26.)
 
 - `@override`: a compile error when no parent class has the method.
 - `@sealed`: a class that cannot be extended.
-- `@deprecated("message")`: a warning from `pleno check`, `pleno lint` and the language server where the name is used. The 1.x compatibility promise needs this mechanism for deprecations.
+- `@deprecated` on classes, fields and imported functions in `pleno check` (calls to deprecated top-level functions of the same file and every call at run time already warn).
 
 ### More runtime type checks
 

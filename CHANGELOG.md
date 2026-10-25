@@ -6,6 +6,7 @@ Notable changes to Pleno. The format follows [Keep a Changelog](https://keepacha
 
 ### Added
 
+- `@deprecated` and `@deprecated("note")` on a function or method print `warning: f is deprecated: note` the first time it is called, and `pleno check` and the editor report calls to a deprecated top-level function. This is how stable APIs will be deprecated in 1.x.
 - `pleno new <folder>` (and `plm new`) creates the folder and a package in it, named after the folder or `--name`; it refuses a folder that already has files. `pleno init` still sets up the current folder.
 - `pleno-dap --version`, `pleno-repl --version` and `--help` for both.
 - `vmStats()` in `std:reflect`: instructions executed, current and peak memory.

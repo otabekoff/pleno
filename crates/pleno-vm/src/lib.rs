@@ -42,6 +42,8 @@ pub struct VM {
     /// (on by default). Turning it off runs everything in the general loop,
     /// which must give the same results: tests and the fuzzer compare both.
     pub fast_loop: bool,
+    /// Names of deprecated functions already warned about.
+    deprecation_warnings: std::collections::HashSet<String>,
     pub gc: pleno_value::gc::GCManager,
     pub registers: Vec<NanValue>,
     pub frames: Vec<CallFrame>,
@@ -116,6 +118,9 @@ pub struct Function {
     /// The argument counts a call can pass straight into the parameters
     /// (see `plain_params`), worked out once from `params` and `arity`.
     plain_args: (usize, usize),
+    /// Set by `@deprecated` or `@deprecated("use g instead")`: calling the
+    /// function prints a warning (once per name), with this note if given.
+    deprecation: Option<Rc<String>>,
 }
 
 impl VMProvider for VM {
@@ -145,6 +150,7 @@ impl VMProvider for VM {
             Value::Closure(state) => (state.borrow().function, Some(state.clone())),
             _ => return self.call_ext_with(callee.clone(), args, CallOptions::default()),
         };
+        self.warn_if_deprecated(function_index);
         let Some(function) = self.functions.get(function_index) else {
             return self.call_ext_with(callee.clone(), args, CallOptions::default());
         };
@@ -865,6 +871,7 @@ impl VM {
         Self {
             sandbox_config: None,
             fast_loop: true,
+            deprecation_warnings: std::collections::HashSet::new(),
             gc,
             registers: vec![NanValue::null(); 256],
             frames: Vec::new(),
@@ -929,6 +936,7 @@ impl VM {
             type_constraints: IndexMap::new(),
             annotations: Vec::new(),
             plain_args: (0, 0),
+            deprecation: None,
         };
 
         self.functions.push(function);
@@ -2002,6 +2010,7 @@ impl VM {
                         type_constraints: proto.type_constraints.clone(),
                         annotations: proto.annotations.clone(),
                         plain_args: plain_arg_range(&proto.params, proto.arity as usize),
+                        deprecation: deprecation_note(&proto.annotations),
                     });
                     let captures = vec![Value::Null; c];
                     let state = self.gc.allocate(ClosureState::new(func_index, captures))?;
@@ -2028,6 +2037,7 @@ impl VM {
                         type_constraints: proto.type_constraints.clone(),
                         annotations: proto.annotations.clone(),
                         plain_args: plain_arg_range(&proto.params, proto.arity as usize),
+                        deprecation: deprecation_note(&proto.annotations),
                     });
                     self.registers[base + a] = NanValue::from_value(&Value::Function(func_index));
                 }
@@ -2052,6 +2062,7 @@ impl VM {
                         type_constraints: proto.type_constraints.clone(),
                         annotations: proto.annotations.clone(),
                         plain_args: plain_arg_range(&proto.params, proto.arity as usize),
+                        deprecation: deprecation_note(&proto.annotations),
                     });
                     self.registers[base + a] = NanValue::from_value(&Value::Function(func_index));
                 }
@@ -6127,7 +6138,8 @@ impl VM {
             return Ok(false);
         };
         let given = argc + usize::from(receiver.is_some());
-        if function.is_async || !plain_params(function, given) {
+        // A deprecated function goes through `call_function`, which warns.
+        if function.is_async || function.deprecation.is_some() || !plain_params(function, given) {
             return Ok(false);
         }
         let param_count = function.params.len();
@@ -6219,6 +6231,7 @@ impl VM {
             }
             _ => return Err(RuntimeError::new("expected function or closure")),
         };
+        self.warn_if_deprecated(function_index);
         // Copy out what the call needs instead of cloning the whole function
         // (its chunk, constants and parameter list) on every call.
         let function = self
@@ -6770,6 +6783,29 @@ impl VM {
         self.new_error(&message)
     }
 
+    /// Prints `warning: f is deprecated: note` the first time a deprecated
+    /// function is called, to the program's output when it is captured.
+    fn warn_if_deprecated(&mut self, function_index: usize) {
+        let Some(function) = self.functions.get(function_index) else {
+            return;
+        };
+        let Some(note) = &function.deprecation else {
+            return;
+        };
+        if !self.deprecation_warnings.insert(function.name.to_string()) {
+            return;
+        }
+        let message = if note.is_empty() {
+            format!("warning: {} is deprecated\n", function.name)
+        } else {
+            format!("warning: {} is deprecated: {}\n", function.name, note)
+        };
+        match &mut self.output {
+            Some(buffer) => buffer.push_str(&message),
+            None => eprint!("{message}"),
+        }
+    }
+
     fn throw_runtime_error(&mut self, message: &str) -> RuntimeError {
         // Provide a small grace buffer for error handling if we hit memory limits
         if self.gc.max_bytes > 0 && self.gc.grace_bytes == 0 {
@@ -7123,6 +7159,7 @@ impl VM {
             type_constraints: IndexMap::new(),
             annotations: Vec::new(),
             plain_args: (0, 0),
+            deprecation: None,
         };
         let func_index = self.functions.len();
         self.functions.push(function);
@@ -7193,6 +7230,16 @@ fn owner_from_nan(value: NanValue) -> Option<MethodOwner> {
         Value::String(name) => Some(MethodOwner::Builtin(name)),
         _ => None,
     }
+}
+
+/// The note of a `@deprecated` annotation: `Some("")` without an argument,
+/// `None` when the function is not deprecated.
+fn deprecation_note(annotations: &[pleno_value::RuntimeAnnotation]) -> Option<Rc<String>> {
+    let annotation = annotations.iter().find(|a| a.name == "deprecated")?;
+    Some(Rc::new(match annotation.args.first() {
+        Some(Value::String(note)) => note.to_string(),
+        _ => String::new(),
+    }))
 }
 
 /// Registers that `append_in_place` scans at most for copies of a string.
