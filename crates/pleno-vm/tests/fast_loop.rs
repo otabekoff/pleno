@@ -1,7 +1,7 @@
-//! The small interpreter loop (`run_fast`) runs simple instructions when no
-//! debugger and no sandbox limit is active. A sandbox with limits too high to
-//! reach turns it off, so every program here runs both ways and must give the
-//! same result, the same output and the same instruction count.
+//! The small interpreter loop (`run_fast`) runs simple instructions unless a
+//! debugger is attached or `VM::fast_loop` is off. Every program here runs
+//! both ways and must give the same result, the same output and the same
+//! instruction count, also under sandbox limits.
 
 use pleno_compiler::Compiler;
 use pleno_value::{SandboxConfig, Value};
@@ -24,16 +24,7 @@ fn run_once(source: &str, general_loop_only: bool) -> Run {
     let mut vm = VM::new();
     vm.output = Some(String::new());
     pleno_stdlib::register(&mut vm);
-    if general_loop_only {
-        vm.apply_config(SandboxConfig {
-            allow_io: true,
-            allow_network: true,
-            max_memory: 0,
-            max_instructions: u64::MAX / 2,
-            allowed_read_paths: Vec::new(),
-            allowed_write_paths: Vec::new(),
-        });
-    }
+    vm.fast_loop = !general_loop_only;
     let result = vm
         .execute(chunk)
         .map(|value| value.to_string())
@@ -217,4 +208,66 @@ fn value_is_still_a_value() {
     // Results computed in the fast loop convert back to the same values.
     let run = same_both_ways("let a = 2; let b = 0.5; a * 3 + 1;");
     assert_eq!(run.result, Ok(Value::Int(7).to_string()));
+}
+
+fn run_limited(source: &str, fast_loop: bool, max_instructions: u64, max_memory: usize) -> Run {
+    let tokens = pleno_lexer::lex(source).unwrap();
+    let mut program = pleno_parser::Parser::new(tokens, source)
+        .parse_program()
+        .unwrap();
+    let chunk = Compiler::new(source.to_string())
+        .compile(&mut program)
+        .unwrap();
+    let mut vm = VM::new();
+    vm.output = Some(String::new());
+    pleno_stdlib::register(&mut vm);
+    vm.fast_loop = fast_loop;
+    vm.apply_config(SandboxConfig {
+        allow_io: false,
+        allow_network: false,
+        max_memory,
+        max_instructions,
+        allowed_read_paths: Vec::new(),
+        allowed_write_paths: Vec::new(),
+    });
+    let result = vm
+        .execute(chunk)
+        .map(|value| value.to_string())
+        .map_err(|e| e.message);
+    Run {
+        result,
+        output: vm.output.take().unwrap_or_default(),
+        instructions: vm.instruction_count,
+    }
+}
+
+#[test]
+fn sandbox_limits_hold_in_the_fast_loop() {
+    // An endless loop stops at the instruction limit either way.
+    let endless = "let mut i = 0; while (true) { i += 1; }";
+    for fast in [true, false] {
+        let run = run_limited(endless, fast, 100_000, 0);
+        let err = run.result.unwrap_err();
+        assert!(err.contains("instruction limit exceeded"), "{err}");
+        assert!(
+            run.instructions < 100_200,
+            "fast={fast}: {}",
+            run.instructions
+        );
+    }
+    // Growing an array without end stops at the memory limit either way.
+    let growing = "let xs = []; while (true) { xs.push(\"some text\"); }";
+    for fast in [true, false] {
+        let err = run_limited(growing, fast, 0, 4 * 1024 * 1024)
+            .result
+            .unwrap_err();
+        assert!(err.contains("memory limit exceeded"), "fast={fast}: {err}");
+    }
+    // Under limits it does not reach, a program gives the same result both ways.
+    let program =
+        "fn fib(n) { if (n < 2) { return n; } return fib(n - 1) + fib(n - 2); } print(fib(15));";
+    assert_eq!(
+        run_limited(program, true, 10_000_000, 0),
+        run_limited(program, false, 10_000_000, 0)
+    );
 }

@@ -38,6 +38,10 @@ pub enum ExecutionStatus {
 
 pub struct VM {
     pub sandbox_config: Option<pleno_value::SandboxConfig>,
+    /// Whether simple instructions may run in the small loop of `run_fast`
+    /// (on by default). Turning it off runs everything in the general loop,
+    /// which must give the same results: tests and the fuzzer compare both.
+    pub fast_loop: bool,
     pub gc: pleno_value::gc::GCManager,
     pub registers: Vec<NanValue>,
     pub frames: Vec<CallFrame>,
@@ -186,7 +190,7 @@ impl VMProvider for VM {
         }
         // Short callbacks (`|x| => x * 2`) often run entirely in `run_fast`;
         // their return then needs no general run.
-        if !self.debug_context.is_active() && self.sandbox_config.is_none() {
+        if !self.debug_context.is_active() && self.fast_loop {
             self.run_fast(depth)?;
             if let Some(result) = self.finish_plain_return(depth) {
                 return Ok(result.to_value());
@@ -860,6 +864,7 @@ impl VM {
 
         Self {
             sandbox_config: None,
+            fast_loop: true,
             gc,
             registers: vec![NanValue::null(); 256],
             frames: Vec::new(),
@@ -1752,7 +1757,7 @@ impl VM {
             // Simple instructions run in the smaller loop of `run_fast`. When it
             // stops at once (an addition of strings, say), this instruction runs
             // here instead.
-            if !debugging && self.sandbox_config.is_none() && fast::handles(opcode) {
+            if !debugging && self.fast_loop && fast::handles(opcode) {
                 let at = (code_function, ip);
                 if fast_skip != Some(at) {
                     let before = self.instruction_count;

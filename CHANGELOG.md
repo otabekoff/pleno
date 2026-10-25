@@ -16,6 +16,7 @@ Notable changes to Pleno. The format follows [Keep a Changelog](https://keepacha
 
 ### Changed
 
+- Programs run with an instruction or memory limit (`--max-instructions`, `--max-memory`, the playground) use the fast interpreter loop too, which checks the limits itself: about 1.6 times faster than before under a limit.
 - `pleno format`, `lint`, `check`, `test`, `compile`, `watch`, `doc`, `debug-ast` and `build` reject options and arguments they do not take (`Error: 'compile' has no option '--bogus'`, exit status 2) instead of ignoring them, and print their own usage with `--help`. `pleno compile` and `pleno build` take `-o <file.plc>` and create its folder.
 - `pleno build` with a target that is not a `.pln` file is an error; before, it built the package's main file instead.
 - The editor's code lenses are "Run File" and "Debug File" above the first statement, instead of a "Run Function" over every function that ran the whole file.
