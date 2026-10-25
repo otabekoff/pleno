@@ -82,6 +82,10 @@ pub struct VM {
     /// name at that index is checked before use, so a stale entry only costs
     /// a normal lookup.
     global_slots: Vec<Vec<u32>>,
+    /// The built-in method each `GetMethod` found in `run_fast`, by function
+    /// and instruction, for the resolver `method_sites_resolver`.
+    method_sites: Vec<Vec<Option<(bool, NativeFunction)>>>,
+    method_sites_resolver: Option<usize>,
     /// Values of globals that `run_fast` read, with the `globals_epoch` they
     /// were read in (by function and name operand).
     global_values: Vec<Vec<(u64, NanValue)>>,
@@ -159,23 +163,31 @@ impl VMProvider for VM {
         while self.registers.len() < base + register_count {
             self.registers.push(NanValue::null());
         }
-        self.frames.push(CallFrame {
-            function_index,
-            ip: 0,
-            base,
-            return_reg: base,
-            return_override: None,
-            closure_state,
-            current_owner: None,
-            type_args: Vec::new(),
-            exception_handlers: Vec::new(),
-        });
+        // Written in place, as in `try_push_register_frame`.
+        self.frames.reserve(1);
+        let len = self.frames.len();
+        // SAFETY: `reserve` made room for one more frame at index `len`, which
+        // `set_len` then covers.
+        unsafe {
+            self.frames.as_mut_ptr().add(len).write(CallFrame {
+                function_index,
+                ip: 0,
+                base,
+                return_reg: base,
+                return_override: None,
+                closure_state,
+                current_owner: None,
+                type_args: Vec::new(),
+                exception_handlers: Vec::new(),
+            });
+            self.frames.set_len(len + 1);
+        }
         // Short callbacks (`|x| => x * 2`) often run entirely in `run_fast`;
         // their return then needs no general run.
         if !self.debug_context.is_active() && self.sandbox_config.is_none() {
             self.run_fast(depth)?;
             if let Some(result) = self.finish_plain_return(depth) {
-                return Ok(result);
+                return Ok(result.to_value());
             }
         }
         match self.run_until(depth)? {
@@ -864,6 +876,8 @@ impl VM {
             output: None,
             error_class,
             global_slots: Vec::new(),
+            method_sites: Vec::new(),
+            method_sites_resolver: None,
             global_values: Vec::new(),
             globals_epoch: 1,
         }
@@ -5962,10 +5976,33 @@ impl VM {
     /// converting them to `Value`s. Returns `false` (doing nothing) for calls
     /// that need `call_any_value`: other callees, async functions, variadic or
     /// keyword-only parameters, and argument counts that are errors.
+    /// Removes the top frame. The frame of a plain call owns nothing, and is
+    /// then removed without running its (empty) destructor.
+    #[inline(always)]
+    fn pop_frame(&mut self) {
+        let Some(frame) = self.frames.last() else {
+            return;
+        };
+        if frame.return_override.is_none()
+            && frame.closure_state.is_none()
+            && frame.current_owner.is_none()
+            && frame.type_args.capacity() == 0
+            && frame.exception_handlers.capacity() == 0
+        {
+            // SAFETY: every field of the last frame that could own memory or a
+            // reference count is `None` or a vector that never allocated, so
+            // dropping it would do nothing; shortening the vector forgets it.
+            unsafe { self.frames.set_len(self.frames.len() - 1) }
+        } else {
+            drop(self.frames.pop());
+        }
+    }
+
     /// When the only frame above `depth` is at a plain `Return` (not async, no
     /// return override), runs it as `run_step` would, ending the run for that
-    /// frame, and gives the returned value.
-    fn finish_plain_return(&mut self, depth: usize) -> Option<Value> {
+    /// frame, and gives the returned value (to convert before anything can
+    /// collect).
+    fn finish_plain_return(&mut self, depth: usize) -> Option<NanValue> {
         if self.frames.len() != depth + 1 {
             return None;
         }
@@ -5979,9 +6016,11 @@ impl VM {
             return None;
         }
         let frame_base = frame.base;
-        let result = self.registers[frame_base + instruction.a() as usize].to_value();
+        // Freed registers keep their table slots until the next collection, so
+        // the caller can still convert this to a `Value`.
+        let result = self.registers[frame_base + instruction.a() as usize];
         self.instruction_count += 1;
-        self.frames.truncate(depth);
+        self.pop_frame();
         if self.suspended_frames.is_empty() && self.pending_tasks.is_empty() {
             self.release_registers(frame_base);
         }

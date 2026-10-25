@@ -18,8 +18,8 @@
 use crate::VM;
 use crate::utils::{apply_offset, decode_offset};
 use pleno_bytecode::{Instruction, Opcode};
-use pleno_value::RuntimeError;
 use pleno_value::nan_value::NanValue;
+use pleno_value::{NativeFunction, RuntimeError, Value};
 
 /// Whether `run_fast` runs (some cases of) this instruction.
 #[inline]
@@ -131,6 +131,69 @@ impl VM {
                 self.registers[base + $index]
             };
         }
+        // `CallRegs a, b, c` (see `run_step`).
+        macro_rules! call_regs {
+            ($a:expr, $b:expr, $c:expr) => {{
+                let (a, b, c) = ($a, $b, $c);
+                let args_start = base + b + 1;
+                if args_start + c > self.registers.len() {
+                    stop!();
+                }
+                // The caller resumes after this instruction.
+                if let Some(frame) = self.frames.last_mut() {
+                    frame.ip = ip + 1;
+                }
+                self.instruction_count = count;
+                if !self.try_push_register_frame(reg!(b), None, args_start, c, base + a, None)? {
+                    stop!();
+                }
+                count += 1;
+                load_frame!();
+                continue;
+            }};
+        }
+        // `Return a` to a caller in this run (see `run_step`).
+        macro_rules! ret {
+            ($a:expr) => {{
+                let function = &self.functions[function_index];
+                let frame = self.frames.last().expect("a frame");
+                if function.is_async
+                    || frame.return_override.is_some()
+                    || self.frames.len() <= depth + 1
+                {
+                    stop!();
+                }
+                let (frame_base, return_reg) = (frame.base, frame.return_reg);
+                let result = reg!($a);
+                self.pop_frame();
+                self.release_registers(frame_base);
+                self.registers[return_reg] = result;
+                count += 1;
+                load_frame!();
+                continue;
+            }};
+        }
+        // Ends an instruction whose result often feeds a call or a return right
+        // after it (`f(n - 1)`, `return a + b`): runs that one directly, which
+        // saves a round through the loop.
+        macro_rules! then_call_or_return {
+            () => {{
+                count += 1;
+                ip += 1;
+                if ip < code_len {
+                    // SAFETY: `ip < code_len` (see the loop).
+                    let next = unsafe { *code.add(ip) };
+                    match next.opcode() {
+                        Opcode::CallRegs => {
+                            call_regs!(next.a() as usize, next.b() as usize, next.c() as usize)
+                        }
+                        Opcode::Return => ret!(next.a() as usize),
+                        _ => {}
+                    }
+                }
+                continue;
+            }};
+        }
 
         loop {
             if ip >= code_len {
@@ -154,7 +217,12 @@ impl VM {
                         let compare = unsafe { *code.add(ip + 1) };
                         if matches!(
                             compare.opcode(),
-                            Opcode::Lt | Opcode::Le | Opcode::Gt | Opcode::Ge
+                            Opcode::Lt
+                                | Opcode::Le
+                                | Opcode::Gt
+                                | Opcode::Ge
+                                | Opcode::Eq
+                                | Opcode::Ne
                         ) && compare.c() as usize == a
                             && let Some(left) = reg!(compare.b() as usize).as_inline_int()
                         {
@@ -162,7 +230,9 @@ impl VM {
                                 Opcode::Lt => left < value,
                                 Opcode::Le => left <= value,
                                 Opcode::Gt => left > value,
-                                _ => left >= value,
+                                Opcode::Ge => left >= value,
+                                Opcode::Eq => left == value,
+                                _ => left != value,
                             };
                             let dest = compare.a() as usize;
                             reg!(dest) = NanValue::from_bool(result);
@@ -188,6 +258,7 @@ impl VM {
                         stop!();
                     };
                     reg!(a) = result;
+                    then_call_or_return!();
                 }
                 Opcode::Add | Opcode::Sub | Opcode::Mul => {
                     let (left, right) = (reg!(b), reg!(c));
@@ -215,6 +286,7 @@ impl VM {
                             stop!();
                         };
                     reg!(a) = result;
+                    then_call_or_return!();
                 }
                 Opcode::Mod => {
                     let (left, right) = (reg!(b), reg!(c));
@@ -335,22 +407,14 @@ impl VM {
                     // A built-in method of an array or a string, with no `extend`
                     // block anywhere (`run_step` handles everything else).
                     let receiver = reg!(b);
-                    let type_name = receiver.type_name();
-                    if !matches!(type_name, "Array" | "String")
+                    let is_string = receiver.is_string();
+                    if !(is_string || receiver.is_array())
                         || !self.builtin_extensions.is_empty()
                         || base + a + 2 >= self.registers.len()
                     {
                         stop!();
                     }
-                    let Some(pleno_value::Value::String(name)) =
-                        self.functions[function_index].chunk.constants.get(c)
-                    else {
-                        stop!();
-                    };
-                    let Some(native) =
-                        self.builtin_methods
-                            .get(self.builtin_resolver, type_name, name)
-                    else {
+                    let Some(native) = self.site_method(function_index, ip, c, is_string) else {
                         stop!();
                     };
                     reg!(a) = NanValue::from_value(&pleno_value::Value::NativeFunction(native));
@@ -367,7 +431,7 @@ impl VM {
                     let receiver = self.registers[method_at + 1];
                     let kind = self.registers[method_at + 2];
                     if kind.as_bool() == Some(true) {
-                        let pleno_value::Value::NativeFunction(native) = callee.to_value() else {
+                        let Some(native) = callee.as_native_function() else {
                             stop!();
                         };
                         // As in `run_step`: the instruction counts and the frame
@@ -380,11 +444,9 @@ impl VM {
                         }
                         let mut args = std::mem::take(&mut self.native_args);
                         args.push(receiver.to_value());
-                        args.extend(
-                            self.registers[args_start..args_start + c]
-                                .iter()
-                                .map(|arg| arg.to_value()),
-                        );
+                        for index in args_start..args_start + c {
+                            args.push(self.registers[index].to_value());
+                        }
                         let result = native(self, &args);
                         args.clear();
                         self.native_args = args;
@@ -432,48 +494,8 @@ impl VM {
                     load_frame!();
                     continue;
                 }
-                Opcode::CallRegs => {
-                    let args_start = base + b + 1;
-                    if args_start + c > self.registers.len() {
-                        stop!();
-                    }
-                    // The caller resumes after this instruction.
-                    if let Some(frame) = self.frames.last_mut() {
-                        frame.ip = ip + 1;
-                    }
-                    self.instruction_count = count;
-                    if !self.try_push_register_frame(
-                        reg!(b),
-                        None,
-                        args_start,
-                        c,
-                        base + a,
-                        None,
-                    )? {
-                        stop!();
-                    }
-                    count += 1;
-                    load_frame!();
-                    continue;
-                }
-                Opcode::Return => {
-                    let function = &self.functions[function_index];
-                    let frame = self.frames.last().expect("a frame");
-                    if function.is_async
-                        || frame.return_override.is_some()
-                        || self.frames.len() <= depth + 1
-                    {
-                        stop!();
-                    }
-                    let (frame_base, return_reg) = (frame.base, frame.return_reg);
-                    let result = reg!(a);
-                    drop(self.frames.pop());
-                    self.release_registers(frame_base);
-                    self.registers[return_reg] = result;
-                    count += 1;
-                    load_frame!();
-                    continue;
-                }
+                Opcode::CallRegs => call_regs!(a, b, c),
+                Opcode::Return => ret!(a),
                 _ => stop!(),
             }
             count += 1;
@@ -501,5 +523,52 @@ impl VM {
             values.resize(name_index + 1, (0, NanValue::null()));
         }
         values[name_index] = (self.globals_epoch, value);
+    }
+
+    /// The built-in method that `GetMethod` at `ip` of function `function_index`
+    /// reads (name constant `name_index`) from an array or (`is_string`) a
+    /// string, remembered for that instruction while the resolver stays the
+    /// same.
+    #[inline]
+    fn site_method(
+        &mut self,
+        function_index: usize,
+        ip: usize,
+        name_index: usize,
+        is_string: bool,
+    ) -> Option<NativeFunction> {
+        let resolver = self.builtin_resolver.map(|resolver| resolver as usize);
+        if self.method_sites_resolver != resolver {
+            self.method_sites.clear();
+            self.method_sites_resolver = resolver;
+        }
+        if let Some(Some((string, native))) = self
+            .method_sites
+            .get(function_index)
+            .and_then(|sites| sites.get(ip))
+            && *string == is_string
+        {
+            return Some(*native);
+        }
+        let function = &self.functions[function_index];
+        let Some(Value::String(name)) = function.chunk.constants.get(name_index) else {
+            return None;
+        };
+        let code_len = function.chunk.code.len();
+        let type_name = if is_string { "String" } else { "Array" };
+        let native = self
+            .builtin_methods
+            .get(self.builtin_resolver, type_name, name)?;
+        if self.method_sites.len() <= function_index {
+            self.method_sites.resize(function_index + 1, Vec::new());
+        }
+        let sites = &mut self.method_sites[function_index];
+        if sites.len() < code_len {
+            sites.resize(code_len, None);
+        }
+        if let Some(site) = sites.get_mut(ip) {
+            *site = Some((is_string, native));
+        }
+        Some(native)
     }
 }

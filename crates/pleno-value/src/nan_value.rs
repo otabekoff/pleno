@@ -453,6 +453,24 @@ impl NanValue {
     }
 
     #[inline]
+    pub fn is_array(self) -> bool {
+        self.tag() == TAG_ARRAY
+    }
+
+    /// The native function this holds, if it holds one.
+    #[inline]
+    pub fn as_native_function(self) -> Option<crate::NativeFunction> {
+        let payload = self.0 & PAYLOAD_MASK;
+        if self.is_f64() || self.tag() != TAG_FUNC || payload & 0x1 == 0 {
+            return None;
+        }
+        let ptr = native_address(payload) as *const ();
+        // SAFETY: a function payload with the low bit set was made by
+        // `native_payload` from a `NativeFunction`'s address (see `to_value`).
+        Some(unsafe { std::mem::transmute::<*const (), crate::NativeFunction>(ptr) })
+    }
+
+    #[inline]
     pub fn is_range(self) -> bool {
         self.tag() == TAG_RANGE
     }
