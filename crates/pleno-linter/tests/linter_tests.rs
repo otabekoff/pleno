@@ -492,3 +492,31 @@ fn test_no_undef() {
             .any(|msg| msg.rule_name == "no-undef")
     );
 }
+
+#[test]
+fn no_undef_suggests_the_closest_name_in_scope() {
+    let message = |input: &str| {
+        lint(input)
+            .into_iter()
+            .find(|msg| msg.rule_name == "no-undef")
+            .map(|msg| msg.message)
+    };
+    // The local a typo meant is often otherwise unused.
+    assert_eq!(
+        message("let length = 3;\nprint(lenght);").as_deref(),
+        Some("Usage of undefined variable 'lenght'; did you mean 'length'?")
+    );
+    assert_eq!(
+        message("pirnt(1);").as_deref(),
+        Some("Usage of undefined variable 'pirnt'; did you mean 'print'?")
+    );
+    assert_eq!(
+        message("print(zzqx);").as_deref(),
+        Some("Usage of undefined variable 'zzqx'")
+    );
+    // Reads in functions nothing calls are checked too, as `pleno check` does.
+    assert_eq!(
+        message("fn unused() { return mising; }").as_deref(),
+        Some("Usage of undefined variable 'mising'")
+    );
+}

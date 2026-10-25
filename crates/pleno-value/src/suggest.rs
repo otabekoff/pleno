@@ -36,7 +36,8 @@ pub fn edit_distance(a: &str, b: &str) -> usize {
 /// different candidate is as close.
 ///
 /// Close enough means at most `max(1, len / 3)` edits apart, ignoring case
-/// (a difference in case alone always counts as close); among equally close
+/// (a difference in case alone always counts as close) and fewer edits
+/// than either name has characters, so `b` never suggests `a`; among equally close
 /// candidates the one that also matches the case wins. With nothing that
 /// close, a name of four or more characters suggests the one candidate it
 /// starts, as `contains` does `containsKey`. `name` itself is never
@@ -69,7 +70,8 @@ where
             continue;
         }
         let folded = edit_distance(&lower, &candidate_lower);
-        if folded > threshold {
+        // Replacing every character of a short name is no spelling mistake.
+        if folded > threshold || folded >= length.min(candidate_length) {
             continue;
         }
         let key = (folded, edit_distance(name, candidate));
@@ -149,6 +151,14 @@ mod tests {
         // Two edits on a five-letter name is over the threshold of one.
         assert_eq!(best_match("pzshx", names), None);
         assert_eq!(best_match("anything", Vec::<&str>::new()), None);
+    }
+
+    #[test]
+    fn short_names_need_a_character_in_common() {
+        assert_eq!(best_match("b", ["a"]), None);
+        assert_eq!(best_match("y", ["x", "Y"]), Some("Y"));
+        assert_eq!(best_match("ab", ["cd"]), None);
+        assert_eq!(best_match("ab", ["ac"]), Some("ac"));
     }
 
     #[test]

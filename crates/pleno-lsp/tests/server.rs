@@ -191,6 +191,33 @@ fn lint_diagnostics_have_a_source_code_tag_and_full_range() {
 }
 
 #[test]
+fn diagnostics_for_misspelled_names_say_what_was_meant() {
+    let workspace = TempWorkspace::new("did-you-mean");
+    let uri = workspace.uri("main.pln");
+    let mut session = Session::new();
+    session.open(
+        &uri,
+        "let length = 3;\nprint(lenght);\n\
+         class A { fn go() { return 1; } fn run() { return this.og(); } }\nprint(A().run());\n",
+    );
+    let output = session.run();
+
+    let messages: Vec<&str> = output
+        .diagnostics(&uri)
+        .iter()
+        .filter_map(|d| d["message"].as_str())
+        .collect();
+    assert!(
+        messages.contains(&"Usage of undefined variable 'lenght'; did you mean 'length'?"),
+        "{messages:?}"
+    );
+    assert!(
+        messages.contains(&"A has no method 'og'; did you mean 'go'?"),
+        "{messages:?}"
+    );
+}
+
+#[test]
 fn settings_turn_rules_off() {
     let workspace = TempWorkspace::new("settings");
     let uri = workspace.uri("main.pln");
