@@ -46,3 +46,32 @@ let (left, right) = split(); // both sides
         "{formatted}"
     );
 }
+
+#[test]
+fn for_loop_patterns_round_trip() {
+    let source = "\
+for ((k, v) in pairs) {
+    print(k, v);
+}
+for ([first, ...rest] in rows) {
+    print(first, rest);
+}
+for ((i, (x, _)) in nested) {
+    print(i, x);
+}
+for (k, v in m) {
+    print(k, v);
+}
+";
+    assert_eq!(format(source), source);
+}
+
+#[test]
+fn messy_for_loop_patterns_are_normalized() {
+    let formatted = format("for(( k ,v )in pairs){print(k);}\nfor let [ a,..rest ] in rows { }\n");
+    assert_eq!(
+        formatted,
+        "for ((k, v) in pairs) {\n    print(k);\n}\nfor ([a, ...rest] in rows) {}\n"
+    );
+    assert_eq!(format(&formatted), formatted, "formatting is idempotent");
+}

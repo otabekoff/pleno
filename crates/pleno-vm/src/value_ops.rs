@@ -162,11 +162,17 @@ fn compare<T: PartialOrd>(opcode: Opcode, a: T, b: T) -> Result<bool, RuntimeErr
     })
 }
 
+/// `<`, `<=`, `>` and `>=`: numbers by value (Int and Float mixed), strings
+/// and characters by Unicode code point, one character at a time.
 pub fn compare_values(opcode: Opcode, left: Value, right: Value) -> Result<bool, RuntimeError> {
     match numbers(&left, &right) {
         Some(Numbers::Ints(a, b)) => compare(opcode, a, b),
         Some(Numbers::Floats(a, b)) => compare(opcode, a, b),
-        None => Err(operand_error("comparison", &left, &right)),
+        None => match (&left, &right) {
+            (Value::String(a), Value::String(b)) => compare(opcode, a.as_str(), b.as_str()),
+            (Value::Char(a), Value::Char(b)) => compare(opcode, a, b),
+            _ => Err(operand_error("comparison", &left, &right)),
+        },
     }
 }
 

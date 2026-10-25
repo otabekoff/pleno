@@ -39,7 +39,7 @@ A `.plc` file starts with an 8-byte header, followed by the compiled program:
 | Bytes | Contents |
 |-------|----------|
 | 0-3 | The magic bytes `PLNC` |
-| 4-7 | The bytecode format version, a little-endian 32-bit integer (currently `4`) |
+| 4-7 | The bytecode format version, a little-endian 32-bit integer (currently `5`) |
 | 8- | The compiled program (bincode-encoded) |
 
 `pleno run` checks the header before it reads anything else. A file that does not start with
@@ -154,7 +154,7 @@ pleno run script.pln \
     --allow-io false \
     --allow-network false
 
-# Allow reading and writing only under given path prefixes
+# Allow reading and writing only inside the given folders
 pleno run script.pln --allow-read data/ --allow-write out/
 ```
 

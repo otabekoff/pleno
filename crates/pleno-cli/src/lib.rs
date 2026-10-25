@@ -2205,28 +2205,39 @@ fn handle_run(args: &mut std::iter::Peekable<std::iter::Skip<std::env::Args>>) {
     let mut sandbox_active = false;
     let mut debug_mode = false;
 
+    // A sandbox option with a value that does not parse is an error: reading it
+    // as "no limit" or "allowed" would quietly run without the restriction.
+    fn option_value<T: std::str::FromStr>(
+        option: &str,
+        value: Option<String>,
+        expected: &str,
+    ) -> T {
+        match value.as_deref().map(str::parse::<T>) {
+            Some(Ok(parsed)) => parsed,
+            _ => {
+                eprintln!(
+                    "Error: {option} needs {expected}, got {}",
+                    value.map_or("nothing".to_string(), |v| format!("'{v}'"))
+                );
+                process::exit(2);
+            }
+        }
+    }
+
     let iter = args.by_ref();
     while let Some(arg) = iter.next() {
         if arg == "--max-memory" {
-            if let Some(m) = iter.next() {
-                max_memory = m.parse::<usize>().unwrap_or(0);
-                sandbox_active = true;
-            }
+            max_memory = option_value(&arg, iter.next(), "a number of bytes");
+            sandbox_active = true;
         } else if arg == "--max-instructions" {
-            if let Some(m) = iter.next() {
-                max_instructions = m.parse::<u64>().unwrap_or(0);
-                sandbox_active = true;
-            }
+            max_instructions = option_value(&arg, iter.next(), "a number of instructions");
+            sandbox_active = true;
         } else if arg == "--allow-io" {
-            if let Some(m) = iter.next() {
-                allow_io = m.parse::<bool>().unwrap_or(true);
-                sandbox_active = true;
-            }
+            allow_io = option_value(&arg, iter.next(), "true or false");
+            sandbox_active = true;
         } else if arg == "--allow-network" {
-            if let Some(m) = iter.next() {
-                allow_network = m.parse::<bool>().unwrap_or(true);
-                sandbox_active = true;
-            }
+            allow_network = option_value(&arg, iter.next(), "true or false");
+            sandbox_active = true;
         } else if arg == "--allow-read" {
             if let Some(m) = iter.next() {
                 allowed_read_paths.push(m);

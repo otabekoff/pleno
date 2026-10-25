@@ -92,6 +92,9 @@ pub fn path_exists(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, Run
 
     match &args[0] {
         Value::String(s) => {
+            if !vm.is_read_allowed(s.as_str()) {
+                return Err(RuntimeError::new("SecurityError: Read access denied"));
+            }
             let path = Path::new(s.as_str());
             Ok(Value::Bool(path.exists()))
         }
@@ -107,6 +110,9 @@ pub fn path_is_file(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, Ru
 
     match &args[0] {
         Value::String(s) => {
+            if !vm.is_read_allowed(s.as_str()) {
+                return Err(RuntimeError::new("SecurityError: Read access denied"));
+            }
             let path = Path::new(s.as_str());
             Ok(Value::Bool(path.is_file()))
         }
@@ -122,6 +128,9 @@ pub fn path_is_dir(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, Run
 
     match &args[0] {
         Value::String(s) => {
+            if !vm.is_read_allowed(s.as_str()) {
+                return Err(RuntimeError::new("SecurityError: Read access denied"));
+            }
             let path = Path::new(s.as_str());
             Ok(Value::Bool(path.is_dir()))
         }
@@ -146,6 +155,9 @@ pub fn path_resolve(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, Ru
 
     match &args[0] {
         Value::String(s) => {
+            if !vm.is_read_allowed(s.as_str()) {
+                return Err(RuntimeError::new("SecurityError: Read access denied"));
+            }
             let path = Path::new(s.as_str());
             match std::fs::canonicalize(path) {
                 Ok(abs_path) => Ok(Value::String(Rc::new(without_verbatim_prefix(

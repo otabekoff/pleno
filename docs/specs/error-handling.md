@@ -42,7 +42,7 @@ An error that nothing catches stops the program with exit status 1. It prints th
 Every error a `catch` receives from the runtime or from `throw Error(...)` is an `Error` instance with two String fields:
 
 - `message`: what went wrong, such as `division by zero`.
-- `name`: the kind of error. It is `Error` unless the runtime says more: `TypeError` for a value that does not match a type annotation, `SecurityError` for an operation a sandbox or permission flag denies, `SandboxError` for an exceeded instruction or memory limit (which ends the program; see [Security](./security-features.md)), `AssertionError` for a failed `assert`. For a class that extends `Error`, it is the class name.
+- `name`: the kind of error. It is `Error` unless the runtime says more: `TypeError` for a value that does not match a type annotation, `SecurityError` for an operation a sandbox or permission flag denies, `SandboxError` for an exceeded instruction or memory limit (which ends the program; see [Security](./security-features.md)), `RecursionError` when calls nest more than 100,000 deep (or calls from built-in functions such as `map` back into Pleno more than 200 deep), `AssertionError` for a failed `assert`. For a class that extends `Error`, it is the class name.
 
 Printing an error, or putting it in a string, gives `name: message`. Because runtime errors are `Error` instances, `catch (e: Error)` handles them too:
 
