@@ -108,6 +108,9 @@ pub struct Compiler {
     /// so a `?.` inside that object continues the same chain.
     in_postfix_chain: bool,
     expr_depth: usize,
+    /// One past the furthest instruction a jump lands on, so `retarget_last`
+    /// never removes a `Move` that a jump goes to.
+    jump_targets_end: usize,
     pub is_async: bool,
     pub profile: BuildProfile,
     _source_map: pleno_diagnostics::SourceMap,
@@ -159,6 +162,7 @@ impl Compiler {
             optional_chain_jumps: Vec::new(),
             in_postfix_chain: false,
             expr_depth: 0,
+            jump_targets_end: 0,
             is_async: false,
             profile: BuildProfile::Debug,
         }
@@ -372,6 +376,7 @@ impl Compiler {
                 Ok(())
             }
             StmtKind::Assign { name, value } => {
+                let value_start = self.chunk.code.len();
                 let value_reg = self.compile_expr(value)?;
                 if let Some(local) = self.resolve_local(name) {
                     if !local.mutable {
@@ -382,7 +387,9 @@ impl Compiler {
                     }
                     if local.is_boxed {
                         self.emit(Opcode::SetCell, local.reg, value_reg, 0);
-                    } else {
+                    } else if local.ty.is_some()
+                        || !self.retarget_last(value_reg, local.reg, value_start)
+                    {
                         self.emit(Opcode::Move, local.reg, value_reg, 0);
                     }
                     self.ownership_states
@@ -1220,6 +1227,27 @@ impl Compiler {
                 match op {
                     pleno_ast::BinaryOp::And => self.compile_logical_and(left, right),
                     pleno_ast::BinaryOp::Or => self.compile_logical_or(left, right),
+                    pleno_ast::BinaryOp::Add | pleno_ast::BinaryOp::Subtract
+                        if matches!(
+                            right.kind,
+                            ExprKind::Literal(Literal::Int(value)) if (0..=255).contains(&value)
+                        ) =>
+                    {
+                        // `x + 1` and `x - 1`: the constant goes in the instruction.
+                        let ExprKind::Literal(Literal::Int(value)) = right.kind else {
+                            unreachable!()
+                        };
+                        let left_reg = self.compile_expr(left)?;
+                        let dest = self.registers.allocate()?;
+                        let opcode = if matches!(op, pleno_ast::BinaryOp::Add) {
+                            Opcode::AddInt
+                        } else {
+                            Opcode::SubInt
+                        };
+                        self.emit(opcode, dest, left_reg, value as u8);
+                        self.free_temp(left_reg);
+                        Ok(dest)
+                    }
                     _ => {
                         let left_reg = self.compile_expr(left)?;
                         let right_reg = self.compile_expr(right)?;
@@ -1729,8 +1757,58 @@ impl Compiler {
         Ok(())
     }
 
+    /// Makes the instruction that just computed the temporary `temp` write
+    /// `target` instead, so that `target = temp` needs no `Move`. Only for
+    /// an instruction emitted at or after `start` (by the expression that
+    /// produced `temp`) that only writes its result register, and only when
+    /// no jump lands after it (that path would skip the result). The caller
+    /// must not read `temp` afterwards.
+    fn retarget_last(&mut self, temp: u8, target: u8, start: usize) -> bool {
+        let len = self.chunk.code.len();
+        if len == 0
+            || len - 1 < start
+            || self.jump_targets_end > len - 1
+            || self.is_local_reg(temp)
+            || Some(temp) == self.last_expr_register
+        {
+            return false;
+        }
+        let last = self.chunk.code[len - 1];
+        let pure_result = matches!(
+            last.opcode(),
+            Opcode::Add
+                | Opcode::Sub
+                | Opcode::Mul
+                | Opcode::Div
+                | Opcode::Mod
+                | Opcode::AddInt
+                | Opcode::SubInt
+                | Opcode::Neg
+                | Opcode::Not
+                | Opcode::Eq
+                | Opcode::Ne
+                | Opcode::Lt
+                | Opcode::Le
+                | Opcode::Gt
+                | Opcode::Ge
+                | Opcode::LoadInt
+                | Opcode::LoadConst
+                | Opcode::LoadNull
+                | Opcode::LoadTrue
+                | Opcode::LoadFalse
+                | Opcode::GetIndex
+                | Opcode::CallRegs
+        );
+        if last.a() != temp || !pure_result {
+            return false;
+        }
+        self.chunk.code[len - 1] = Instruction::new(last.opcode(), target, last.b(), last.c());
+        true
+    }
+
     fn patch_jump(&mut self, jump_index: usize) -> Result<(), CompileError> {
         let jump_from = jump_index as isize + 1;
+        self.jump_targets_end = self.jump_targets_end.max(self.chunk.code.len() + 1);
         let jump_to = self.chunk.code.len() as isize;
         let offset = jump_to - jump_from;
         let offset =
@@ -1743,6 +1821,7 @@ impl Compiler {
 
     fn patch_jump_to(&mut self, jump_index: usize, jump_to: usize) -> Result<(), CompileError> {
         let jump_from = jump_index as isize + 1;
+        self.jump_targets_end = self.jump_targets_end.max(jump_to + 1);
         let jump_to = jump_to as isize;
         let offset = jump_to - jump_from;
         let offset =
@@ -2294,8 +2373,12 @@ impl Compiler {
             if all_positional && let Some(block) = self.registers.allocate_block(args.len() + 1) {
                 for (index, arg) in args.iter().enumerate() {
                     if let pleno_ast::CallArg::Positional(expr) = arg {
+                        let start = self.chunk.code.len();
                         let arg_reg = self.compile_expr(expr)?;
-                        self.emit(Opcode::Move, block + 1 + index as u8, arg_reg, 0);
+                        let slot = block + 1 + index as u8;
+                        if !self.retarget_last(arg_reg, slot, start) {
+                            self.emit(Opcode::Move, slot, arg_reg, 0);
+                        }
                         self.free_temp(arg_reg);
                     }
                 }
@@ -2362,13 +2445,7 @@ impl Compiler {
             ctx.continue_target = Some(continue_target);
         }
 
-        let one_reg = self.registers.allocate()?;
-        self.emit(Opcode::LoadInt, one_reg, 1, 0);
-        let sum_reg = self.registers.allocate()?;
-        self.emit(Opcode::Add, sum_reg, start_reg, one_reg);
-        self.emit(Opcode::Move, start_reg, sum_reg, 0);
-        self.free_temp(one_reg);
-        self.free_temp(sum_reg);
+        self.emit(Opcode::AddInt, start_reg, start_reg, 1);
 
         self.emit_loop(loop_start)?;
         self.patch_jump(jump_to_end)?;
@@ -2399,13 +2476,7 @@ impl Compiler {
             ctx.continue_target = Some(continue_target);
         }
 
-        let one_reg = self.registers.allocate()?;
-        self.emit(Opcode::LoadInt, one_reg, 1, 0);
-        let sum_reg = self.registers.allocate()?;
-        self.emit(Opcode::Add, sum_reg, start_reg, one_reg);
-        self.emit(Opcode::Move, start_reg, sum_reg, 0);
-        self.free_temp(one_reg);
-        self.free_temp(sum_reg);
+        self.emit(Opcode::AddInt, start_reg, start_reg, 1);
 
         self.emit_loop(loop_start)?;
         let loop_end = self.chunk.code.len();

@@ -115,6 +115,16 @@ impl DebugContext {
         None
     }
 
+    /// Whether `should_pause` or stepping can stop execution: false while no
+    /// debugger is attached, so the VM skips the checks.
+    #[inline]
+    pub fn is_active(&self) -> bool {
+        self.skip_next_check
+            || self.stepping
+            || !self.breakpoints.is_empty()
+            || self.state != DebugState::Running
+    }
+
     pub fn should_pause(
         &mut self,
         func_idx: usize,
