@@ -1,93 +1,59 @@
 {
   "comments": {
-    // symbol used for single line comment. Remove this entry if your language does not support line comments
-    "lineComment": {
-      "comment": "//",
-      "noIndent": false
-    },
-    // symbols used for start and end a block comment. Remove this entry if your language does not support block comments
-    "blockComment": [
-      "/*",
-      "*/"
-    ]
+    "lineComment": "//",
+    "blockComment": ["/*", "*/"]
   },
   "brackets": [
-    [
-      "{",
-      "}"
-    ],
-    [
-      "[",
-      "]"
-    ],
-    [
-      "(",
-      ")"
-    ]
+    ["{", "}"],
+    ["[", "]"],
+    ["(", ")"]
   ],
   "autoClosingPairs": [
-    {
-      "open": "{",
-      "close": "}"
-    },
-    {
-      "open": "[",
-      "close": "]"
-    },
-    {
-      "open": "(",
-      "close": ")"
-    },
-    {
-      "open": "\"",
-      "close": "\""
-    },
-    {
-      "open": "'",
-      "close": "'"
-    }
+    { "open": "{", "close": "}" },
+    { "open": "[", "close": "]" },
+    { "open": "(", "close": ")" },
+    { "open": "\"", "close": "\"", "notIn": ["string", "comment"] },
+    { "open": "`", "close": "`", "notIn": ["string", "comment"] },
+    { "open": "'", "close": "'", "notIn": ["string", "comment"] },
+    { "open": "/*", "close": " */", "notIn": ["string"] }
   ],
+  "autoCloseBefore": ";:.,=}])> \n\t",
   "surroundingPairs": [
-    {
-      "open": "{",
-      "close": "}"
-    },
-    {
-      "open": "[",
-      "close": "]"
-    },
-    {
-      "open": "(",
-      "close": ")"
-    },
-    {
-      "open": "\"",
-      "close": "\""
-    },
-    {
-      "open": "'",
-      "close": "'"
-    }
+    ["{", "}"],
+    ["[", "]"],
+    ["(", ")"],
+    ["\"", "\""],
+    ["`", "`"],
+    ["'", "'"]
   ],
+  "wordPattern": "[A-Za-z_][A-Za-z0-9_]*|\\d[\\d_]*(?:\\.\\d[\\d_]*)?(?:[eE][+-]?\\d+)?",
   "indentationRules": {
-    "increaseIndentPattern": "^.*\\{[^}]*$",
-    "decreaseIndentPattern": "^\\s*\\}.*$"
+    "increaseIndentPattern": "^.*(\\{[^}]*|\\([^)]*|\\[[^\\]]*)$",
+    "decreaseIndentPattern": "^\\s*[}\\])].*$"
   },
   "onEnterRules": [
     {
-      "beforeText": {
-        "pattern": "^\\s*///"
-      },
-      "action": {
-        "indent": "none",
-        "appendText": "/// "
-      }
+      "beforeText": "^\\s*///.*$",
+      "action": { "indent": "none", "appendText": "/// " }
+    },
+    {
+      "beforeText": "^\\s*/\\*\\*(?!/)([^*]|\\*(?!/))*$",
+      "afterText": "^\\s*\\*/$",
+      "action": { "indent": "indentOutdent", "appendText": " * " }
+    },
+    {
+      "beforeText": "^\\s*/\\*\\*(?!/)([^*]|\\*(?!/))*$",
+      "action": { "indent": "none", "appendText": " * " }
+    },
+    {
+      "beforeText": "^(\\t|[ ])*[ ]\\*([ ]([^*]|\\*(?!/))*)?$",
+      "action": { "indent": "none", "appendText": "* " }
     }
   ],
   "folding": {
     "markers": {
-      "start": "^\\s*//\\s*#region\\b",
-      "end": "^\\s*//\\s*#endregion\\b"
+      "start": "^\\s*//\\s*#?region\\b",
+      "end": "^\\s*//\\s*#?endregion\\b"
     }
   }
 }

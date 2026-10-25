@@ -4,91 +4,373 @@
   "scopeName": "source.pleno",
   "patterns": [
     {
-      "include": "#comments"
-    },
-    {
-      "include": "#strings"
-    },
-    {
-      "include": "#numbers"
-    },
-    {
-      "include": "#keywords"
-    },
-    {
-      "include": "#types"
-    },
-    {
-      "include": "#operators"
-    },
-    {
-      "include": "#constants"
+      "include": "#code"
     }
   ],
   "repository": {
+    "code": {
+      "patterns": [
+        {
+          "include": "#comments"
+        },
+        {
+          "include": "#strings"
+        },
+        {
+          "include": "#numbers"
+        },
+        {
+          "include": "#annotations"
+        },
+        {
+          "include": "#declarations"
+        },
+        {
+          "include": "#keywords"
+        },
+        {
+          "include": "#constants"
+        },
+        {
+          "include": "#types"
+        },
+        {
+          "include": "#calls"
+        },
+        {
+          "include": "#operators"
+        },
+        {
+          "include": "#punctuation"
+        }
+      ]
+    },
     "comments": {
       "patterns": [
         {
-          "name": "comment.line.documentation.pleno",
-          "match": "///.*$"
+          "name": "comment.line.triple-slash.documentation.pleno",
+          "begin": "///",
+          "end": "$",
+          "beginCaptures": {
+            "0": {
+              "name": "punctuation.definition.comment.pleno"
+            }
+          }
         },
         {
           "name": "comment.line.double-slash.pleno",
-          "match": "//.*$"
+          "begin": "//",
+          "end": "$",
+          "beginCaptures": {
+            "0": {
+              "name": "punctuation.definition.comment.pleno"
+            }
+          }
         },
         {
           "name": "comment.block.pleno",
           "begin": "/\\*",
-          "end": "\\*/"
+          "end": "\\*/",
+          "captures": {
+            "0": {
+              "name": "punctuation.definition.comment.pleno"
+            }
+          }
         }
       ]
     },
     "strings": {
       "patterns": [
         {
+          "name": "string.quoted.raw.pleno",
+          "begin": "\\br\"",
+          "end": "\"",
+          "beginCaptures": {
+            "0": {
+              "name": "punctuation.definition.string.begin.pleno"
+            }
+          },
+          "endCaptures": {
+            "0": {
+              "name": "punctuation.definition.string.end.pleno"
+            }
+          }
+        },
+        {
           "name": "string.quoted.double.pleno",
           "begin": "\"",
           "end": "\"",
+          "beginCaptures": {
+            "0": {
+              "name": "punctuation.definition.string.begin.pleno"
+            }
+          },
+          "endCaptures": {
+            "0": {
+              "name": "punctuation.definition.string.end.pleno"
+            }
+          },
           "patterns": [
             {
-              "name": "constant.character.escape.pleno",
-              "match": "\\\\."
+              "include": "#string-content"
+            }
+          ]
+        },
+        {
+          "name": "string.template.pleno",
+          "begin": "`",
+          "end": "`",
+          "beginCaptures": {
+            "0": {
+              "name": "punctuation.definition.string.template.begin.pleno"
+            }
+          },
+          "endCaptures": {
+            "0": {
+              "name": "punctuation.definition.string.template.end.pleno"
+            }
+          },
+          "patterns": [
+            {
+              "include": "#string-content"
+            }
+          ]
+        },
+        {
+          "name": "string.quoted.single.pleno",
+          "match": "'(?:[^'\\\\]|\\\\.)'",
+          "captures": {
+            "0": {
+              "patterns": [
+                {
+                  "include": "#escapes"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "string-content": {
+      "patterns": [
+        {
+          "include": "#escapes"
+        },
+        {
+          "name": "meta.template.expression.pleno",
+          "contentName": "meta.embedded.line.pleno",
+          "begin": "\\$\\{",
+          "end": "\\}",
+          "beginCaptures": {
+            "0": {
+              "name": "punctuation.definition.template-expression.begin.pleno"
+            }
+          },
+          "endCaptures": {
+            "0": {
+              "name": "punctuation.definition.template-expression.end.pleno"
+            }
+          },
+          "patterns": [
+            {
+              "include": "#interpolation-braces"
+            },
+            {
+              "include": "#code"
             }
           ]
         }
       ]
     },
+    "interpolation-braces": {
+      "begin": "\\{",
+      "end": "\\}",
+      "patterns": [
+        {
+          "include": "#interpolation-braces"
+        },
+        {
+          "include": "#code"
+        }
+      ]
+    },
+    "escapes": {
+      "name": "constant.character.escape.pleno",
+      "match": "\\\\."
+    },
     "numbers": {
       "patterns": [
         {
-          "name": "constant.numeric.float.pleno",
-          "match": "\\b\\d+\\.\\d+\\b"
+          "name": "constant.numeric.hex.pleno",
+          "match": "\\b0[xX][0-9a-fA-F][0-9a-fA-F_]*\\b"
         },
         {
-          "name": "constant.numeric.integer.pleno",
-          "match": "\\b\\d+\\b"
+          "name": "constant.numeric.binary.pleno",
+          "match": "\\b0[bB][01][01_]*\\b"
+        },
+        {
+          "name": "constant.numeric.octal.pleno",
+          "match": "\\b0[oO][0-7][0-7_]*\\b"
+        },
+        {
+          "name": "constant.numeric.decimal.pleno",
+          "match": "\\b\\d[\\d_]*(?:\\.\\d[\\d_]*)?(?:[eE][+-]?\\d[\\d_]*)?\\b"
+        }
+      ]
+    },
+    "annotations": {
+      "match": "(@)([A-Za-z_]\\w*(?:\\.[A-Za-z_]\\w*)*)",
+      "name": "meta.decorator.pleno",
+      "captures": {
+        "1": {
+          "name": "punctuation.decorator.pleno"
+        },
+        "2": {
+          "name": "entity.name.function.decorator.pleno"
+        }
+      }
+    },
+    "declarations": {
+      "patterns": [
+        {
+          "match": "\\b(fn)\\s+([A-Za-z_]\\w*)",
+          "captures": {
+            "1": {
+              "name": "storage.type.function.pleno"
+            },
+            "2": {
+              "name": "entity.name.function.pleno"
+            }
+          }
+        },
+        {
+          "match": "\\b(class|interface|enum|module|type)\\s+([A-Za-z_]\\w*)",
+          "captures": {
+            "1": {
+              "name": "storage.type.pleno"
+            },
+            "2": {
+              "name": "entity.name.type.pleno"
+            }
+          }
+        },
+        {
+          "match": "\\b(extends|implements|extend)\\s+([A-Za-z_]\\w*)",
+          "captures": {
+            "1": {
+              "name": "storage.modifier.pleno"
+            },
+            "2": {
+              "name": "entity.other.inherited-class.pleno"
+            }
+          }
+        },
+        {
+          "match": "\\b(property)\\s+([A-Za-z_]\\w*)",
+          "captures": {
+            "1": {
+              "name": "storage.type.property.pleno"
+            },
+            "2": {
+              "name": "variable.other.property.pleno"
+            }
+          }
+        },
+        {
+          "match": "\\b(macro)\\s+([A-Za-z_]\\w*)",
+          "captures": {
+            "1": {
+              "name": "storage.type.macro.pleno"
+            },
+            "2": {
+              "name": "entity.name.function.macro.pleno"
+            }
+          }
+        },
+        {
+          "match": "\\b(constructor)\\s*(?=\\()",
+          "captures": {
+            "1": {
+              "name": "entity.name.function.constructor.pleno"
+            }
+          }
         }
       ]
     },
     "keywords": {
       "patterns": [
         {
-          "name": "keyword.control.pleno",
-          "match": "\\b(let|const|mut|fn|return|if|else|for|while|match|class|interface|enum|import|from|as|export|module|case|do|label|break|continue|try|catch|finally|throw|abstract|implements|extends|constructor|property|get|set|static|override|label|typeof|extend|operator|macro|lazy|move|type|where|yield|implicit|explicit|init|deinit|del|global|nonlocal|struct|union|is|in|new|async|await)\\b"
+          "name": "keyword.control.flow.pleno",
+          "match": "(?<!\\.)\\b(if|else|while|for|do|break|continue|return|match|case|try|catch|finally|throw|await)\\b"
+        },
+        {
+          "name": "keyword.control.import.pleno",
+          "match": "(?<!\\.)\\b(import|from|export|as)\\b"
+        },
+        {
+          "name": "storage.type.pleno",
+          "match": "(?<!\\.)\\b(let|const|fn|class|interface|enum|type|module|property|operator|macro)\\b"
         },
         {
           "name": "storage.modifier.pleno",
-          "match": "\\b(public|private|protected|internal|static|abstract|override|deep|readonly|required|virtual|implicit|explicit|global|nonlocal|mut|const|immutable|out)\\b"
+          "match": "(?<!\\.)\\b(mut|static|public|private|protected|internal|abstract|async|lazy|deep|move|out|extends|implements|extend|get|set)\\b"
+        },
+        {
+          "name": "keyword.operator.expression.pleno",
+          "match": "(?<!\\.)\\b(in|is|new)\\b"
+        }
+      ]
+    },
+    "constants": {
+      "patterns": [
+        {
+          "name": "constant.language.boolean.pleno",
+          "match": "\\b(true|false)\\b"
+        },
+        {
+          "name": "constant.language.null.pleno",
+          "match": "\\bnull\\b"
+        },
+        {
+          "name": "variable.language.pleno",
+          "match": "\\b(this|super)\\b"
+        },
+        {
+          "name": "variable.language.wildcard.pleno",
+          "match": "\\b_\\b"
         }
       ]
     },
     "types": {
       "patterns": [
         {
-          "name": "storage.type.pleno",
-          "match": "\\b(Int|Float|String|Bool|Char|Void|Any|Null|Map|Set|Promise|Result|Option|Self|self)\\b"
+          "name": "support.type.primitive.pleno",
+          "match": "\\b(Int|Float|Number|String|Bool|Char|Void|Any|Null)\\b"
+        },
+        {
+          "name": "support.class.pleno",
+          "match": "\\b(Array|Map|Set|Tuple|Object|Function|Promise|Result|Option|Error|Self)\\b"
+        },
+        {
+          "name": "variable.other.constant.pleno",
+          "match": "\\b[A-Z][A-Z0-9_]+\\b"
+        },
+        {
+          "name": "entity.name.type.pleno",
+          "match": "\\b[A-Z][A-Za-z0-9_]*\\b"
         }
       ]
+    },
+    "calls": {
+      "match": "\\b([a-z_][A-Za-z0-9_]*)(!)?\\s*(?=\\()",
+      "captures": {
+        "1": {
+          "name": "entity.name.function.call.pleno"
+        },
+        "2": {
+          "name": "keyword.operator.macro.pleno"
+        }
+      }
     },
     "operators": {
       "patterns": [
@@ -97,52 +379,76 @@
           "match": "\\|>"
         },
         {
-          "name": "keyword.operator.null-coalescing.pleno",
+          "name": "keyword.operator.nullish.pleno",
           "match": "\\?\\?"
         },
         {
-          "name": "keyword.operator.safe-navigation.pleno",
+          "name": "keyword.operator.optional.pleno",
           "match": "\\?\\."
         },
         {
-          "name": "keyword.operator.arrow.pleno",
+          "name": "storage.type.function.arrow.pleno",
           "match": "=>|->"
         },
         {
+          "name": "keyword.operator.spread.pleno",
+          "match": "\\.\\.\\."
+        },
+        {
           "name": "keyword.operator.range.pleno",
-          "match": "\\.\\.=?|\\.\\.\\.?"
+          "match": "\\.\\.=?"
         },
         {
           "name": "keyword.operator.comparison.pleno",
-          "match": "==|!=|<=|>=|<|>"
+          "match": "==|!=|<=|>="
         },
         {
-          "name": "keyword.operator.assignment.pleno",
-          "match": "="
+          "name": "keyword.operator.assignment.compound.pleno",
+          "match": "\\+=|-=|\\*=|/=|%="
         },
         {
-          "name": "keyword.operator.arithmetic.pleno",
-          "match": "\\+|\\-|\\*|/|%|\\+\\+|\\-\\-"
+          "name": "keyword.operator.increment.pleno",
+          "match": "\\+\\+|--"
         },
         {
           "name": "keyword.operator.logical.pleno",
           "match": "&&|\\|\\||!"
         },
         {
-          "name": "keyword.operator.bitwise.pleno",
-          "match": "&|\\||\\^|~|<<|>>"
+          "name": "keyword.operator.assignment.pleno",
+          "match": "="
         },
         {
-          "name": "keyword.operator.other.pleno",
-          "match": "\\?|\\!|\\*|@|#|\\$"
+          "name": "keyword.operator.relational.pleno",
+          "match": "<|>"
+        },
+        {
+          "name": "keyword.operator.arithmetic.pleno",
+          "match": "[-+*/%]"
+        },
+        {
+          "name": "keyword.operator.bitwise.pleno",
+          "match": "[&|^~]"
+        },
+        {
+          "name": "keyword.operator.type.optional.pleno",
+          "match": "\\?"
         }
       ]
     },
-    "constants": {
+    "punctuation": {
       "patterns": [
         {
-          "name": "constant.language.pleno",
-          "match": "\\b(true|false|null|this|super)\\b"
+          "name": "punctuation.terminator.statement.pleno",
+          "match": ";"
+        },
+        {
+          "name": "punctuation.separator.comma.pleno",
+          "match": ","
+        },
+        {
+          "name": "punctuation.accessor.pleno",
+          "match": "\\."
         }
       ]
     }

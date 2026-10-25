@@ -4,7 +4,7 @@
     "patterns": [
         {
             "name": "fenced_code.block.language.pleno",
-            "begin": "^(\\s*)(`{3,}|~{3,})\\s*(pleno|pln)\\s*$",
+            "begin": "^(\\s*)(`{3,}|~{3,})\\s*(?i:(pleno|pln)(\\s+[^`~]*)?$)",
             "beginCaptures": {
                 "2": {
                     "name": "punctuation.definition.fence.markdown"
@@ -19,7 +19,7 @@
                     "name": "punctuation.definition.fence.markdown"
                 }
             },
-            "contentName": "source.pleno",
+            "contentName": "meta.embedded.block.pleno",
             "patterns": [
                 {
                     "include": "source.pleno"
