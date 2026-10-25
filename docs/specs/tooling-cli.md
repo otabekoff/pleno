@@ -41,7 +41,7 @@ A `.plc` file starts with an 8-byte header, followed by the compiled program:
 | Bytes | Contents |
 |-------|----------|
 | 0-3 | The magic bytes `PLNC` |
-| 4-7 | The bytecode format version, a little-endian 32-bit integer (currently `1`) |
+| 4-7 | The bytecode format version, a little-endian 32-bit integer (currently `2`) |
 | 8- | The compiled program (bincode-encoded) |
 
 `pleno run` checks the header before it reads anything else. A file that does not start with

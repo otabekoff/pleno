@@ -19,6 +19,7 @@ Notable changes to Pleno. The format follows [Keep a Changelog](https://keepacha
 - Caught errors no longer carry `peakMemory` and `instructions`; `vmStats()` from `std:reflect` returns them.
 - Ints and Floats compare by value: `5.0 == 5` is true, so `assert.equal(10 / 2, 5)` passes. Sets, `contains` and `indexOf` follow the same rule (`Set([5, 5.0])` has one element).
 - `.plc` files start with a `PLNC` magic number and a bytecode format version, checked on load; files from another Pleno version, older headerless files and truncated files are rejected with an error asking to recompile.
+- Faster execution: recursive `fib(30)` runs in 0.12 s instead of 2.1 s, a 10-million-step loop in 0.26 s instead of 0.9 s, and `map`/`filter`/`reduce` over a million elements about 3 times faster. Calls pass their arguments in registers, global lookups are cached, common instruction pairs run as one, and strings and big integers no longer pile up until the next object collection. The bytecode format version is now 2, so `.plc` files must be compiled again.
 
 ## 0.2.0 - 2026-10-24
 

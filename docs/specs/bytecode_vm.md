@@ -62,7 +62,8 @@ Each instruction is 4 bytes:
 - `SetGlobal` (Globals[Constants[B]] = R[A])
 
 #### Calls
-- `Call (R[A] = R[B](R[C]...R[C+N]))`
+- `Call` (R[A] = R[B](...R[C]): the arguments are in the array in R[C]; used for spread arguments)
+- `CallRegs` (R[A] = R[B](R[B+1], ..., R[B+C]): the usual call, with the arguments in the registers after the callee)
 - `Return`  (return R[A])
 - `Closure` (R[A] = closure(proto[B]))
 
@@ -83,8 +84,8 @@ Each instruction is 4 bytes:
 
 #### Fast Paths (Optional v0.1)
 - `LoadInt`  (R[A] = smallint(B))
-- `AddInt`   (R[A] = R[B] + immediate)
-- `SubInt`   (R[A] = R[B] - immediate)
+- `AddInt`   (R[A] = R[B] + C, for a constant C from 0 to 255; the same as `Add` with an `Int` for every type of R[B])
+- `SubInt`   (R[A] = R[B] - C, likewise)
 
 ## Bytecode Structures
 
