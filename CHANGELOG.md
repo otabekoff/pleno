@@ -20,6 +20,10 @@ Notable changes to Pleno. The format follows [Keep a Changelog](https://keepacha
 - Ints and Floats compare by value: `5.0 == 5` is true, so `assert.equal(10 / 2, 5)` passes. Sets, `contains` and `indexOf` follow the same rule (`Set([5, 5.0])` has one element).
 - `.plc` files start with a `PLNC` magic number and a bytecode format version, checked on load; files from another Pleno version, older headerless files and truncated files are rejected with an error asking to recompile.
 
+### Fixed
+
+- `let mut y = x;` made `y` share `x`'s storage, so assigning either changed both (in every scope, for numbers and strings alike).
+
 ## 0.2.0 - 2026-10-24
 
 ### Changed
