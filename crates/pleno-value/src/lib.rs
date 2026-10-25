@@ -1,5 +1,6 @@
 pub mod gc;
 pub mod nan_value;
+pub mod suggest;
 pub mod text;
 
 pub use gc::{GcObject, GcRc, MarkAndSweepGC};
@@ -54,6 +55,9 @@ pub trait VMProvider {
     fn register_module(&mut self, name: String, value: Value);
     fn register_global(&mut self, name: String, value: Value);
     fn set_builtin_resolver(&mut self, resolver: fn(&str, &str) -> Option<NativeFunction>);
+    /// Every method name `set_builtin_resolver`'s resolver knows, for any type:
+    /// the names "did you mean" suggestions choose from.
+    fn set_builtin_method_names(&mut self, _names: &'static [&'static str]) {}
     fn add_timer(&mut self, delay_ms: u64, callback: Value, args: Vec<Value>) -> u64;
     #[cfg(feature = "net")]
     fn register_io(
@@ -629,6 +633,30 @@ pub struct StackFrame {
     pub span: Option<pleno_common::Span>,
 }
 
+impl StackFrame {
+    /// The line that stands for the frames a deep backtrace leaves out.
+    pub fn omitted(count: usize) -> Self {
+        Self {
+            function_name: format!("... {count} more frames"),
+            span: None,
+        }
+    }
+
+    /// Whether this is an `omitted` line rather than a function.
+    pub fn is_omitted(&self) -> bool {
+        self.span.is_none() && self.function_name.starts_with("... ")
+    }
+
+    /// `at f`, or the `omitted` line as it is.
+    pub fn describe(&self) -> String {
+        if self.is_omitted() {
+            self.function_name.clone()
+        } else {
+            format!("at {}", self.function_name)
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RuntimeError {
     pub message: String,
@@ -699,7 +727,7 @@ impl pleno_diagnostics::ToDiagnostic for RuntimeError {
                 // For now, let's just use the main span.
                 // We can format stack trace into the message or notes.
             }
-            diagnostic = diagnostic.with_note(format!("at {}", frame.function_name));
+            diagnostic = diagnostic.with_note(frame.describe());
         }
         diagnostic
     }

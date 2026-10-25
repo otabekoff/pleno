@@ -24,9 +24,9 @@
     "@fontsource-variable/jetbrains-mono": "^5.3.0",
     "@lezer/highlight": "1",
     "husky": "^9.1.7",
-    "lint-staged": "^16.2.7",
+    "lint-staged": "^17.6.0",
     "standard-version": "^9.5.0",
-    "vitepress": "^2.0.0-alpha.15",
+    "vitepress": "^2.0.0-alpha.20",
     "vue": "^3.5.44"
   },
   "lint-staged": {
@@ -36,7 +36,7 @@
   },
   "dependencies": {
     "cosmiconfig-typescript-loader": "^6.3.0",
-    "jiti": "1.21.0",
+    "jiti": "2.7.0",
     "shiki": "^3.21.0"
   }
 }
