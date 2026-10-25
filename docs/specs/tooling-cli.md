@@ -154,7 +154,7 @@ pleno run script.pln \
     --allow-io false \
     --allow-network false
 
-# Allow reading and writing only under given path prefixes
+# Allow reading and writing only inside the given folders
 pleno run script.pln --allow-read data/ --allow-write out/
 ```
 

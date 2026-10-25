@@ -382,7 +382,7 @@ pub fn assert_length_of(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Valu
         as usize;
 
     let actual_len = match &args[0] {
-        Value::String(s) => s.len(),
+        Value::String(s) => pleno_value::text::char_len(s),
         Value::Array(a) => a.borrow().len(),
         Value::Map(m) => m.borrow().entries.len(),
         _ => {

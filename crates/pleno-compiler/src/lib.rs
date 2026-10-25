@@ -3348,7 +3348,7 @@ impl Compiler {
                 compiler.patch_jump(skip_jump)?;
             }
 
-            compiler.emit_param_type_check(param, decl.span)?;
+            compiler.emit_param_type_check(param, &decl.generics, decl.span)?;
         }
 
         if let Some(fields) = instance_fields {
@@ -3605,10 +3605,12 @@ impl Compiler {
     /// Checks a parameter's annotation at function entry, throwing
     /// `TypeError: parameter 'x' expected Int, got String` on a mismatch; an
     /// `Int` passed for a `Float` annotation becomes a `Float`. Emits nothing
-    /// for an unannotated or `Any` parameter.
+    /// for an unannotated or `Any` parameter. `generics` are the function's
+    /// type parameters, whose constraints the message names.
     fn emit_param_type_check(
         &mut self,
         param: &pleno_ast::Param,
+        generics: &[pleno_ast::GenericParam],
         span: Span,
     ) -> Result<(), CompileError> {
         let Some(ty_name) = param.ty.as_deref().filter(|ty| *ty != "Any") else {
@@ -3636,9 +3638,17 @@ impl Compiler {
 
         let skip_jump = self.emit_jump(Opcode::JumpIf, result_reg);
 
+        // A constrained type parameter names its constraint: `T: Named`.
+        let expected = match generics
+            .iter()
+            .find(|g| g.name == ty_name && !g.constraints.is_empty())
+        {
+            Some(generic) => format!("{}: {}", ty_name, generic.constraints.join(" & ")),
+            None => ty_name.to_string(),
+        };
         let msg = format!(
             "TypeError: parameter '{}' expected {}, got ",
-            param.name, ty_name
+            param.name, expected
         );
         let msg_reg = self.registers.allocate()?;
         let msg_const = self.add_constant(Value::String(Rc::new(msg)));
@@ -3762,7 +3772,7 @@ impl Compiler {
                 )
             });
             if !mentions_generic {
-                compiler.emit_param_type_check(param, param.span)?;
+                compiler.emit_param_type_check(param, &[], param.span)?;
             }
         }
 
