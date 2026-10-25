@@ -23,6 +23,9 @@ All notable changes to the Pleno extension for VS Code. The format follows
 
 ### Changed
 
+- The extension needs VS Code 1.91 or later (it was 1.75), because it now uses version 11 of
+  the language client. The **Pleno** output channel is a log channel, so its lines carry a
+  time and level and **Set Log Level** filters them.
 - The Testing view finds `describe(...)` and `test(...)` from `std:test`, nested as in the source,
   and shows each test's result and failure message from `pleno test`. It used to guess tests from
   function names and pass flags (`--filter`, `--coverage`) that `pleno test` does not have.

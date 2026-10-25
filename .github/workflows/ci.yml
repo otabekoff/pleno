@@ -81,6 +81,32 @@ jobs:
       - name: Run programs through it
         run: node scripts/playground-smoke.mjs
 
+  vscode-extension:
+    name: VS Code extension
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ide/vscode
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: ide/vscode/package-lock.json
+      - name: Install dependencies
+        run: npm ci
+      - name: Type-check
+        run: npm run compile:tsc
+      - name: Lint
+        run: npm run lint
+      - name: Bundle
+        run: npm run package
+      - name: Run the extension tests in VS Code
+        # Downloads VS Code; it needs a display, which xvfb provides.
+        run: xvfb-run -a npm test
+
   benchmark:
     name: Benchmark Regression Check
     # Compares the change against its base branch on the same runner.
