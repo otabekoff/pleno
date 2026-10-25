@@ -44,6 +44,9 @@ pub struct VM {
     pub fast_loop: bool,
     /// Names of deprecated functions already warned about.
     deprecation_warnings: std::collections::HashSet<String>,
+    /// How deeply calls from native code back into Pleno can nest before a
+    /// `RecursionError`; lower it where the stack is small (WebAssembly).
+    pub max_nested_runs: usize,
     pub gc: pleno_value::gc::GCManager,
     pub registers: Vec<NanValue>,
     pub frames: Vec<CallFrame>,
@@ -145,6 +148,7 @@ impl VMProvider for VM {
     /// plain call of a bytecode function or closure gets its frame directly;
     /// anything else goes through `call_ext_with`.
     fn call_with(&mut self, callee: &Value, args: &[Value]) -> Result<Value, RuntimeError> {
+        self.check_call_depth()?;
         let (function_index, closure_state) = match callee {
             Value::Function(index) => (*index, None),
             Value::Closure(state) => (state.borrow().function, Some(state.clone())),
@@ -543,10 +547,7 @@ impl VMProvider for VM {
                 return false;
             }
             if !config.allowed_read_paths.is_empty() {
-                return config
-                    .allowed_read_paths
-                    .iter()
-                    .any(|p| path.starts_with(p));
+                return path_allowed(path, &config.allowed_read_paths);
             }
         }
         true
@@ -558,10 +559,7 @@ impl VMProvider for VM {
                 return false;
             }
             if !config.allowed_write_paths.is_empty() {
-                return config
-                    .allowed_write_paths
-                    .iter()
-                    .any(|p| path.starts_with(p));
+                return path_allowed(path, &config.allowed_write_paths);
             }
         }
         true
@@ -872,6 +870,7 @@ impl VM {
             sandbox_config: None,
             fast_loop: true,
             deprecation_warnings: std::collections::HashSet::new(),
+            max_nested_runs: DEFAULT_MAX_NESTED_RUNS,
             gc,
             registers: vec![NanValue::null(); 256],
             frames: Vec::new(),
@@ -1543,6 +1542,15 @@ impl VM {
     }
 
     fn run_until(&mut self, depth: usize) -> Result<ExecutionStatus, RuntimeError> {
+        // Each nested run (a callback from `map`, an operator, a test body) uses
+        // stack space in the Rust code that runs it, so unbounded recursion
+        // through callbacks would overflow that stack instead of failing.
+        if self.run_depths.len() >= self.max_nested_runs {
+            return Err(RuntimeError::new(format!(
+                "RecursionError: maximum call depth exceeded ({} nested callbacks)",
+                self.max_nested_runs
+            )));
+        }
         self.run_depths.push(depth);
         let res = self.run_until_internal(depth);
         self.run_depths.pop();
@@ -2447,7 +2455,7 @@ impl VM {
                         }
                         Value::String(s) => {
                             if name == "length" {
-                                Value::Int(s.len() as i64)
+                                Value::Int(pleno_value::text::char_len(&s) as i64)
                             } else {
                                 return Err(RuntimeError::new("unknown string field"));
                             }
@@ -3263,7 +3271,7 @@ impl VM {
                                         Value::Bool(r.inclusive)
                                     }
                                     Value::String(s) if name == "len" || name == "length" => {
-                                        Value::Int(s.len() as i64)
+                                        Value::Int(pleno_value::text::char_len(s) as i64)
                                     }
                                     Value::Array(a) if name == "len" || name == "length" => {
                                         Value::Int(a.borrow().len() as i64)
@@ -3426,25 +3434,27 @@ impl VM {
                             })?))
                         }
                         (Value::String(s), Value::Int(idx)) => {
-                            let idx = *idx as usize;
-                            if idx >= s.len() {
+                            let ch = usize::try_from(*idx)
+                                .ok()
+                                .and_then(|idx| pleno_value::text::char_at(s, idx));
+                            let Some(ch) = ch else {
                                 return Err(self.throw_runtime_error("string index out of bounds"));
-                            }
-                            let char = s.chars().nth(idx).unwrap_or('\0');
-                            Ok(Value::String(Rc::new(char.to_string())))
+                            };
+                            Ok(Value::String(Rc::new(ch.to_string())))
                         }
                         (Value::String(s), Value::Range(range)) => {
-                            let len = s.len();
-                            let start = range.start.unwrap_or(0).max(0) as usize;
-                            let end = range
-                                .end
-                                .map(|e| if range.inclusive { e + 1 } else { e })
-                                .unwrap_or(len as i64)
-                                .max(0) as usize;
-                            let start = start.min(len);
-                            let end = end.min(len).max(start);
-                            // Rough byte slicing for now, should ideally be char-based but strings in pleno might be bytes/utf8
-                            let sub_s = &s[start..end];
+                            // Character positions, clamped like array slices.
+                            let len = pleno_value::text::char_len(s);
+                            let start =
+                                pleno_value::text::clamp_position(range.start.unwrap_or(0), len);
+                            let end = match range.end {
+                                Some(e) if range.inclusive => {
+                                    pleno_value::text::clamp_position(e.saturating_add(1), len)
+                                }
+                                Some(e) => pleno_value::text::clamp_position(e, len),
+                                None => len,
+                            };
+                            let sub_s = pleno_value::text::char_slice(s, start, end);
                             Ok(Value::String(Rc::new(sub_s.to_string())))
                         }
                         (Value::Tuple(tuple), Value::Int(idx)) => {
@@ -6158,6 +6168,7 @@ impl VM {
         return_reg: usize,
         current_owner: Option<MethodOwner>,
     ) -> Result<bool, RuntimeError> {
+        self.check_call_depth()?;
         let (function_index, closure_state) = if let Some(index) = callee.as_function_index() {
             (index, None)
         } else if callee.is_closure() {
@@ -6249,6 +6260,7 @@ impl VM {
         args_already_processed: bool,
         opts: CallOptions,
     ) -> Result<(), RuntimeError> {
+        self.check_call_depth()?;
         let CallOptions {
             return_override,
             mut closure_state,
@@ -6841,6 +6853,18 @@ impl VM {
         }
     }
 
+    /// Fails a call that would go deeper than `MAX_CALL_DEPTH` frames, so
+    /// runaway recursion raises a catchable `RecursionError` instead of
+    /// growing memory without bound.
+    fn check_call_depth(&self) -> Result<(), RuntimeError> {
+        if self.frames.len() >= MAX_CALL_DEPTH {
+            return Err(RuntimeError::new(format!(
+                "RecursionError: maximum call depth exceeded ({MAX_CALL_DEPTH} calls)"
+            )));
+        }
+        Ok(())
+    }
+
     /// Ends the program at a sandbox limit. Unlike other errors it does not
     /// unwind to a `catch`: a program that caught it could run on forever.
     fn sandbox_limit_error(&mut self, limit: &str) -> RuntimeError {
@@ -7300,6 +7324,97 @@ fn deprecation_note(annotations: &[pleno_value::RuntimeAnnotation]) -> Option<Rc
         Some(Value::String(note)) => note.to_string(),
         _ => String::new(),
     }))
+}
+
+/// The deepest a chain of calls can go. Frames live on the heap, so this only
+/// bounds memory: about 200 bytes and a few registers per call.
+const MAX_CALL_DEPTH: usize = 100_000;
+
+/// How many runs can be nested inside each other by default: calls from
+/// native code back into Pleno (`map` callbacks, operators, test bodies). Each
+/// uses about 8 KB of Rust stack in a release build, more in a debug build or
+/// under a sanitizer; see `VM::max_nested_runs`.
+pub const DEFAULT_MAX_NESTED_RUNS: usize = 200;
+
+/// Whether `path` is inside one of the `allowed` folders (or is one of the
+/// allowed files). Both sides are compared as normalized absolute paths, one
+/// component at a time, so `data/../secret` is not inside `data` and `data2`
+/// is not inside `data`.
+fn path_allowed(path: &str, allowed: &[String]) -> bool {
+    let Some(path) = normalized_path(path) else {
+        return false;
+    };
+    allowed
+        .iter()
+        .filter_map(|base| normalized_path(base))
+        .any(|base| path_starts_with(&path, &base))
+}
+
+/// `path` made absolute against the working directory, with `.` and `..`
+/// removed and symbolic links resolved in the part of it that exists.
+fn normalized_path(path: &str) -> Option<std::path::PathBuf> {
+    use std::path::{Component, Path, PathBuf};
+    let path = Path::new(path);
+    let absolute = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        std::env::current_dir().ok()?.join(path)
+    };
+    let mut lexical = PathBuf::new();
+    for component in absolute.components() {
+        match component {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                lexical.pop();
+            }
+            other => lexical.push(other.as_os_str()),
+        }
+    }
+    // Resolve links in the longest part that exists; a file about to be
+    // written does not exist yet.
+    let mut existing = lexical.clone();
+    let mut missing = Vec::new();
+    while !existing.exists() {
+        match existing.file_name() {
+            Some(name) => {
+                missing.push(name.to_os_string());
+                existing.pop();
+            }
+            None => break,
+        }
+    }
+    let mut resolved = fs::canonicalize(&existing)
+        .map(strip_verbatim_prefix)
+        .unwrap_or(existing);
+    for name in missing.iter().rev() {
+        resolved.push(name);
+    }
+    Some(resolved)
+}
+
+/// `C:\dir` for Windows' `\\?\C:\dir`, so a canonical path compares equal to
+/// one that was not canonicalized.
+fn strip_verbatim_prefix(path: std::path::PathBuf) -> std::path::PathBuf {
+    match path.to_str().and_then(|text| text.strip_prefix(r"\\?\")) {
+        Some(rest) if !rest.starts_with("UNC") => std::path::PathBuf::from(rest),
+        _ => path,
+    }
+}
+
+/// `path` starts with `base`, component by component; on Windows without
+/// regard to case, as its file systems compare names.
+fn path_starts_with(path: &std::path::Path, base: &std::path::Path) -> bool {
+    if cfg!(windows) {
+        let lower = |p: &std::path::Path| {
+            p.components()
+                .map(|c| c.as_os_str().to_string_lossy().to_lowercase())
+                .collect::<Vec<_>>()
+        };
+        let (path, base) = (lower(path), lower(base));
+        path.len() >= base.len() && path[..base.len()] == base[..]
+    } else {
+        path.starts_with(base)
+    }
 }
 
 /// Registers that `append_in_place` scans at most for copies of a string.

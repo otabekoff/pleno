@@ -1,7 +1,7 @@
 use indexmap::{IndexMap, IndexSet};
 use pleno_value::{
     ArrayState, IteratorState, MapState, RuntimeError, SetState, TupleState, VMProvider, Value,
-    ValueKey,
+    ValueKey, text,
 };
 // use std::collections::{HashMap, HashSet};
 use std::io::Write;
@@ -928,12 +928,21 @@ fn native_string_split(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value,
         Some(Value::String(s)) => s.as_str(),
         _ => ",",
     };
-    let parts: Vec<Value> = s
-        .split(sep)
-        .map(|p| Value::String(Rc::new(p.to_string())))
-        .collect();
+    // An empty separator splits the text into its characters.
+    let parts: Vec<Value> = if sep.is_empty() {
+        s.chars()
+            .map(|c| Value::String(Rc::new(c.to_string())))
+            .collect()
+    } else {
+        s.split(sep)
+            .map(|p| Value::String(Rc::new(p.to_string())))
+            .collect()
+    };
     Ok(Value::Array(vm.get_gc().allocate(ArrayState::new(parts))?))
 }
+/// `s.substring(start, end?)`: the characters from `start` up to `end`. Like
+/// JavaScript, positions are clamped to `0..=length` and swapped when
+/// `start > end`.
 fn native_string_substring(
     _vm: &mut dyn VMProvider,
     args: &[Value],
@@ -942,33 +951,43 @@ fn native_string_substring(
         Value::String(s) => s.as_str(),
         _ => return Err(RuntimeError::new("expected string")),
     };
+    let len = text::char_len(s);
     let start = match args.get(1) {
-        Some(Value::Int(i)) => *i as usize,
+        Some(Value::Int(i)) => text::clamp_position(*i, len),
         _ => 0,
     };
     let end = match args.get(2) {
-        Some(Value::Int(i)) => *i as usize,
-        _ => s.len(),
+        Some(Value::Int(i)) => text::clamp_position(*i, len),
+        _ => len,
     };
-    let start = start.min(s.len());
-    let end = end.min(s.len()).max(start);
-    Ok(Value::String(Rc::new(s[start..end].to_string())))
+    let (start, end) = if start <= end {
+        (start, end)
+    } else {
+        (end, start)
+    };
+    Ok(Value::String(Rc::new(
+        text::char_slice(s, start, end).to_string(),
+    )))
 }
+/// `s.charAt(i)`: the character at position `i` as a string, or null when
+/// `i` is negative or not less than the length.
 fn native_string_char_at(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
     let s = match &args[0] {
         Value::String(s) => s.as_str(),
         _ => return Err(RuntimeError::new("expected string")),
     };
     let idx = match args.get(1) {
-        Some(Value::Int(i)) => *i as usize,
+        Some(Value::Int(i)) => *i,
         _ => 0,
     };
-    if idx >= s.len() {
-        Ok(Value::Null)
-    } else {
-        Ok(Value::String(Rc::new(s[idx..idx + 1].to_string())))
+    if idx < 0 {
+        return Ok(Value::Null);
     }
+    Ok(text::char_at(s, idx as usize)
+        .map(|c| Value::String(Rc::new(c.to_string())))
+        .unwrap_or(Value::Null))
 }
+/// `s.indexOf(sub)`: the character position of the first `sub`, or -1.
 fn native_string_index_of(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
     let s = match &args[0] {
         Value::String(s) => s.as_str(),
@@ -978,17 +997,34 @@ fn native_string_index_of(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Va
         Some(Value::String(s)) => s.as_str(),
         _ => return Ok(Value::Int(-1)),
     };
-    Ok(Value::Int(s.find(search).map(|i| i as i64).unwrap_or(-1)))
+    Ok(Value::Int(
+        s.find(search)
+            .map(|byte| text::char_index(s, byte) as i64)
+            .unwrap_or(-1),
+    ))
 }
+/// `s.repeat(n)`: `s` written `n` times. A negative `n` is an error.
 fn native_string_repeat(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
     let s = match &args[0] {
         Value::String(s) => s.as_str(),
         _ => return Err(RuntimeError::new("expected string")),
     };
     let n = match args.get(1) {
-        Some(Value::Int(i)) => *i as usize,
+        Some(Value::Int(i)) => *i,
         _ => 0,
     };
+    if n < 0 {
+        return Err(RuntimeError::new(format!(
+            "repeat count must not be negative, got {n}"
+        )));
+    }
+    let n = usize::try_from(n).unwrap_or(usize::MAX);
+    if s.len()
+        .checked_mul(n)
+        .is_none_or(|total| total > isize::MAX as usize)
+    {
+        return Err(RuntimeError::new("repeat result is too long"));
+    }
     Ok(Value::String(Rc::new(s.repeat(n))))
 }
 
