@@ -1117,10 +1117,12 @@ impl VM {
                 Ok(Some(status)) => return Ok(status),
                 Ok(None) => {}
                 Err(err) if err.handled => {}
-                Err(err) if err.message.contains("uncaught exception") => return Err(err),
+                Err(err) if err.fatal || err.message.contains("uncaught exception") => {
+                    return Err(err);
+                }
                 Err(err) => {
                     // Let `catch` blocks see runtime errors, as normal execution does.
-                    let unwound = self.throw_runtime_error(&err.message);
+                    let unwound = self.rethrow(err);
                     if !unwound.handled {
                         return Err(unwound);
                     }
@@ -1562,7 +1564,7 @@ impl VM {
                     if err.handled {
                         continue;
                     }
-                    if err.message.contains("uncaught exception") {
+                    if err.fatal || err.message.contains("uncaught exception") {
                         return Err(err);
                     }
                     let message = err.message.clone();
@@ -1793,14 +1795,12 @@ impl VM {
                 && self.instruction_count.is_multiple_of(100)
             {
                 if config.max_instructions > 0 && self.instruction_count > config.max_instructions {
-                    return Err(
-                        self.throw_runtime_error("SandboxError: instruction limit exceeded")
-                    );
+                    return Err(self.sandbox_limit_error("instruction limit exceeded"));
                 }
                 if config.max_memory > 0
                     && self.gc.allocated_bytes > config.max_memory + self.gc.grace_bytes
                 {
-                    return Err(self.throw_runtime_error("SandboxError: memory limit exceeded"));
+                    return Err(self.sandbox_limit_error("memory limit exceeded"));
                 }
             }
 
@@ -1830,7 +1830,7 @@ impl VM {
                                 self.registers[base + a] = NanValue::from_value(&iter);
                             }
                             Err(err) => {
-                                return Err(self.throw_runtime_error(&err.message));
+                                return Err(self.rethrow(err));
                             }
                         }
                     } else if let Value::Object(obj) = &source {
@@ -1896,7 +1896,7 @@ impl VM {
                                 self.registers[base + a] = NanValue::from_value(&val);
                             }
                             Err(err) => {
-                                return Err(self.throw_runtime_error(&err.message));
+                                return Err(self.rethrow(err));
                             }
                         }
                     } else if let Value::Object(obj) = &iter {
@@ -3693,6 +3693,12 @@ impl VM {
                     )? {
                         continue;
                     }
+                    // Without its own `!=`, a class's `==` decides: `a != b` is
+                    // `!(a == b)`.
+                    if let Some(equal) = self.call_equality_operator(&left, &right)? {
+                        self.registers[base + a] = NanValue::from_bool(!equal);
+                        continue;
+                    }
                     self.registers[base + a] =
                         NanValue::from_bool(!pleno_value::values_equal(&left, &right));
                 }
@@ -5222,7 +5228,7 @@ impl VM {
                                 Ok(result) => {
                                     self.registers[base + a] = NanValue::from_value(&result)
                                 }
-                                Err(err) => return Err(self.throw_runtime_error(&err.message)),
+                                Err(err) => return Err(self.rethrow(err)),
                             }
                         }
                         // Not a method (a field holding a function, a getter's
@@ -5866,6 +5872,35 @@ impl VM {
         }
     }
 
+    /// Runs `left == right` with the `==` operator of `left`'s class, if it
+    /// has one, and returns whether the result is truthy.
+    fn call_equality_operator(
+        &mut self,
+        left: &Value,
+        right: &Value,
+    ) -> Result<Option<bool>, RuntimeError> {
+        let Value::Object(obj) = left else {
+            return Ok(None);
+        };
+        let info = obj
+            .borrow()
+            .class
+            .as_ref()
+            .and_then(|class| class.borrow().operators.get("==").cloned());
+        let Some(info) = info else {
+            return Ok(None);
+        };
+        let method = Value::BoundMethod(self.gc.allocate(BoundMethodState {
+            receiver: left.clone(),
+            function: info.function.clone(),
+            owner: info.owner.clone(),
+            visibility: info.visibility.clone(),
+        })?);
+        let result =
+            self.call_ext_with(method, std::slice::from_ref(right), CallOptions::default())?;
+        Ok(Some(value_ops::is_truthy(&result)))
+    }
+
     fn try_dispatch_operator(
         &mut self,
         target_reg: usize,
@@ -6090,7 +6125,7 @@ impl VM {
             );
             match native(self, &args) {
                 Ok(result) => self.registers[return_reg] = NanValue::from_value(&result),
-                Err(err) => return Err(self.throw_runtime_error(&err.message)),
+                Err(err) => return Err(self.rethrow(err)),
             }
             return Ok(());
         }
@@ -6798,6 +6833,31 @@ impl VM {
         Ok(())
     }
 
+    /// Ends the program at a sandbox limit. Unlike other errors it does not
+    /// unwind to a `catch`: a program that caught it could run on forever.
+    fn sandbox_limit_error(&mut self, limit: &str) -> RuntimeError {
+        let mut error = RuntimeError::fatal(format!("SandboxError: {limit}"));
+        self.enrich_error(&mut error);
+        error
+    }
+
+    /// Throws `err`, which a native function or callback returned, as a Pleno
+    /// exception that `catch` can handle. A fatal error (a sandbox limit) or one
+    /// already handled passes through unchanged. An exception that escaped a
+    /// callback already reads `uncaught exception: ...`; it is thrown again with
+    /// its own message.
+    fn rethrow(&mut self, err: RuntimeError) -> RuntimeError {
+        if err.fatal || err.handled {
+            return err;
+        }
+        let message = err
+            .message
+            .strip_prefix("uncaught exception: ")
+            .unwrap_or(&err.message)
+            .to_string();
+        self.throw_runtime_error(&message)
+    }
+
     fn throw_runtime_error(&mut self, message: &str) -> RuntimeError {
         // Provide a small grace buffer for error handling if we hit memory limits
         if self.gc.max_bytes > 0 && self.gc.grace_bytes == 0 {
@@ -6903,7 +6963,7 @@ impl VM {
                     self.registers[return_reg] = NanValue::from_value(&result);
                 }
                 Err(err) => {
-                    return Err(self.throw_runtime_error(&err.message));
+                    return Err(self.rethrow(err));
                 }
             },
             Value::BoundNativeMethod(state) => {
@@ -6918,7 +6978,7 @@ impl VM {
                         self.registers[return_reg] = NanValue::from_value(&result);
                     }
                     Err(err) => {
-                        return Err(self.throw_runtime_error(&err.message));
+                        return Err(self.rethrow(err));
                     }
                 }
             }
