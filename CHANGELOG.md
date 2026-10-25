@@ -38,6 +38,7 @@ Notable changes to Pleno. The format follows [Keep a Changelog](https://keepacha
 
 ### Fixed
 
+- Runaway recursion crashed the process: plain recursion grew memory until an allocation failed, and recursion through callbacks (`map`, operators, `test` inside `afterEach`) overflowed the stack. Both now raise a catchable `RecursionError`: calls can nest 100,000 deep, and calls from built-in functions back into Pleno 200 deep (64 in the browser playground). Found by the `fuzz_run` fuzz target.
 - Code in a module could call the top-level functions and classes of the program that imported it (`helper()` in a module found the main program's `helper`). A module now sees its own names, its imports and the built-in globals only, and still gets the built-in `print` or `typeof` when the main program defines its own.
 - A callback given to `map`, `filter` and the other natives that call back returned its first argument instead of `null` when that argument was a map with a `variant` key: `[Ok(1)].map(|r| => null)` was `[Ok(1)]`.
 - An array or map literal made only of constants (`[]`, `[0, 0]`, `{"n": 0}`) was created once and shared: a function returning `let a = []; a.push(1); return a;` gave the same array on every call, so it grew. Each evaluation now creates a new one.
