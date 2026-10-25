@@ -4,7 +4,10 @@
 # release installer uses, and installs the VS Code extension from ide/vscode.
 # Run it again after pulling to update.
 #
-# Usage: scripts/dev-install.sh [--skip-tools] [--skip-extension]
+# A toolchain that the extension's "Install Toolchain" command downloaded is
+# removed, because the extension would use it instead of this build.
+#
+# Usage: scripts/dev-install.sh [--skip-tools] [--skip-extension] [--keep-extension-toolchain]
 # Needs: Rust (cargo); for the extension also Node.js (npm) and the `code` command.
 set -e
 
@@ -13,11 +16,13 @@ INSTALL_DIR="$HOME/.pleno/bin"
 TOOLS="pleno plm pleno-lsp pleno-dap pleno-repl"
 SKIP_TOOLS=0
 SKIP_EXTENSION=0
+KEEP_EXTENSION_TOOLCHAIN=0
 
 for arg in "$@"; do
     case "$arg" in
         --skip-tools) SKIP_TOOLS=1 ;;
         --skip-extension) SKIP_EXTENSION=1 ;;
+        --keep-extension-toolchain) KEEP_EXTENSION_TOOLCHAIN=1 ;;
         *) echo "unknown option: $arg" >&2; exit 2 ;;
     esac
 done
@@ -30,6 +35,15 @@ require() {
         exit 1
     fi
 }
+
+# Two runs at once would build into the same folders and break each other.
+mkdir -p "$ROOT/target"
+LOCK="$ROOT/target/.dev-install.lock"
+if ! mkdir "$LOCK" 2>/dev/null; then
+    echo "another dev-install is running from $ROOT; wait for it to finish (or remove $LOCK)" >&2
+    exit 1
+fi
+trap 'rmdir "$LOCK"' EXIT
 
 step "Installing Pleno from $ROOT ($(git -C "$ROOT" rev-parse --abbrev-ref HEAD 2>/dev/null), $(git -C "$ROOT" rev-parse --short HEAD 2>/dev/null))"
 
@@ -61,6 +75,19 @@ if [ "$SKIP_TOOLS" = 0 ]; then
             warn "$found comes before $INSTALL_DIR/$tool on PATH; remove it (for cargo installs: cargo uninstall pleno-cli pleno-lsp pleno-dap pleno-repl)"
         fi
     done
+
+    # The extension prefers a toolchain it downloaded itself over PATH.
+    for own in "$HOME/.config/Code/User/globalStorage/pleno.pleno-language/toolchain" \
+        "$HOME/Library/Application Support/Code/User/globalStorage/pleno.pleno-language/toolchain"; do
+        if [ -d "$own" ]; then
+            if [ "$KEEP_EXTENSION_TOOLCHAIN" = 1 ]; then
+                warn "the extension uses its own toolchain in $own instead of $INSTALL_DIR"
+            else
+                step "Removing the toolchain the extension downloaded, so it uses this build"
+                rm -rf "$own"
+            fi
+        fi
+    done
 fi
 
 if [ "$SKIP_EXTENSION" = 0 ]; then
@@ -71,20 +98,13 @@ if [ "$SKIP_EXTENSION" = 0 ]; then
     (
         cd "$ROOT/ide/vscode"
         npm ci --no-audit --no-fund
-        npm run package
-        npx --yes @vscode/vsce@3.2.1 package --no-dependencies --out "$VSIX"
+        # vsce builds the extension itself (the `vscode:prepublish` script). Node's
+        # deprecation notices come from vsce and VS Code's CLI, not from this script.
+        NODE_OPTIONS=--no-deprecation npx --yes @vscode/vsce@3.2.1 package --no-dependencies --out "$VSIX"
     )
     step "Installing the extension"
-    code --install-extension "$VSIX" --force
+    NODE_OPTIONS=--no-deprecation code --install-extension "$VSIX" --force
     rm -f "$VSIX"
-
-    # A toolchain installed by the extension's own command comes before PATH.
-    for own in "$HOME/.config/Code/User/globalStorage/pleno.pleno-language/toolchain" \
-        "$HOME/Library/Application Support/Code/User/globalStorage/pleno.pleno-language/toolchain"; do
-        if [ -d "$own" ]; then
-            warn "the extension has its own toolchain in $own, which it uses instead of $INSTALL_DIR; run 'Pleno: Uninstall Toolchain' in VS Code to use this build"
-        fi
-    done
 fi
 
 step "Installed"

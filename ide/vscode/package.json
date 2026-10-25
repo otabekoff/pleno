@@ -39,7 +39,6 @@
     "install-local": "npm run pack -- --out pleno-language.vsix && code --install-extension pleno-language.vsix --force"
   },
   "devDependencies": {
-    "@types/glob": "^9.0.0",
     "@types/mocha": "^10.0.10",
     "@types/node": "25.x",
     "@types/vscode": "^1.75.0",
