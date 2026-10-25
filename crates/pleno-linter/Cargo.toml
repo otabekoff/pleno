@@ -8,3 +8,6 @@ license.workspace = true
 pleno-ast = { workspace = true }
 pleno-lexer = { workspace = true }
 pleno-parser = { workspace = true }
+pleno-compiler = { workspace = true }
+pleno-vm = { workspace = true }
+pleno-stdlib = { workspace = true }

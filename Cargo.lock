@@ -1519,8 +1519,11 @@ name = "pleno-linter"
 version = "0.2.0"
 dependencies = [
  "pleno-ast",
+ "pleno-compiler",
  "pleno-lexer",
  "pleno-parser",
+ "pleno-stdlib",
+ "pleno-vm",
 ]
 
 [[package]]
