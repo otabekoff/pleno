@@ -35,7 +35,7 @@ Status: not started. `for (c in "abc")` is a compile error (`for loop expects ar
 
 ### Byte-level string access
 
-Status: not started. There are no byte APIs (`bytes()`, `byteLength`). Positions are meant to count Unicode characters; see "Bugs that block the freeze" below.
+Status: not started. There are no byte APIs (`bytes()`, `byteLength`). Every string position and length counts Unicode characters.
 
 ### Map literals with non-string keys
 
@@ -47,11 +47,11 @@ Status: `@pure` has an incomplete runtime check (experimental in 1.0). Planned: 
 
 ### Checked built-in annotations
 
-Status: `@override`, `@sealed` and `@deprecated` are plain annotations with no effect.
+Status: `@override` and `@sealed` are plain annotations with no effect. (`@deprecated` warns since 2026-10-26.)
 
 - `@override`: a compile error when no parent class has the method.
 - `@sealed`: a class that cannot be extended.
-- `@deprecated("message")`: a warning from `pleno check`, `pleno lint` and the language server where the name is used. The 1.x compatibility promise needs this mechanism for deprecations.
+- `@deprecated` on classes, fields and imported functions in `pleno check` (calls to deprecated top-level functions of the same file and every call at run time already warn).
 
 ### More runtime type checks
 
@@ -59,7 +59,7 @@ Status: partial.
 
 - Lambda parameter annotations are not checked.
 - Return annotations are not checked for `Void`, for annotations that mention a type parameter, and for `@inline` functions.
-- Generic constraints (`T: Shape`) are checked only with explicit type arguments; inferred type arguments are not checked.
+- With inferred type arguments, constraints are checked for parameters annotated `T`, not for the elements of a `T[]` parameter.
 
 ### Static type checking
 
@@ -118,7 +118,7 @@ Status: `Router` and `Server` are experimental in 1.0. Missing: middleware (`app
 
 ### Sandboxing
 
-Status: `std:security` is experimental. Planned: path rules that normalize paths (today `--allow-read data/` is a string prefix test that `data/../x` passes), a time limit, and restricting `File.exists`.
+Status: `std:security` is experimental. Planned: a time limit. (Path rules normalize paths, `Path.exists` and the other path probes are checked, and `Sandbox.run` errors keep their name, since 2026-10-26.)
 
 ## Tooling
 
@@ -142,6 +142,4 @@ Status: `std:security` is experimental. Planned: path rules that normalize paths
 
 These are not features but differences between the reference and the implementation; the reference describes the intended behavior.
 
-- String positions: `length`, `indexOf`, `substring`, `charAt` and `s[a..b]` count UTF-8 bytes while `s[i]` counts characters; `substring` and `charAt` inside a multi-byte character panic the VM. `"abc".split("")` returns `["", "a", "b", "c", ""]`.
 - `@pure` rejects non-empty array and map literals.
-- Generic constraints report `Type 'Unknown'` for a class's explicit type argument (`Box<Int>(5)`), and `T: Comparable` rejects `Int` although `Int` is marked as implementing `Comparable` internally.
