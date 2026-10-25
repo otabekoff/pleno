@@ -48,7 +48,7 @@ Status: `@override`, `@sealed` and `@deprecated` are plain annotations with no e
 
 Status: partial.
 
-- Lambda parameter annotations are not checked.
+- Lambda parameter annotations that name a type parameter of an enclosing function (`fn f<T>() { let g = (x: T) => x; }`) are not checked.
 - Return annotations are not checked for `Void`, for annotations that mention a type parameter, and for `@inline` functions.
 - Generic constraints (`T: Shape`) are checked only with explicit type arguments; inferred type arguments are not checked.
 

@@ -40,6 +40,7 @@ Notable changes to Pleno. The format follows [Keep a Changelog](https://keepacha
 
 ### Fixed
 
+- Parameter annotations on lambdas and anonymous functions were not checked: `fn(x: Int) => x` accepted a string. They are now checked when the lambda is called, like a named function's (`TypeError: parameter 'x' expected Int, got String`), with `Int` widening to `Float` and optional and union annotations. Arrow lambdas take annotations too: `(x: Int) => x * 2`. A failed parameter check now points at the parameter instead of the first line of the file. Unannotated lambdas cost the same as before.
 - A sandbox limit (`--max-instructions`, `--max-memory`, `Sandbox` options) could be caught by `try`/`catch`, so a program could catch it and run on past its limit. Reaching a limit now ends the sandboxed program; the program that started a `Sandbox` still catches it as a `SandboxError` (before, that error arrived named `Error`).
 - `a != b` ignored a class's `operator ==`: with `==` overloaded, `V(1) != V(1)` was `true`. It is now `!(a == b)` unless the class defines its own `operator !=`.
 - An error thrown inside a callback (`map`, `filter`, ...) and caught outside read `uncaught exception: uncaught exception: ...`; it now has its own message.

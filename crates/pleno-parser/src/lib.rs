@@ -2610,13 +2610,19 @@ impl Parser {
                     ));
                 }
             };
+            // `(x: Int) => ...`: an annotation, checked when the lambda is called.
+            let ty = if self.matches(&TokenKind::Colon) {
+                Some(self.parse_type()?)
+            } else {
+                None
+            };
             let param_end = self.previous_span().end;
             let param_span = Span::new(name_start, param_end);
             params.push(pleno_ast::Param {
                 span: param_span,
                 name,
                 name_span: name_token.span,
-                ty: None,
+                ty,
                 default: None,
                 is_variadic: false,
                 is_keyword_only: false,
