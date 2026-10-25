@@ -1,15 +1,13 @@
 .vscode/**
 .vscode-test/**
 .gitignore
-vsc-extension-quickstart.md
 node_modules/**
 src/**
 tsconfig.json
-.eslintrc.json
 eslint.config.mjs
 esbuild.js
-hello.pln
 *.vsix
 # Only the esbuild bundle ships; `tsc` output and tests stay out.
 out/**
 !out/extension.js
+resources/icon.svg
