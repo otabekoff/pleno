@@ -13,8 +13,10 @@ pub fn xml_parse(
         _ => return Err(RuntimeError::new("xml.parse expects string")),
     };
 
+    // quick-xml reports `&entity;` as separate `GeneralRef` events, and its text trimming would
+    // trim around each reference, so text runs are collected raw and trimmed/unescaped as a whole.
     let mut reader = Reader::from_str(input);
-    reader.config_mut().trim_text(true);
+    let mut text = String::new();
 
     let mut buf = Vec::new();
     let mut stack: Vec<(String, IndexMap<String, Value>, Vec<Value>)> = Vec::new();
@@ -34,15 +36,19 @@ pub fn xml_parse(
     let mut root_value: Option<Value> = None;
 
     loop {
-        match reader.read_event_into(&mut buf) {
+        let event = reader.read_event_into(&mut buf);
+        if !matches!(event, Ok(Event::Text(_) | Event::GeneralRef(_))) {
+            flush_text(&mut text, &mut stack)?;
+        }
+        match event {
             Ok(Event::Start(e)) => {
-                let name = String::from_utf8_lossy(e.name().as_ref()).to_string();
+                let name = e.name().as_ref().to_string();
                 let mut attributes = IndexMap::new();
                 for attr in e.attributes() {
                     let attr =
                         attr.map_err(|err| RuntimeError::new(format!("XML attr error: {}", err)))?;
-                    let key = String::from_utf8_lossy(attr.key.as_ref()).to_string();
-                    let val = String::from_utf8_lossy(&attr.value).to_string();
+                    let key = attr.key.as_ref().to_string();
+                    let val = attr.value.into_owned();
                     attributes.insert(key, Value::String(Rc::new(val)));
                 }
                 stack.push((name, attributes, Vec::new()));
@@ -73,13 +79,13 @@ pub fn xml_parse(
             }
             Ok(Event::Empty(e)) => {
                 // Self-closing tag <tag />
-                let name = String::from_utf8_lossy(e.name().as_ref()).to_string();
+                let name = e.name().as_ref().to_string();
                 let mut attributes = IndexMap::new();
                 for attr in e.attributes() {
                     let attr =
                         attr.map_err(|err| RuntimeError::new(format!("XML attr error: {}", err)))?;
-                    let key = String::from_utf8_lossy(attr.key.as_ref()).to_string();
-                    let val = String::from_utf8_lossy(&attr.value).to_string();
+                    let key = attr.key.as_ref().to_string();
+                    let val = attr.value.into_owned();
                     attributes.insert(key, Value::String(Rc::new(val)));
                 }
 
@@ -102,13 +108,11 @@ pub fn xml_parse(
                     stack.last_mut().unwrap().2.push(element);
                 }
             }
-            Ok(Event::Text(e)) => {
-                if let Some(parent) = stack.last_mut() {
-                    let text = e
-                        .unescape()
-                        .map_err(|err| RuntimeError::new(err.to_string()))?;
-                    parent.2.push(Value::String(Rc::new(text.into_owned())));
-                }
+            Ok(Event::Text(e)) => text.push_str(&e),
+            Ok(Event::GeneralRef(e)) => {
+                text.push('&');
+                text.push_str(&e);
+                text.push(';');
             }
             Ok(Event::Eof) => break,
             Err(e) => return Err(RuntimeError::new(format!("XML parse error: {}", e))),
@@ -123,4 +127,21 @@ pub fn xml_parse(
         Some(v) => Ok(v),
         None => Ok(Value::Null), // Empty or comment-only XML
     }
+}
+
+/// Adds the collected raw text run (trimmed, then unescaped) as a child of the open element.
+fn flush_text(
+    text: &mut String,
+    stack: &mut [(String, IndexMap<String, Value>, Vec<Value>)],
+) -> Result<(), RuntimeError> {
+    let raw = text.trim_matches(|c| matches!(c, ' ' | '\t' | '\r' | '\n'));
+    if let (false, Some(parent)) = (raw.is_empty(), stack.last_mut()) {
+        let unescaped =
+            quick_xml::escape::unescape(raw).map_err(|err| RuntimeError::new(err.to_string()))?;
+        parent
+            .2
+            .push(Value::String(Rc::new(unescaped.into_owned())));
+    }
+    text.clear();
+    Ok(())
 }
