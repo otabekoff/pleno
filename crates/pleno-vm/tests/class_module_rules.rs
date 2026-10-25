@@ -144,6 +144,53 @@ fn a_module_does_not_see_names_its_importer_imported() {
     assert!(err.contains("undefined variable 'fromA'"), "{err}");
 }
 
+#[test]
+fn a_module_does_not_see_the_importing_program_s_names() {
+    let dir = ModuleDir::new(
+        "importer-names",
+        &[(
+            "lib.pln",
+            "export fn callHelper() { return helper(); }
+             export fn readClass() { return Secret; }
+             export fn shout(text) { return text.toUpperCase(); }",
+        )],
+    );
+    let main = |call: &str| {
+        format!(
+            "import {{ callHelper, readClass, shout }} from \"./lib.pln\";
+             fn helper() {{ return \"main's helper\"; }}
+             class Secret {{}}
+             helper(); Secret;
+{call}"
+        )
+    };
+    let err = dir.run(&main("callHelper();")).unwrap_err();
+    assert!(err.contains("undefined variable 'helper'"), "{err}");
+    let err = dir.run(&main("readClass();")).unwrap_err();
+    assert!(err.contains("undefined variable 'Secret'"), "{err}");
+    // The module still sees the built-in globals.
+    assert_eq!(
+        dir.run(&main("shout(\"hi\");")).unwrap(),
+        Value::String("HI".to_string().into())
+    );
+}
+
+#[test]
+fn a_module_sees_a_built_in_the_program_redefined() {
+    let dir = ModuleDir::new(
+        "replaced-builtin",
+        &[("lib.pln", "export fn kind(v) { return typeof(v); }")],
+    );
+    let value = dir
+        .run(
+            "import { kind } from \"./lib.pln\";
+             fn typeof(v) { return \"mine\"; }
+             typeof(1) + \" \" + kind(1);",
+        )
+        .unwrap();
+    assert_eq!(value, Value::String("mine Int".to_string().into()));
+}
+
 // 2. `internal` means visible within the declaring module.
 
 #[test]

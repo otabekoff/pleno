@@ -2,8 +2,8 @@
 //! moves, small constants, integer and float arithmetic, comparisons, jumps,
 //! cached global reads, built-in methods of arrays and strings, and plain
 //! calls and returns. `run_step` hands over to
-//! it before each instruction when no debugger and no sandbox limit is
-//! active; it runs instructions until it meets one it does not handle (or a
+//! it before each instruction when no debugger is attached and `VM::fast_loop`
+//! is on; it runs instructions until it meets one it does not handle (or a
 //! case of one it handles only partly, such as an addition that overflows),
 //! and leaves that instruction for `run_step`, which then runs it in full.
 //!
@@ -14,6 +14,8 @@
 //! counts instructions the same way. None of them allocates a collected
 //! object except the native methods `CallMethod` calls, after which the loop
 //! stops when the collector is due, so `run_step` collects as it would have.
+//! Under a sandbox it also stops at the instruction limit and when memory is
+//! over the limit, and `run_step` raises the `SandboxError`.
 
 use crate::VM;
 use crate::utils::{apply_offset, decode_offset};
@@ -73,6 +75,23 @@ impl VM {
         let mut code_len = self.functions[function_index].chunk.code.len();
         // `self.instruction_count`, kept here while the loop runs.
         let mut count = self.instruction_count;
+        // Under a sandbox the loop stops at its instruction limit and once
+        // memory is over its limit; `run_step` then reports the error.
+        let (instruction_limit, memory_limit) = match &self.sandbox_config {
+            Some(config) => (
+                if config.max_instructions > 0 {
+                    config.max_instructions
+                } else {
+                    u64::MAX
+                },
+                if config.max_memory > 0 {
+                    config.max_memory.saturating_add(self.gc.grace_bytes)
+                } else {
+                    usize::MAX
+                },
+            ),
+            None => (u64::MAX, usize::MAX),
+        };
 
         // Leaves the loop with the current instruction for `run_step`.
         macro_rules! stop {
@@ -196,7 +215,10 @@ impl VM {
         }
 
         loop {
-            if ip >= code_len {
+            if ip >= code_len
+                || count >= instruction_limit
+                || self.gc.allocated_bytes > memory_limit
+            {
                 stop!();
             }
             // SAFETY: `ip < code_len`, and `code` points to the `code_len`

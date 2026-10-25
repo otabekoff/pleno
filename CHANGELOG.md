@@ -18,6 +18,7 @@ Notable changes to Pleno. The format follows [Keep a Changelog](https://keepacha
 ### Changed
 
 - A package created by `pleno new` or `plm init` starts at version 0.1.0 instead of the version of Pleno that created it.
+- Programs run with an instruction or memory limit (`--max-instructions`, `--max-memory`, the playground) use the fast interpreter loop too, which checks the limits itself: about 1.6 times faster than before under a limit.
 - `pleno format`, `lint`, `check`, `test`, `compile`, `watch`, `doc`, `debug-ast` and `build` reject options and arguments they do not take (`Error: 'compile' has no option '--bogus'`, exit status 2) instead of ignoring them, and print their own usage with `--help`. `pleno compile` and `pleno build` take `-o <file.plc>` and create its folder.
 - `pleno build` with a target that is not a `.pln` file is an error; before, it built the package's main file instead.
 - The editor's code lenses are "Run File" and "Debug File" above the first statement, instead of a "Run Function" over every function that ran the whole file.
@@ -37,6 +38,7 @@ Notable changes to Pleno. The format follows [Keep a Changelog](https://keepacha
 
 ### Fixed
 
+- Code in a module could call the top-level functions and classes of the program that imported it (`helper()` in a module found the main program's `helper`). A module now sees its own names, its imports and the built-in globals only, and still gets the built-in `print` or `typeof` when the main program defines its own.
 - A callback given to `map`, `filter` and the other natives that call back returned its first argument instead of `null` when that argument was a map with a `variant` key: `[Ok(1)].map(|r| => null)` was `[Ok(1)]`.
 - An array or map literal made only of constants (`[]`, `[0, 0]`, `{"n": 0}`) was created once and shared: a function returning `let a = []; a.push(1); return a;` gave the same array on every call, so it grew. Each evaluation now creates a new one.
 - Changing an array inside its `reduce` callback, or a set inside its `forEach` or `filter` callback, crashed the VM (`RefCell already borrowed`). These now iterate over the elements as they were when called, like `map` and `forEach` on arrays.

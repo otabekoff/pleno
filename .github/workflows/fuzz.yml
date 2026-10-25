@@ -14,6 +14,10 @@ on:
       - "crates/pleno-lexer/**"
       - "crates/pleno-parser/**"
       - "crates/pleno-compiler/**"
+      - "crates/pleno-optimizer/**"
+      - "crates/pleno-vm/**"
+      - "crates/pleno-value/**"
+      - "crates/pleno-stdlib/**"
       - ".github/workflows/fuzz.yml"
 
 jobs:
@@ -24,7 +28,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target: [fuzz_lexer, fuzz_parser, fuzz_compile]
+        # fuzz_run runs each program with the fast and the general interpreter
+        # loop and fails when they disagree.
+        target: [fuzz_lexer, fuzz_parser, fuzz_compile, fuzz_run]
     steps:
       - uses: actions/checkout@v4
 
@@ -34,19 +40,36 @@ jobs:
       - name: Install cargo-fuzz
         run: cargo install cargo-fuzz --locked
 
+      # The repository's programs are the seed corpus, so mutations start from
+      # real code instead of random bytes.
+      - name: Collect seed programs
+        run: |
+          mkdir -p fuzz/seeds
+          find tests examples dev-tests -name '*.pln' | while read -r file; do
+            cp "$file" "fuzz/seeds/$(echo "$file" | tr '/' '_')"
+          done
+
       # Short runs (pull requests, the weekly run) use AddressSanitizer. Long
-      # runs use none: its quarantine and bookkeeping grow with every input
-      # and ran out of memory after 74 minutes on 2026-10-24 with only 35 MB
-      # of live heap. The fuzzed crates are safe Rust, so a panic still
-      # fails the run.
+      # runs of the safe-Rust targets use none: its quarantine and bookkeeping
+      # grow with every input and ran out of memory after 74 minutes on
+      # 2026-10-24 with only 35 MB of live heap, and a panic still fails the
+      # run. fuzz_run keeps AddressSanitizer, because the VM has unsafe code,
+      # with a smaller quarantine. Its leak detection is off: values still held
+      # in reference cycles when a run ends are reported on every program
+      # (tracked in its own issue); the run looks for memory errors and for
+      # disagreements between the interpreter loops.
       - name: Fuzz
         env:
           SECONDS_TO_RUN: ${{ inputs.seconds || '120' }}
+          TARGET: ${{ matrix.target }}
         run: |
-          if [ "$SECONDS_TO_RUN" -gt 600 ]; then
-            cargo fuzz run --sanitizer none ${{ matrix.target }} -- -max_total_time="$SECONDS_TO_RUN" -rss_limit_mb=4096
+          mkdir -p "fuzz/corpus/$TARGET"
+          flags="-max_total_time=$SECONDS_TO_RUN -timeout=30 -rss_limit_mb=4096"
+          if [ "$SECONDS_TO_RUN" -gt 600 ] && [ "$TARGET" != fuzz_run ]; then
+            cargo fuzz run --sanitizer none "$TARGET" "fuzz/corpus/$TARGET" fuzz/seeds -- $flags
           else
-            cargo fuzz run ${{ matrix.target }} -- -max_total_time="$SECONDS_TO_RUN"
+            export ASAN_OPTIONS="quarantine_size_mb=64:malloc_context_size=4:detect_leaks=0"
+            cargo fuzz run "$TARGET" "fuzz/corpus/$TARGET" fuzz/seeds -- $flags
           fi
 
       - name: Upload crashing inputs
