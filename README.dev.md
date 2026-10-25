@@ -5,7 +5,7 @@ Welcome to the Pleno internal development guide. This document defines our engin
 ## 📖 Navigation
 
 - **[Architecture Deep Dive](ARCHITECTURE.md)**: Detailed technical overview of VM and Compiler internals.
-- **[Language Specification](notes/specs.md)**: The authoritative reference for Pleno syntax and semantics.
+- **[Language Reference](docs/specs/)**: The authoritative reference for Pleno syntax and semantics; [compatibility promise](docs/specs/compatibility.md); designs for later in [notes/v2-draft.md](notes/v2-draft.md).
 - **[Contributing Guidelines](CONTRIBUTING.md)**: How to submit your changes.
 - **[Code Signing Guide](docs/security/signing.md)**: professional signing and security procedures.
 
