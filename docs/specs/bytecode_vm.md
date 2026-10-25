@@ -214,3 +214,15 @@ We can start with register VM and still add optimizations incrementally:
 - Inline caches for property access
 - NaN boxing for compact values
 - Specialized opcodes for common fast paths
+
+### Execution today
+
+- Values in registers are NaN-boxed (`NanValue`, 8 bytes); a `Value` is 16 bytes.
+- Simple instructions (moves, small constants, integer and float arithmetic,
+  comparisons with the jump after them, cached global reads, built-in methods
+  of arrays and strings, plain calls and returns) run in a small loop of their
+  own (`run_fast`), which hands anything else to the general loop. It is off
+  while a debugger is attached or a sandbox sets limits.
+- `obj.name(args)` compiles to `GetMethod` + `CallMethod`, which call the method
+  without allocating a bound method.
+- `s = s + x` appends in place when no other register or value holds `s`.
