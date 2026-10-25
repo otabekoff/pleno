@@ -40,9 +40,13 @@ Notable changes to Pleno. The format follows [Keep a Changelog](https://keepacha
 - The bytecode format version is 4 (new `ToFloat`, `CallRegs`, `GetMethod` and `CallMethod` instructions); recompile `.plc` files.
 - `Crypto.jwtVerify` checks the `exp` and `nbf` claims against the current time and throws `JWT expired` or `JWT not valid yet`, the way it throws `Invalid JWT signature`; it also rejects tokens whose header `alg` is not `HS256`. Signatures are compared in constant time (`hmac`'s `verify_slice`). `jwtSign` and `jwtVerify` are now stable.
 - `JSON.stringify` and `stringifyPretty` write a class instance as an object of its public fields (private, protected and internal fields are left out) and a set as an array of its elements, a `Char` as a one-character string; before, all three became `null`. A value nested more than 512 levels deep (such as a map that contains itself) throws instead of overflowing the stack.
+- `pleno format` (and format on save in the editor) keeps lines within 100 characters, the linter's limit. A statement that does not fit is broken at its outermost construct: call arguments, array, map, set and tuple literals, parameter lists and import and export lists go one element per line with a trailing comma, chains of two or more method calls one call per line, and binary operator chains before each operator. A statement that fits is printed on one line, also when it was written over several; before, every statement was joined into one line however long. Strings and comments are never split.
 
 ### Fixed
 
+- A sandbox limit (`--max-instructions`, `--max-memory`, `Sandbox` options) could be caught by `try`/`catch`, so a program could catch it and run on past its limit. Reaching a limit now ends the sandboxed program; the program that started a `Sandbox` still catches it as a `SandboxError` (before, that error arrived named `Error`).
+- `a != b` ignored a class's `operator ==`: with `==` overloaded, `V(1) != V(1)` was `true`. It is now `!(a == b)` unless the class defines its own `operator !=`.
+- An error thrown inside a callback (`map`, `filter`, ...) and caught outside read `uncaught exception: uncaught exception: ...`; it now has its own message.
 - Code in a module could call the top-level functions and classes of the program that imported it (`helper()` in a module found the main program's `helper`). A module now sees its own names, its imports and the built-in globals only, and still gets the built-in `print` or `typeof` when the main program defines its own.
 - A callback given to `map`, `filter` and the other natives that call back returned its first argument instead of `null` when that argument was a map with a `variant` key: `[Ok(1)].map(|r| => null)` was `[Ok(1)]`.
 - An array or map literal made only of constants (`[]`, `[0, 0]`, `{"n": 0}`) was created once and shared: a function returning `let a = []; a.push(1); return a;` gave the same array on every call, so it grew. Each evaluation now creates a new one.
@@ -62,6 +66,7 @@ Notable changes to Pleno. The format follows [Keep a Changelog](https://keepacha
 - `CSV.parse` errors no longer repeat their prefix (`CSV error: CSV error: ...`).
 - `XML.parse` throws on input without a complete root element: `XML parse error: no root element` for an empty string (or only comments or text) and `XML parse error: element <a> is not closed` for `<a>`. Before, it returned `null`.
 - The HTTP server answers `HEAD` on a `get` route like `GET` (same status and headers, `Content-Length` included) without a body; before, it answered 404. Tests now serve real requests to a running server.
+- The formatter changed programs and moved comments: `else if` became `else { if ... }`, annotations on methods (`@override`) and the `out`/`in` of generic parameters were dropped, and comments inside a multi-line call, list, method chain, `match` or `enum` moved below the statement (a doc comment on an enum variant ended up on the next declaration). Comments now stay next to the element they belong to.
 
 ### Documentation
 

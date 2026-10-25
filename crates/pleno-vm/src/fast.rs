@@ -474,7 +474,7 @@ impl VM {
                         self.native_args = args;
                         match result {
                             Ok(result) => self.registers[base + a] = NanValue::from_value(&result),
-                            Err(err) => return Err(self.throw_runtime_error(&err.message)),
+                            Err(err) => return Err(self.rethrow(err)),
                         }
                         count = self.instruction_count;
                         ip += 1;

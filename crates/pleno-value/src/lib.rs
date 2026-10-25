@@ -634,6 +634,8 @@ pub struct RuntimeError {
     pub span: Option<pleno_common::Span>,
     pub stack_trace: Vec<StackFrame>,
     pub handled: bool,
+    /// Ends the program and cannot be caught: a sandbox limit was reached.
+    pub fatal: bool,
 }
 
 impl RuntimeError {
@@ -643,6 +645,7 @@ impl RuntimeError {
             span: None,
             stack_trace: Vec::new(),
             handled: false,
+            fatal: false,
         }
     }
 
@@ -652,6 +655,16 @@ impl RuntimeError {
             span: None,
             stack_trace: Vec::new(),
             handled: true,
+            fatal: false,
+        }
+    }
+
+    /// An error that `catch` cannot stop, such as a sandbox limit: catching it
+    /// would let a program run on past the limit.
+    pub fn fatal(message: impl Into<String>) -> Self {
+        Self {
+            fatal: true,
+            ..Self::new(message)
         }
     }
 
