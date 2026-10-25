@@ -208,6 +208,15 @@ pub const DESTRUCTURE_ARRAY: u8 = 1;
 /// `Destructure` mode: an array with at least `c` elements (the pattern has a rest).
 pub const DESTRUCTURE_ARRAY_AT_LEAST: u8 = 2;
 
+/// `GetIterator` mode: the collection's values (`for (x in xs)`).
+pub const ITER_VALUES: u8 = 0;
+/// `GetIterator` mode: `(key, value)` entries, an array's being `(index, value)`
+/// (`for (k, v in m)`).
+pub const ITER_ENTRIES: u8 = 1;
+/// `GetIterator` mode: a map's `(key, value)` entries, any other collection's
+/// values (`for ((k, v) in m)`).
+pub const ITER_MAP_ENTRIES: u8 = 2;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Instruction(u32);
 
