@@ -3,7 +3,9 @@ use pleno_value::{RuntimeError, VMProvider};
 use std::rc::Rc;
 
 pub fn process_cwd(vm: &mut dyn VMProvider, _args: &[Value]) -> Result<Value, RuntimeError> {
-    let _gc = vm.get_gc();
+    if !vm.is_io_allowed() {
+        return Err(RuntimeError::new("SecurityError: IO access denied"));
+    }
     match std::env::current_dir() {
         Ok(path) => Ok(Value::String(Rc::new(path.to_string_lossy().into_owned()))),
         Err(e) => Err(RuntimeError::new(format!("failed to get cwd: {}", e))),
