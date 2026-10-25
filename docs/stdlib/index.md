@@ -36,7 +36,7 @@ Behavior a page calls unspecified (for example the order of `Directory.list`, or
 | [`std:log`](log.md)                     | stable       | The format of the printed lines may change.                                                                                                  |
 | [`std:benchmark`](benchmark.md)         | stable       | The line `run` prints may change; the returned numbers are measurements, not guarantees.                                                     |
 | [`std:reflect`](reflect.md)             | stable       | `vmStats` is experimental: its numbers depend on the VM's internals.                                                                         |
-| [`std:regex`](regex.md)                 | stable       | `Regex(pattern, flags)` ignores its second argument; set flags inside the pattern (`(?i)`).                                                  |
+| [`std:regex`](regex.md)                 | stable       |                                                                                                                                              |
 | [`std:security`](../specs/security-features.md) | experimental | `Sandbox`, described under [Security features](../specs/security-features.md).                                                     |
 | `std:gc`                                | experimental | `collect`, `heapSize`, `isEnabled`, `report`, `stats`: views of the VM's memory manager. Not documented further.                            |
 | `std:db`                                | experimental | `Database.connect("sqlite:path")` with `execute`, `query` and `close`. Not documented further.                                               |

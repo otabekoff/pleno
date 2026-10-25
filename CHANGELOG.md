@@ -14,6 +14,7 @@ Notable changes to Pleno. The format follows [Keep a Changelog](https://keepacha
 - `pleno check` and the language server report wrong argument counts and unknown named arguments for functions, constructors and `this` methods declared in the file, literals that cannot match a type annotation (`let x: Int = "hi";`), and, as a warning, unknown methods called on `this`.
 - `pleno run file.plc` runs bytecode written by `pleno compile`.
 - Return type annotations are checked at runtime, at every `return` and when a function ends without one: `fn f(): Int { return "s"; }` throws `TypeError: f returned String, expected Int`, and falling off the end of a function annotated `Int` throws `f returned Null, expected Int`. This covers functions, methods, getters, lambdas and `async` functions (whose annotation, `Int` or `Promise<Int>`, describes the resolved value). `Void`, `Any` and annotations mentioning a type parameter are not checked. `pleno check` also reports returned literals that cannot match (`f is declared to return Int but returns a String literal`).
+- `Regex(pattern, flags)` applies its flags: `i` (case-insensitive), `m` (multi-line), `s` (`.` matches newlines) and `x` (verbose); `regex.flags` returns them. Before, the second argument was ignored. Unknown flag letters and invalid patterns throw when the regex is created.
 
 ### Changed
 
