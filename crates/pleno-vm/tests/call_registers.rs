@@ -104,3 +104,30 @@ fn values_only_in_registers_survive_collections() {
     let result = run(source, Some(64)).unwrap_or_else(|err| panic!("{err}"));
     assert_eq!(result, Value::Int(expected));
 }
+
+#[test]
+fn native_callbacks_return_what_the_callback_returns() {
+    // A callback's first argument once came back in place of a `null` result
+    // when it was a map with a "variant" key (a `Result`), as if it were the
+    // promise of an async callback.
+    let source = "
+        let rs = [Ok(1), Err(\"x\")];
+        let a = rs.map(|r| => null);
+        fn f(r) { return null; }
+        let b = rs.map(f);
+        let mut n = a.length + b.length;
+        if a[0] == null { n = n + 10; }
+        if b[1] == null { n = n + 100; }
+        n;
+    ";
+    assert_eq!(eval(source), Value::Int(114));
+    // Callbacks with defaults, closures over locals, and nested callbacks.
+    let source = "
+        let k = 3;
+        fn scaled(x, y = 10) { return x * 3 + y; }
+        let xs = [1, 2, 3].map(scaled);
+        let nested = [[1, 2], [3]].map(|row| => row.map(|v| => v + k).reduce(|a, b| => a + b, 0));
+        xs.reduce(|a, b| => a + b, 0) * 100 + nested[0] * 10 + nested[1];
+    ";
+    assert_eq!(eval(source), Value::Int(4800 + 90 + 6));
+}

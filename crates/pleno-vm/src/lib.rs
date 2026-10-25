@@ -116,6 +116,57 @@ impl VMProvider for VM {
         self.call_ext_with(callee, &args, opts)
     }
 
+    /// A native calling back into Pleno (`map`, `filter`, `sort`, ...): a
+    /// plain call of a bytecode function or closure gets its frame directly;
+    /// anything else goes through `call_ext_with`.
+    fn call_with(&mut self, callee: &Value, args: &[Value]) -> Result<Value, RuntimeError> {
+        let (function_index, closure_state) = match callee {
+            Value::Function(index) => (*index, None),
+            Value::Closure(state) => (state.borrow().function, Some(state.clone())),
+            _ => return self.call_ext_with(callee.clone(), args, CallOptions::default()),
+        };
+        let Some(function) = self.functions.get(function_index) else {
+            return self.call_ext_with(callee.clone(), args, CallOptions::default());
+        };
+        if function.is_async || !plain_params(function, args.len()) {
+            return self.call_ext_with(callee.clone(), args, CallOptions::default());
+        }
+        let param_count = function.params.len();
+        let register_count = function.chunk.max_registers.max(function.arity);
+        let current_module = function.module.clone();
+        let current_module_path = function.module_path.clone();
+        let depth = self.frames.len();
+        // As in `call_ext_with`, the result register is the callee's first one;
+        // the frame at `depth` returns its value instead of storing it.
+        let base = self.registers.len();
+        self.registers.reserve(register_count);
+        for arg in args.iter().take(register_count) {
+            self.registers.push(NanValue::from_value(arg));
+        }
+        for _ in args.len()..param_count.min(register_count) {
+            self.registers.push(NanValue::missing());
+        }
+        self.registers
+            .resize(base + register_count, NanValue::null());
+        self.frames.push(CallFrame {
+            function_index,
+            ip: 0,
+            base,
+            return_reg: base,
+            return_override: None,
+            closure_state,
+            current_owner: None,
+            current_module,
+            current_module_path,
+            type_args: Vec::new(),
+            exception_handlers: Vec::new(),
+        });
+        match self.run_until(depth)? {
+            ExecutionStatus::Finished(value) => Ok(value),
+            ExecutionStatus::Paused => Err(RuntimeError::new("Paused during call_function")),
+        }
+    }
+
     fn call_ext_with(
         &mut self,
         callee: Value,
@@ -198,7 +249,15 @@ impl VMProvider for VM {
 
         // If it's an async function call, call_ext will have placed a promise map in return_reg_idx.
         // We want to capture that map before run_until might potentially truncate it (on sync return).
-        let maybe_promise = self.registers.get(return_reg_idx).cloned();
+        // Only an async callee has one: for any other, that register is its
+        // first argument (which may well be a map with a "variant" key).
+        let callee_is_async = self
+            .frames
+            .get(depth)
+            .is_some_and(|frame| self.functions[frame.function_index].is_async);
+        let maybe_promise = callee_is_async
+            .then(|| self.registers.get(return_reg_idx).cloned())
+            .flatten();
 
         let sync_result = match self.run_until(depth)? {
             ExecutionStatus::Finished(v) => v,
@@ -3614,6 +3673,17 @@ impl VM {
                         self.release_registers(frame_base);
                         self.registers[return_reg] = result;
                         continue;
+                    }
+                    // A plain return from the frame this run was started for (a
+                    // native's callback, say): the same as below, without the
+                    // async bookkeeping.
+                    if plain && self.frames.len() == depth + 1 {
+                        let result = self.registers[base + a].to_value();
+                        self.frames.truncate(depth);
+                        if self.suspended_frames.is_empty() && self.pending_tasks.is_empty() {
+                            self.release_registers(frame_base);
+                        }
+                        return Ok(Some(ExecutionStatus::Finished(result)));
                     }
 
                     let frame = self
