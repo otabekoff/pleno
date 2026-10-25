@@ -1201,8 +1201,9 @@ fn native_array_reduce(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value,
         .get(1)
         .cloned()
         .ok_or_else(|| RuntimeError::new("reduce expects callback"))?;
-    let b = arr.borrow();
-    if b.elements.is_empty() {
+    // The callback may change the array, so iterate over a copy.
+    let items = arr.borrow().elements.clone();
+    if items.is_empty() {
         return args
             .get(2)
             .cloned()
@@ -1211,10 +1212,10 @@ fn native_array_reduce(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value,
     let (mut acc, start) = if let Some(init) = args.get(2) {
         (init.clone(), 0)
     } else {
-        (b.elements[0].clone(), 1)
+        (items[0].clone(), 1)
     };
-    for item in b.elements.iter().skip(start) {
-        acc = vm.call_with(&cb, &[acc, item.clone()])?;
+    for item in items.into_iter().skip(start) {
+        acc = vm.call_with(&cb, &[acc, item])?;
     }
     Ok(acc)
 }
@@ -1918,10 +1919,11 @@ fn native_set_filter(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, R
         .cloned()
         .ok_or_else(|| RuntimeError::new("filter expects callback"))?;
     let mut result = IndexSet::new();
-    for key in set.borrow().iter() {
-        let val = key.to_value();
-        if is_truthy(&vm.call(cb.clone(), vec![val])?) {
-            result.insert(key.clone());
+    // The callback may change the set, so iterate over a copy.
+    let keys: Vec<_> = set.borrow().iter().cloned().collect();
+    for key in keys {
+        if is_truthy(&vm.call(cb.clone(), vec![key.to_value()])?) {
+            result.insert(key);
         }
     }
     Ok(Value::Set(vm.get_gc().allocate(SetState::new(result))?))
@@ -1936,8 +1938,9 @@ fn native_set_for_each(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value,
         .get(1)
         .cloned()
         .ok_or_else(|| RuntimeError::new("forEach expects callback"))?;
-    for key in set.borrow().iter() {
-        let val = key.to_value();
+    // The callback may change the set, so iterate over a copy.
+    let values: Vec<Value> = set.borrow().iter().map(|key| key.to_value()).collect();
+    for val in values {
         vm.call(cb.clone(), vec![val])?;
     }
     Ok(Value::Null)
