@@ -711,15 +711,22 @@ impl<'a> LintVisitor<'a> {
             }
             StmtKind::For {
                 names,
+                pattern,
                 iterable,
                 body,
                 ..
             } => {
                 self.visit_expr(iterable);
                 self.scope_tracker.enter_scope();
-                for name in names {
-                    let span = self.find_word(stmt.span, name);
-                    self.declare(name, span);
+                if let Some(pattern) = pattern {
+                    for (name, span) in pattern.bindings() {
+                        self.declare(name, span);
+                    }
+                } else {
+                    for name in names {
+                        let span = self.find_word(stmt.span, name);
+                        self.declare(name, span);
+                    }
                 }
                 self.visit_stmt(body);
                 self.check_unused_in_current_scope();

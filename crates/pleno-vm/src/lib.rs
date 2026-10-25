@@ -1835,7 +1835,10 @@ impl VM {
                 Opcode::GetIterator => {
                     let source_nan = self.registers[base + b];
                     let source = source_nan.to_value();
-                    let name = if c == 1 {
+                    let wants_entries = c as u8 == pleno_bytecode::ITER_ENTRIES
+                        || (c as u8 == pleno_bytecode::ITER_MAP_ENTRIES
+                            && matches!(source, Value::Map(_)));
+                    let name = if wants_entries {
                         "entries".to_string()
                     } else {
                         "iterator".to_string()

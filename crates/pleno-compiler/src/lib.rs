@@ -18,6 +18,15 @@ pub enum BuildProfile {
     Test,
 }
 
+/// What a `for ... in` loop binds each item to.
+#[derive(Clone, Copy)]
+enum ForBinding<'a> {
+    /// `for (x in xs)` or `for (k, v in m)`.
+    Names(&'a [String]),
+    /// `for ((k, v) in pairs)`.
+    Pattern(&'a pleno_ast::BindingPattern),
+}
+
 #[derive(Debug, Clone)]
 struct MacroDef {
     params: Vec<String>,
@@ -719,9 +728,13 @@ impl Compiler {
             StmtKind::For {
                 label: _,
                 names,
+                pattern,
                 iterable,
                 body,
-            } => self.compile_for_stmt(names, iterable, body),
+            } => match pattern {
+                Some(pattern) => self.compile_for_pattern(pattern, iterable, body),
+                None => self.compile_for_stmt(names, iterable, body),
+            },
             StmtKind::DoWhile { body, condition } => {
                 let loop_start = self.chunk.code.len();
                 self.push_loop(None);
@@ -2505,7 +2518,28 @@ impl Compiler {
                 iterable.span,
             ));
         }
-        self.compile_for_iterable(names, iterable, body)
+        self.compile_for_iterable(ForBinding::Names(names), iterable, body)
+    }
+
+    /// `for ((k, v) in pairs)`: each item is matched against the pattern the
+    /// way a destructuring `let` matches its value. Over a map, the items are
+    /// its `(key, value)` entries.
+    fn compile_for_pattern(
+        &mut self,
+        pattern: &pleno_ast::BindingPattern,
+        iterable: &Expr,
+        body: &Stmt,
+    ) -> Result<(), CompileError> {
+        if matches!(iterable.kind, ExprKind::Range { .. }) {
+            return Err(self.error(
+                "a range yields numbers, which a destructuring pattern cannot match",
+                pattern.span,
+            ));
+        }
+        if matches!(iterable.kind, ExprKind::Literal(_)) {
+            return Err(self.error("for loop expects array, set, or range", iterable.span));
+        }
+        self.compile_for_iterable(ForBinding::Pattern(pattern), iterable, body)
     }
 
     fn compile_break_stmt(&mut self, label: Option<&str>, span: Span) -> Result<(), CompileError> {
@@ -2805,7 +2839,7 @@ impl Compiler {
 
     fn compile_for_iterable(
         &mut self,
-        names: &[String],
+        binding: ForBinding<'_>,
         iterable: &Expr,
         body: &Stmt,
     ) -> Result<(), CompileError> {
@@ -2813,13 +2847,12 @@ impl Compiler {
         let source_reg = self.compile_expr(iterable)?;
         let iter_reg = self.registers.allocate()?;
 
-        let is_entries = names.len() > 1;
-        self.emit(
-            Opcode::GetIterator,
-            iter_reg,
-            source_reg,
-            if is_entries { 1 } else { 0 },
-        );
+        let mode = match binding {
+            ForBinding::Names(names) if names.len() > 1 => pleno_bytecode::ITER_ENTRIES,
+            ForBinding::Names(_) => pleno_bytecode::ITER_VALUES,
+            ForBinding::Pattern(_) => pleno_bytecode::ITER_MAP_ENTRIES,
+        };
+        self.emit(Opcode::GetIterator, iter_reg, source_reg, mode);
         self.free_temp(source_reg);
 
         let iter_name = format!("$for_iterator_{}", self.loop_counter);
@@ -2841,9 +2874,13 @@ impl Compiler {
         let jump_to_end = self.emit_jump(Opcode::JumpIf, is_done_reg);
         self.free_temp(is_done_reg);
 
-        if names.len() == 1 {
-            self.insert_local(names[0].clone(), item_reg, true, None)?;
-        } else {
+        if let ForBinding::Pattern(pattern) = binding {
+            // Loop variables are reassignable, as in the plain form.
+            self.compile_binding_pattern(pattern, item_reg, true)?;
+            self.free_temp(item_reg);
+        } else if let ForBinding::Names([name]) = binding {
+            self.insert_local(name.clone(), item_reg, true, None)?;
+        } else if let ForBinding::Names(names) = binding {
             for (i, name) in names.iter().enumerate() {
                 let val_reg = self.registers.allocate()?;
                 let idx_reg = self.registers.allocate()?;
