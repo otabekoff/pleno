@@ -39,6 +39,8 @@ Notable changes to Pleno. The format follows [Keep a Changelog](https://keepacha
 
 ### Fixed
 
+- Sandbox path rules (`--allow-read`, `--allow-write`, `allowedReadPaths`, `allowedWritePaths`) compared text prefixes, so `data/../secret.txt` passed a rule for `data/` and `data2/` passed a rule for `data`. They now compare normalized absolute paths, folder by folder. `Path.exists`, `isFile`, `isDir`, `resolve` and `dotenv.config` count as reading, and `process.cwd()` needs I/O.
+- A sandbox option with a value that does not parse (`--allow-io maybe`, `--max-memory 10MB`) meant "allowed" or "no limit"; it is now an error.
 - A sandbox limit (`--max-instructions`, `--max-memory`, `Sandbox` options) could be caught by `try`/`catch`, so a program could catch it and run on past its limit. Reaching a limit now ends the sandboxed program; the program that started a `Sandbox` still catches it as a `SandboxError` (before, that error arrived named `Error`).
 - `a != b` ignored a class's `operator ==`: with `==` overloaded, `V(1) != V(1)` was `true`. It is now `!(a == b)` unless the class defines its own `operator !=`.
 - An error thrown inside a callback (`map`, `filter`, ...) and caught outside read `uncaught exception: uncaught exception: ...`; it now has its own message.
