@@ -26,7 +26,7 @@ Pleno uses [semantic versioning](https://semver.org): a version is `MAJOR.MINOR.
 - **Performance.** Speed and memory use can change in either direction.
 - **Experimental modules and APIs.** They can change or disappear in any release (see below).
 - **Internal Rust crates.** The `pleno-*` crates in the repository have no stable Rust API; only the `pleno` and `plm` commands and the language are covered.
-- **Unspecified behavior.** Where the reference says the result is unspecified (for example the order of `Directory.list`, or what `JSON.stringify` writes for a class instance), a later release can give a different result.
+- **Unspecified behavior.** Where the reference says the result is unspecified (for example the order of `Directory.list`), a later release can give a different result.
 - **Bug fixes.** When the implementation does not do what the reference says, a 1.x release can fix the implementation, even if a program depended on the wrong behavior. Fixes that change behavior are listed in the changelog.
 - **New checks in `pleno check` and `pleno lint`.** Later versions can report more problems in the same code; that does not change how the code runs.
 

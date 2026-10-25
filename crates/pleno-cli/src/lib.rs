@@ -861,7 +861,7 @@ fn execute_main_chunk(
                             eprintln!("  at {} (unknown location)", frame.function_name);
                         }
                     } else {
-                        eprintln!("  at {}", frame.function_name);
+                        eprintln!("  {}", frame.describe());
                     }
                 }
             }
@@ -1108,6 +1108,7 @@ fn check_source(source: &str) -> Vec<Problem> {
     };
     // Compiling may change the program in place, so check it first.
     let static_problems = pleno_compiler::check::check_program(&program);
+    let imports = std_imports(&program);
     // Unused functions and code after a `return` are checked too.
     let mut compiler = pleno_compiler::Compiler::new(source.to_string()).keeping_unused_code();
     if let Err(err) = compiler.compile(&mut program) {
@@ -1123,13 +1124,19 @@ fn check_source(source: &str) -> Vec<Problem> {
     // Built-in globals are whatever the standard library registers.
     let mut vm = pleno_vm::VM::new();
     pleno_stdlib::register(&mut vm);
+    let builtins = vm.globals.keys().map(String::as_str);
     let mut problems: Vec<Problem> = compiler
-        .undefined_globals(|name| vm.globals.contains_key(name))
+        .undefined_globals_with_hints(|name| vm.globals.contains_key(name), builtins)
         .into_iter()
-        .map(|(name, span)| {
-            Problem::error(format!("undefined variable '{name}'"), span.start, span.end)
+        .map(|(name, span, hint)| {
+            Problem::error(
+                format!("undefined variable '{name}'{hint}"),
+                span.start,
+                span.end,
+            )
         })
         .collect();
+    problems.extend(std_import_problems(&imports, &vm));
     problems.extend(static_problems.into_iter().map(|d| Problem {
         message: d.message,
         start: d.span.start,
@@ -1140,6 +1147,96 @@ fn check_source(source: &str) -> Vec<Problem> {
         },
     }));
     problems.sort_by_key(|p| (p.start, p.end));
+    problems
+}
+
+/// A top-level import of a standard module: its name after `std:`, the
+/// names it imports (for `import { ... }`) and where it is.
+struct StdImport {
+    module: String,
+    names: Vec<String>,
+    span: pleno_ast::Span,
+}
+
+fn std_imports(program: &pleno_ast::Program) -> Vec<StdImport> {
+    let mut imports = Vec::new();
+    for stmt in &program.statements {
+        if let pleno_ast::StmtKind::Import { path, kind } = &stmt.kind
+            && let Some(module) = path.strip_prefix("std:")
+        {
+            let names = match kind {
+                pleno_ast::ImportKind::Names(items) => {
+                    items.iter().map(|item| item.name.clone()).collect()
+                }
+                _ => Vec::new(),
+            };
+            imports.push(StdImport {
+                module: module.to_string(),
+                names,
+                span: stmt.span,
+            });
+        }
+    }
+    imports
+}
+
+/// Standard modules that do not exist (an error, as running the import is),
+/// and names a built-in standard module does not export (a warning: the
+/// import gives `null`), each with the closest real one.
+fn std_import_problems(imports: &[StdImport], vm: &pleno_vm::VM) -> Vec<Problem> {
+    use pleno_value::suggest::{best_match, did_you_mean};
+    let source_modules: Vec<String> = std::env::current_dir()
+        .and_then(|dir| fs::read_dir(dir.join("sources/std")))
+        .map(|entries| {
+            entries
+                .flatten()
+                .filter_map(|entry| {
+                    let file = entry.file_name().to_string_lossy().to_string();
+                    file.strip_suffix(".pln").map(str::to_string)
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    let mut problems = Vec::new();
+    for import in imports {
+        let key = format!("std:{}", import.module);
+        let Some(module) = vm.modules.get(&key) else {
+            if source_modules.contains(&import.module) {
+                continue;
+            }
+            let known = vm
+                .modules
+                .keys()
+                .filter_map(|key| key.strip_prefix("std:"))
+                .chain(source_modules.iter().map(String::as_str));
+            let hint = match best_match(&import.module, known) {
+                Some(found) => format!("; did you mean 'std:{found}'?"),
+                None => String::new(),
+            };
+            problems.push(Problem::error(
+                format!("std module not found: {}{hint}", import.module),
+                import.span.start,
+                import.span.end,
+            ));
+            continue;
+        };
+        let pleno_value::Value::Map(exports) = module else {
+            continue;
+        };
+        let exports = exports.borrow();
+        for name in &import.names {
+            if exports.entries.contains_key(name) {
+                continue;
+            }
+            let hint = did_you_mean(name, exports.entries.keys().map(String::as_str));
+            problems.push(Problem {
+                message: format!("'{key}' does not export '{name}'{hint}"),
+                start: import.span.start,
+                end: import.span.end,
+                severity: Severity::Warning,
+            });
+        }
+    }
     problems
 }
 

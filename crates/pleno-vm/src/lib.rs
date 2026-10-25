@@ -16,6 +16,7 @@ pub mod event_loop;
 mod fast;
 mod method_cache;
 mod models;
+mod suggest;
 mod utils;
 mod value_ops;
 
@@ -75,6 +76,8 @@ pub struct VM {
     /// rejections, even after the combined promise has settled.
     combined_promises: std::collections::HashSet<u64>,
     pub builtin_resolver: Option<fn(&str, &str) -> Option<NativeFunction>>,
+    /// Every method name `builtin_resolver` knows (for "did you mean" hints).
+    pub builtin_method_names: &'static [&'static str],
     /// What `builtin_resolver` found for each type and method name read so far.
     builtin_methods: method_cache::BuiltinMethodCache,
     /// A spare argument vector for calls of native methods (empty between calls).
@@ -519,6 +522,10 @@ impl VMProvider for VM {
         self.builtin_resolver = Some(resolver);
     }
 
+    fn set_builtin_method_names(&mut self, names: &'static [&'static str]) {
+        self.builtin_method_names = names;
+    }
+
     fn check_is_instance(&self, value: &Value, type_val: &Value) -> bool {
         self.is_instance(value, type_val)
     }
@@ -889,6 +896,7 @@ impl VM {
             main_path: None,
             combined_promises: std::collections::HashSet::new(),
             builtin_resolver: None,
+            builtin_method_names: &[],
             builtin_methods: Default::default(),
             native_args: Vec::new(),
             run_depths: Vec::new(),
@@ -1174,18 +1182,38 @@ impl VM {
         }
     }
 
+    /// The call stack, innermost frame first. A deep stack keeps its innermost
+    /// `BACKTRACE_INNER` and outermost `BACKTRACE_OUTER` frames with a
+    /// `... N more frames` line between them, so an error costs the same at
+    /// any depth: a `catch` that throws again at each of 100,000 levels would
+    /// otherwise copy billions of frames.
     fn generate_backtrace(&self) -> Vec<pleno_value::StackFrame> {
-        let mut trace = Vec::new();
-        for frame in self.frames.iter().rev() {
-            if let Some(func) = self.functions.get(frame.function_index) {
-                let ip = if frame.ip > 0 { frame.ip - 1 } else { 0 };
-                let span = func.chunk.spans.get(ip).copied();
-                trace.push(pleno_value::StackFrame {
-                    function_name: (*func.name).clone(),
-                    span,
-                });
-            }
+        let stack_frame = |frame: &CallFrame| {
+            let func = self.functions.get(frame.function_index)?;
+            let ip = if frame.ip > 0 { frame.ip - 1 } else { 0 };
+            Some(pleno_value::StackFrame {
+                function_name: (*func.name).clone(),
+                span: func.chunk.spans.get(ip).copied(),
+            })
+        };
+        let count = self.frames.len();
+        if count <= BACKTRACE_INNER + BACKTRACE_OUTER {
+            return self.frames.iter().rev().filter_map(stack_frame).collect();
         }
+        let mut trace: Vec<_> = self.frames[count - BACKTRACE_INNER..]
+            .iter()
+            .rev()
+            .filter_map(stack_frame)
+            .collect();
+        trace.push(pleno_value::StackFrame::omitted(
+            count - BACKTRACE_INNER - BACKTRACE_OUTER,
+        ));
+        trace.extend(
+            self.frames[..BACKTRACE_OUTER]
+                .iter()
+                .rev()
+                .filter_map(stack_frame),
+        );
         trace
     }
 
@@ -1274,8 +1302,20 @@ impl VM {
             .unwrap_or(Value::Null)
     }
 
-    fn handle_property_error(&self, name: &str, type_name: &str) -> RuntimeError {
-        RuntimeError::new(format!("cannot read property '{name}' of {type_name}"))
+    /// `cannot read property 'name' of Type`, with the closest member of
+    /// `receiver` that code in `current_class` and `module` may use.
+    fn handle_property_error(
+        &self,
+        name: &str,
+        type_name: &str,
+        receiver: &Value,
+        current_class: Option<&GcRc<Class>>,
+        module: Option<&Rc<String>>,
+    ) -> RuntimeError {
+        let hint = self.suggest_member(receiver, name, current_class, module);
+        RuntimeError::new(format!(
+            "cannot read property '{name}' of {type_name}{hint}"
+        ))
     }
 
     /// Checks `value` against a type annotation written as text, such as `Int`,
@@ -3029,8 +3069,14 @@ impl VM {
                                 );
                                 continue;
                             } else {
+                                let hint = self.suggest_member(
+                                    &Value::Enum(enum_type.clone()),
+                                    name,
+                                    current_class.as_ref(),
+                                    function.module.as_ref(),
+                                );
                                 return Err(RuntimeError::new(format!(
-                                    "Enum '{}' has no variant or static method '{}'",
+                                    "Enum '{}' has no variant or static method '{}'{hint}",
                                     et.name, name
                                 )));
                             }
@@ -3100,7 +3146,13 @@ impl VM {
                                     // `Error: message`, as errors print.
                                     self.bind_to_string(method_at, Value::Object(object.clone()))?
                                 } else {
-                                    return Err(self.handle_property_error(name, "Object"));
+                                    return Err(self.handle_property_error(
+                                        name,
+                                        "Object",
+                                        &Value::Object(object.clone()),
+                                        current_class.as_ref(),
+                                        function.module.as_ref(),
+                                    ));
                                 }
                             } else {
                                 field_value.unwrap_or(Value::Null)
@@ -3173,7 +3225,13 @@ impl VM {
                                     visibility: info.visibility,
                                 })?)
                             } else {
-                                return Err(self.handle_property_error(name, "Class"));
+                                return Err(self.handle_property_error(
+                                    name,
+                                    "Class",
+                                    &Value::Class(class.clone()),
+                                    current_class.as_ref(),
+                                    function.module.as_ref(),
+                                ));
                             }
                         }
                         Value::Variant(variant) if name == "value" || name == "name" => {
@@ -3290,9 +3348,16 @@ impl VM {
                                         self.function_name_value(index)
                                     }
                                     _ => {
-                                        return Err(
-                                            self.handle_property_error(name, other.type_name())
-                                        );
+                                        let module = self.frames.last().and_then(|frame| {
+                                            self.functions[frame.function_index].module.clone()
+                                        });
+                                        return Err(self.handle_property_error(
+                                            name,
+                                            other.type_name(),
+                                            &other,
+                                            current_class.as_ref(),
+                                            module.as_ref(),
+                                        ));
                                     }
                                 }
                             }
@@ -3474,18 +3539,16 @@ impl VM {
                             .get(key.as_str())
                             .cloned()
                             .unwrap_or(Value::Null)),
-                        // `map[0]` reads the key "0", as in JavaScript.
-                        (Value::Map(map), Value::Int(key)) => Ok(map
+                        // `map[0]` reads the key "0", as in JavaScript, and a
+                        // Float or Bool the key it prints as (`map[5.0]` is
+                        // `map[5]`): the keys `{0: x}` and `{true: x}` create.
+                        (
+                            Value::Map(map),
+                            key @ (Value::Int(_) | Value::Float(_) | Value::Bool(_)),
+                        ) => Ok(map
                             .borrow()
                             .entries
                             .get(&key.to_string())
-                            .cloned()
-                            .unwrap_or(Value::Null)),
-                        // A Float reads the key it prints as, so `map[5.0]` is `map[5]`.
-                        (Value::Map(map), Value::Float(key)) => Ok(map
-                            .borrow()
-                            .entries
-                            .get(&Value::Float(*key).to_string())
                             .cloned()
                             .unwrap_or(Value::Null)),
                         (Value::Set(set), value) => {
@@ -3535,15 +3598,22 @@ impl VM {
                             }
                             array.elements[idx] = value;
                         }
-                        (Value::Map(map), Value::String(key)) => {
+                        (
+                            Value::Map(map),
+                            key @ (Value::String(_)
+                            | Value::Int(_)
+                            | Value::Float(_)
+                            | Value::Bool(_)),
+                        ) => {
                             if map.borrow().is_immutable {
                                 return Err(self.throw_runtime_error("cannot modify immutable map"));
                             }
+                            let key = pleno_value::map_key(&key)
+                                .map(|key| key.into_owned())
+                                .unwrap_or_default();
                             self.gc
                                 .track_allocation(std::mem::size_of::<Value>() + key.len())?;
-                            map.borrow_mut()
-                                .entries
-                                .insert(key.as_str().to_string(), value);
+                            map.borrow_mut().entries.insert(key, value);
                         }
                         _ => return Err(RuntimeError::new("invalid index assignment")),
                     }
@@ -3973,9 +4043,10 @@ impl VM {
                         Some(value) => value,
                         None if is_type_param => Value::String(Rc::new("Any".to_string())),
                         None if c == 1 => {
-                            return Err(
-                                self.throw_runtime_error(&format!("undefined variable '{name}'"))
-                            );
+                            let hint = self.suggest_variable(&name, ip);
+                            return Err(self.throw_runtime_error(&format!(
+                                "undefined variable '{name}'{hint}"
+                            )));
                         }
                         None => Value::Null,
                     };
@@ -6682,7 +6753,15 @@ impl VM {
         let mut pos_index = 0usize;
         for key in named.keys() {
             if !params.iter().any(|param| param.name == *key) {
-                return Err(self.throw_runtime_error("unknown named argument"));
+                let hint = pleno_value::suggest::did_you_mean(
+                    key,
+                    params
+                        .iter()
+                        .filter(|param| !param.is_variadic)
+                        .map(|param| param.name.as_str()),
+                );
+                let message = format!("unknown named argument '{key}'{hint}");
+                return Err(self.throw_runtime_error(&message));
             }
         }
         for (idx, param) in params.iter().enumerate() {
@@ -7213,11 +7292,41 @@ impl VM {
             return None;
         };
         let receiver = self.registers[frame.base + source.b() as usize].to_value();
+        let current_class = match &frame.current_owner {
+            Some(MethodOwner::Class(class)) => Some(class.clone()),
+            _ => None,
+        };
+        let module = self.functions[frame.function_index].module.as_ref();
+        let hint = self.suggest_member(&receiver, name, current_class.as_ref(), module);
         Some(match receiver {
-            Value::Map(_) => format!("Map has no method '{name}' (and no key '{name}')"),
+            Value::Map(_) => format!("Map has no method '{name}' (and no key '{name}'){hint}"),
             Value::Null => format!("cannot call '{name}' on null"),
-            other => format!("{} has no method '{name}'", other.type_name()),
+            other => format!("{} has no method '{name}'{hint}", other.type_name()),
         })
+    }
+
+    /// `std module not found: name`, with the closest standard module: one
+    /// built in or one in `sources/std`.
+    fn std_module_error(&self, name: &str) -> RuntimeError {
+        let mut known: Vec<String> = self
+            .modules
+            .keys()
+            .filter_map(|key| key.strip_prefix("std:"))
+            .map(str::to_string)
+            .collect();
+        if let Ok(entries) =
+            std::env::current_dir().and_then(|dir| fs::read_dir(dir.join("sources/std")))
+        {
+            known.extend(entries.flatten().filter_map(|entry| {
+                let file = entry.file_name().to_string_lossy().to_string();
+                file.strip_suffix(".pln").map(str::to_string)
+            }));
+        }
+        let hint = match pleno_value::suggest::best_match(name, known.iter().map(String::as_str)) {
+            Some(found) => format!("; did you mean 'std:{found}'?"),
+            None => String::new(),
+        };
+        RuntimeError::new(format!("std module not found: {name}{hint}"))
     }
 
     fn execute_module(&mut self, path: &str) -> Result<Value, RuntimeError> {
@@ -7238,7 +7347,13 @@ impl VM {
                     .and_then(|main| main.parent())
                     .map(|dir| dir.to_path_buf())
             });
-        let resolved = resolve_module_path(path, base_dir)?;
+        let resolved =
+            resolve_module_path(path, base_dir).map_err(|err| match path.strip_prefix("std:") {
+                Some(name) if err.message.starts_with("std module not found") => {
+                    self.std_module_error(name)
+                }
+                _ => err,
+            })?;
         let resolved_key = resolved.to_string_lossy().to_string();
         if let Some(value) = self.modules.get(&resolved_key).cloned() {
             return Ok(value);
@@ -7345,6 +7460,11 @@ fn owner_from_nan(value: NanValue) -> Option<MethodOwner> {
         _ => None,
     }
 }
+
+/// The innermost and outermost frames a deep backtrace keeps (see
+/// `generate_backtrace`).
+const BACKTRACE_INNER: usize = 50;
+const BACKTRACE_OUTER: usize = 10;
 
 /// Whether `<` and `>` work on `value`: numbers, strings and characters, and
 /// objects whose class (or a parent) defines `operator <` or `operator >`, or
