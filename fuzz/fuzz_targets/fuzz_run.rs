@@ -45,10 +45,32 @@ fn run(source: &str, fast_loop: bool) -> Option<Run> {
 }
 
 /// Names whose results differ between two runs of the same program (time,
-/// randomness, collector statistics, input), so the runs are not compared.
+/// randomness, timings, collector statistics, input), so the runs are not
+/// compared.
 const NONDETERMINISTIC: &[&str] = &[
-    "random", "Random", "now", "Date", "time", "Time", "uuid", "Uuid", "Stats", "gc", "GC",
-    "sleep", "input", "env", "Env", "process", "Process", "spawn", "Channel", "Promise",
+    "random",
+    "Random",
+    "Benchmark",
+    "bench",
+    "measure",
+    "now",
+    "Date",
+    "time",
+    "Time",
+    "uuid",
+    "Uuid",
+    "Stats",
+    "gc",
+    "GC",
+    "sleep",
+    "input",
+    "env",
+    "Env",
+    "process",
+    "Process",
+    "spawn",
+    "Channel",
+    "Promise",
 ];
 
 // Any program must run or fail with an error, never panic, and the small
