@@ -1,5 +1,7 @@
 # std:json
 
+> **Stability:** stable in 1.0.
+
 ## Contents
 
 - [JSON](#json)
@@ -34,7 +36,9 @@ try {
 
 #### `static` `fn stringify(value: Any) -> String`
 
-Converts a Pleno value into a compact JSON string. Map keys keep their insertion order. Functions and other values with no JSON form become `null`.
+Converts a Pleno value into a compact JSON string. Map keys keep their insertion order. Null, Bool, Int, Float, String, Array and Map values are converted; functions become `null`.
+
+Class instances and sets also become `null` today (`JSON.stringify(Point(1, 2))` is `null`). This is unspecified behavior, not covered by the [1.x compatibility promise](../specs/compatibility.md): a later release may write their fields instead. Convert them to a map or an array first, for example with a `toMap()` method of your own or `set.toArray()`.
 
 ```pleno
 import { JSON } from "std:json";
