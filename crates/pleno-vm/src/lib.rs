@@ -47,6 +47,8 @@ pub struct VM {
     /// resolved path. Code in a module reads its own names first and then
     /// `globals`; only the names an `import` lists reach the importer.
     pub module_globals: IndexMap<String, IndexMap<String, Value>>,
+    /// Top-level names the main program defined, which modules do not see.
+    pub program_globals: ProgramGlobals,
     /// Methods added to built-in types with `extend`, keyed by type name.
     pub builtin_extensions: IndexMap<String, IndexMap<String, pleno_value::MethodInfo>>,
     /// Rejected promises nothing has handled yet, reported when the program ends.
@@ -464,6 +466,9 @@ impl VMProvider for VM {
             {
                 val.mark(gc);
             }
+            for val in self.program_globals.replaced.values() {
+                val.mark(gc);
+            }
             for task in &self.pending_tasks {
                 task.mark(gc);
             }
@@ -686,7 +691,13 @@ impl VM {
             .frames
             .last()
             .and_then(|frame| self.functions[frame.function_index].module_path.as_deref());
-        lookup_global_in(&self.globals, &self.module_globals, module_path, name)
+        lookup_global_in(
+            &self.globals,
+            &self.module_globals,
+            &self.program_globals,
+            module_path,
+            name,
+        )
     }
 
     /// The class, interface or enum a type annotation names. Besides the
@@ -855,6 +866,7 @@ impl VM {
             globals,
             modules,
             module_globals: IndexMap::new(),
+            program_globals: ProgramGlobals::default(),
             builtin_extensions: IndexMap::new(),
             unhandled_rejections: IndexMap::new(),
             functions: Vec::new(),
@@ -1684,6 +1696,7 @@ impl VM {
                     globals: &self.globals,
                     modules: &self.modules,
                     module_globals: &self.module_globals,
+                    replaced_globals: &self.program_globals.replaced,
                     builtin_extensions: &self.builtin_extensions,
                     pending_tasks: &self.pending_tasks,
                     suspended_frames: &self.suspended_frames,
@@ -3857,6 +3870,7 @@ impl VM {
                     let mut value = lookup_global_in(
                         &self.globals,
                         &self.module_globals,
+                        &self.program_globals,
                         function.module_path.as_deref(),
                         &name,
                     );
@@ -3935,16 +3949,21 @@ impl VM {
                     log::trace!("VM: SetGlobal '{}' => {:?}", name, value);
                     let val_obj = value.to_value();
 
-                    // A module's top-level names stay in the module.
-                    let table = match function
+                    // A module's top-level names stay in the module, and the main
+                    // program's stay out of the modules it imports.
+                    match function
                         .module_path
                         .as_deref()
                         .and_then(|path| self.module_globals.get_mut(path.as_str()))
                     {
-                        Some(table) => table,
-                        None => &mut self.globals,
-                    };
-                    table.insert(name.clone(), val_obj);
+                        Some(table) => {
+                            table.insert(name.clone(), val_obj);
+                        }
+                        None => {
+                            self.program_globals.define(&self.globals, &name);
+                            self.globals.insert(name.clone(), val_obj);
+                        }
+                    }
                     self.globals_epoch += 1;
 
                     // Data Breakpoint Check
@@ -7150,8 +7169,6 @@ impl VM {
     }
 }
 
-/// The value of global `name` as code in the module at `module_path` sees it:
-/// the module's own top-level name if it has one, otherwise the shared global.
 /// A method's owner in a register, for `CallMethod` (see `Opcode::GetMethod`).
 fn owner_to_nan(owner: &MethodOwner) -> NanValue {
     NanValue::from_value(&match owner {
@@ -7176,17 +7193,49 @@ fn owner_from_nan(value: NanValue) -> Option<MethodOwner> {
 /// Registers that `append_in_place` scans at most for copies of a string.
 const MAX_APPEND_SCAN: usize = 4096;
 
+/// The main program's top-level names. They share `VM::globals` with the
+/// built-in globals, so code outside modules reads both the same way; code in
+/// a module sees the built-ins only.
+#[derive(Debug, Default)]
+pub struct ProgramGlobals {
+    /// Every name the main program defined.
+    names: std::collections::HashSet<String>,
+    /// The built-in values those definitions replaced (a program's own
+    /// `print`, say), which modules still see.
+    replaced: IndexMap<String, Value>,
+}
+
+impl ProgramGlobals {
+    /// Records that the main program defines `name`, before it is stored.
+    fn define(&mut self, globals: &IndexMap<String, Value>, name: &str) {
+        if self.names.insert(name.to_string())
+            && let Some(builtin) = globals.get(name)
+        {
+            self.replaced.insert(name.to_string(), builtin.clone());
+        }
+    }
+}
+
+/// The value of global `name` as code in the module at `module_path` sees it:
+/// the module's own top-level name if it has one, otherwise a built-in global.
+/// Code outside modules sees the shared globals, its own names included.
 fn lookup_global_in(
     globals: &IndexMap<String, Value>,
     module_globals: &IndexMap<String, IndexMap<String, Value>>,
+    program: &ProgramGlobals,
     module_path: Option<&String>,
     name: &str,
 ) -> Option<Value> {
-    module_path
-        .and_then(|path| module_globals.get(path.as_str()))
-        .and_then(|table| table.get(name))
-        .or_else(|| globals.get(name))
-        .cloned()
+    let Some(table) = module_path.and_then(|path| module_globals.get(path.as_str())) else {
+        return globals.get(name).cloned();
+    };
+    if let Some(value) = table.get(name) {
+        return Some(value.clone());
+    }
+    if program.names.contains(name) {
+        return program.replaced.get(name).cloned();
+    }
+    globals.get(name).cloned()
 }
 
 /// Fails for an abstract class, and for a class that leaves an abstract
