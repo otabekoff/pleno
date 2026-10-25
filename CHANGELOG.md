@@ -39,6 +39,7 @@ Notable changes to Pleno. The format follows [Keep a Changelog](https://keepacha
 
 ### Fixed
 
+- A very long chain of operators or calls in one statement (`1 + 1 + ...` with tens of thousands of terms) overflowed the stack while compiling. A statement can now chain up to 1,000 operators and calls; a longer one is a parse error (`expression too long`). The browser playground gets an 8 MB WebAssembly stack instead of 1 MB. Found by the `fuzz_compile` fuzz target.
 - A sandbox limit (`--max-instructions`, `--max-memory`, `Sandbox` options) could be caught by `try`/`catch`, so a program could catch it and run on past its limit. Reaching a limit now ends the sandboxed program; the program that started a `Sandbox` still catches it as a `SandboxError` (before, that error arrived named `Error`).
 - `a != b` ignored a class's `operator ==`: with `==` overloaded, `V(1) != V(1)` was `true`. It is now `!(a == b)` unless the class defines its own `operator !=`.
 - An error thrown inside a callback (`map`, `filter`, ...) and caught outside read `uncaught exception: uncaught exception: ...`; it now has its own message.
