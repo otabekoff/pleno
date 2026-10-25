@@ -12,12 +12,21 @@ pub fn regex_constructor(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Valu
         }
     };
 
+    let flags = match args.get(1) {
+        None | Some(Value::Null) | Some(Value::Missing) => Rc::new(String::new()),
+        Some(Value::String(s)) => s.clone(),
+        Some(_) => return Err(RuntimeError::new("Regex flags must be a string")),
+    };
+    // Compile once here so a bad pattern or flag fails at construction.
+    build_regex(&pattern, &flags)?;
+
     let mut map = IndexMap::new();
     map.insert(
         "variant".to_string(),
         Value::String(Rc::new("Regex".to_string())),
     );
     map.insert("pattern".to_string(), Value::String(pattern));
+    map.insert("flags".to_string(), Value::String(flags));
 
     let map_val = Value::Map(vm.get_gc().allocate(MapState::new(map))?);
 
@@ -65,43 +74,67 @@ pub fn regex_constructor(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Valu
     Ok(map_val)
 }
 
-pub fn regex_test(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
-    let this = match args.first() {
-        Some(Value::Map(m)) => m.borrow(),
-        _ => return Err(RuntimeError::new("Regex.test: invalid receiver")),
+/// Compiles `pattern` with `flags`: any of `i` (case-insensitive), `m` (`^`
+/// and `$` match at line breaks), `s` (`.` matches a newline) and `x`
+/// (verbose: whitespace and `#` comments in the pattern are ignored).
+fn build_regex(pattern: &str, flags: &str) -> Result<regex::Regex, RuntimeError> {
+    let mut builder = regex::RegexBuilder::new(pattern);
+    for flag in flags.chars() {
+        match flag {
+            'i' => builder.case_insensitive(true),
+            'm' => builder.multi_line(true),
+            's' => builder.dot_matches_new_line(true),
+            'x' => builder.ignore_whitespace(true),
+            other => {
+                return Err(RuntimeError::new(format!(
+                    "invalid regex flag '{other}': expected i, m, s or x"
+                )));
+            }
+        };
+    }
+    builder
+        .build()
+        .map_err(|e| RuntimeError::new(format!("invalid regex: {}", e)))
+}
+
+/// The compiled regex of a `Regex` object (its `pattern` and `flags`).
+fn receiver_regex(receiver: Option<&Value>, method: &str) -> Result<regex::Regex, RuntimeError> {
+    let Some(Value::Map(m)) = receiver else {
+        return Err(RuntimeError::new(format!(
+            "Regex.{method}: invalid receiver"
+        )));
     };
+    let this = m.borrow();
     let pattern = match this.get("pattern") {
-        Some(Value::String(s)) => s.as_str(),
+        Some(Value::String(s)) => s.clone(),
         _ => return Err(RuntimeError::new("Regex instance missing pattern")),
     };
+    let flags = match this.get("flags") {
+        Some(Value::String(s)) => s.clone(),
+        _ => Rc::new(String::new()),
+    };
+    drop(this);
+    build_regex(&pattern, &flags)
+}
+
+pub fn regex_test(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    let re = receiver_regex(args.first(), "test")?;
     let text = match args.get(1) {
         Some(Value::String(s)) => s.as_str(),
         _ => return Err(RuntimeError::new("Regex.test expects text string")),
     };
 
-    let re = regex::Regex::new(pattern)
-        .map_err(|e| RuntimeError::new(format!("invalid regex: {}", e)))?;
     Ok(Value::Bool(re.is_match(text)))
 }
 
 pub fn regex_match(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
-    let this = match args.first() {
-        Some(Value::Map(m)) => m.borrow(),
-        _ => return Err(RuntimeError::new("Regex.match: invalid receiver")),
-    };
-    let pattern = match this.get("pattern") {
-        Some(Value::String(s)) => s.as_str(),
-        _ => return Err(RuntimeError::new("Regex instance missing pattern")),
-    };
+    let re = receiver_regex(args.first(), "match")?;
     let text = match args.get(1) {
         Some(Value::String(s)) => s.as_str(),
         _ => return Err(RuntimeError::new("Regex.match expects text string")),
     };
 
-    let re = regex::Regex::new(pattern)
-        .map_err(|e| RuntimeError::new(format!("invalid regex: {}", e)))?;
     let caps = re.captures(text);
-    drop(this);
     match caps {
         Some(caps) => match_object(vm, &caps),
         None => Ok(Value::Null),
@@ -186,23 +219,13 @@ pub fn regex_replace_static(
 }
 
 pub fn regex_find_all(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
-    let this = match args.first() {
-        Some(Value::Map(m)) => m.borrow(),
-        _ => return Err(RuntimeError::new("Regex.findAll: invalid receiver")),
-    };
-    let pattern = match this.get("pattern") {
-        Some(Value::String(s)) => s.as_str(),
-        _ => return Err(RuntimeError::new("Regex instance missing pattern")),
-    };
+    let re = receiver_regex(args.first(), "findAll")?;
     let text = match args.get(1) {
         Some(Value::String(s)) => s.as_str(),
         _ => return Err(RuntimeError::new("Regex.findAll expects text string")),
     };
 
-    let re = regex::Regex::new(pattern)
-        .map_err(|e| RuntimeError::new(format!("invalid regex: {}", e)))?;
     let all_caps: Vec<_> = re.captures_iter(text).collect();
-    drop(this);
     let mut matches = Vec::new();
     for caps in &all_caps {
         matches.push(match_object(vm, caps)?);
@@ -213,14 +236,7 @@ pub fn regex_find_all(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, 
 }
 
 pub fn regex_replace(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
-    let this = match args.first() {
-        Some(Value::Map(m)) => m.borrow(),
-        _ => return Err(RuntimeError::new("Regex.replace: invalid receiver")),
-    };
-    let pattern = match this.get("pattern") {
-        Some(Value::String(s)) => s.as_str(),
-        _ => return Err(RuntimeError::new("Regex instance missing pattern")),
-    };
+    let re = receiver_regex(args.first(), "replace")?;
     let text = match args.get(1) {
         Some(Value::String(s)) => s.as_str(),
         _ => return Err(RuntimeError::new("Regex.replace expects text string")),
@@ -234,27 +250,17 @@ pub fn regex_replace(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, 
         }
     };
 
-    let re = regex::Regex::new(pattern)
-        .map_err(|e| RuntimeError::new(format!("invalid regex: {}", e)))?;
     let result = re.replace_all(text, replacement);
     Ok(Value::String(Rc::new(result.to_string())))
 }
 
 /// `pattern.split(text)`: the pieces of `text` between matches.
 pub fn regex_split(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
-    let pattern = match args.first() {
-        Some(Value::Map(m)) => match m.borrow().get("pattern") {
-            Some(Value::String(s)) => s.to_string(),
-            _ => return Err(RuntimeError::new("Regex instance missing pattern")),
-        },
-        _ => return Err(RuntimeError::new("Regex.split: invalid receiver")),
-    };
+    let re = receiver_regex(args.first(), "split")?;
     let text = match args.get(1) {
         Some(Value::String(s)) => s.clone(),
         _ => return Err(RuntimeError::new("Regex.split expects text string")),
     };
-    let re = regex::Regex::new(&pattern)
-        .map_err(|e| RuntimeError::new(format!("invalid regex: {}", e)))?;
     let parts = re
         .split(&text)
         .map(|part| Value::String(Rc::new(part.to_string())))

@@ -1481,9 +1481,13 @@ fn native_map_put(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, Run
         _ => return Err(RuntimeError::new("expected map")),
     };
     map.borrow().ensure_mutable()?;
-    let key = match args.get(1) {
-        Some(Value::String(s)) => s.as_str().to_string(),
-        _ => return Err(RuntimeError::new("map key must be string")),
+    let key = match args.get(1).and_then(pleno_value::map_key) {
+        Some(key) => key.into_owned(),
+        None => {
+            return Err(RuntimeError::new(
+                "map key must be a String, number or Bool",
+            ));
+        }
     };
     map.borrow_mut()
         .entries
@@ -1496,9 +1500,13 @@ fn native_map_with(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, Run
         Value::Map(m) => m,
         _ => return Err(RuntimeError::new("expected map")),
     };
-    let key = match args.get(1) {
-        Some(Value::String(s)) => s.as_str().to_string(),
-        _ => return Err(RuntimeError::new("map key must be string")),
+    let key = match args.get(1).and_then(pleno_value::map_key) {
+        Some(key) => key.into_owned(),
+        None => {
+            return Err(RuntimeError::new(
+                "map key must be a String, number or Bool",
+            ));
+        }
     };
     let mut entries = map.borrow().entries.clone();
     entries.insert(key, args.get(2).cloned().unwrap_or(Value::Null));
@@ -1514,14 +1522,14 @@ fn native_map_get(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, Run
         Value::Map(m) => m,
         _ => return Err(RuntimeError::new("expected map")),
     };
-    let key = match args.get(1) {
-        Some(Value::String(s)) => s.as_str(),
-        _ => return Ok(Value::Null),
+    let key = match args.get(1).and_then(pleno_value::map_key) {
+        Some(key) => key,
+        None => return Ok(Value::Null),
     };
     Ok(map
         .borrow()
         .entries
-        .get(key)
+        .get(key.as_ref())
         .cloned()
         .unwrap_or(Value::Null))
 }
@@ -1531,12 +1539,15 @@ fn native_map_remove(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, 
         _ => return Err(RuntimeError::new("expected map")),
     };
     map.borrow().ensure_mutable()?;
-    let key = match args.get(1) {
-        Some(Value::String(s)) => s.as_str(),
-        _ => return Ok(Value::Bool(false)),
+    let key = match args.get(1).and_then(pleno_value::map_key) {
+        Some(key) => key,
+        None => return Ok(Value::Bool(false)),
     };
     Ok(Value::Bool(
-        map.borrow_mut().entries.shift_remove(key).is_some(),
+        map.borrow_mut()
+            .entries
+            .shift_remove(key.as_ref())
+            .is_some(),
     ))
 }
 fn native_map_keys(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
@@ -1909,11 +1920,11 @@ fn native_map_contains_key(
         Value::Map(m) => m,
         _ => return Err(RuntimeError::new("expected map")),
     };
-    let key = match args.get(1) {
-        Some(Value::String(s)) => s.as_str(),
-        _ => return Ok(Value::Bool(false)),
+    let key = match args.get(1).and_then(pleno_value::map_key) {
+        Some(key) => key,
+        None => return Ok(Value::Bool(false)),
     };
-    Ok(Value::Bool(map.borrow().entries.contains_key(key)))
+    Ok(Value::Bool(map.borrow().entries.contains_key(key.as_ref())))
 }
 
 fn native_string_contains(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {

@@ -3495,18 +3495,16 @@ impl VM {
                             .get(key.as_str())
                             .cloned()
                             .unwrap_or(Value::Null)),
-                        // `map[0]` reads the key "0", as in JavaScript.
-                        (Value::Map(map), Value::Int(key)) => Ok(map
+                        // `map[0]` reads the key "0", as in JavaScript, and a
+                        // Float or Bool the key it prints as (`map[5.0]` is
+                        // `map[5]`): the keys `{0: x}` and `{true: x}` create.
+                        (
+                            Value::Map(map),
+                            key @ (Value::Int(_) | Value::Float(_) | Value::Bool(_)),
+                        ) => Ok(map
                             .borrow()
                             .entries
                             .get(&key.to_string())
-                            .cloned()
-                            .unwrap_or(Value::Null)),
-                        // A Float reads the key it prints as, so `map[5.0]` is `map[5]`.
-                        (Value::Map(map), Value::Float(key)) => Ok(map
-                            .borrow()
-                            .entries
-                            .get(&Value::Float(*key).to_string())
                             .cloned()
                             .unwrap_or(Value::Null)),
                         (Value::Set(set), value) => {
@@ -3556,15 +3554,22 @@ impl VM {
                             }
                             array.elements[idx] = value;
                         }
-                        (Value::Map(map), Value::String(key)) => {
+                        (
+                            Value::Map(map),
+                            key @ (Value::String(_)
+                            | Value::Int(_)
+                            | Value::Float(_)
+                            | Value::Bool(_)),
+                        ) => {
                             if map.borrow().is_immutable {
                                 return Err(self.throw_runtime_error("cannot modify immutable map"));
                             }
+                            let key = pleno_value::map_key(&key)
+                                .map(|key| key.into_owned())
+                                .unwrap_or_default();
                             self.gc
                                 .track_allocation(std::mem::size_of::<Value>() + key.len())?;
-                            map.borrow_mut()
-                                .entries
-                                .insert(key.as_str().to_string(), value);
+                            map.borrow_mut().entries.insert(key, value);
                         }
                         _ => return Err(RuntimeError::new("invalid index assignment")),
                     }

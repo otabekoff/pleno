@@ -1822,6 +1822,18 @@ impl std::hash::Hash for ValueKey {
     }
 }
 
+/// The map key a value stands for. Map keys are strings; a number or Bool
+/// key is the string it prints as, so `m[1]`, `m["1"]` and `{1: x}` agree.
+pub fn map_key(value: &Value) -> Option<std::borrow::Cow<'_, str>> {
+    match value {
+        Value::String(s) => Some(std::borrow::Cow::Borrowed(s.as_str())),
+        Value::Int(_) | Value::Float(_) | Value::Bool(_) => {
+            Some(std::borrow::Cow::Owned(value.to_string()))
+        }
+        _ => None,
+    }
+}
+
 impl ValueKey {
     pub fn try_from_value(value: &Value) -> Option<Self> {
         match value {

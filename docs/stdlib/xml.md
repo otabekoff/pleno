@@ -16,7 +16,7 @@ import { XML } from "std:xml";
 
 ### `parse(xml: String): Map`
 
-Parses an XML string and returns its root element as a Map. Whitespace around text is trimmed. Malformed XML, such as a mismatched closing tag or an unquoted attribute, throws an error. Input without a complete root element (an empty string, or `<a>` that is never closed) currently returns `null` instead of throwing; check for `null` if the input is not trusted. This case is unspecified and may become an error.
+Parses an XML string and returns its root element as a Map. Whitespace around text is trimmed. Malformed XML throws an error, as `JSON.parse` does for invalid JSON: a mismatched closing tag, an unquoted attribute, an element that is never closed (`XML parse error: element <a> is not closed`) or input without a root element, such as an empty string or only a comment (`XML parse error: no root element`).
 
 ```pleno
 import { XML } from "std:xml";
@@ -32,6 +32,12 @@ print(doc.name);                     // book
 print(doc.attributes.id);            // 1
 print(doc.children[0].name);         // title
 print(doc.children[0].children[0]);  // Pleno Guide
+
+try {
+    XML.parse("<a>");
+} catch (e) {
+    print(e.message);  // XML parse error: element <a> is not closed
+}
 ```
 
 **Element Structure:**

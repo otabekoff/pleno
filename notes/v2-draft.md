@@ -37,9 +37,9 @@ Status: not started. `for (c in "abc")` is a compile error (`for loop expects ar
 
 Status: not started. There are no byte APIs (`bytes()`, `byteLength`). Positions are meant to count Unicode characters; see "Bugs that block the freeze" below.
 
-### Map literals with non-string keys
+### Maps with non-string keys
 
-Status: not started. `{1: "a"}` is a parse error; map keys are strings.
+Status: map keys are strings. Number and Bool literal keys are converted to strings (`{1: "a"}` is `{"1": "a"}`), and so are number and Bool indexes (`m[1]`). Not started: maps keyed by other values (numbers that stay numbers, tuples, objects), which would change `keys()` and iteration.
 
 ### Purity checked by the compiler
 
@@ -105,14 +105,10 @@ Planned API:
 
 ### HTTP server
 
-Status: `Router` and `Server` are experimental in 1.0. Missing: middleware (`app.use`), static files, cookies, `HEAD` for `get` routes, and automated tests that serve requests.
+Status: `Router` and `Server` are experimental in 1.0. Missing: middleware (`app.use`), static files and cookies.
 
 ### Other module work
 
-- `Regex(pattern, flags)`: honor the flags argument (status: ignored; inline `(?i)` works).
-- `CSV.parse`: an option for input without a header row (status: the first row is always the header).
-- `Crypto.jwtVerify`: check `exp` and `nbf` and compare signatures in constant time (status: experimental, neither is done).
-- `JSON.stringify`: write the fields of class instances, and sets as arrays (status: both become `null`).
 - `std:gc`, `std:db`, `std:security`: experimental, undocumented or thinly documented; decide their 1.x shape.
 - Proposed new modules: `std:grpc` (gRPC and Protobuf), `std:ui` (terminal and simple desktop UI), PostgreSQL in `std:db`.
 
