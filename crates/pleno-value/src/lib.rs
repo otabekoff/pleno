@@ -174,6 +174,9 @@ fn default_native_function_val() -> NativeFunction {
     dummy_native_function
 }
 
+/// A value. Arrays, maps and objects hold their elements as `Value`s, so the
+/// type is kept to 16 bytes: every variant carries at most one machine word
+/// (larger payloads, such as a range, are behind an `Rc`).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum Value {
     Null,
@@ -182,7 +185,7 @@ pub enum Value {
     Int(i64),
     Float(f64),
     String(Rc<String>),
-    Range(Range),
+    Range(Rc<Range>),
     Class(GcRc<Class>),
     Interface(GcRc<Interface>),
     Function(usize),
@@ -2021,5 +2024,13 @@ impl GcObject for BoundFunctionState {
         for arg in &self.type_args {
             arg.mark(gc);
         }
+    }
+}
+
+#[cfg(test)]
+mod value_size_tests {
+    #[test]
+    fn values_stay_two_words() {
+        assert_eq!(std::mem::size_of::<super::Value>(), 16);
     }
 }

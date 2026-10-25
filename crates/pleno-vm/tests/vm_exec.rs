@@ -381,11 +381,11 @@ fn evaluates_range_expression() {
     let value = eval("1..=3;");
     assert_eq!(
         value,
-        pleno_value::Value::Range(pleno_value::Range {
+        pleno_value::Value::Range(std::rc::Rc::new(pleno_value::Range {
             start: Some(1),
             end: Some(3),
             inclusive: true
-        })
+        }))
     );
 }
 
@@ -394,20 +394,20 @@ fn evaluates_open_ended_ranges() {
     let value = eval("..10;");
     assert_eq!(
         value,
-        pleno_value::Value::Range(pleno_value::Range {
+        pleno_value::Value::Range(std::rc::Rc::new(pleno_value::Range {
             start: None,
             end: Some(10),
             inclusive: false
-        })
+        }))
     );
     let value = eval("5..;");
     assert_eq!(
         value,
-        pleno_value::Value::Range(pleno_value::Range {
+        pleno_value::Value::Range(std::rc::Rc::new(pleno_value::Range {
             start: Some(5),
             end: None,
             inclusive: false
-        })
+        }))
     );
 }
 

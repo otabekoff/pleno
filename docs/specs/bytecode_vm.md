@@ -64,6 +64,8 @@ Each instruction is 4 bytes:
 #### Calls
 - `Call` (`R[A] = R[B](...R[C])`: the arguments are in the array in R[C]; used for spread arguments)
 - `CallRegs` (`R[A] = R[B](R[B+1], ..., R[B+C])`: the usual call, with the arguments in the registers after the callee)
+- `GetMethod` (R[A] = method Constants[C] of R[B], R[A+1] = R[B], R[A+2] = how to call it: the lookup for `CallMethod`, done where `GetProperty` would read the method)
+- `CallMethod` (R[A] = R[B+1].method(R[B+3], ..., R[B+2+C]) for the method `GetMethod` looked up into R[B]..R[B+2]: `obj.name(args)` without allocating a bound method)
 - `Return`  (return R[A])
 - `Closure` (R[A] = closure(proto[B]))
 
@@ -212,3 +214,15 @@ We can start with register VM and still add optimizations incrementally:
 - Inline caches for property access
 - NaN boxing for compact values
 - Specialized opcodes for common fast paths
+
+### Execution today
+
+- Values in registers are NaN-boxed (`NanValue`, 8 bytes); a `Value` is 16 bytes.
+- Simple instructions (moves, small constants, integer and float arithmetic,
+  comparisons with the jump after them, cached global reads, built-in methods
+  of arrays and strings, plain calls and returns) run in a small loop of their
+  own (`run_fast`), which hands anything else to the general loop. It is off
+  while a debugger is attached or a sandbox sets limits.
+- `obj.name(args)` compiles to `GetMethod` + `CallMethod`, which call the method
+  without allocating a bound method.
+- `s = s + x` appends in place when no other register or value holds `s`.

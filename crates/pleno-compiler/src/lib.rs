@@ -1705,9 +1705,48 @@ impl Compiler {
                     return Ok(dest);
                 }
 
+                // `object.name(args)`: look the method up where `GetProperty`
+                // would read it, then call it with the receiver, without a bound
+                // method in between.
+                if let ExprKind::Property { object, name } = &callee.kind
+                    && !matches!(object.kind, ExprKind::Super)
+                    && args
+                        .iter()
+                        .all(|arg| matches!(arg, pleno_ast::CallArg::Positional(_)))
+                {
+                    let object_reg = self.compile_expr(object)?;
+                    let name_idx = self.add_constant(Value::String(name.clone().into()));
+                    let dest = self.registers.allocate()?;
+                    if let Some(block) = self.registers.allocate_block(args.len() + 3) {
+                        self.emit(Opcode::GetMethod, block, object_reg, name_idx);
+                        self.free_temp(object_reg);
+                        for (index, arg) in args.iter().enumerate() {
+                            if let pleno_ast::CallArg::Positional(arg_expr) = arg {
+                                let start = self.chunk.code.len();
+                                let arg_reg = self.compile_expr(arg_expr)?;
+                                let slot = block + 3 + index as u8;
+                                if !self.retarget_last(arg_reg, slot, start) {
+                                    self.emit(Opcode::Move, slot, arg_reg, 0);
+                                }
+                                self.free_temp(arg_reg);
+                            }
+                        }
+                        self.emit(Opcode::CallMethod, dest, block, args.len() as u8);
+                        self.registers.free_block(block, args.len() + 3);
+                    } else {
+                        let callee_reg = self.registers.allocate()?;
+                        self.emit(Opcode::GetProperty, callee_reg, object_reg, name_idx);
+                        self.free_temp(object_reg);
+                        self.compile_call_internal(callee_reg, args, dest, expr.span)?;
+                        self.free_temp(callee_reg);
+                    }
+                    return Ok(dest);
+                }
+
+                let callee_start = self.chunk.code.len();
                 let callee_reg = self.compile_expr(callee)?;
                 let dest = self.registers.allocate()?;
-                self.compile_call_internal(callee_reg, args, dest, expr.span)?;
+                self.compile_call_from(callee_reg, Some(callee_start), args, dest, expr.span)?;
                 self.free_temp(callee_reg);
                 for reg in moved_regs {
                     self.ownership_states.insert(reg, OwnershipState::Moved);
@@ -1930,6 +1969,28 @@ impl Compiler {
     /// produced `temp`) that only writes its result register, and only when
     /// no jump lands after it (that path would skip the result). The caller
     /// must not read `temp` afterwards.
+    /// Makes the `ForceThunk` that just read a callee (a global's value) into
+    /// the temporary `temp` write the call's callee register `target` instead,
+    /// under the conditions of `retarget_last`. The callee is read before the
+    /// arguments either way; only its copy into the call's registers moves.
+    fn retarget_callee(&mut self, temp: u8, target: u8, start: usize) -> bool {
+        let len = self.chunk.code.len();
+        if len == 0
+            || len - 1 < start
+            || self.jump_targets_end > len - 1
+            || self.is_local_reg(temp)
+            || Some(temp) == self.last_expr_register
+        {
+            return false;
+        }
+        let last = self.chunk.code[len - 1];
+        if last.opcode() != Opcode::ForceThunk || last.a() != temp {
+            return false;
+        }
+        self.chunk.code[len - 1] = Instruction::new(last.opcode(), target, last.b(), last.c());
+        true
+    }
+
     fn retarget_last(&mut self, temp: u8, target: u8, start: usize) -> bool {
         let len = self.chunk.code.len();
         if len == 0
@@ -1965,6 +2026,7 @@ impl Compiler {
                 | Opcode::LoadFalse
                 | Opcode::GetIndex
                 | Opcode::CallRegs
+                | Opcode::CallMethod
         );
         if last.a() != temp || !pure_result {
             return false;
@@ -2446,6 +2508,19 @@ impl Compiler {
         dest: u8,
         span: Span,
     ) -> Result<(), CompileError> {
+        self.compile_call_from(callee_reg, None, args, dest, span)
+    }
+
+    /// `compile_call_internal`, for a callee whose code starts at
+    /// `callee_start` (when known) and ends just before this call.
+    fn compile_call_from(
+        &mut self,
+        callee_reg: u8,
+        callee_start: Option<usize>,
+        args: &[pleno_ast::CallArg],
+        dest: u8,
+        span: Span,
+    ) -> Result<(), CompileError> {
         let has_placeholder = args
             .iter()
             .any(|arg| matches!(arg, pleno_ast::CallArg::Placeholder));
@@ -2547,6 +2622,9 @@ impl Compiler {
                 .iter()
                 .all(|arg| matches!(arg, pleno_ast::CallArg::Positional(_)));
             if all_positional && let Some(block) = self.registers.allocate_block(args.len() + 1) {
+                // A global callee is read straight into the call's registers.
+                let callee_in_block = callee_start
+                    .is_some_and(|start| self.retarget_callee(callee_reg, block, start));
                 for (index, arg) in args.iter().enumerate() {
                     if let pleno_ast::CallArg::Positional(expr) = arg {
                         let start = self.chunk.code.len();
@@ -2559,7 +2637,9 @@ impl Compiler {
                     }
                 }
                 // Read the callee after the arguments, as `Call` does.
-                self.emit(Opcode::Move, block, callee_reg, 0);
+                if !callee_in_block {
+                    self.emit(Opcode::Move, block, callee_reg, 0);
+                }
                 self.emit(Opcode::CallRegs, dest, block, args.len() as u8);
                 self.registers.free_block(block, args.len() + 1);
                 return Ok(());

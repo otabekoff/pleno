@@ -5,7 +5,6 @@ use pleno_value::{
     nan_value::NanValue,
 };
 // use std::collections::HashMap;
-use std::rc::Rc;
 
 #[derive(Debug, Clone)]
 pub struct AsyncTask {
@@ -65,8 +64,6 @@ pub struct CallFrame {
     pub return_override: Option<Value>,
     pub closure_state: Option<GcRc<ClosureState>>,
     pub current_owner: Option<MethodOwner>,
-    pub current_module: Option<Rc<String>>,
-    pub current_module_path: Option<Rc<String>>,
     pub type_args: Vec<Value>,
     pub exception_handlers: Vec<ExceptionHandler>,
 }

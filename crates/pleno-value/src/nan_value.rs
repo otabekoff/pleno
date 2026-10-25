@@ -14,7 +14,7 @@ use std::rc::Rc;
 ///
 /// - integers outside the inline 46-bit range,
 /// - strings (the table owns one `Rc`, so encoding a string never leaks it),
-/// - ranges (stored by value; they have no heap allocation of their own).
+/// - ranges (shared with the `Value`s they came from).
 ///
 /// NaN-boxed values are `Copy` and only stored in VM registers, which every
 /// collection marks. A sweep after the collection frees the unmarked slots.
@@ -56,6 +56,12 @@ impl<T> Slots<T> {
     fn get(&self, slot: usize) -> &T {
         self.values[slot]
             .as_ref()
+            .expect("NaN-boxed value refers to a freed slot")
+    }
+
+    fn get_mut(&mut self, slot: usize) -> &mut T {
+        self.values[slot]
+            .as_mut()
             .expect("NaN-boxed value refers to a freed slot")
     }
 
@@ -127,7 +133,7 @@ struct BoxedValues {
     strings: Slots<Rc<String>>,
     /// The same string reuses its slot instead of growing the table.
     string_slots: SlotMap<*const String>,
-    ranges: Slots<Range>,
+    ranges: Slots<Rc<Range>>,
 }
 
 thread_local! {
@@ -181,9 +187,9 @@ fn box_string(value: &Rc<String>) -> usize {
     })
 }
 
-fn box_range(value: &Range) -> usize {
+fn box_range(value: &Rc<Range>) -> usize {
     note_added_slot(1);
-    BOXED.with(|boxed| boxed.borrow_mut().ranges.insert(value.clone()))
+    BOXED.with(|boxed| boxed.borrow_mut().ranges.insert(Rc::clone(value)))
 }
 
 /// Live slots in the big-integer, string and range tables (for diagnostics
@@ -345,6 +351,15 @@ impl NanValue {
         }
     }
 
+    /// An integer that fits inline (no table slot), or `None` for one that
+    /// `from_int` would box.
+    #[inline]
+    pub fn inline_int(i: i64) -> Option<Self> {
+        (INLINE_INT_MIN..=INLINE_INT_MAX)
+            .contains(&i)
+            .then(|| Self::encode(TAG_INT, (i << 1) as u64))
+    }
+
     #[inline]
     pub fn as_int(self) -> Option<i64> {
         if self.tag() != TAG_INT {
@@ -438,6 +453,73 @@ impl NanValue {
     }
 
     #[inline]
+    pub fn is_array(self) -> bool {
+        self.tag() == TAG_ARRAY
+    }
+
+    /// The native function this holds, if it holds one.
+    #[inline]
+    pub fn as_native_function(self) -> Option<crate::NativeFunction> {
+        let payload = self.0 & PAYLOAD_MASK;
+        if self.is_f64() || self.tag() != TAG_FUNC || payload & 0x1 == 0 {
+            return None;
+        }
+        let ptr = native_address(payload) as *const ();
+        // SAFETY: a function payload with the low bit set was made by
+        // `native_payload` from a `NativeFunction`'s address (see `to_value`).
+        Some(unsafe { std::mem::transmute::<*const (), crate::NativeFunction>(ptr) })
+    }
+
+    #[inline]
+    pub fn is_range(self) -> bool {
+        self.tag() == TAG_RANGE
+    }
+
+    #[inline]
+    pub fn is_string(self) -> bool {
+        self.tag() == TAG_STRING
+    }
+
+    /// The length of this string if no `Value` shares it: the string table
+    /// holds the only reference. Other NaN-boxed copies of the value (in VM
+    /// registers) are not counted; see `append_to_unshared_string`.
+    pub fn unshared_string_len(self) -> Option<usize> {
+        if !self.is_string() {
+            return None;
+        }
+        let slot = (self.0 & PAYLOAD_MASK) as usize;
+        BOXED.with(|boxed| {
+            let boxed = boxed.borrow();
+            let string = boxed.strings.get(slot);
+            (Rc::strong_count(string) == 1 && Rc::weak_count(string) == 0).then(|| string.len())
+        })
+    }
+
+    /// Appends `text` to this string where it is, for `s = s + text` when the
+    /// old value of `s` is no longer reachable: the caller must know that no
+    /// other NaN-boxed copy of this value exists (no other register holds
+    /// it), and this checks that no `Value` shares the string. Returns whether
+    /// it appended; the value then reads as the longer string.
+    pub fn append_to_unshared_string(self, text: &str) -> bool {
+        if !self.is_string() {
+            return false;
+        }
+        let slot = (self.0 & PAYLOAD_MASK) as usize;
+        BOXED.with(|boxed| {
+            let mut boxed = boxed.borrow_mut();
+            // `get_mut` fails while any `Value` holds the string. The table is
+            // keyed by the `String`'s address, which appending does not move.
+            match Rc::get_mut(boxed.strings.get_mut(slot)) {
+                Some(string) => {
+                    string.push_str(text);
+                    true
+                }
+                None => false,
+            }
+        })
+    }
+
+    #[inline]
     pub fn is_thunk(self) -> bool {
         self.tag() == TAG_THUNK
     }
@@ -454,7 +536,25 @@ impl NanValue {
         }
     }
 
+    /// The `Value` this stands for. Numbers, booleans and null convert inline;
+    /// everything else in `to_value_slow`.
+    #[inline]
     pub fn to_value(self) -> Value {
+        if self.is_f64() {
+            return Value::Float(self.as_f64());
+        }
+        if let Some(int) = self.as_inline_int() {
+            return Value::Int(int);
+        }
+        match self.tag() {
+            TAG_BOOL => Value::Bool(self.0 & 1 == 1),
+            TAG_NULL => Value::Null,
+            _ => self.to_value_slow(),
+        }
+    }
+
+    #[inline(never)]
+    fn to_value_slow(self) -> Value {
         if self.is_f64() {
             Value::Float(self.as_f64())
         } else {
@@ -767,7 +867,21 @@ impl NanValue {
         }
     }
 
+    /// The NaN-boxed form of `v`. Numbers, booleans and null convert inline;
+    /// everything else in `from_value_slow`.
+    #[inline]
     pub fn from_value(v: &Value) -> Self {
+        match v {
+            Value::Int(i) => Self::from_int(*i),
+            Value::Float(f) => Self::from_f64(*f),
+            Value::Bool(b) => Self::from_bool(*b),
+            Value::Null => Self::null(),
+            _ => Self::from_value_slow(v),
+        }
+    }
+
+    #[inline(never)]
+    fn from_value_slow(v: &Value) -> Self {
         match v {
             Value::Null => Self::null(),
             Value::Missing => Self::missing(),

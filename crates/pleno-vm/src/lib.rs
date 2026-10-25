@@ -13,6 +13,8 @@ use std::rc::Rc;
 mod access;
 pub mod debug;
 pub mod event_loop;
+mod fast;
+mod method_cache;
 mod models;
 mod utils;
 mod value_ops;
@@ -62,6 +64,10 @@ pub struct VM {
     /// rejections, even after the combined promise has settled.
     combined_promises: std::collections::HashSet<u64>,
     pub builtin_resolver: Option<fn(&str, &str) -> Option<NativeFunction>>,
+    /// What `builtin_resolver` found for each type and method name read so far.
+    builtin_methods: method_cache::BuiltinMethodCache,
+    /// A spare argument vector for calls of native methods (empty between calls).
+    native_args: Vec<Value>,
     pub run_depths: Vec<usize>,
     pub current_named_args: IndexMap<String, Value>,
     pub instruction_count: u64,
@@ -76,6 +82,16 @@ pub struct VM {
     /// name at that index is checked before use, so a stale entry only costs
     /// a normal lookup.
     global_slots: Vec<Vec<u32>>,
+    /// The built-in method each `GetMethod` found in `run_fast`, by function
+    /// and instruction, for the resolver `method_sites_resolver`.
+    method_sites: Vec<Vec<Option<(bool, NativeFunction)>>>,
+    method_sites_resolver: Option<usize>,
+    /// Values of globals that `run_fast` read, with the `globals_epoch` they
+    /// were read in (by function and name operand).
+    global_values: Vec<Vec<(u64, NanValue)>>,
+    /// Changes whenever a global may have changed, which forgets every value
+    /// in `global_values`.
+    globals_epoch: u64,
 }
 
 #[derive(Debug, Clone)]
@@ -91,6 +107,9 @@ pub struct Function {
     pub type_params: Vec<pleno_value::GenericParamMetadata>,
     pub type_constraints: IndexMap<String, Vec<String>>,
     pub annotations: Vec<pleno_value::RuntimeAnnotation>,
+    /// The argument counts a call can pass straight into the parameters
+    /// (see `plain_params`), worked out once from `params` and `arity`.
+    plain_args: (usize, usize),
 }
 
 impl VMProvider for VM {
@@ -109,6 +128,72 @@ impl VMProvider for VM {
         opts: CallOptions,
     ) -> Result<Value, RuntimeError> {
         self.call_ext_with(callee, &args, opts)
+    }
+
+    /// A native calling back into Pleno (`map`, `filter`, `sort`, ...): a
+    /// plain call of a bytecode function or closure gets its frame directly;
+    /// anything else goes through `call_ext_with`.
+    fn call_with(&mut self, callee: &Value, args: &[Value]) -> Result<Value, RuntimeError> {
+        let (function_index, closure_state) = match callee {
+            Value::Function(index) => (*index, None),
+            Value::Closure(state) => (state.borrow().function, Some(state.clone())),
+            _ => return self.call_ext_with(callee.clone(), args, CallOptions::default()),
+        };
+        let Some(function) = self.functions.get(function_index) else {
+            return self.call_ext_with(callee.clone(), args, CallOptions::default());
+        };
+        if function.is_async || !plain_params(function, args.len()) {
+            return self.call_ext_with(callee.clone(), args, CallOptions::default());
+        }
+        let param_count = function.params.len();
+        let register_count = function.chunk.max_registers.max(function.arity);
+        let depth = self.frames.len();
+        // As in `call_ext_with`, the result register is the callee's first one;
+        // the frame at `depth` returns its value instead of storing it.
+        let base = self.registers.len();
+        self.registers.reserve(register_count);
+        for arg in args.iter().take(register_count) {
+            self.registers.push(NanValue::from_value(arg));
+        }
+        for _ in args.len()..param_count.min(register_count) {
+            self.registers.push(NanValue::missing());
+        }
+        // A loop over the reserved space: `resize` calls `memset`, which costs
+        // more than the few registers a call usually has.
+        while self.registers.len() < base + register_count {
+            self.registers.push(NanValue::null());
+        }
+        // Written in place, as in `try_push_register_frame`.
+        self.frames.reserve(1);
+        let len = self.frames.len();
+        // SAFETY: `reserve` made room for one more frame at index `len`, which
+        // `set_len` then covers.
+        unsafe {
+            self.frames.as_mut_ptr().add(len).write(CallFrame {
+                function_index,
+                ip: 0,
+                base,
+                return_reg: base,
+                return_override: None,
+                closure_state,
+                current_owner: None,
+                type_args: Vec::new(),
+                exception_handlers: Vec::new(),
+            });
+            self.frames.set_len(len + 1);
+        }
+        // Short callbacks (`|x| => x * 2`) often run entirely in `run_fast`;
+        // their return then needs no general run.
+        if !self.debug_context.is_active() && self.sandbox_config.is_none() {
+            self.run_fast(depth)?;
+            if let Some(result) = self.finish_plain_return(depth) {
+                return Ok(result.to_value());
+            }
+        }
+        match self.run_until(depth)? {
+            ExecutionStatus::Finished(value) => Ok(value),
+            ExecutionStatus::Paused => Err(RuntimeError::new("Paused during call_function")),
+        }
     }
 
     fn call_ext_with(
@@ -193,7 +278,15 @@ impl VMProvider for VM {
 
         // If it's an async function call, call_ext will have placed a promise map in return_reg_idx.
         // We want to capture that map before run_until might potentially truncate it (on sync return).
-        let maybe_promise = self.registers.get(return_reg_idx).cloned();
+        // Only an async callee has one: for any other, that register is its
+        // first argument (which may well be a map with a "variant" key).
+        let callee_is_async = self
+            .frames
+            .get(depth)
+            .is_some_and(|frame| self.functions[frame.function_index].is_async);
+        let maybe_promise = callee_is_async
+            .then(|| self.registers.get(return_reg_idx).cloned())
+            .flatten();
 
         let sync_result = match self.run_until(depth)? {
             ExecutionStatus::Finished(v) => v,
@@ -399,6 +492,7 @@ impl VMProvider for VM {
     }
 
     fn register_global(&mut self, name: String, value: Value) {
+        self.globals_epoch += 1;
         self.globals.insert(name, value);
     }
 
@@ -591,7 +685,7 @@ impl VM {
         let module_path = self
             .frames
             .last()
-            .and_then(|frame| frame.current_module_path.as_deref());
+            .and_then(|frame| self.functions[frame.function_index].module_path.as_deref());
         lookup_global_in(&self.globals, &self.module_globals, module_path, name)
     }
 
@@ -772,6 +866,8 @@ impl VM {
             main_path: None,
             combined_promises: std::collections::HashSet::new(),
             builtin_resolver: None,
+            builtin_methods: Default::default(),
+            native_args: Vec::new(),
             run_depths: Vec::new(),
             current_named_args: IndexMap::new(),
             instruction_count: 0,
@@ -780,6 +876,10 @@ impl VM {
             output: None,
             error_class,
             global_slots: Vec::new(),
+            method_sites: Vec::new(),
+            method_sites_resolver: None,
+            global_values: Vec::new(),
+            globals_epoch: 1,
         }
     }
 
@@ -795,6 +895,8 @@ impl VM {
     /// Loads the main script, recording its file path so breakpoints set on
     /// that file match and relative imports resolve from its directory.
     pub fn load_script_with_path(&mut self, chunk: Chunk, path: Option<String>) {
+        // Code outside a run may have changed `globals` directly.
+        self.globals_epoch += 1;
         let path = path.map(Rc::new);
         let max_regs = chunk.max_registers;
         let function = Function {
@@ -809,6 +911,7 @@ impl VM {
             type_params: Vec::new(),
             type_constraints: IndexMap::new(),
             annotations: Vec::new(),
+            plain_args: (0, 0),
         };
 
         self.functions.push(function);
@@ -831,8 +934,6 @@ impl VM {
             return_override: None,
             closure_state: Some(closure_gc),
             current_owner: None,
-            current_module: None,
-            current_module_path: path,
             type_args: Vec::new(),
             exception_handlers: Vec::new(),
         };
@@ -935,6 +1036,7 @@ impl VM {
     /// Runs until the next breakpoint or the end of the program. Called again
     /// after a pause, it resumes from where execution stopped.
     pub fn run_debug(&mut self) -> Result<ExecutionStatus, RuntimeError> {
+        self.globals_epoch += 1;
         self.debug_context.resume();
         self.run_until(0)
     }
@@ -972,6 +1074,7 @@ impl VM {
         &mut self,
         arrived: impl Fn((usize, u32), (usize, u32)) -> bool,
     ) -> Result<ExecutionStatus, RuntimeError> {
+        self.globals_epoch += 1;
         let Some(start) = self.current_location() else {
             return Ok(ExecutionStatus::Finished(Value::Null));
         };
@@ -1061,22 +1164,23 @@ impl VM {
     }
 
     /// `value.toString()` for built-in values: the same text `print` shows.
-    fn bind_to_string(&mut self, receiver: Value) -> Result<Value, RuntimeError> {
+    fn bind_to_string(
+        &mut self,
+        method_at: Option<usize>,
+        receiver: Value,
+    ) -> Result<Value, RuntimeError> {
         fn to_string(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
             let text = args.first().map(|v| v.to_string()).unwrap_or_default();
             Ok(Value::String(Rc::new(text)))
         }
-        Ok(Value::BoundNativeMethod(self.gc.allocate(
-            BoundNativeMethodState {
-                receiver,
-                function: to_string,
-            },
-        )?))
+        self.native_method_value(method_at, receiver, to_string)
     }
 
-    /// A method added to `receiver`'s built-in type with `extend`, bound to it.
+    /// A method added to `receiver`'s built-in type with `extend`, bound to it
+    /// (see `bytecode_method_value` for `method_at`).
     fn extension_method(
         &mut self,
+        method_at: Option<usize>,
         receiver: &Value,
         name: &str,
     ) -> Result<Option<Value>, RuntimeError> {
@@ -1088,14 +1192,52 @@ impl VM {
         else {
             return Ok(None);
         };
-        Ok(Some(Value::BoundMethod(self.gc.allocate(
-            BoundMethodState {
-                receiver: receiver.clone(),
-                function: info.function,
-                owner: info.owner,
-                visibility: info.visibility,
-            },
-        )?)))
+        self.bytecode_method_value(method_at, receiver.clone(), &info)
+            .map(Some)
+    }
+
+    /// The native method `function` of `receiver` as a property: a bound method.
+    /// For `GetMethod` (`method_at` is the register of the method) it is the
+    /// function itself, with `true` (a native method) two registers after
+    /// `method_at`, so that no bound method is allocated. `GetMethod` has
+    /// already stored `receiver`, the value it read the property of, in the
+    /// register between them.
+    fn native_method_value(
+        &mut self,
+        method_at: Option<usize>,
+        receiver: Value,
+        function: NativeFunction,
+    ) -> Result<Value, RuntimeError> {
+        if let Some(at) = method_at {
+            self.registers[at + 2] = NanValue::from_bool(true);
+            return Ok(Value::NativeFunction(function));
+        }
+        Ok(Value::BoundNativeMethod(
+            self.gc
+                .allocate(BoundNativeMethodState { receiver, function })?,
+        ))
+    }
+
+    /// The bytecode method `info` of `receiver` as a property: a bound method.
+    /// For `GetMethod` it is the method's function, with the method's owner two
+    /// registers after `method_at` (and the receiver between them, as for
+    /// `native_method_value`).
+    fn bytecode_method_value(
+        &mut self,
+        method_at: Option<usize>,
+        receiver: Value,
+        info: &pleno_value::MethodInfo,
+    ) -> Result<Value, RuntimeError> {
+        if let Some(at) = method_at {
+            self.registers[at + 2] = owner_to_nan(&info.owner);
+            return Ok(info.function.clone());
+        }
+        Ok(Value::BoundMethod(self.gc.allocate(BoundMethodState {
+            receiver,
+            function: info.function.clone(),
+            owner: info.owner.clone(),
+            visibility: info.visibility.clone(),
+        })?))
     }
 
     /// A function's `.name`: its declared name.
@@ -1492,6 +1634,8 @@ impl VM {
         // between runs (a pause inside the run returns from it), so it is read
         // once; it stays true while stepping even after the flags clear.
         let debugging = self.debug_context.is_active();
+        // The instruction `run_fast` last stopped at without running anything.
+        let mut fast_skip: Option<(usize, usize)> = None;
         // The instruction after the one at `ip`, for instructions that also run
         // the following one they produce the input of (fused, saving a round
         // through this loop). Not while a debugger may stop at it.
@@ -1592,13 +1736,29 @@ impl VM {
             let instruction = unsafe { *code.add(ip) };
             let opcode = instruction.opcode();
 
+            // Simple instructions run in the smaller loop of `run_fast`. When it
+            // stops at once (an addition of strings, say), this instruction runs
+            // here instead.
+            if !debugging && self.sandbox_config.is_none() && fast::handles(opcode) {
+                let at = (code_function, ip);
+                if fast_skip != Some(at) {
+                    let before = self.instruction_count;
+                    self.run_fast(depth)?;
+                    if self.instruction_count == before {
+                        fast_skip = Some(at);
+                    }
+                    continue;
+                }
+                fast_skip = None;
+            }
+
             #[cfg(debug_assertions)]
             log::trace!("VM::run_step: ip={:04} {:?}", ip, opcode);
             frame.ip += 1;
 
             self.instruction_count += 1;
-            if self.instruction_count.is_multiple_of(100)
-                && let Some(config) = &self.sandbox_config
+            if let Some(config) = &self.sandbox_config
+                && self.instruction_count.is_multiple_of(100)
             {
                 if config.max_instructions > 0 && self.instruction_count > config.max_instructions {
                     return Err(
@@ -1816,13 +1976,14 @@ impl VM {
                         arity: proto.arity as usize,
                         params: proto.params.clone(),
                         // A function belongs to the module it is defined in.
-                        module: frame.current_module.clone(),
-                        module_path: frame.current_module_path.as_ref().cloned(),
+                        module: function.module.clone(),
+                        module_path: function.module_path.as_ref().cloned(),
                         is_async: proto.is_async,
                         is_pure: proto.is_pure,
                         type_params: proto.type_params.clone(),
                         type_constraints: proto.type_constraints.clone(),
                         annotations: proto.annotations.clone(),
+                        plain_args: plain_arg_range(&proto.params, proto.arity as usize),
                     });
                     let captures = vec![Value::Null; c];
                     let state = self.gc.allocate(ClosureState::new(func_index, captures))?;
@@ -1841,13 +2002,14 @@ impl VM {
                         arity: proto.arity as usize,
                         params: proto.params.clone(),
                         // A function belongs to the module it is defined in.
-                        module: frame.current_module.clone(),
-                        module_path: frame.current_module_path.as_ref().cloned(),
+                        module: function.module.clone(),
+                        module_path: function.module_path.as_ref().cloned(),
                         is_async: true,
                         is_pure: proto.is_pure,
                         type_params: proto.type_params.clone(),
                         type_constraints: proto.type_constraints.clone(),
                         annotations: proto.annotations.clone(),
+                        plain_args: plain_arg_range(&proto.params, proto.arity as usize),
                     });
                     self.registers[base + a] = NanValue::from_value(&Value::Function(func_index));
                 }
@@ -1864,13 +2026,14 @@ impl VM {
                         arity: proto.arity as usize,
                         params: proto.params.clone(),
                         // A function belongs to the module it is defined in.
-                        module: frame.current_module.clone(),
-                        module_path: frame.current_module_path.as_ref().cloned(),
+                        module: function.module.clone(),
+                        module_path: function.module_path.as_ref().cloned(),
                         is_async: proto.is_async,
                         is_pure: proto.is_pure,
                         type_params: proto.type_params.clone(),
                         type_constraints: proto.type_constraints.clone(),
                         annotations: proto.annotations.clone(),
+                        plain_args: plain_arg_range(&proto.params, proto.arity as usize),
                     });
                     self.registers[base + a] = NanValue::from_value(&Value::Function(func_index));
                 }
@@ -1957,20 +2120,22 @@ impl VM {
                 Opcode::BuildRange => {
                     let start = expect_int_or_null(&self.registers[base + b].to_value())?;
                     let end = expect_int_or_null(&self.registers[base + c].to_value())?;
-                    self.registers[base + a] = NanValue::from_value(&Value::Range(Range {
-                        start,
-                        end,
-                        inclusive: false,
-                    }));
+                    self.registers[base + a] =
+                        NanValue::from_value(&Value::Range(Rc::new(Range {
+                            start,
+                            end,
+                            inclusive: false,
+                        })));
                 }
                 Opcode::BuildRangeInclusive => {
                     let start = expect_int_or_null(&self.registers[base + b].to_value())?;
                     let end = expect_int_or_null(&self.registers[base + c].to_value())?;
-                    self.registers[base + a] = NanValue::from_value(&Value::Range(Range {
-                        start,
-                        end,
-                        inclusive: true,
-                    }));
+                    self.registers[base + a] =
+                        NanValue::from_value(&Value::Range(Rc::new(Range {
+                            start,
+                            end,
+                            inclusive: true,
+                        })));
                 }
                 Opcode::NewMap => {
                     self.registers[base + a] = NanValue::from_value(&Value::Map(
@@ -2508,7 +2673,7 @@ impl VM {
                         Some(MethodOwner::Class(c)) => Some(c.clone()),
                         _ => None,
                     };
-                    let current_module = frame.current_module.as_ref().cloned();
+                    let current_module = function.module.as_ref().cloned();
                     let target = self.registers[base + b].to_value();
                     match target {
                         Value::Map(map) => {
@@ -2680,11 +2845,21 @@ impl VM {
                         _ => return Err(RuntimeError::new("field set on non-object")),
                     }
                 }
-                Opcode::GetProperty => {
-                    let name = match &function.chunk.constants[c] {
-                        Value::String(value) => value.as_str().to_string(),
+                Opcode::GetProperty | Opcode::GetMethod => {
+                    // For `GetMethod`, where the method goes (see `Opcode::GetMethod`).
+                    let method_at = (opcode == Opcode::GetMethod).then_some(base + a);
+                    if let Some(at) = method_at {
+                        if at + 2 >= self.registers.len() {
+                            return Err(RuntimeError::new("method registers out of range"));
+                        }
+                        self.registers[at + 1] = self.registers[base + b];
+                        self.registers[at + 2] = NanValue::from_bool(false);
+                    }
+                    let name_rc = match &function.chunk.constants[c] {
+                        Value::String(value) => Rc::clone(value),
                         _ => return Err(RuntimeError::new("property name must be string")),
                     };
+                    let name = name_rc.as_str();
                     let current_owner = frame.current_owner.clone();
                     let current_class = match &current_owner {
                         Some(MethodOwner::Class(c)) => Some(c.clone()),
@@ -2700,80 +2875,76 @@ impl VM {
                             if let Some(Value::String(variant)) = map_ref.get("variant") {
                                 if (variant.as_str() == "Ok" || variant.as_str() == "Err")
                                     && self
-                                        .builtin_resolver
-                                        .and_then(|r| r("Result", &name))
+                                        .builtin_methods
+                                        .get(self.builtin_resolver, "Result", &name_rc)
                                         .is_some()
                                 {
                                     drop(map_ref);
                                     let func = self
-                                        .builtin_resolver
-                                        .and_then(|r| r("Result", &name))
+                                        .builtin_methods
+                                        .get(self.builtin_resolver, "Result", &name_rc)
                                         .unwrap();
-                                    self.registers[base + a] =
-                                        NanValue::from_value(&Value::BoundNativeMethod(
-                                            self.gc.allocate(BoundNativeMethodState {
-                                                receiver: Value::Map(map.clone()),
-                                                function: func,
-                                            })?,
-                                        ));
+                                    let method = self.native_method_value(
+                                        method_at,
+                                        Value::Map(map.clone()),
+                                        func,
+                                    )?;
+                                    self.registers[base + a] = NanValue::from_value(&method);
                                     continue;
                                 } else if matches!(
                                     variant.as_str(),
                                     "Pending" | "Resolved" | "Rejected"
                                 ) && map_ref.get("id").is_some()
-                                    && let Some(func) =
-                                        self.builtin_resolver.and_then(|r| r("Promise", &name))
+                                    && let Some(func) = self.builtin_methods.get(
+                                        self.builtin_resolver,
+                                        "Promise",
+                                        &name_rc,
+                                    )
                                 {
                                     drop(map_ref);
-                                    self.registers[base + a] =
-                                        NanValue::from_value(&Value::BoundNativeMethod(
-                                            self.gc.allocate(BoundNativeMethodState {
-                                                receiver: Value::Map(map.clone()),
-                                                function: func,
-                                            })?,
-                                        ));
+                                    let method = self.native_method_value(
+                                        method_at,
+                                        Value::Map(map.clone()),
+                                        func,
+                                    )?;
+                                    self.registers[base + a] = NanValue::from_value(&method);
                                     continue;
                                 } else if (variant.as_str() == "Some" || variant.as_str() == "None")
                                     && self
-                                        .builtin_resolver
-                                        .and_then(|r| r("Option", &name))
+                                        .builtin_methods
+                                        .get(self.builtin_resolver, "Option", &name_rc)
                                         .is_some()
                                 {
                                     drop(map_ref);
                                     let func = self
-                                        .builtin_resolver
-                                        .and_then(|r| r("Option", &name))
+                                        .builtin_methods
+                                        .get(self.builtin_resolver, "Option", &name_rc)
                                         .unwrap();
-                                    self.registers[base + a] =
-                                        NanValue::from_value(&Value::BoundNativeMethod(
-                                            self.gc.allocate(BoundNativeMethodState {
-                                                receiver: Value::Map(map.clone()),
-                                                function: func,
-                                            })?,
-                                        ));
+                                    let method = self.native_method_value(
+                                        method_at,
+                                        Value::Map(map.clone()),
+                                        func,
+                                    )?;
+                                    self.registers[base + a] = NanValue::from_value(&method);
                                     continue;
                                 }
                             }
-                            let val = map_ref.entries.get(&name).cloned();
+                            let val = map_ref.entries.get(name).cloned();
                             drop(map_ref);
 
                             if let Some(val) = val {
                                 val
                             } else if let Some(func) =
-                                self.builtin_resolver.and_then(|r| r("Map", &name))
+                                self.builtin_methods
+                                    .get(self.builtin_resolver, "Map", &name_rc)
                             {
-                                Value::BoundNativeMethod(self.gc.allocate(
-                                    BoundNativeMethodState {
-                                        receiver: Value::Map(map.clone()),
-                                        function: func,
-                                    },
-                                )?)
+                                self.native_method_value(method_at, Value::Map(map.clone()), func)?
                             } else if let Some(method) =
-                                self.extension_method(&Value::Map(map.clone()), &name)?
+                                self.extension_method(method_at, &Value::Map(map.clone()), name)?
                             {
                                 method
                             } else if name == "toString" {
-                                self.bind_to_string(Value::Map(map.clone()))?
+                                self.bind_to_string(method_at, Value::Map(map.clone()))?
                             } else {
                                 // A missing key reads as null, like `map.get(key)`.
                                 Value::Null
@@ -2781,29 +2952,29 @@ impl VM {
                         }
                         Value::Enum(enum_type) => {
                             let et = enum_type.borrow();
-                            if let Some(def) = et.variants.get(&name) {
+                            if let Some(def) = et.variants.get(name) {
                                 let val = if def.param_count == 0 {
                                     Value::Variant(self.gc.allocate(pleno_value::VariantState {
                                         enum_type: enum_type.clone(),
-                                        variant_name: Rc::new(name),
+                                        variant_name: name_rc.clone(),
                                         data: Vec::new(),
                                     })?)
                                 } else {
                                     Value::VariantConstructor(self.gc.allocate(
                                         pleno_value::VariantConstructorState {
                                             enum_type: enum_type.clone(),
-                                            variant_name: Rc::new(name),
+                                            variant_name: name_rc.clone(),
                                         },
                                     )?)
                                 };
                                 self.registers[base + a] = NanValue::from_value(&val);
                                 continue;
-                            } else if let Some(info) = resolve_enum_static_method(&enum_type, &name)
+                            } else if let Some(info) = resolve_enum_static_method(&enum_type, name)
                             {
                                 if !can_access_method(
                                     &info,
                                     current_class.as_ref(),
-                                    frame.current_module.as_ref(),
+                                    function.module.as_ref(),
                                 ) {
                                     return Err(
                                         self.throw_runtime_error("static method access denied")
@@ -2826,13 +2997,13 @@ impl VM {
                         }
                         Value::Object(object) => {
                             let class = object.borrow().class.clone();
-                            let field_value = object.borrow().fields.get(&name).cloned();
+                            let field_value = object.borrow().fields.get(name).cloned();
                             if let Some(class) = class.as_ref() {
-                                if let Some(info) = resolve_getter(class, &name) {
+                                if let Some(info) = resolve_getter(class, name) {
                                     if !can_access_method(
                                         &info,
                                         current_class.as_ref(),
-                                        frame.current_module.as_ref(),
+                                        function.module.as_ref(),
                                     ) {
                                         return Err(
                                             self.throw_runtime_error("property access denied")
@@ -2851,18 +3022,18 @@ impl VM {
                                     )?;
                                     continue;
                                 }
-                                if let Some((owner, visibility)) = find_field_owner(class, &name) {
+                                if let Some((owner, visibility)) = find_field_owner(class, name) {
                                     if !can_access_field(
                                         &visibility,
                                         &owner,
                                         current_class.as_ref(),
-                                        frame.current_module.as_ref(),
+                                        function.module.as_ref(),
                                     ) {
                                         let msg = field_access_error(
                                             "read",
                                             &visibility,
                                             "field",
-                                            &name,
+                                            name,
                                             &class.borrow().name,
                                         );
                                         return Err(self.throw_runtime_error(&msg));
@@ -2870,38 +3041,37 @@ impl VM {
                                     field_value.unwrap_or(Value::Null)
                                 } else if let Some(v) = field_value {
                                     v
-                                } else if let Some(info) = resolve_method(class, &name) {
+                                } else if let Some(info) = resolve_method(class, name) {
                                     if !can_access_method(
                                         &info,
                                         current_class.as_ref(),
-                                        frame.current_module.as_ref(),
+                                        function.module.as_ref(),
                                     ) {
                                         return Err(
                                             self.throw_runtime_error("method access denied")
                                         );
                                     }
-                                    Value::BoundMethod(self.gc.allocate(BoundMethodState {
-                                        receiver: Value::Object(object.clone()),
-                                        function: info.function.clone(),
-                                        owner: info.owner.clone(),
-                                        visibility: info.visibility,
-                                    })?)
+                                    self.bytecode_method_value(
+                                        method_at,
+                                        Value::Object(object.clone()),
+                                        &info,
+                                    )?
                                 } else if name == "toString" && class.borrow().extends_error() {
                                     // `Error: message`, as errors print.
-                                    self.bind_to_string(Value::Object(object.clone()))?
+                                    self.bind_to_string(method_at, Value::Object(object.clone()))?
                                 } else {
-                                    return Err(self.handle_property_error(&name, "Object"));
+                                    return Err(self.handle_property_error(name, "Object"));
                                 }
                             } else {
                                 field_value.unwrap_or(Value::Null)
                             }
                         }
                         Value::Class(class) => {
-                            if let Some(info) = resolve_static_getter(&class, &name) {
+                            if let Some(info) = resolve_static_getter(&class, name) {
                                 if !can_access_method(
                                     &info,
                                     current_class.as_ref(),
-                                    frame.current_module.as_ref(),
+                                    function.module.as_ref(),
                                 ) {
                                     return Err(
                                         self.throw_runtime_error("static property access denied")
@@ -2921,19 +3091,19 @@ impl VM {
                                 continue;
                             }
                             let visibility =
-                                class.borrow().static_field_visibility.get(&name).cloned();
+                                class.borrow().static_field_visibility.get(name).cloned();
                             if let Some(visibility) = visibility {
                                 if !can_access_field(
                                     &visibility,
                                     &class,
                                     current_class.as_ref(),
-                                    frame.current_module.as_ref(),
+                                    function.module.as_ref(),
                                 ) {
                                     let msg = field_access_error(
                                         "read",
                                         &visibility,
                                         "static field",
-                                        &name,
+                                        name,
                                         &class.borrow().name,
                                     );
                                     return Err(self.throw_runtime_error(&msg));
@@ -2941,17 +3111,17 @@ impl VM {
                                 class
                                     .borrow()
                                     .static_fields
-                                    .get(&name)
+                                    .get(name)
                                     .cloned()
                                     .unwrap_or(Value::Null)
-                            } else if let Some(v) = class.borrow().static_fields.get(&name).cloned()
+                            } else if let Some(v) = class.borrow().static_fields.get(name).cloned()
                             {
                                 v
-                            } else if let Some(info) = resolve_static_method(&class, &name) {
+                            } else if let Some(info) = resolve_static_method(&class, name) {
                                 if !can_access_method(
                                     &info,
                                     current_class.as_ref(),
-                                    frame.current_module.as_ref(),
+                                    function.module.as_ref(),
                                 ) {
                                     return Err(
                                         self.throw_runtime_error("static method access denied")
@@ -2963,7 +3133,7 @@ impl VM {
                                     visibility: info.visibility,
                                 })?)
                             } else {
-                                return Err(self.handle_property_error(&name, "Class"));
+                                return Err(self.handle_property_error(name, "Class"));
                             }
                         }
                         Value::Variant(variant) if name == "value" || name == "name" => {
@@ -2983,46 +3153,45 @@ impl VM {
                             }
                         }
                         Value::Variant(variant)
-                            if resolve_enum_method(&variant.borrow().enum_type, &name)
-                                .is_some() =>
+                            if resolve_enum_method(&variant.borrow().enum_type, name).is_some() =>
                         {
                             let enum_type = variant.borrow().enum_type.clone();
-                            let info = resolve_enum_method(&enum_type, &name)
+                            let info = resolve_enum_method(&enum_type, name)
                                 .ok_or_else(|| RuntimeError::new("unknown enum method"))?;
                             if !can_access_method(
                                 &info,
                                 current_class.as_ref(),
-                                frame.current_module.as_ref(),
+                                function.module.as_ref(),
                             ) {
                                 return Err(self.throw_runtime_error("method access denied"));
                             }
-                            Value::BoundMethod(self.gc.allocate(BoundMethodState {
-                                receiver: Value::Variant(variant.clone()),
-                                function: info.function.clone(),
-                                owner: info.owner.clone(),
-                                visibility: info.visibility,
-                            })?)
+                            self.bytecode_method_value(
+                                method_at,
+                                Value::Variant(variant.clone()),
+                                &info,
+                            )?
                         }
                         other => {
-                            if let Some(method) = self.extension_method(&other, &name)? {
+                            let builtin = if self.builtin_extensions.is_empty() {
+                                None
+                            } else {
+                                self.extension_method(method_at, &other, name)?
+                            };
+                            let native = if builtin.is_some() {
+                                None
+                            } else {
+                                self.builtin_methods.get(
+                                    self.builtin_resolver,
+                                    other.type_name(),
+                                    &name_rc,
+                                )
+                            };
+                            if let Some(method) = builtin {
                                 method
-                            } else if name == "toString"
-                                && self
-                                    .builtin_resolver
-                                    .and_then(|r| r(other.type_name(), &name))
-                                    .is_none()
-                            {
-                                self.bind_to_string(other)?
-                            } else if let Some(func) = self
-                                .builtin_resolver
-                                .and_then(|r| r(other.type_name(), &name))
-                            {
-                                Value::BoundNativeMethod(self.gc.allocate(
-                                    BoundNativeMethodState {
-                                        receiver: other,
-                                        function: func,
-                                    },
-                                )?)
+                            } else if name == "toString" && native.is_none() {
+                                self.bind_to_string(method_at, other)?
+                            } else if let Some(func) = native {
+                                self.native_method_value(method_at, other, func)?
                             } else {
                                 // Specialized len/length checks for common types
                                 match &other {
@@ -3044,10 +3213,10 @@ impl VM {
                                         if t.borrow()
                                             .names
                                             .as_ref()
-                                            .is_some_and(|names| names.contains_key(&name)) =>
+                                            .is_some_and(|names| names.contains_key(name)) =>
                                     {
                                         let t = t.borrow();
-                                        let idx = t.names.as_ref().and_then(|n| n.get(&name));
+                                        let idx = t.names.as_ref().and_then(|n| n.get(name));
                                         idx.and_then(|i| t.elements.get(*i))
                                             .cloned()
                                             .unwrap_or(Value::Null)
@@ -3082,7 +3251,7 @@ impl VM {
                                     }
                                     _ => {
                                         return Err(
-                                            self.handle_property_error(&name, other.type_name())
+                                            self.handle_property_error(name, other.type_name())
                                         );
                                     }
                                 }
@@ -3339,6 +3508,10 @@ impl VM {
                 }
                 Opcode::Add => {
                     let (left, right) = (self.registers[base + b], self.registers[base + c]);
+                    // `s = s + x`: the old string goes away, so append to it.
+                    if a == b && left.is_string() && self.append_in_place(base + a, left, right)? {
+                        continue;
+                    }
                     self.add_registers(base + a, left, right)?;
                 }
                 Opcode::Sub => {
@@ -3563,6 +3736,17 @@ impl VM {
                         self.registers[return_reg] = result;
                         continue;
                     }
+                    // A plain return from the frame this run was started for (a
+                    // native's callback, say): the same as below, without the
+                    // async bookkeeping.
+                    if plain && self.frames.len() == depth + 1 {
+                        let result = self.registers[base + a].to_value();
+                        self.frames.truncate(depth);
+                        if self.suspended_frames.is_empty() && self.pending_tasks.is_empty() {
+                            self.release_registers(frame_base);
+                        }
+                        return Ok(Some(ExecutionStatus::Finished(result)));
+                    }
 
                     let frame = self
                         .frames
@@ -3629,7 +3813,7 @@ impl VM {
                     };
                     // The cache indexes the shared globals, so it serves only code
                     // outside modules: a module's own top-level names come first.
-                    if frame.current_module_path.is_none() {
+                    if function.module_path.is_none() {
                         let func_index = frame.function_index;
                         let cached = self
                             .global_slots
@@ -3673,7 +3857,7 @@ impl VM {
                     let mut value = lookup_global_in(
                         &self.globals,
                         &self.module_globals,
-                        frame.current_module_path.as_deref(),
+                        function.module_path.as_deref(),
                         &name,
                     );
 
@@ -3752,8 +3936,8 @@ impl VM {
                     let val_obj = value.to_value();
 
                     // A module's top-level names stay in the module.
-                    let table = match frame
-                        .current_module_path
+                    let table = match function
+                        .module_path
                         .as_deref()
                         .and_then(|path| self.module_globals.get_mut(path.as_str()))
                     {
@@ -3761,6 +3945,7 @@ impl VM {
                         None => &mut self.globals,
                     };
                     table.insert(name.clone(), val_obj);
+                    self.globals_epoch += 1;
 
                     // Data Breakpoint Check
                     if self.debug_context.data_breakpoints.contains_key(&name) {
@@ -3773,7 +3958,7 @@ impl VM {
                         Value::String(value) => value.as_str().to_string(),
                         _ => return Err(RuntimeError::new("class name must be string")),
                     };
-                    let module = frame.current_module.as_ref().map(Rc::clone);
+                    let module = function.module.as_ref().map(Rc::clone);
                     let methods_map = match &self.registers[base + c].to_value() {
                         Value::Map(map) => map.borrow().entries.clone(),
                         _ => return Err(RuntimeError::new("class methods must be map")),
@@ -3885,7 +4070,7 @@ impl VM {
                         _ => return Err(RuntimeError::new("DefineInterface expects methods map")),
                     };
 
-                    let module = frame.current_module.as_ref().map(Rc::clone);
+                    let module = function.module.as_ref().map(Rc::clone);
                     self.registers[base + a] = NanValue::from_value(&Value::Interface(
                         self.gc.allocate(pleno_value::Interface {
                             name,
@@ -4581,7 +4766,7 @@ impl VM {
                         Value::String(s) => s.as_str().to_string(),
                         _ => return Err(RuntimeError::new("enum name must be string")),
                     };
-                    let module = frame.current_module.as_ref().map(Rc::clone);
+                    let module = function.module.as_ref().map(Rc::clone);
                     let enum_type = self.gc.allocate(EnumType {
                         name: Rc::new(name),
                         variants: IndexMap::new(),
@@ -4961,31 +5146,92 @@ impl VM {
                     {
                         return Err(RuntimeError::new(message));
                     }
-                    // A built-in method such as `items.push(x)`: one argument vector
-                    // with the receiver first, as `call_any_value` builds it.
-                    if let Value::BoundNativeMethod(state) = &callee {
-                        let (receiver, native) = {
-                            let state = state.borrow();
-                            (state.receiver.clone(), state.function)
-                        };
-                        let mut args = Vec::with_capacity(c + 1);
-                        args.push(receiver);
-                        args.extend(
-                            self.registers[args_start..args_start + c]
-                                .iter()
-                                .map(|arg| arg.to_value()),
-                        );
-                        match native(self, &args) {
-                            Ok(result) => self.registers[base + a] = NanValue::from_value(&result),
-                            Err(err) => return Err(self.throw_runtime_error(&err.message)),
-                        }
-                        continue;
+                    self.call_value_with_registers(callee, args_start, c, base + a)?;
+                }
+                Opcode::CallMethod => {
+                    // The method, receiver and kind `GetMethod` stored, then the
+                    // arguments.
+                    let method_at = base + b;
+                    let args_start = method_at + 3;
+                    if args_start + c > self.registers.len() {
+                        return Err(RuntimeError::new("call arguments out of range"));
                     }
-                    let args = self.registers[args_start..args_start + c]
-                        .iter()
-                        .map(|arg| arg.to_value())
-                        .collect();
-                    self.call_any_value(callee, args, base + a)?;
+                    let callee_nan = self.registers[method_at];
+                    let receiver = self.registers[method_at + 1];
+                    let kind = self.registers[method_at + 2];
+                    match kind.as_bool() {
+                        // A native method such as `items.push(x)`: the receiver
+                        // goes first, as for a bound native method.
+                        Some(true) => {
+                            let Value::NativeFunction(native) = callee_nan.to_value() else {
+                                return Err(RuntimeError::new(
+                                    "CallMethod expects a native method",
+                                ));
+                            };
+                            // The argument vector is kept for the next native
+                            // call (a native that calls back takes a new one).
+                            let mut args = std::mem::take(&mut self.native_args);
+                            args.push(receiver.to_value());
+                            args.extend(
+                                self.registers[args_start..args_start + c]
+                                    .iter()
+                                    .map(|arg| arg.to_value()),
+                            );
+                            let result = native(self, &args);
+                            args.clear();
+                            self.native_args = args;
+                            match result {
+                                Ok(result) => {
+                                    self.registers[base + a] = NanValue::from_value(&result)
+                                }
+                                Err(err) => return Err(self.throw_runtime_error(&err.message)),
+                            }
+                        }
+                        // Not a method (a field holding a function, a getter's
+                        // result, a module member, ...): an ordinary call.
+                        Some(false) => {
+                            if self.try_call_regs(callee_nan, args_start, c, base + a)? {
+                                continue;
+                            }
+                            let callee = callee_nan.to_value();
+                            if matches!(callee, Value::Null)
+                                && let Some(message) = self.describe_missing_method(ip, b)
+                            {
+                                return Err(RuntimeError::new(message));
+                            }
+                            self.call_value_with_registers(callee, args_start, c, base + a)?;
+                        }
+                        // A bytecode method, called as its bound method would be.
+                        None => {
+                            let owner = owner_from_nan(kind)
+                                .ok_or_else(|| RuntimeError::new("CallMethod expects a method"))?;
+                            if self.try_push_register_frame(
+                                callee_nan,
+                                Some(receiver),
+                                args_start,
+                                c,
+                                base + a,
+                                Some(owner.clone()),
+                            )? {
+                                continue;
+                            }
+                            let args: Vec<Value> = self.registers[args_start..args_start + c]
+                                .iter()
+                                .map(|arg| arg.to_value())
+                                .collect();
+                            self.call_function(
+                                callee_nan.to_value(),
+                                Some(receiver.to_value()),
+                                &args,
+                                base + a,
+                                false,
+                                CallOptions {
+                                    current_owner: Some(owner),
+                                    ..Default::default()
+                                },
+                            )?;
+                        }
+                    }
                 }
 
                 Opcode::CallNamed => {
@@ -5614,6 +5860,57 @@ impl VM {
         Ok(false)
     }
 
+    /// `register = register + right` for a string in `register` that nothing
+    /// else refers to: appends to the string where it is instead of copying it
+    /// into a new one, so building a string piece by piece takes linear time.
+    /// Returns `false` (and changes nothing) when the string may be visible
+    /// elsewhere or `right` is not a primitive, for the general `+`.
+    fn append_in_place(
+        &mut self,
+        register: usize,
+        left: NanValue,
+        right: NanValue,
+    ) -> Result<bool, RuntimeError> {
+        // Strings are shared with other VMs on this thread (a sandbox) through
+        // the string table; only the VM that owns the table may change one.
+        // Past a few thousand registers the scan below costs more than a copy.
+        if !self.gc.sweeps_boxed_values || self.registers.len() > MAX_APPEND_SCAN || right == left {
+            return Ok(false);
+        }
+        // The text `+` appends: what `add_values` converts the operand to.
+        let right = right.to_value();
+        let owned;
+        let text = match &right {
+            Value::String(text) => text.as_str(),
+            Value::Int(_)
+            | Value::Float(_)
+            | Value::Bool(_)
+            | Value::Char(_)
+            | Value::Null
+            | Value::Missing => {
+                owned = right.to_string();
+                owned.as_str()
+            }
+            _ => return Ok(false),
+        };
+        // No `Value` may share the string, and no other register may hold it
+        // (an alias such as `let a = s`, an argument, a caller's variable).
+        let Some(len) = left.unshared_string_len() else {
+            return Ok(false);
+        };
+        if self
+            .registers
+            .iter()
+            .enumerate()
+            .any(|(index, value)| index != register && *value == left)
+        {
+            return Ok(false);
+        }
+        // Counted as the copy that `+` would have made.
+        self.gc.track_allocation(len + text.len())?;
+        Ok(left.append_to_unshared_string(text))
+    }
+
     /// `left + right` into register `dest`, with operator overloading.
     #[inline]
     fn add_registers(
@@ -5679,12 +5976,117 @@ impl VM {
     /// converting them to `Value`s. Returns `false` (doing nothing) for calls
     /// that need `call_any_value`: other callees, async functions, variadic or
     /// keyword-only parameters, and argument counts that are errors.
+    /// Removes the top frame. The frame of a plain call owns nothing, and is
+    /// then removed without running its (empty) destructor.
+    #[inline(always)]
+    fn pop_frame(&mut self) {
+        let Some(frame) = self.frames.last() else {
+            return;
+        };
+        if frame.return_override.is_none()
+            && frame.closure_state.is_none()
+            && frame.current_owner.is_none()
+            && frame.type_args.capacity() == 0
+            && frame.exception_handlers.capacity() == 0
+        {
+            // SAFETY: every field of the last frame that could own memory or a
+            // reference count is `None` or a vector that never allocated, so
+            // dropping it would do nothing; shortening the vector forgets it.
+            unsafe { self.frames.set_len(self.frames.len() - 1) }
+        } else {
+            drop(self.frames.pop());
+        }
+    }
+
+    /// When the only frame above `depth` is at a plain `Return` (not async, no
+    /// return override), runs it as `run_step` would, ending the run for that
+    /// frame, and gives the returned value (to convert before anything can
+    /// collect).
+    fn finish_plain_return(&mut self, depth: usize) -> Option<NanValue> {
+        if self.frames.len() != depth + 1 {
+            return None;
+        }
+        let frame = self.frames.last()?;
+        let function = &self.functions[frame.function_index];
+        let instruction = *function.chunk.code.get(frame.ip)?;
+        if instruction.opcode() != Opcode::Return
+            || function.is_async
+            || frame.return_override.is_some()
+        {
+            return None;
+        }
+        let frame_base = frame.base;
+        // Freed registers keep their table slots until the next collection, so
+        // the caller can still convert this to a `Value`.
+        let result = self.registers[frame_base + instruction.a() as usize];
+        self.instruction_count += 1;
+        self.pop_frame();
+        if self.suspended_frames.is_empty() && self.pending_tasks.is_empty() {
+            self.release_registers(frame_base);
+        }
+        Some(result)
+    }
+
+    /// Calls `callee` with the `argc` arguments from register `args_start` on,
+    /// storing the result in `return_reg`.
+    fn call_value_with_registers(
+        &mut self,
+        callee: Value,
+        args_start: usize,
+        argc: usize,
+        return_reg: usize,
+    ) -> Result<(), RuntimeError> {
+        // A built-in method such as `items.push(x)`: one argument vector
+        // with the receiver first, as `call_any_value` builds it.
+        if let Value::BoundNativeMethod(state) = &callee {
+            let (receiver, native) = {
+                let state = state.borrow();
+                (state.receiver.clone(), state.function)
+            };
+            let mut args = Vec::with_capacity(argc + 1);
+            args.push(receiver);
+            args.extend(
+                self.registers[args_start..args_start + argc]
+                    .iter()
+                    .map(|arg| arg.to_value()),
+            );
+            match native(self, &args) {
+                Ok(result) => self.registers[return_reg] = NanValue::from_value(&result),
+                Err(err) => return Err(self.throw_runtime_error(&err.message)),
+            }
+            return Ok(());
+        }
+        let args = self.registers[args_start..args_start + argc]
+            .iter()
+            .map(|arg| arg.to_value())
+            .collect();
+        self.call_any_value(callee, args, return_reg)
+    }
+
     fn try_call_regs(
         &mut self,
         callee: NanValue,
         args_start: usize,
         argc: usize,
         return_reg: usize,
+    ) -> Result<bool, RuntimeError> {
+        self.try_push_register_frame(callee, None, args_start, argc, return_reg, None)
+    }
+
+    /// Pushes the frame of a plain call of the bytecode function or closure
+    /// `callee` with `receiver` (for a method) and the `argc` arguments from
+    /// register `args_start` on, or returns `false` for any other call (an
+    /// async function, a function with variadic or keyword-only parameters,
+    /// too many arguments, or a callee that is not a function).
+    #[inline(always)]
+    fn try_push_register_frame(
+        &mut self,
+        callee: NanValue,
+        receiver: Option<NanValue>,
+        args_start: usize,
+        argc: usize,
+        return_reg: usize,
+        current_owner: Option<MethodOwner>,
     ) -> Result<bool, RuntimeError> {
         let (function_index, closure_state) = if let Some(index) = callee.as_function_index() {
             (index, None)
@@ -5700,26 +6102,48 @@ impl VM {
         let Some(function) = self.functions.get(function_index) else {
             return Ok(false);
         };
-        if function.is_async || !plain_params(function, argc) {
+        let given = argc + usize::from(receiver.is_some());
+        if function.is_async || !plain_params(function, given) {
             return Ok(false);
         }
         let param_count = function.params.len();
         let register_count = function.chunk.max_registers.max(function.arity);
-        let current_module = function.module.clone();
-        let current_module_path = function.module_path.clone();
 
         let base = self.registers.len();
+        // The arguments are below the new frame's registers.
+        if args_start + argc > base {
+            return Ok(false);
+        }
+        // `plain_params` holds, so `given <= function.arity <= register_count`.
+        let defaults_end = param_count.min(register_count).max(given);
         self.registers.reserve(register_count);
-        for index in 0..argc.min(register_count) {
-            let arg = self.registers[args_start + index];
-            self.registers.push(arg);
+        // SAFETY: `reserve` made room for `register_count` registers from
+        // `base` on. Each of them is written exactly once below (the receiver
+        // and arguments, then `missing` for parameters left out, then `null`)
+        // before `set_len` covers them, and the arguments read lie below `base`
+        // (checked above), in initialized registers.
+        unsafe {
+            let registers = self.registers.as_mut_ptr();
+            let mut at = base;
+            if let Some(receiver) = receiver {
+                registers.add(at).write(receiver);
+                at += 1;
+            }
+            for index in 0..argc {
+                registers.add(at).write(*registers.add(args_start + index));
+                at += 1;
+            }
+            // Parameters left out take their default values.
+            while at < base + defaults_end {
+                registers.add(at).write(NanValue::missing());
+                at += 1;
+            }
+            while at < base + register_count {
+                registers.add(at).write(NanValue::null());
+                at += 1;
+            }
+            self.registers.set_len(base + register_count);
         }
-        // Parameters left out take their default values.
-        for _ in argc..param_count.min(register_count) {
-            self.registers.push(NanValue::missing());
-        }
-        self.registers
-            .resize(base + register_count, NanValue::null());
 
         // Written in place: `push` built the frame and then copied it (a
         // `memcpy` call that showed up in profiles of calls).
@@ -5735,9 +6159,7 @@ impl VM {
                 return_reg,
                 return_override: None,
                 closure_state,
-                current_owner: None,
-                current_module,
-                current_module_path,
+                current_owner,
                 type_args: Vec::new(),
                 exception_handlers: Vec::new(),
             });
@@ -5779,8 +6201,6 @@ impl VM {
             .functions
             .get(function_index)
             .ok_or_else(|| RuntimeError::new("unknown function handle"))?;
-        let current_module = function.module.clone();
-        let current_module_path = function.module_path.clone();
         let function_arity = function.arity;
         let function_is_async = function.is_async;
         let max_registers = function.chunk.max_registers;
@@ -5921,8 +6341,6 @@ impl VM {
             return_override,
             closure_state,
             current_owner,
-            current_module,
-            current_module_path,
             type_args,
             exception_handlers: Vec::new(),
         });
@@ -6614,7 +7032,7 @@ impl VM {
             .iter()
             .rev()
             .find(|instruction| instruction.a() as usize == callee_register)?;
-        if source.opcode() != Opcode::GetProperty {
+        if !matches!(source.opcode(), Opcode::GetProperty | Opcode::GetMethod) {
             return None;
         }
         let Value::String(name) = chunk.constants.get(source.c() as usize)? else {
@@ -6636,7 +7054,7 @@ impl VM {
         let base_dir = self
             .frames
             .last()
-            .and_then(|frame| frame.current_module_path.as_ref())
+            .and_then(|frame| self.functions[frame.function_index].module_path.as_ref())
             .map(|path| std::path::Path::new(path.as_ref()))
             .and_then(|path| path.parent())
             .map(|path| path.to_path_buf())
@@ -6680,6 +7098,7 @@ impl VM {
             type_params: Vec::new(),
             type_constraints: IndexMap::new(),
             annotations: Vec::new(),
+            plain_args: (0, 0),
         };
         let func_index = self.functions.len();
         self.functions.push(function);
@@ -6697,8 +7116,6 @@ impl VM {
             return_override: None,
             closure_state: None,
             current_owner: None,
-            current_module: Some(Rc::clone(&module_rc)),
-            current_module_path: Some(Rc::new(resolved_key.clone())),
             type_args: Vec::new(),
             exception_handlers: Vec::new(),
         });
@@ -6735,6 +7152,30 @@ impl VM {
 
 /// The value of global `name` as code in the module at `module_path` sees it:
 /// the module's own top-level name if it has one, otherwise the shared global.
+/// A method's owner in a register, for `CallMethod` (see `Opcode::GetMethod`).
+fn owner_to_nan(owner: &MethodOwner) -> NanValue {
+    NanValue::from_value(&match owner {
+        MethodOwner::Class(class) => Value::Class(class.clone()),
+        MethodOwner::Enum(enum_type) => Value::Enum(enum_type.clone()),
+        MethodOwner::Interface(interface) => Value::Interface(interface.clone()),
+        MethodOwner::Builtin(name) => Value::String(name.clone()),
+    })
+}
+
+/// The owner `owner_to_nan` stored, or `None` for `true` and `false`.
+fn owner_from_nan(value: NanValue) -> Option<MethodOwner> {
+    match value.to_value() {
+        Value::Class(class) => Some(MethodOwner::Class(class)),
+        Value::Enum(enum_type) => Some(MethodOwner::Enum(enum_type)),
+        Value::Interface(interface) => Some(MethodOwner::Interface(interface)),
+        Value::String(name) => Some(MethodOwner::Builtin(name)),
+        _ => None,
+    }
+}
+
+/// Registers that `append_in_place` scans at most for copies of a string.
+const MAX_APPEND_SCAN: usize = 4096;
+
 fn lookup_global_in(
     globals: &IndexMap<String, Value>,
     module_globals: &IndexMap<String, IndexMap<String, Value>>,
@@ -6877,11 +7318,26 @@ const BOXED_VALUES_PER_COLLECTION: usize = 1 << 14;
 /// one to one: no variadic or keyword-only parameters, not too many
 /// arguments, and defaults for the parameters left out.
 fn plain_params(function: &Function, given: usize) -> bool {
-    given <= function.arity
-        && given <= function.params.len()
-        && function.params.iter().enumerate().all(|(index, param)| {
-            !param.is_variadic && !param.is_keyword_only && (index < given || param.has_default)
-        })
+    let (min, max) = function.plain_args;
+    min <= given && given <= max
+}
+
+/// The range of argument counts for which `plain_params` holds: at least one
+/// for each parameter up to the last without a default, at most one for each
+/// parameter (and no more than the arity); empty with a variadic or
+/// keyword-only parameter.
+fn plain_arg_range(params: &[ParamSpec], arity: usize) -> (usize, usize) {
+    if params
+        .iter()
+        .any(|param| param.is_variadic || param.is_keyword_only)
+    {
+        return (1, 0);
+    }
+    let required = params
+        .iter()
+        .rposition(|param| !param.has_default)
+        .map_or(0, |index| index + 1);
+    (required, arity.min(params.len()))
 }
 
 fn value_to_key(value: &Value) -> Result<ValueKey, RuntimeError> {

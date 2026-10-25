@@ -371,7 +371,7 @@ fn native_range_iterator(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Valu
     match &args[0] {
         Value::Range(range) => {
             let state = IteratorState::Range {
-                range: range.clone(),
+                range: (**range).clone(),
                 current: range.start.unwrap_or(0),
             };
             Ok(Value::Iterator(vm.get_gc().allocate(state)?))
@@ -1165,8 +1165,9 @@ fn native_array_map(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, Ru
         .ok_or_else(|| RuntimeError::new("map expects callback"))?;
     let items = arr.borrow().elements.clone();
     let mut results = Vec::with_capacity(items.len());
-    for item in items {
-        results.push(vm.call_with(&cb, std::slice::from_ref(&item))?);
+    // By reference: moving each value out to pass it showed up in profiles.
+    for item in &items {
+        results.push(vm.call_with(&cb, std::slice::from_ref(item))?);
     }
     Ok(Value::Array(
         vm.get_gc().allocate(ArrayState::new(results))?,
@@ -1183,9 +1184,9 @@ fn native_array_filter(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value,
         .ok_or_else(|| RuntimeError::new("filter expects callback"))?;
     let items = arr.borrow().elements.clone();
     let mut results = Vec::new();
-    for item in items {
-        if is_truthy(&vm.call_with(&cb, std::slice::from_ref(&item))?) {
-            results.push(item);
+    for item in &items {
+        if is_truthy(&vm.call_with(&cb, std::slice::from_ref(item))?) {
+            results.push(item.clone());
         }
     }
     Ok(Value::Array(
