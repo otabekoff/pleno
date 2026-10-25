@@ -109,7 +109,6 @@ Status: `Router` and `Server` are experimental in 1.0. Missing: middleware (`app
 
 ### Other module work
 
-- `Crypto.jwtVerify`: check `exp` and `nbf` and compare signatures in constant time (status: experimental, neither is done).
 - `JSON.stringify`: write the fields of class instances, and sets as arrays (status: both become `null`).
 - `std:gc`, `std:db`, `std:security`: experimental, undocumented or thinly documented; decide their 1.x shape.
 - Proposed new modules: `std:grpc` (gRPC and Protobuf), `std:ui` (terminal and simple desktop UI), PostgreSQL in `std:db`.

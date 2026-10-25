@@ -367,7 +367,7 @@ print(hash);
 // Create JWT
 let token = Crypto.jwtSign({
     "sub": "user123",
-    "exp": 1735689600
+    "exp": 4102444800
 }, "my-secret-key");
 
 // Verify JWT

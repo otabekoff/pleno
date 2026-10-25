@@ -117,3 +117,58 @@ fn csv_errors_have_one_prefix() {
         eval_error(r#"import { CSV } from "std:csv"; CSV.parse("a", { headers: false });"#);
     assert!(message.contains("unknown option 'headers'"), "{message}");
 }
+
+fn unix_now() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs() as i64
+}
+
+#[test]
+fn jwt_verify_checks_signature_exp_and_nbf() {
+    let now = unix_now();
+    let verify = |claims: String| {
+        eval_result(&format!(
+            r#"
+            import {{ Crypto }} from "std:crypto";
+            let token = Crypto.jwtSign({{ "sub": "ann", {claims} }}, "secret");
+            Crypto.jwtVerify(token, "secret").sub;
+            "#
+        ))
+    };
+    let ok = |claims: String| match verify(claims.clone()) {
+        Ok(Value::String(sub)) => assert_eq!(sub.as_str(), "ann"),
+        other => panic!("{claims}: expected the payload, got {other:?}"),
+    };
+    let fails = |claims: String, expected: &str| match verify(claims.clone()) {
+        Err(message) => assert!(message.contains(expected), "{claims}: {message}"),
+        Ok(value) => panic!("{claims}: expected '{expected}', got {value:?}"),
+    };
+    ok(format!(r#""exp": {}"#, now + 3600));
+    ok(format!(r#""nbf": {}"#, now - 10));
+    ok(format!(r#""nbf": {}, "exp": {}"#, now - 10, now + 3600));
+    fails(format!(r#""exp": {}"#, now - 10), "JWT expired");
+    fails(format!(r#""exp": {now}"#), "JWT expired");
+    fails(format!(r#""nbf": {}"#, now + 3600), "JWT not valid yet");
+    fails(r#""exp": "tomorrow""#.to_string(), "Invalid JWT exp claim");
+
+    let message = eval_error(
+        r#"
+        import { Crypto } from "std:crypto";
+        Crypto.jwtVerify(Crypto.jwtSign({ "sub": "ann" }, "secret"), "wrong");
+        "#,
+    );
+    assert!(message.contains("Invalid JWT signature"), "{message}");
+    // A changed payload with the old signature fails too, even if it is expired:
+    // the signature is checked before the claims.
+    let message = eval_error(
+        r#"
+        import { Crypto } from "std:crypto";
+        let parts = Crypto.jwtSign({ "sub": "ann" }, "secret").split(".");
+        let forged = parts[0] + ".eyJzdWIiOiJib2IiLCJleHAiOjF9." + parts[2];
+        Crypto.jwtVerify(forged, "secret");
+        "#,
+    );
+    assert!(message.contains("Invalid JWT signature"), "{message}");
+}
