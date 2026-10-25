@@ -657,7 +657,7 @@ impl Compiler {
                     && annotations.is_empty()
                     && implements.is_empty()
                 {
-                    return Ok(());
+                    return self.check_abstract_methods(stmt);
                 }
 
                 let class_reg = self.compile_class_declaration(stmt)?;
@@ -3615,6 +3615,27 @@ impl Compiler {
         Ok(())
     }
 
+    /// Only an abstract class may declare abstract methods.
+    fn check_abstract_methods(&self, stmt: &Stmt) -> Result<(), CompileError> {
+        if let StmtKind::Class {
+            name,
+            methods,
+            is_abstract: false,
+            ..
+        } = &stmt.kind
+            && let Some(method) = methods.iter().find(|m| m.is_abstract)
+        {
+            return Err(self.error(
+                &format!(
+                    "abstract method '{}' in class '{}', which is not abstract",
+                    method.name, name
+                ),
+                method.span,
+            ));
+        }
+        Ok(())
+    }
+
     fn compile_class_declaration(&mut self, stmt: &Stmt) -> Result<u8, CompileError> {
         let (
             name,
@@ -3654,6 +3675,7 @@ impl Compiler {
             ),
             _ => return Err(self.error("expected class statement", self.current_span)),
         };
+        self.check_abstract_methods(stmt)?;
 
         let methods_reg = self.registers.allocate()?;
         self.emit(Opcode::NewMap, methods_reg, 0, 0);
@@ -3857,6 +3879,11 @@ impl Compiler {
         if is_abstract {
             self.emit(Opcode::SetAbstract, class_reg, 0, 0);
         }
+        // `c = 1`: record one abstract method, which subclasses must define.
+        for method in methods.iter().filter(|m| m.is_abstract && !m.is_static) {
+            let method_idx = self.add_constant(Value::String(Rc::new(method.name.clone())));
+            self.emit(Opcode::SetAbstract, class_reg, method_idx, 1);
+        }
         let is_pooled = annotations.iter().any(|a| a.name == "pooled");
         if is_pooled {
             self.emit(Opcode::SetPooled, class_reg, 1, 0);
@@ -3949,7 +3976,9 @@ impl Compiler {
         }
         for field in fields {
             let field_idx = self.add_constant(Value::String(field.name.clone().into()));
-            let vis_code = visibility_code(field.visibility.as_ref());
+            // Bit 4 marks a `const` field, which cannot be reassigned.
+            let vis_code = visibility_code(field.visibility.as_ref())
+                | if field.is_const { CONST_FIELD_FLAG } else { 0 };
             if field.is_static {
                 let value_reg = if let Some(default) = &field.default {
                     self.compile_expr(default)?
@@ -6000,6 +6029,9 @@ fn visibility_name(visibility: Option<&pleno_ast::Visibility>) -> &'static str {
         _ => "public",
     }
 }
+
+/// Added to a field's visibility code when the field is `const`.
+pub const CONST_FIELD_FLAG: u8 = 0x10;
 
 fn visibility_code(visibility: Option<&pleno_ast::Visibility>) -> u8 {
     match visibility {

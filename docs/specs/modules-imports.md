@@ -69,7 +69,38 @@ import { User } from "./models/user.pln";
 
 Importing a name that the module does not export gives `null`. The `.pln` extension can be left out.
 
-> **Note**: Currently, exported functions and classes also become visible as globals in the importing file, even when you import only other names. Do not rely on this.
+An import makes visible only the names it binds: the names listed in `{ ... }`, or the one namespace name of the default and `* as` forms. Other exports, and everything the module does not export, stay out of the importing file; using them there throws `undefined variable '<name>'`:
+
+```pleno norun
+import { PI } from "math_utils.pln";
+print(PI);           // 3.14159
+print(square(2.0));  // Error: undefined variable 'square'
+```
+
+A module's own code sees all of its top-level names, exported or not, plus the built-in globals. The names a module imports stay inside that module too.
+
+> **Note**: A module can still read a top-level name of the program that runs it when the module has no name of its own by that name. Do not rely on this; import what a module needs.
+
+## Module Scope and `internal`
+
+A class member marked `internal` can be used anywhere in the file that declares the class: in its constructor and methods and in other functions of that file. Another file can import the class, create instances and call its public methods, but reading or assigning the internal member there throws, for example `cannot read internal field 'secret' of Box outside its module`.
+
+```pleno norun
+// box.pln
+export class Box {
+    internal secret: Int;
+    constructor() { this.secret = 1; }   // allowed: same module
+    fn reveal(): Int { return this.secret; }
+}
+
+// main.pln
+import { Box } from "box.pln";
+let b = Box();       // the constructor runs in box.pln
+print(b.reveal());   // 1
+print(b.secret);     // Error: cannot read internal field 'secret' of Box outside its module
+```
+
+In a program of a single file, `internal` behaves like `public`.
 
 ## Path Resolution
 
