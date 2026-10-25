@@ -122,6 +122,42 @@ fn assignments_read_the_old_value() {
 }
 
 #[test]
+fn big_integers_and_strings_are_freed_without_object_collections() {
+    // Neither loop allocates objects, so only the collections triggered by new
+    // boxed values free the old ones.
+    let source = "
+        let mut sum = 70368744177664;
+        for (i in 0..200000) { sum = sum + i; }
+        let mut s = \"\";
+        for (i in 0..3000) { s = s + \"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"; }
+        sum - 70368744177664 + s.length;
+    ";
+    assert_eq!(eval(source), Value::Int(19999900000 + 3000 * 67));
+    let (ints, strings, _) = pleno_value::nan_value::boxed_value_counts();
+    assert!(ints < 100_000, "{ints} big integers still boxed");
+    assert!(strings < 3000, "{strings} strings still boxed");
+}
+
+#[test]
+fn fused_instructions_behave_like_separate_ones() {
+    // Compare and jump, global read and thunk forcing, callee copy and call.
+    let source = "
+        let lazy base = 40;
+        fn add(a, b) { return a + b; }
+        let mut n = 0;
+        let mut i = 0;
+        while (i <= 5) {
+            if i > 2 { n = add(n, i); } else { n = n + base; }
+            i = i + 1;
+        }
+        n + (1.5 < 2 ? 1 : 0) + (2 >= 2.5 ? 100 : 0);
+    ";
+    assert_eq!(eval(source), Value::Int(120 + 12 + 1));
+    let err = run("let x = \"a\"; if x < 1 { 1; }").unwrap_err();
+    assert!(err.contains("invalid operands for comparison"), "{err}");
+}
+
+#[test]
 fn call_arguments_from_branching_expressions() {
     let source = "
         fn pair(a, b) { return a * 100 + b; }

@@ -4,7 +4,7 @@ use crate::{
     ClosureState, EnumType, Interface, MapState, Object, PartialState, Range, SetState,
     StaticMethodState, ThunkState, TupleState, Value, gc::GcObject, gc::GcRc,
 };
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::mem::ManuallyDrop;
 use std::rc::Rc;
@@ -132,6 +132,23 @@ struct BoxedValues {
 
 thread_local! {
     static BOXED: RefCell<BoxedValues> = RefCell::new(BoxedValues::default());
+    /// Slots taken since the last sweep (see `boxed_values_added`).
+    static ADDED_SINCE_SWEEP: Cell<usize> = const { Cell::new(0) };
+}
+
+/// Counts a new slot; `weight` is 1, plus 1 for every 64 bytes of a string.
+fn note_added_slot(weight: usize) {
+    ADDED_SINCE_SWEEP.with(|added| added.set(added.get() + weight));
+}
+
+/// How many big-integer, string and range slots were taken since the last
+/// sweep, with long strings counting as several (one per 64 bytes).
+/// Programs that make many strings or big integers but few objects would
+/// otherwise keep every one of them until an object collection, so the VM
+/// also collects when this grows large.
+#[inline]
+pub fn boxed_values_added() -> usize {
+    ADDED_SINCE_SWEEP.with(Cell::get)
 }
 
 /// Inline integers use 46 value bits plus a flag bit that marks boxed ones.
@@ -144,6 +161,7 @@ fn box_int(value: i64) -> usize {
         match boxed.int_slots.entry(value) {
             std::collections::hash_map::Entry::Occupied(entry) => *entry.get(),
             std::collections::hash_map::Entry::Vacant(entry) => {
+                note_added_slot(1);
                 *entry.insert(boxed.ints.insert(value))
             }
         }
@@ -156,6 +174,7 @@ fn box_string(value: &Rc<String>) -> usize {
         match boxed.string_slots.entry(Rc::as_ptr(value)) {
             std::collections::hash_map::Entry::Occupied(entry) => *entry.get(),
             std::collections::hash_map::Entry::Vacant(entry) => {
+                note_added_slot(1 + value.len() / 64);
                 *entry.insert(boxed.strings.insert(Rc::clone(value)))
             }
         }
@@ -163,6 +182,7 @@ fn box_string(value: &Rc<String>) -> usize {
 }
 
 fn box_range(value: &Range) -> usize {
+    note_added_slot(1);
     BOXED.with(|boxed| boxed.borrow_mut().ranges.insert(value.clone()))
 }
 
@@ -178,6 +198,7 @@ pub fn boxed_value_counts() -> (usize, usize, usize) {
 /// Frees table slots not marked since the last sweep. Called after a
 /// collection that marked every register of the VM.
 pub fn sweep_boxed_values() {
+    ADDED_SINCE_SWEEP.with(|added| added.set(0));
     BOXED.with(|boxed| {
         let mut boxed = boxed.borrow_mut();
         let boxed = &mut *boxed;
@@ -335,6 +356,17 @@ impl NanValue {
             return Some(BOXED.with(|boxed| *boxed.borrow().ints.get(slot)));
         }
         // Sign-extend the 47-bit payload, then drop the flag bit.
+        Some((((payload << 17) as i64) >> 17) >> 1)
+    }
+
+    /// The value of an integer stored inline (not boxed), without touching
+    /// the boxed-integer table.
+    #[inline]
+    pub fn as_inline_int(self) -> Option<i64> {
+        let payload = self.0 & PAYLOAD_MASK;
+        if self.tag() != TAG_INT || payload & 1 == 1 {
+            return None;
+        }
         Some((((payload << 17) as i64) >> 17) >> 1)
     }
 

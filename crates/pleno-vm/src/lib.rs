@@ -104,6 +104,15 @@ impl VMProvider for VM {
         args: Vec<Value>,
         opts: CallOptions,
     ) -> Result<Value, RuntimeError> {
+        self.call_ext_with(callee, &args, opts)
+    }
+
+    fn call_ext_with(
+        &mut self,
+        callee: Value,
+        args: &[Value],
+        opts: CallOptions,
+    ) -> Result<Value, RuntimeError> {
         let return_reg_idx = self.registers.len();
         // Execute until the callee frame returns
         let depth = self.frames.len();
@@ -112,7 +121,7 @@ impl VMProvider for VM {
                 self.call_function(
                     Value::Function(handle),
                     None,
-                    &args,
+                    args,
                     return_reg_idx,
                     false,
                     opts,
@@ -125,7 +134,7 @@ impl VMProvider for VM {
                 self.call_function(
                     Value::Function(borrowed.function),
                     None,
-                    &args,
+                    args,
                     return_reg_idx,
                     false,
                     call_opts,
@@ -138,26 +147,26 @@ impl VMProvider for VM {
                 self.call_function(
                     m.function.clone(),
                     Some(m.receiver.clone()),
-                    &args,
+                    args,
                     return_reg_idx,
                     false,
                     call_opts,
                 )?;
             }
             Value::NativeFunction(f) => {
-                return f(self, &args);
+                return f(self, args);
             }
             Value::BoundNativeMethod(m) => {
                 let m = m.borrow();
                 let mut final_args = vec![m.receiver.clone()];
-                final_args.extend(args);
+                final_args.extend_from_slice(args);
                 let result = (m.function)(self, &final_args)?;
                 return Ok(result);
             }
             Value::Map(map) => {
                 let callable = map.borrow().get("__call__").cloned();
                 if let Some(callable) = callable {
-                    return self.call_ext(callable, args, opts);
+                    return self.call_ext_with(callable, args, opts);
                 } else {
                     return Err(RuntimeError::new("Map is not callable"));
                 }
@@ -165,7 +174,7 @@ impl VMProvider for VM {
             Value::Object(obj) => {
                 let callable = obj.borrow().fields.get("__call__").cloned();
                 if let Some(callable) = callable {
-                    return self.call_ext(callable, args, opts);
+                    return self.call_ext_with(callable, args, opts);
                 } else {
                     return Err(RuntimeError::new("Object is not callable"));
                 }
@@ -190,8 +199,11 @@ impl VMProvider for VM {
         };
 
         // If run_until returned Null (could be suspension), and we have a promise map, return the map.
+        // Only a map can be the promise (other values may have been freed by a
+        // collection during the call; their register was not kept).
         if let Some(p) = maybe_promise
             && sync_result == Value::Null
+            && p.type_name() == "Map"
         {
             let p_val = p.to_value();
             let is_promise = if let Value::Map(m) = &p_val {
@@ -1421,10 +1433,44 @@ impl VM {
     /// or an instruction asks the caller to check its state (`Ok(None)`).
     fn run_step(&mut self, depth: usize) -> Result<Option<ExecutionStatus>, RuntimeError> {
         let mut first = true;
+        // The instructions of the function last run, kept between instructions
+        // so that fetching one does not go through the frame, the function
+        // table and the chunk each time. A function's code is never changed
+        // or freed once it is in `self.functions` (functions are only ever
+        // appended, and growing the vector moves the `Function` values but
+        // not the instruction buffers they own), so the pointer stays valid.
+        let mut code_function = usize::MAX;
+        let mut code: *const pleno_bytecode::Instruction = std::ptr::null();
+        let mut code_len = 0;
+        // Whether a debugger may stop execution. Only the debugger changes this,
+        // between runs (a pause inside the run returns from it), so it is read
+        // once; it stays true while stepping even after the flags clear.
+        let debugging = self.debug_context.is_active();
+        // The instruction after the one at `ip`, for instructions that also run
+        // the following one they produce the input of (fused, saving a round
+        // through this loop). Not while a debugger may stop at it.
+        macro_rules! next_instruction {
+            ($ip:expr) => {
+                if $ip + 1 < code_len && !debugging {
+                    // SAFETY: `code` points to the `code_len` instructions of
+                    // function `code_function` (see above).
+                    Some(unsafe { *code.add($ip + 1) })
+                } else {
+                    None
+                }
+            };
+        }
         loop {
             // Between instructions every live value is in a register, a frame or
-            // another root, so this is where the collector may run.
-            if self.gc.current_allocation >= self.gc.gc.allocation_threshold {
+            // another root, so this is where the collector may run: after
+            // enough objects, or (checked now and then) after enough new strings
+            // and big integers, which only a collection frees from their tables.
+            if self.gc.current_allocation >= self.gc.gc.allocation_threshold
+                || (self.instruction_count.is_multiple_of(128)
+                    && self.gc.sweeps_boxed_values
+                    && pleno_value::nan_value::boxed_values_added()
+                        > BOXED_VALUES_PER_COLLECTION.max(self.gc.current_allocation))
+            {
                 let roots = VmRoots {
                     registers: &self.registers,
                     frames: &self.frames,
@@ -1436,7 +1482,7 @@ impl VM {
                     promises: &self.promises,
                     multi_waiters: &self.multi_waiters,
                 };
-                self.gc.maybe_collect(&[&roots]);
+                self.gc.collect_garbage(&[&roots]);
             }
 
             if self.frames.len() == depth {
@@ -1445,7 +1491,7 @@ impl VM {
 
             // Breakpoints, pauses and stepping; without a debugger attached this
             // is one check.
-            if self.debug_context.is_active() {
+            if debugging {
                 // The debugger's stepping commands look at each instruction.
                 if !std::mem::take(&mut first) && self.debug_context.stepping {
                     return Ok(None);
@@ -1469,10 +1515,17 @@ impl VM {
             let ip = frame.ip;
 
             let function = &self.functions[frame.function_index];
-            if ip >= function.chunk.code.len() {
+            if frame.function_index != code_function {
+                code_function = frame.function_index;
+                code = function.chunk.code.as_ptr();
+                code_len = function.chunk.code.len();
+            }
+            if ip >= code_len {
                 return Err(self.throw_runtime_error("program counter out of bounds"));
             }
-            let instruction = function.chunk.code[ip];
+            // SAFETY: `ip < code_len`, and `code` points to the `code_len`
+            // instructions of function `code_function` (see above).
+            let instruction = unsafe { *code.add(ip) };
             let opcode = instruction.opcode();
 
             #[cfg(debug_assertions)]
@@ -1619,7 +1672,26 @@ impl VM {
                     }
                 }
                 Opcode::Move => {
-                    self.registers[base + a] = self.registers[base + b];
+                    let value = self.registers[base + b];
+                    self.registers[base + a] = value;
+                    // The copy of the callee just before a call: make the call
+                    // here when it is a plain call of a bytecode function.
+                    if let Some(call) = next_instruction!(ip)
+                        && call.opcode() == Opcode::CallRegs
+                        && call.b() as usize == a
+                        && base + a + 1 + call.c() as usize <= self.registers.len()
+                    {
+                        frame.ip = ip + 2;
+                        let return_reg = base + call.a() as usize;
+                        if self.try_call_regs(value, base + a + 1, call.c() as usize, return_reg)? {
+                            self.instruction_count += 1;
+                            continue;
+                        }
+                        // Not a plain call: run `CallRegs` itself next.
+                        if let Some(frame) = self.frames.last_mut() {
+                            frame.ip = ip + 1;
+                        }
+                    }
                 }
                 Opcode::LoadConst => {
                     let value = &function.chunk.constants[b];
@@ -3295,8 +3367,28 @@ impl VM {
                     if (left_nan.is_f64() || left_nan.as_int().is_some())
                         && (right_nan.is_f64() || right_nan.as_int().is_some())
                     {
-                        let res = crate::value_ops::compare_nan(opcode, left_nan, right_nan)?;
+                        let res = match (left_nan.as_inline_int(), right_nan.as_inline_int()) {
+                            (Some(left), Some(right)) => match opcode {
+                                Opcode::Lt => left < right,
+                                Opcode::Le => left <= right,
+                                Opcode::Gt => left > right,
+                                _ => left >= right,
+                            },
+                            _ => crate::value_ops::compare_nan(opcode, left_nan, right_nan)?,
+                        };
                         self.registers[base + a] = NanValue::from_bool(res);
+                        // A conditional jump on the result runs here too.
+                        if let Some(jump) = next_instruction!(ip)
+                            && matches!(jump.opcode(), Opcode::JumpIfNot | Opcode::JumpIf)
+                            && jump.a() as usize == a
+                        {
+                            self.instruction_count += 1;
+                            frame.ip = ip + 2;
+                            if res == (jump.opcode() == Opcode::JumpIf) {
+                                let offset = decode_offset(jump.b(), jump.c());
+                                frame.ip = apply_offset(frame.ip, offset)?;
+                            }
+                        }
                         continue;
                     }
                     let left = left_nan.to_value();
@@ -3336,6 +3428,19 @@ impl VM {
                     }
                 }
                 Opcode::Return => {
+                    // A plain return to a caller in this run: copy the register
+                    // without converting it to a `Value` and back, and drop the
+                    // frame where it is.
+                    let plain = !function.is_async && frame.return_override.is_none();
+                    let (frame_base, return_reg) = (frame.base, frame.return_reg);
+                    if plain && self.frames.len() > depth + 1 {
+                        let result = self.registers[base + a];
+                        self.frames.truncate(self.frames.len() - 1);
+                        self.release_registers(frame_base);
+                        self.registers[return_reg] = result;
+                        continue;
+                    }
+
                     let frame = self
                         .frames
                         .pop()
@@ -3344,18 +3449,6 @@ impl VM {
                     // We need to look up the function to check if it is async
                     let function_is_async = self.functions[frame.function_index].is_async;
                     let function_arity = self.functions[frame.function_index].arity;
-
-                    // A plain return to a caller in this run: copy the register
-                    // without converting it to a `Value` and back.
-                    if !function_is_async
-                        && frame.return_override.is_none()
-                        && self.frames.len() > depth
-                    {
-                        let result = self.registers[base + a];
-                        self.release_registers(frame.base);
-                        self.registers[frame.return_reg] = result;
-                        continue;
-                    }
 
                     let result = frame
                         .return_override
@@ -3419,9 +3512,22 @@ impl VM {
                         .copied()
                         .unwrap_or(0) as usize;
                     if let Some((key, value)) = self.globals.get_index(cached.wrapping_sub(1))
-                        && key.as_str() == name.as_str()
+                        && key.len() == name.len()
+                        && key.bytes().zip(name.bytes()).all(|(x, y)| x == y)
                     {
-                        self.registers[base + a] = NanValue::from_value(value);
+                        let value = NanValue::from_value(value);
+                        self.registers[base + a] = value;
+                        // Global reads are followed by a `ForceThunk`, which only
+                        // copies a value that is not a thunk.
+                        if let Some(force) = next_instruction!(ip)
+                            && force.opcode() == Opcode::ForceThunk
+                            && force.b() as usize == a
+                            && !value.is_thunk()
+                        {
+                            self.instruction_count += 1;
+                            frame.ip = ip + 2;
+                            self.registers[base + force.a() as usize] = value;
+                        }
                         continue;
                     }
                     if let Some((index, _, value)) = self.globals.get_full(name.as_str()) {
@@ -5348,6 +5454,12 @@ impl VM {
         left_nan: NanValue,
         right_nan: NanValue,
     ) -> Result<(), RuntimeError> {
+        if let (Some(left), Some(right)) = (left_nan.as_inline_int(), right_nan.as_inline_int())
+            && let Some(sum) = left.checked_add(right)
+        {
+            self.registers[dest] = NanValue::from_int(sum);
+            return Ok(());
+        }
         if (left_nan.is_f64() || left_nan.as_int().is_some())
             && (right_nan.is_f64() || right_nan.as_int().is_some())
         {
@@ -5372,6 +5484,12 @@ impl VM {
         left_nan: NanValue,
         right_nan: NanValue,
     ) -> Result<(), RuntimeError> {
+        if let (Some(left), Some(right)) = (left_nan.as_inline_int(), right_nan.as_inline_int())
+            && let Some(difference) = left.checked_sub(right)
+        {
+            self.registers[dest] = NanValue::from_int(difference);
+            return Ok(());
+        }
         if (left_nan.is_f64() || left_nan.as_int().is_some())
             && (right_nan.is_f64() || right_nan.as_int().is_some())
         {
@@ -5423,29 +5541,40 @@ impl VM {
         let current_module_path = function.module_path.clone();
 
         let base = self.registers.len();
-        self.registers
-            .extend(std::iter::repeat_n(NanValue::null(), register_count));
-        let copied = argc.min(register_count);
-        self.registers
-            .copy_within(args_start..args_start + copied, base);
-        // Parameters left out take their default values.
-        for index in argc..param_count.min(register_count) {
-            self.registers[base + index] = NanValue::missing();
+        self.registers.reserve(register_count);
+        for index in 0..argc.min(register_count) {
+            let arg = self.registers[args_start + index];
+            self.registers.push(arg);
         }
+        // Parameters left out take their default values.
+        for _ in argc..param_count.min(register_count) {
+            self.registers.push(NanValue::missing());
+        }
+        self.registers
+            .resize(base + register_count, NanValue::null());
 
-        self.frames.push(CallFrame {
-            function_index,
-            ip: 0,
-            base,
-            return_reg,
-            return_override: None,
-            closure_state,
-            current_owner: None,
-            current_module,
-            current_module_path,
-            type_args: Vec::new(),
-            exception_handlers: Vec::new(),
-        });
+        // Written in place: `push` built the frame and then copied it (a
+        // `memcpy` call that showed up in profiles of calls).
+        self.frames.reserve(1);
+        let len = self.frames.len();
+        // SAFETY: `reserve` made room for one more frame at index `len`, which
+        // `set_len` then covers.
+        unsafe {
+            self.frames.as_mut_ptr().add(len).write(CallFrame {
+                function_index,
+                ip: 0,
+                base,
+                return_reg,
+                return_override: None,
+                closure_state,
+                current_owner: None,
+                current_module,
+                current_module_path,
+                type_args: Vec::new(),
+                exception_handlers: Vec::new(),
+            });
+            self.frames.set_len(len + 1);
+        }
         Ok(true)
     }
 
@@ -6296,7 +6425,12 @@ impl VM {
     /// Frees the registers from `base` up, except those of suspended frames:
     /// an async call that is waiting keeps its registers where they are, and
     /// the function that called it may return before it resumes.
+    #[inline]
     fn release_registers(&mut self, base: usize) {
+        if self.suspended_frames.is_empty() {
+            self.registers.truncate(base);
+            return;
+        }
         let in_use = self
             .suspended_frames
             .values()
@@ -6530,6 +6664,11 @@ fn resolve_module_path(
 // fn resolve_builtin_method(vm: &VM, ty: &str, name: &str) -> Option<NativeFunction> {
 //     vm.builtin_resolver.and_then(|resolver| resolver(ty, name))
 // }
+
+/// New strings, big integers and ranges between collections, at least: see
+/// `boxed_values_added`. Scaled up with the number of objects, so that the
+/// collections cost about as much as the values that cause them.
+const BOXED_VALUES_PER_COLLECTION: usize = 1 << 14;
 
 /// Whether `given` positional arguments fill the parameters of `function`
 /// one to one: no variadic or keyword-only parameters, not too many

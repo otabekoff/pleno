@@ -14,6 +14,20 @@ pub trait VMProvider {
     fn call(&mut self, callee: Value, args: Vec<Value>) -> Result<Value, RuntimeError> {
         self.call_ext(callee, args, CallOptions::default())
     }
+    /// `call` with borrowed arguments, for callbacks run once per element:
+    /// the VM avoids building an argument vector for each call.
+    fn call_with(&mut self, callee: &Value, args: &[Value]) -> Result<Value, RuntimeError> {
+        self.call_ext_with(callee.clone(), args, CallOptions::default())
+    }
+    /// `call_ext` with borrowed arguments.
+    fn call_ext_with(
+        &mut self,
+        callee: Value,
+        args: &[Value],
+        opts: CallOptions,
+    ) -> Result<Value, RuntimeError> {
+        self.call_ext(callee, args.to_vec(), opts)
+    }
     fn print(&mut self, text: &str) {
         print!("{}", text);
     }
