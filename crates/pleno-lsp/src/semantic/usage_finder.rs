@@ -111,6 +111,21 @@ impl<'a> Visitor<'a> for ScopeBuilder<'a> {
                     self.define(name, span);
                 }
             }
+            // `for ((k, v) in pairs)`: the names live in the loop's scope.
+            StmtKind::For {
+                pattern: Some(pattern),
+                iterable,
+                body,
+                ..
+            } => {
+                self.visit_expr(iterable);
+                self.enter_scope(stmt.span);
+                for (name, span) in pattern.bindings() {
+                    self.define(name, span);
+                }
+                self.visit_stmt(body);
+                self.exit_scope();
+            }
             // `fn` statements are not `FunctionDecl`s: define the name and
             // give the parameters a scope the same way.
             StmtKind::Fn {
@@ -229,7 +244,11 @@ fn get_node_name(node: &Node, pos: usize) -> Option<String> {
             StmtKind::Class { name, .. } | StmtKind::Interface { name, .. } => Some(name.clone()),
             StmtKind::Enum(e) => Some(e.name.clone()),
             StmtKind::Let { name, .. } => Some(name.clone()),
-            StmtKind::LetPattern { pattern, .. } => binding_at(pattern, pos).map(|(name, _)| name),
+            StmtKind::LetPattern { pattern, .. }
+            | StmtKind::For {
+                pattern: Some(pattern),
+                ..
+            } => binding_at(pattern, pos).map(|(name, _)| name),
             _ => None,
         },
         _ => None,
@@ -259,7 +278,11 @@ pub fn find_declaration(program: &Program, pos: usize) -> Option<Span> {
             StmtKind::Enum(e) if e.name_span.contains(pos) => {
                 return Some(e.name_span);
             }
-            StmtKind::LetPattern { pattern, .. } => {
+            StmtKind::LetPattern { pattern, .. }
+            | StmtKind::For {
+                pattern: Some(pattern),
+                ..
+            } => {
                 if let Some((_, span)) = binding_at(pattern, pos) {
                     return Some(span);
                 }
@@ -390,6 +413,36 @@ mod tests {
         assert_eq!(
             usages,
             vec![Span::new(a_decl, a_decl + 1), Span::new(a_use, a_use + 1)]
+        );
+    }
+
+    #[test]
+    fn for_pattern_names_resolve_to_their_pattern() {
+        let source = "let k = 0;\nfor ((k, v) in [(1, 2)]) {\n    print(k + v);\n}\nprint(k);";
+        let program = parse(source);
+        let k_decl = source.find("(k,").unwrap() + 1;
+        let k_use = source.find("k + v").unwrap();
+        let v_use = k_use + 4;
+        let v_decl = source.find("v)").unwrap();
+        let outer_k = source.find("let k").unwrap() + 4;
+        let outer_use = source.rfind("k)").unwrap();
+
+        assert_eq!(
+            find_declaration(&program, k_use),
+            Some(Span::new(k_decl, k_decl + 1))
+        );
+        assert_eq!(
+            find_declaration(&program, v_use),
+            Some(Span::new(v_decl, v_decl + 1))
+        );
+        // The loop's `k` does not leak out of the loop.
+        assert_eq!(
+            find_declaration(&program, outer_use),
+            Some(Span::new(outer_k, outer_k + 1))
+        );
+        assert_eq!(
+            find_usages(&program, k_decl),
+            vec![Span::new(k_decl, k_decl + 1), Span::new(k_use, k_use + 1)]
         );
     }
 }

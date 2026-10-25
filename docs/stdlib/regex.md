@@ -24,11 +24,26 @@ print(digits.pattern);  // \d+
 
 ### Flags
 
-`Regex` takes one argument. A second argument is accepted but ignored: `Regex("abc", "i")` is case-sensitive. Do not pass one; its meaning is unspecified and a later release may use it for flags. Set flags inside the pattern instead:
+`Regex(pattern, flags)` takes an optional string of flags, in any order:
 
-- `(?i)` - Case-insensitive matching
-- `(?m)` - Multiline mode: `^` and `$` match at line breaks
-- `(?s)` - `.` also matches newlines
+| Flag | Meaning                                                              |
+| ---- | -------------------------------------------------------------------- |
+| `i`  | Case-insensitive matching                                            |
+| `m`  | Multi-line mode: `^` and `$` match at line breaks                    |
+| `s`  | `.` also matches newlines                                            |
+| `x`  | Verbose mode: whitespace and `#` comments in the pattern are ignored |
+
+Any other letter throws an error (`invalid regex flag 'g': expected i, m, s or x`), and so does an invalid pattern, when the regex is created. The flags are available as `regex.flags` (`""` when none are given). The same flags can also be set inside the pattern: `(?i)`, `(?m)`, `(?s)` and `(?x)`.
+
+```pleno
+import { Regex } from "std:regex";
+
+let word = Regex("hello", "i");
+print(word.test("Say HELLO"));               // true
+print(Regex("^b$", "m").test("a\nb\nc"));   // true
+print(Regex(r"(?i)hello").test("HELLO"));    // true
+print(word.flags);                           // i
+```
 
 `match` returns the first match. `findAll` and `replace` work on all matches, so no global flag is needed.
 
@@ -127,7 +142,7 @@ The `Match` object returned by `match()` and `findAll()` contains:
 | Property   | Type       | Description                                |
 | ---------- | ---------- | ------------------------------------------ |
 | `value`    | `String`   | The matched text                           |
-| `index`    | `Int`      | Start position in input, in bytes          |
+| `index`    | `Int`      | Start position in input, in characters     |
 | `groups`   | `String[]` | Captured groups                            |
 | `group(i)` | `String?`  | Group `i`; `group(0)` is the whole match   |
 

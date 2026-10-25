@@ -67,7 +67,7 @@ print(MU.Calculator().add(1.0, 2.0));   // 3
 import { User } from "./models/user.pln";
 ```
 
-Importing a name that the module does not export gives `null`. The `.pln` extension can be left out.
+Importing a name that the module does not export gives `null`; for a `std:` module, `pleno check` warns about it and names the closest export. The `.pln` extension can be left out.
 
 An import makes visible only the names it binds: the names listed in `{ ... }`, or the one namespace name of the default and `* as` forms. Other exports, and everything the module does not export, stay out of the importing file; using them there throws `undefined variable '<name>'`:
 

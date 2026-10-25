@@ -16,8 +16,9 @@
 use pleno_ast::visitor::{self, Visitor};
 use pleno_ast::{
     CallArg, CatchBlock, Expr, ExprKind, FunctionDecl, FunctionKind, ImportKind, Literal, Param,
-    Pattern, PatternKind, Program, Span, Stmt, StmtKind, UnaryOp,
+    Pattern, PatternKind, Program, Span, Stmt, StmtKind, UnaryOp, Visibility,
 };
+use pleno_value::suggest::did_you_mean;
 use std::collections::{HashMap, HashSet};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -55,7 +56,7 @@ pub fn check_program(program: &Program) -> Vec<StaticDiagnostic> {
 
 /// Annotations that never change a function's signature; any other one may be
 /// a decorator that replaces the function.
-const SIGNATURE_PRESERVING: &[&str] = &["pure", "inline", "hot", "no_optimize"];
+const SIGNATURE_PRESERVING: &[&str] = &["pure", "inline", "hot", "no_optimize", "deprecated"];
 
 /// What the whole file says about names, gathered before checking.
 #[derive(Default)]
@@ -256,6 +257,8 @@ struct ClassInfo<'ast> {
     methods: &'ast [FunctionDecl],
     properties: Vec<&'ast str>,
     nested: Vec<&'ast str>,
+    /// The members declared `private`, which subclasses cannot use.
+    private: HashSet<&'ast str>,
     /// No decorator, `implements` or `extend` can change its members.
     plain: bool,
     is_abstract: bool,
@@ -265,6 +268,8 @@ struct ClassInfo<'ast> {
 struct Tables<'ast> {
     functions: HashMap<&'ast str, &'ast [Param]>,
     classes: HashMap<&'ast str, ClassInfo<'ast>>,
+    /// Top-level functions marked `@deprecated`, with the note it gives.
+    deprecated: HashMap<&'ast str, Option<&'ast str>>,
 }
 
 impl<'ast> Tables<'ast> {
@@ -272,12 +277,25 @@ impl<'ast> Tables<'ast> {
         let mut tables = Tables {
             functions: HashMap::new(),
             classes: HashMap::new(),
+            deprecated: HashMap::new(),
         };
         for stmt in &program.statements {
             let stmt = match &stmt.kind {
                 StmtKind::Export(inner) => inner.as_ref(),
                 _ => stmt,
             };
+            if let StmtKind::Fn {
+                name, annotations, ..
+            } = &stmt.kind
+                && facts.is_unique(name)
+                && let Some(annotation) = annotations.iter().find(|a| a.name == "deprecated")
+            {
+                let note = annotation.args.first().and_then(|arg| match &arg.kind {
+                    ExprKind::Literal(Literal::String(note)) => Some(note.as_str()),
+                    _ => None,
+                });
+                tables.deprecated.insert(name, note);
+            }
             match &stmt.kind {
                 StmtKind::Fn {
                     name,
@@ -310,6 +328,23 @@ impl<'ast> Tables<'ast> {
                             _ => None,
                         })
                         .collect();
+                    let private = fields
+                        .iter()
+                        .filter(|f| f.visibility == Some(Visibility::Private))
+                        .map(|f| f.name.as_str())
+                        .chain(
+                            methods
+                                .iter()
+                                .filter(|m| m.visibility == Some(Visibility::Private))
+                                .map(|m| m.name.as_str()),
+                        )
+                        .chain(
+                            properties
+                                .iter()
+                                .filter(|p| p.visibility == Some(Visibility::Private))
+                                .map(|p| p.name.as_str()),
+                        )
+                        .collect();
                     tables.classes.insert(
                         name,
                         ClassInfo {
@@ -318,6 +353,7 @@ impl<'ast> Tables<'ast> {
                             methods,
                             properties: properties.iter().map(|p| p.name.as_str()).collect(),
                             nested,
+                            private,
                             plain: annotations.is_empty()
                                 && implements.is_empty()
                                 && !facts.extended.contains(name.as_str()),
@@ -521,7 +557,14 @@ impl<'a, 'ast> Checker<'a, 'ast> {
         for (name, expr) in &named {
             match params.iter().find(|p| p.name == *name) {
                 None => {
-                    let message = format!("{callee} has no parameter named '{name}'");
+                    let hint = did_you_mean(
+                        name,
+                        params
+                            .iter()
+                            .filter(|p| !p.is_variadic)
+                            .map(|p| p.name.as_str()),
+                    );
+                    let message = format!("{callee} has no parameter named '{name}'{hint}");
                     self.report(Severity::Error, message, expr.span);
                     return;
                 }
@@ -634,6 +677,15 @@ impl<'a, 'ast> Checker<'a, 'ast> {
             effective.insert(0, Arg::Positional(left));
         }
 
+        if let ExprKind::Ident(name) = &callee.kind
+            && let Some(note) = self.tables.deprecated.get(name.as_str())
+        {
+            let message = match note {
+                Some(note) => format!("'{name}' is deprecated: {note}"),
+                None => format!("'{name}' is deprecated"),
+            };
+            self.report(Severity::Warning, message, callee.span);
+        }
         match &callee.kind {
             ExprKind::Ident(name) => {
                 if let Some(params) = self.tables.functions.get(name.as_str()) {
@@ -678,7 +730,24 @@ impl<'a, 'ast> Checker<'a, 'ast> {
         }
         match found {
             None => {
-                let message = format!("{class} has no method '{method}'");
+                // Members the class itself declares, and those of its
+                // superclasses that are not private.
+                let members = chain.iter().enumerate().flat_map(|(depth, info)| {
+                    info.fields
+                        .iter()
+                        .chain(&info.properties)
+                        .chain(&info.nested)
+                        .copied()
+                        .chain(
+                            info.methods
+                                .iter()
+                                .filter(|m| m.name != "constructor")
+                                .map(|m| m.name.as_str()),
+                        )
+                        .filter(move |name| depth == 0 || !info.private.contains(name))
+                });
+                let hint = did_you_mean(method, members);
+                let message = format!("{class} has no method '{method}'{hint}");
                 self.report(Severity::Warning, message, callee_span);
             }
             Some(decl)

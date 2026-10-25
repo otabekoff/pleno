@@ -16,6 +16,7 @@ pub mod event_loop;
 mod fast;
 mod method_cache;
 mod models;
+mod suggest;
 mod utils;
 mod value_ops;
 
@@ -42,6 +43,11 @@ pub struct VM {
     /// (on by default). Turning it off runs everything in the general loop,
     /// which must give the same results: tests and the fuzzer compare both.
     pub fast_loop: bool,
+    /// Names of deprecated functions already warned about.
+    deprecation_warnings: std::collections::HashSet<String>,
+    /// How deeply calls from native code back into Pleno can nest before a
+    /// `RecursionError`; lower it where the stack is small (WebAssembly).
+    pub max_nested_runs: usize,
     pub gc: pleno_value::gc::GCManager,
     pub registers: Vec<NanValue>,
     pub frames: Vec<CallFrame>,
@@ -70,6 +76,8 @@ pub struct VM {
     /// rejections, even after the combined promise has settled.
     combined_promises: std::collections::HashSet<u64>,
     pub builtin_resolver: Option<fn(&str, &str) -> Option<NativeFunction>>,
+    /// Every method name `builtin_resolver` knows (for "did you mean" hints).
+    pub builtin_method_names: &'static [&'static str],
     /// What `builtin_resolver` found for each type and method name read so far.
     builtin_methods: method_cache::BuiltinMethodCache,
     /// A spare argument vector for calls of native methods (empty between calls).
@@ -116,6 +124,9 @@ pub struct Function {
     /// The argument counts a call can pass straight into the parameters
     /// (see `plain_params`), worked out once from `params` and `arity`.
     plain_args: (usize, usize),
+    /// Set by `@deprecated` or `@deprecated("use g instead")`: calling the
+    /// function prints a warning (once per name), with this note if given.
+    deprecation: Option<Rc<String>>,
 }
 
 impl VMProvider for VM {
@@ -140,11 +151,13 @@ impl VMProvider for VM {
     /// plain call of a bytecode function or closure gets its frame directly;
     /// anything else goes through `call_ext_with`.
     fn call_with(&mut self, callee: &Value, args: &[Value]) -> Result<Value, RuntimeError> {
+        self.check_call_depth()?;
         let (function_index, closure_state) = match callee {
             Value::Function(index) => (*index, None),
             Value::Closure(state) => (state.borrow().function, Some(state.clone())),
             _ => return self.call_ext_with(callee.clone(), args, CallOptions::default()),
         };
+        self.warn_if_deprecated(function_index);
         let Some(function) = self.functions.get(function_index) else {
             return self.call_ext_with(callee.clone(), args, CallOptions::default());
         };
@@ -509,6 +522,10 @@ impl VMProvider for VM {
         self.builtin_resolver = Some(resolver);
     }
 
+    fn set_builtin_method_names(&mut self, names: &'static [&'static str]) {
+        self.builtin_method_names = names;
+    }
+
     fn check_is_instance(&self, value: &Value, type_val: &Value) -> bool {
         self.is_instance(value, type_val)
     }
@@ -537,10 +554,7 @@ impl VMProvider for VM {
                 return false;
             }
             if !config.allowed_read_paths.is_empty() {
-                return config
-                    .allowed_read_paths
-                    .iter()
-                    .any(|p| path.starts_with(p));
+                return path_allowed(path, &config.allowed_read_paths);
             }
         }
         true
@@ -552,10 +566,7 @@ impl VMProvider for VM {
                 return false;
             }
             if !config.allowed_write_paths.is_empty() {
-                return config
-                    .allowed_write_paths
-                    .iter()
-                    .any(|p| path.starts_with(p));
+                return path_allowed(path, &config.allowed_write_paths);
             }
         }
         true
@@ -865,6 +876,8 @@ impl VM {
         Self {
             sandbox_config: None,
             fast_loop: true,
+            deprecation_warnings: std::collections::HashSet::new(),
+            max_nested_runs: DEFAULT_MAX_NESTED_RUNS,
             gc,
             registers: vec![NanValue::null(); 256],
             frames: Vec::new(),
@@ -883,6 +896,7 @@ impl VM {
             main_path: None,
             combined_promises: std::collections::HashSet::new(),
             builtin_resolver: None,
+            builtin_method_names: &[],
             builtin_methods: Default::default(),
             native_args: Vec::new(),
             run_depths: Vec::new(),
@@ -929,6 +943,7 @@ impl VM {
             type_constraints: IndexMap::new(),
             annotations: Vec::new(),
             plain_args: (0, 0),
+            deprecation: None,
         };
 
         self.functions.push(function);
@@ -1167,18 +1182,38 @@ impl VM {
         }
     }
 
+    /// The call stack, innermost frame first. A deep stack keeps its innermost
+    /// `BACKTRACE_INNER` and outermost `BACKTRACE_OUTER` frames with a
+    /// `... N more frames` line between them, so an error costs the same at
+    /// any depth: a `catch` that throws again at each of 100,000 levels would
+    /// otherwise copy billions of frames.
     fn generate_backtrace(&self) -> Vec<pleno_value::StackFrame> {
-        let mut trace = Vec::new();
-        for frame in self.frames.iter().rev() {
-            if let Some(func) = self.functions.get(frame.function_index) {
-                let ip = if frame.ip > 0 { frame.ip - 1 } else { 0 };
-                let span = func.chunk.spans.get(ip).copied();
-                trace.push(pleno_value::StackFrame {
-                    function_name: (*func.name).clone(),
-                    span,
-                });
-            }
+        let stack_frame = |frame: &CallFrame| {
+            let func = self.functions.get(frame.function_index)?;
+            let ip = if frame.ip > 0 { frame.ip - 1 } else { 0 };
+            Some(pleno_value::StackFrame {
+                function_name: (*func.name).clone(),
+                span: func.chunk.spans.get(ip).copied(),
+            })
+        };
+        let count = self.frames.len();
+        if count <= BACKTRACE_INNER + BACKTRACE_OUTER {
+            return self.frames.iter().rev().filter_map(stack_frame).collect();
         }
+        let mut trace: Vec<_> = self.frames[count - BACKTRACE_INNER..]
+            .iter()
+            .rev()
+            .filter_map(stack_frame)
+            .collect();
+        trace.push(pleno_value::StackFrame::omitted(
+            count - BACKTRACE_INNER - BACKTRACE_OUTER,
+        ));
+        trace.extend(
+            self.frames[..BACKTRACE_OUTER]
+                .iter()
+                .rev()
+                .filter_map(stack_frame),
+        );
         trace
     }
 
@@ -1267,8 +1302,20 @@ impl VM {
             .unwrap_or(Value::Null)
     }
 
-    fn handle_property_error(&self, name: &str, type_name: &str) -> RuntimeError {
-        RuntimeError::new(format!("cannot read property '{name}' of {type_name}"))
+    /// `cannot read property 'name' of Type`, with the closest member of
+    /// `receiver` that code in `current_class` and `module` may use.
+    fn handle_property_error(
+        &self,
+        name: &str,
+        type_name: &str,
+        receiver: &Value,
+        current_class: Option<&GcRc<Class>>,
+        module: Option<&Rc<String>>,
+    ) -> RuntimeError {
+        let hint = self.suggest_member(receiver, name, current_class, module);
+        RuntimeError::new(format!(
+            "cannot read property '{name}' of {type_name}{hint}"
+        ))
     }
 
     /// Checks `value` against a type annotation written as text, such as `Int`,
@@ -1535,6 +1582,15 @@ impl VM {
     }
 
     fn run_until(&mut self, depth: usize) -> Result<ExecutionStatus, RuntimeError> {
+        // Each nested run (a callback from `map`, an operator, a test body) uses
+        // stack space in the Rust code that runs it, so unbounded recursion
+        // through callbacks would overflow that stack instead of failing.
+        if self.run_depths.len() >= self.max_nested_runs {
+            return Err(RuntimeError::new(format!(
+                "RecursionError: maximum call depth exceeded ({} nested callbacks)",
+                self.max_nested_runs
+            )));
+        }
         self.run_depths.push(depth);
         let res = self.run_until_internal(depth);
         self.run_depths.pop();
@@ -1799,7 +1855,10 @@ impl VM {
                 Opcode::GetIterator => {
                     let source_nan = self.registers[base + b];
                     let source = source_nan.to_value();
-                    let name = if c == 1 {
+                    let wants_entries = c as u8 == pleno_bytecode::ITER_ENTRIES
+                        || (c as u8 == pleno_bytecode::ITER_MAP_ENTRIES
+                            && matches!(source, Value::Map(_)));
+                    let name = if wants_entries {
                         "entries".to_string()
                     } else {
                         "iterator".to_string()
@@ -2002,6 +2061,7 @@ impl VM {
                         type_constraints: proto.type_constraints.clone(),
                         annotations: proto.annotations.clone(),
                         plain_args: plain_arg_range(&proto.params, proto.arity as usize),
+                        deprecation: deprecation_note(&proto.annotations),
                     });
                     let captures = vec![Value::Null; c];
                     let state = self.gc.allocate(ClosureState::new(func_index, captures))?;
@@ -2028,6 +2088,7 @@ impl VM {
                         type_constraints: proto.type_constraints.clone(),
                         annotations: proto.annotations.clone(),
                         plain_args: plain_arg_range(&proto.params, proto.arity as usize),
+                        deprecation: deprecation_note(&proto.annotations),
                     });
                     self.registers[base + a] = NanValue::from_value(&Value::Function(func_index));
                 }
@@ -2052,6 +2113,7 @@ impl VM {
                         type_constraints: proto.type_constraints.clone(),
                         annotations: proto.annotations.clone(),
                         plain_args: plain_arg_range(&proto.params, proto.arity as usize),
+                        deprecation: deprecation_note(&proto.annotations),
                     });
                     self.registers[base + a] = NanValue::from_value(&Value::Function(func_index));
                 }
@@ -2436,7 +2498,7 @@ impl VM {
                         }
                         Value::String(s) => {
                             if name == "length" {
-                                Value::Int(s.len() as i64)
+                                Value::Int(pleno_value::text::char_len(&s) as i64)
                             } else {
                                 return Err(RuntimeError::new("unknown string field"));
                             }
@@ -3007,8 +3069,14 @@ impl VM {
                                 );
                                 continue;
                             } else {
+                                let hint = self.suggest_member(
+                                    &Value::Enum(enum_type.clone()),
+                                    name,
+                                    current_class.as_ref(),
+                                    function.module.as_ref(),
+                                );
                                 return Err(RuntimeError::new(format!(
-                                    "Enum '{}' has no variant or static method '{}'",
+                                    "Enum '{}' has no variant or static method '{}'{hint}",
                                     et.name, name
                                 )));
                             }
@@ -3078,7 +3146,13 @@ impl VM {
                                     // `Error: message`, as errors print.
                                     self.bind_to_string(method_at, Value::Object(object.clone()))?
                                 } else {
-                                    return Err(self.handle_property_error(name, "Object"));
+                                    return Err(self.handle_property_error(
+                                        name,
+                                        "Object",
+                                        &Value::Object(object.clone()),
+                                        current_class.as_ref(),
+                                        function.module.as_ref(),
+                                    ));
                                 }
                             } else {
                                 field_value.unwrap_or(Value::Null)
@@ -3151,7 +3225,13 @@ impl VM {
                                     visibility: info.visibility,
                                 })?)
                             } else {
-                                return Err(self.handle_property_error(name, "Class"));
+                                return Err(self.handle_property_error(
+                                    name,
+                                    "Class",
+                                    &Value::Class(class.clone()),
+                                    current_class.as_ref(),
+                                    function.module.as_ref(),
+                                ));
                             }
                         }
                         Value::Variant(variant) if name == "value" || name == "name" => {
@@ -3252,7 +3332,7 @@ impl VM {
                                         Value::Bool(r.inclusive)
                                     }
                                     Value::String(s) if name == "len" || name == "length" => {
-                                        Value::Int(s.len() as i64)
+                                        Value::Int(pleno_value::text::char_len(s) as i64)
                                     }
                                     Value::Array(a) if name == "len" || name == "length" => {
                                         Value::Int(a.borrow().len() as i64)
@@ -3268,9 +3348,16 @@ impl VM {
                                         self.function_name_value(index)
                                     }
                                     _ => {
-                                        return Err(
-                                            self.handle_property_error(name, other.type_name())
-                                        );
+                                        let module = self.frames.last().and_then(|frame| {
+                                            self.functions[frame.function_index].module.clone()
+                                        });
+                                        return Err(self.handle_property_error(
+                                            name,
+                                            other.type_name(),
+                                            &other,
+                                            current_class.as_ref(),
+                                            module.as_ref(),
+                                        ));
                                     }
                                 }
                             }
@@ -3415,25 +3502,27 @@ impl VM {
                             })?))
                         }
                         (Value::String(s), Value::Int(idx)) => {
-                            let idx = *idx as usize;
-                            if idx >= s.len() {
+                            let ch = usize::try_from(*idx)
+                                .ok()
+                                .and_then(|idx| pleno_value::text::char_at(s, idx));
+                            let Some(ch) = ch else {
                                 return Err(self.throw_runtime_error("string index out of bounds"));
-                            }
-                            let char = s.chars().nth(idx).unwrap_or('\0');
-                            Ok(Value::String(Rc::new(char.to_string())))
+                            };
+                            Ok(Value::String(Rc::new(ch.to_string())))
                         }
                         (Value::String(s), Value::Range(range)) => {
-                            let len = s.len();
-                            let start = range.start.unwrap_or(0).max(0) as usize;
-                            let end = range
-                                .end
-                                .map(|e| if range.inclusive { e + 1 } else { e })
-                                .unwrap_or(len as i64)
-                                .max(0) as usize;
-                            let start = start.min(len);
-                            let end = end.min(len).max(start);
-                            // Rough byte slicing for now, should ideally be char-based but strings in pleno might be bytes/utf8
-                            let sub_s = &s[start..end];
+                            // Character positions, clamped like array slices.
+                            let len = pleno_value::text::char_len(s);
+                            let start =
+                                pleno_value::text::clamp_position(range.start.unwrap_or(0), len);
+                            let end = match range.end {
+                                Some(e) if range.inclusive => {
+                                    pleno_value::text::clamp_position(e.saturating_add(1), len)
+                                }
+                                Some(e) => pleno_value::text::clamp_position(e, len),
+                                None => len,
+                            };
+                            let sub_s = pleno_value::text::char_slice(s, start, end);
                             Ok(Value::String(Rc::new(sub_s.to_string())))
                         }
                         (Value::Tuple(tuple), Value::Int(idx)) => {
@@ -3450,18 +3539,16 @@ impl VM {
                             .get(key.as_str())
                             .cloned()
                             .unwrap_or(Value::Null)),
-                        // `map[0]` reads the key "0", as in JavaScript.
-                        (Value::Map(map), Value::Int(key)) => Ok(map
+                        // `map[0]` reads the key "0", as in JavaScript, and a
+                        // Float or Bool the key it prints as (`map[5.0]` is
+                        // `map[5]`): the keys `{0: x}` and `{true: x}` create.
+                        (
+                            Value::Map(map),
+                            key @ (Value::Int(_) | Value::Float(_) | Value::Bool(_)),
+                        ) => Ok(map
                             .borrow()
                             .entries
                             .get(&key.to_string())
-                            .cloned()
-                            .unwrap_or(Value::Null)),
-                        // A Float reads the key it prints as, so `map[5.0]` is `map[5]`.
-                        (Value::Map(map), Value::Float(key)) => Ok(map
-                            .borrow()
-                            .entries
-                            .get(&Value::Float(*key).to_string())
                             .cloned()
                             .unwrap_or(Value::Null)),
                         (Value::Set(set), value) => {
@@ -3511,15 +3598,22 @@ impl VM {
                             }
                             array.elements[idx] = value;
                         }
-                        (Value::Map(map), Value::String(key)) => {
+                        (
+                            Value::Map(map),
+                            key @ (Value::String(_)
+                            | Value::Int(_)
+                            | Value::Float(_)
+                            | Value::Bool(_)),
+                        ) => {
                             if map.borrow().is_immutable {
                                 return Err(self.throw_runtime_error("cannot modify immutable map"));
                             }
+                            let key = pleno_value::map_key(&key)
+                                .map(|key| key.into_owned())
+                                .unwrap_or_default();
                             self.gc
                                 .track_allocation(std::mem::size_of::<Value>() + key.len())?;
-                            map.borrow_mut()
-                                .entries
-                                .insert(key.as_str().to_string(), value);
+                            map.borrow_mut().entries.insert(key, value);
                         }
                         _ => return Err(RuntimeError::new("invalid index assignment")),
                     }
@@ -3933,13 +4027,26 @@ impl VM {
 
                     // `c = 1` marks a name read by the program, which must exist;
                     // the compiler's own type lookups use `c = 0` and get null.
+                    // An inferred type parameter with constraints (`T: Named`,
+                    // `T: A & B`) stands for them, so `greet(Rock())` is checked too.
+                    if value.is_none()
+                        && is_type_param
+                        && let Some(constraints) = function.type_constraints.get(name.as_str())
+                    {
+                        value = match constraints.as_slice() {
+                            [] => None,
+                            [constraint] => self.lookup_type_name(constraint),
+                            several => Some(Value::String(Rc::new(several.join(" & ")))),
+                        };
+                    }
                     let value = match value {
                         Some(value) => value,
                         None if is_type_param => Value::String(Rc::new("Any".to_string())),
                         None if c == 1 => {
-                            return Err(
-                                self.throw_runtime_error(&format!("undefined variable '{name}'"))
-                            );
+                            let hint = self.suggest_variable(&name, ip);
+                            return Err(self.throw_runtime_error(&format!(
+                                "undefined variable '{name}'{hint}"
+                            )));
                         }
                         None => Value::Null,
                     };
@@ -5579,6 +5686,9 @@ impl VM {
                 }
                 _ => false,
             },
+            Value::Interface(target_iface) if target_iface.borrow().is_builtin_comparable() => {
+                is_comparable_value(value)
+            }
             Value::Interface(target_iface) => match value {
                 Value::Object(obj) => {
                     let obj = obj.borrow();
@@ -5770,6 +5880,9 @@ impl VM {
                     }
                 }
                 false
+            }
+            Value::Interface(target_iface) if target_iface.borrow().is_builtin_comparable() => {
+                is_comparable_type(val_type)
             }
             Value::Interface(target_iface) => match val_type {
                 Value::Class(cls) => {
@@ -6147,6 +6260,7 @@ impl VM {
         return_reg: usize,
         current_owner: Option<MethodOwner>,
     ) -> Result<bool, RuntimeError> {
+        self.check_call_depth()?;
         let (function_index, closure_state) = if let Some(index) = callee.as_function_index() {
             (index, None)
         } else if callee.is_closure() {
@@ -6162,7 +6276,8 @@ impl VM {
             return Ok(false);
         };
         let given = argc + usize::from(receiver.is_some());
-        if function.is_async || !plain_params(function, given) {
+        // A deprecated function goes through `call_function`, which warns.
+        if function.is_async || function.deprecation.is_some() || !plain_params(function, given) {
             return Ok(false);
         }
         let param_count = function.params.len();
@@ -6237,6 +6352,7 @@ impl VM {
         args_already_processed: bool,
         opts: CallOptions,
     ) -> Result<(), RuntimeError> {
+        self.check_call_depth()?;
         let CallOptions {
             return_override,
             mut closure_state,
@@ -6254,6 +6370,7 @@ impl VM {
             }
             _ => return Err(RuntimeError::new("expected function or closure")),
         };
+        self.warn_if_deprecated(function_index);
         // Copy out what the call needs instead of cloning the whole function
         // (its chunk, constants and parameter list) on every call.
         let function = self
@@ -6627,7 +6744,15 @@ impl VM {
         let mut pos_index = 0usize;
         for key in named.keys() {
             if !params.iter().any(|param| param.name == *key) {
-                return Err(self.throw_runtime_error("unknown named argument"));
+                let hint = pleno_value::suggest::did_you_mean(
+                    key,
+                    params
+                        .iter()
+                        .filter(|param| !param.is_variadic)
+                        .map(|param| param.name.as_str()),
+                );
+                let message = format!("unknown named argument '{key}'{hint}");
+                return Err(self.throw_runtime_error(&message));
             }
         }
         for (idx, param) in params.iter().enumerate() {
@@ -6803,6 +6928,41 @@ impl VM {
             .unwrap_or(&error.message)
             .to_string();
         self.new_error(&message)
+    }
+
+    /// Prints `warning: f is deprecated: note` the first time a deprecated
+    /// function is called, to the program's output when it is captured.
+    fn warn_if_deprecated(&mut self, function_index: usize) {
+        let Some(function) = self.functions.get(function_index) else {
+            return;
+        };
+        let Some(note) = &function.deprecation else {
+            return;
+        };
+        if !self.deprecation_warnings.insert(function.name.to_string()) {
+            return;
+        }
+        let message = if note.is_empty() {
+            format!("warning: {} is deprecated\n", function.name)
+        } else {
+            format!("warning: {} is deprecated: {}\n", function.name, note)
+        };
+        match &mut self.output {
+            Some(buffer) => buffer.push_str(&message),
+            None => eprint!("{message}"),
+        }
+    }
+
+    /// Fails a call that would go deeper than `MAX_CALL_DEPTH` frames, so
+    /// runaway recursion raises a catchable `RecursionError` instead of
+    /// growing memory without bound.
+    fn check_call_depth(&self) -> Result<(), RuntimeError> {
+        if self.frames.len() >= MAX_CALL_DEPTH {
+            return Err(RuntimeError::new(format!(
+                "RecursionError: maximum call depth exceeded ({MAX_CALL_DEPTH} calls)"
+            )));
+        }
+        Ok(())
     }
 
     /// Ends the program at a sandbox limit. Unlike other errors it does not
@@ -7123,11 +7283,41 @@ impl VM {
             return None;
         };
         let receiver = self.registers[frame.base + source.b() as usize].to_value();
+        let current_class = match &frame.current_owner {
+            Some(MethodOwner::Class(class)) => Some(class.clone()),
+            _ => None,
+        };
+        let module = self.functions[frame.function_index].module.as_ref();
+        let hint = self.suggest_member(&receiver, name, current_class.as_ref(), module);
         Some(match receiver {
-            Value::Map(_) => format!("Map has no method '{name}' (and no key '{name}')"),
+            Value::Map(_) => format!("Map has no method '{name}' (and no key '{name}'){hint}"),
             Value::Null => format!("cannot call '{name}' on null"),
-            other => format!("{} has no method '{name}'", other.type_name()),
+            other => format!("{} has no method '{name}'{hint}", other.type_name()),
         })
+    }
+
+    /// `std module not found: name`, with the closest standard module: one
+    /// built in or one in `sources/std`.
+    fn std_module_error(&self, name: &str) -> RuntimeError {
+        let mut known: Vec<String> = self
+            .modules
+            .keys()
+            .filter_map(|key| key.strip_prefix("std:"))
+            .map(str::to_string)
+            .collect();
+        if let Ok(entries) =
+            std::env::current_dir().and_then(|dir| fs::read_dir(dir.join("sources/std")))
+        {
+            known.extend(entries.flatten().filter_map(|entry| {
+                let file = entry.file_name().to_string_lossy().to_string();
+                file.strip_suffix(".pln").map(str::to_string)
+            }));
+        }
+        let hint = match pleno_value::suggest::best_match(name, known.iter().map(String::as_str)) {
+            Some(found) => format!("; did you mean 'std:{found}'?"),
+            None => String::new(),
+        };
+        RuntimeError::new(format!("std module not found: {name}{hint}"))
     }
 
     fn execute_module(&mut self, path: &str) -> Result<Value, RuntimeError> {
@@ -7148,7 +7338,13 @@ impl VM {
                     .and_then(|main| main.parent())
                     .map(|dir| dir.to_path_buf())
             });
-        let resolved = resolve_module_path(path, base_dir)?;
+        let resolved =
+            resolve_module_path(path, base_dir).map_err(|err| match path.strip_prefix("std:") {
+                Some(name) if err.message.starts_with("std module not found") => {
+                    self.std_module_error(name)
+                }
+                _ => err,
+            })?;
         let resolved_key = resolved.to_string_lossy().to_string();
         if let Some(value) = self.modules.get(&resolved_key).cloned() {
             return Ok(value);
@@ -7183,6 +7379,7 @@ impl VM {
             type_constraints: IndexMap::new(),
             annotations: Vec::new(),
             plain_args: (0, 0),
+            deprecation: None,
         };
         let func_index = self.functions.len();
         self.functions.push(function);
@@ -7252,6 +7449,157 @@ fn owner_from_nan(value: NanValue) -> Option<MethodOwner> {
         Value::Interface(interface) => Some(MethodOwner::Interface(interface)),
         Value::String(name) => Some(MethodOwner::Builtin(name)),
         _ => None,
+    }
+}
+
+/// The innermost and outermost frames a deep backtrace keeps (see
+/// `generate_backtrace`).
+const BACKTRACE_INNER: usize = 50;
+const BACKTRACE_OUTER: usize = 10;
+
+/// Whether `<` and `>` work on `value`: numbers, strings and characters, and
+/// objects whose class (or a parent) defines `operator <` or `operator >`, or
+/// implements an interface named `Comparable`.
+fn is_comparable_value(value: &Value) -> bool {
+    match value {
+        Value::Int(_) | Value::Float(_) | Value::String(_) | Value::Char(_) => true,
+        Value::Object(obj) => obj.borrow().class.as_ref().is_some_and(is_comparable_class),
+        _ => false,
+    }
+}
+
+/// Whether a type argument names a comparable type (see `is_comparable_value`).
+fn is_comparable_type(type_value: &Value) -> bool {
+    match type_value {
+        Value::Map(map) => matches!(
+            map.borrow().entries.get("__native_type"),
+            Some(Value::String(name)) if matches!(name.as_str(), "Int" | "Float")
+        ),
+        Value::String(name) => matches!(name.as_str(), "String" | "Char" | "Int" | "Float"),
+        Value::Class(class) => is_comparable_class(class),
+        Value::BoundClass(bound) => is_comparable_class(&bound.borrow().class),
+        _ => false,
+    }
+}
+
+fn is_comparable_class(class: &GcRc<Class>) -> bool {
+    let mut current = Some(class.clone());
+    while let Some(class) = current {
+        let class_ref = class.borrow();
+        let implements = class_ref.implements.iter().any(|imp| match imp {
+            Value::Interface(i) => i.borrow().name.as_str() == "Comparable",
+            Value::BoundInterface(b) => b.borrow().interface.borrow().name.as_str() == "Comparable",
+            _ => false,
+        });
+        if implements
+            || class_ref.operators.contains_key("<")
+            || class_ref.operators.contains_key(">")
+        {
+            return true;
+        }
+        current = class_ref.superclass.clone();
+    }
+    false
+}
+
+/// The note of a `@deprecated` annotation: `Some("")` without an argument,
+/// `None` when the function is not deprecated.
+fn deprecation_note(annotations: &[pleno_value::RuntimeAnnotation]) -> Option<Rc<String>> {
+    let annotation = annotations.iter().find(|a| a.name == "deprecated")?;
+    Some(Rc::new(match annotation.args.first() {
+        Some(Value::String(note)) => note.to_string(),
+        _ => String::new(),
+    }))
+}
+
+/// The deepest a chain of calls can go. Frames live on the heap, so this only
+/// bounds memory: about 200 bytes and a few registers per call.
+const MAX_CALL_DEPTH: usize = 100_000;
+
+/// How many runs can be nested inside each other by default: calls from
+/// native code back into Pleno (`map` callbacks, operators, test bodies). Each
+/// uses about 8 KB of Rust stack in a release build, more in a debug build or
+/// under a sanitizer; see `VM::max_nested_runs`.
+pub const DEFAULT_MAX_NESTED_RUNS: usize = 200;
+
+/// Whether `path` is inside one of the `allowed` folders (or is one of the
+/// allowed files). Both sides are compared as normalized absolute paths, one
+/// component at a time, so `data/../secret` is not inside `data` and `data2`
+/// is not inside `data`.
+fn path_allowed(path: &str, allowed: &[String]) -> bool {
+    let Some(path) = normalized_path(path) else {
+        return false;
+    };
+    allowed
+        .iter()
+        .filter_map(|base| normalized_path(base))
+        .any(|base| path_starts_with(&path, &base))
+}
+
+/// `path` made absolute against the working directory, with `.` and `..`
+/// removed and symbolic links resolved in the part of it that exists.
+fn normalized_path(path: &str) -> Option<std::path::PathBuf> {
+    use std::path::{Component, Path, PathBuf};
+    let path = Path::new(path);
+    let absolute = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        std::env::current_dir().ok()?.join(path)
+    };
+    let mut lexical = PathBuf::new();
+    for component in absolute.components() {
+        match component {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                lexical.pop();
+            }
+            other => lexical.push(other.as_os_str()),
+        }
+    }
+    // Resolve links in the longest part that exists; a file about to be
+    // written does not exist yet.
+    let mut existing = lexical.clone();
+    let mut missing = Vec::new();
+    while !existing.exists() {
+        match existing.file_name() {
+            Some(name) => {
+                missing.push(name.to_os_string());
+                existing.pop();
+            }
+            None => break,
+        }
+    }
+    let mut resolved = fs::canonicalize(&existing)
+        .map(strip_verbatim_prefix)
+        .unwrap_or(existing);
+    for name in missing.iter().rev() {
+        resolved.push(name);
+    }
+    Some(resolved)
+}
+
+/// `C:\dir` for Windows' `\\?\C:\dir`, so a canonical path compares equal to
+/// one that was not canonicalized.
+fn strip_verbatim_prefix(path: std::path::PathBuf) -> std::path::PathBuf {
+    match path.to_str().and_then(|text| text.strip_prefix(r"\\?\")) {
+        Some(rest) if !rest.starts_with("UNC") => std::path::PathBuf::from(rest),
+        _ => path,
+    }
+}
+
+/// `path` starts with `base`, component by component; on Windows without
+/// regard to case, as its file systems compare names.
+fn path_starts_with(path: &std::path::Path, base: &std::path::Path) -> bool {
+    if cfg!(windows) {
+        let lower = |p: &std::path::Path| {
+            p.components()
+                .map(|c| c.as_os_str().to_string_lossy().to_lowercase())
+                .collect::<Vec<_>>()
+        };
+        let (path, base) = (lower(path), lower(base));
+        path.len() >= base.len() && path[..base.len()] == base[..]
+    } else {
+        path.starts_with(base)
     }
 }
 

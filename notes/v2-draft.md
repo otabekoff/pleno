@@ -20,26 +20,17 @@ with (file = File.open("data.txt", "r")) {
 
 Until then, close handles in `finally`.
 
-### Patterns in `for` loops
-
-Status: not started. `let` destructuring works; `for` does not take patterns.
-
-```text
-for ((name, score) in pairs) { ... }
-for ([first, ...rest] in rows) { ... }
-```
-
 ### Iterating strings
 
 Status: not started. `for (c in "abc")` is a compile error (`for loop expects array, set, or range`) and a string variable throws `type 'String' is not iterable`. Planned: iterate Unicode characters.
 
 ### Byte-level string access
 
-Status: not started. There are no byte APIs (`bytes()`, `byteLength`). Positions are meant to count Unicode characters; see "Bugs that block the freeze" below.
+Status: not started. There are no byte APIs (`bytes()`, `byteLength`). Every string position and length counts Unicode characters.
 
-### Map literals with non-string keys
+### Maps with non-string keys
 
-Status: not started. `{1: "a"}` is a parse error; map keys are strings.
+Status: map keys are strings. Number and Bool literal keys are converted to strings (`{1: "a"}` is `{"1": "a"}`), and so are number and Bool indexes (`m[1]`). Not started: maps keyed by other values (numbers that stay numbers, tuples, objects), which would change `keys()` and iteration.
 
 ### Purity checked by the compiler
 
@@ -47,11 +38,11 @@ Status: `@pure` has an incomplete runtime check (experimental in 1.0). Planned: 
 
 ### Checked built-in annotations
 
-Status: `@override`, `@sealed` and `@deprecated` are plain annotations with no effect.
+Status: `@override` and `@sealed` are plain annotations with no effect. (`@deprecated` warns since 2026-10-26.)
 
 - `@override`: a compile error when no parent class has the method.
 - `@sealed`: a class that cannot be extended.
-- `@deprecated("message")`: a warning from `pleno check`, `pleno lint` and the language server where the name is used. The 1.x compatibility promise needs this mechanism for deprecations.
+- `@deprecated` on classes, fields and imported functions in `pleno check` (calls to deprecated top-level functions of the same file and every call at run time already warn).
 
 ### More runtime type checks
 
@@ -59,7 +50,7 @@ Status: partial.
 
 - Lambda parameter annotations are not checked.
 - Return annotations are not checked for `Void`, for annotations that mention a type parameter, and for `@inline` functions.
-- Generic constraints (`T: Shape`) are checked only with explicit type arguments; inferred type arguments are not checked.
+- With inferred type arguments, constraints are checked for parameters annotated `T`, not for the elements of a `T[]` parameter.
 
 ### Static type checking
 
@@ -105,20 +96,16 @@ Planned API:
 
 ### HTTP server
 
-Status: `Router` and `Server` are experimental in 1.0. Missing: middleware (`app.use`), static files, cookies, `HEAD` for `get` routes, and automated tests that serve requests.
+Status: `Router` and `Server` are experimental in 1.0. Missing: middleware (`app.use`), static files and cookies.
 
 ### Other module work
 
-- `Regex(pattern, flags)`: honor the flags argument (status: ignored; inline `(?i)` works).
-- `CSV.parse`: an option for input without a header row (status: the first row is always the header).
-- `Crypto.jwtVerify`: check `exp` and `nbf` and compare signatures in constant time (status: experimental, neither is done).
-- `JSON.stringify`: write the fields of class instances, and sets as arrays (status: both become `null`).
 - `std:gc`, `std:db`, `std:security`: experimental, undocumented or thinly documented; decide their 1.x shape.
 - Proposed new modules: `std:grpc` (gRPC and Protobuf), `std:ui` (terminal and simple desktop UI), PostgreSQL in `std:db`.
 
 ### Sandboxing
 
-Status: `std:security` is experimental. Planned: path rules that normalize paths (today `--allow-read data/` is a string prefix test that `data/../x` passes), a time limit, and restricting `File.exists`.
+Status: `std:security` is experimental. Planned: a time limit. (Path rules normalize paths, `Path.exists` and the other path probes are checked, and `Sandbox.run` errors keep their name, since 2026-10-26.)
 
 ## Tooling
 
@@ -142,6 +129,4 @@ Status: `std:security` is experimental. Planned: path rules that normalize paths
 
 These are not features but differences between the reference and the implementation; the reference describes the intended behavior.
 
-- String positions: `length`, `indexOf`, `substring`, `charAt` and `s[a..b]` count UTF-8 bytes while `s[i]` counts characters; `substring` and `charAt` inside a multi-byte character panic the VM. `"abc".split("")` returns `["", "a", "b", "c", ""]`.
 - `@pure` rejects non-empty array and map literals.
-- Generic constraints report `Type 'Unknown'` for a class's explicit type argument (`Box<Int>(5)`), and `T: Comparable` rejects `Int` although `Int` is marked as implementing `Comparable` internally.

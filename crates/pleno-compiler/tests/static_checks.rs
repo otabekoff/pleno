@@ -178,6 +178,28 @@ fn methods_called_on_this() {
 }
 
 #[test]
+fn misspelled_names_get_a_suggestion() {
+    assert_eq!(
+        messages("fn f(name) {}\nf(nmae: 1);"),
+        ["f has no parameter named 'nmae'; did you mean 'name'?"]
+    );
+    assert_eq!(
+        messages("class A { count: Int; fn go() {} fn run() { this.og(); this.cuont(); } }"),
+        [
+            "A has no method 'og'; did you mean 'go'?",
+            "A has no method 'cuont'; did you mean 'count'?"
+        ]
+    );
+    // A superclass's private members are not suggested to a subclass.
+    assert_eq!(
+        messages(
+            "class A { private fn hidden() {} }\nclass B extends A { fn f() { this.hiden(); } }"
+        ),
+        ["B has no method 'hiden'"]
+    );
+}
+
+#[test]
 fn methods_on_this_that_may_exist_are_not_reported() {
     // Overridden or defined by a subclass.
     assert_clean("class A { fn n() { this.render(); } }\nclass B extends A { fn render() {} }");
