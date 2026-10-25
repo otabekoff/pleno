@@ -107,3 +107,22 @@ let add = |a, b| => a + b;
 // Used in higher-order functions
 [1, 2, 3, 4].map(|x| => x * 2);
 ```
+
+Parameter annotations on anonymous functions and lambdas are checked when they are called, the same as on named functions: an `Int` passed for a `Float` becomes a `Float`, and optional (`Int?`) and union (`Int | String`) annotations accept any of their types. Parameters without an annotation are not checked and cost nothing.
+
+```pleno
+let half = (x: Float) => x / 2;
+print(half(3));          // 1.5
+
+let describe = fn(x: Int | String) => "got " + x;
+print(describe("a"));    // got a
+
+let multiply = fn(x: Int, y: Int): Int {
+    return x * y;
+};
+try {
+    multiply("2", 3);
+} catch (e) {
+    print(e.message);    // parameter 'x' expected Int, got String
+}
+```

@@ -445,6 +445,15 @@ fn lambdas_keep_types_and_async() {
 }
 
 #[test]
+fn annotated_arrow_lambdas_keep_their_types() {
+    // An annotated `(x: T) => ...` is written as `fn(x: T) => ...`, which means the same.
+    assert_round_trip(
+        "let f = (x: Int, y: Float | String) => x;",
+        "let f = fn(x: Int, y: Float | String) => x;\n",
+    );
+}
+
+#[test]
 fn blank_lines_and_comments_stay_where_they_were() {
     let input = "let a = 1;\n\n// about b\nlet b = 2;\nclass C {\n    x;\n\n    // a method\n    fn m() {\n\n        return 1;\n    }\n}\n";
     let expected = "let a = 1;\n\n// about b\nlet b = 2;\nclass C {\n    x;\n\n    // a method\n    fn m() {\n        return 1;\n    }\n}\n";

@@ -40,15 +40,19 @@ impl LoopUnroller {
             }
             StmtKind::For {
                 names,
+                pattern,
                 iterable,
                 body,
                 ..
             } => {
                 self.unroll_stmt(body);
 
-                // Try to unroll if iterable is a small range literal
-                if let Some(unrolled) = self.try_unroll_range_for(names, iterable, body) {
-                    stmt.kind = StmtKind::Block(unrolled);
+                // Try to unroll if iterable is a small range literal. A
+                // destructuring loop is left for the compiler to reject.
+                if pattern.is_none() {
+                    if let Some(unrolled) = self.try_unroll_range_for(names, iterable, body) {
+                        stmt.kind = StmtKind::Block(unrolled);
+                    }
                 }
             }
             StmtKind::CFor {
