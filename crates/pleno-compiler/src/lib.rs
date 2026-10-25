@@ -5435,7 +5435,26 @@ impl Compiler {
         for stmt in stmts {
             pleno_ast::visitor::Visitor::visit_stmt(&mut collector, stmt);
         }
-        collector.names
+        let mut names = collector.names;
+        // An unused declaration close to a name the program reads but never
+        // declares (`totl()` next to `fn total`) is kept, so the runtime error
+        // can say "did you mean 'total'?" instead of the function being dropped.
+        let declared = declaration_kinds(stmts);
+        let unused: Vec<&str> = declared
+            .keys()
+            .filter(|name| !names.contains(*name))
+            .map(String::as_str)
+            .collect();
+        if !unused.is_empty() {
+            let kept: Vec<String> = names
+                .iter()
+                .filter(|name| !declared.contains_key(*name))
+                .filter_map(|name| pleno_value::suggest::best_match(name, unused.iter().copied()))
+                .map(str::to_string)
+                .collect();
+            names.extend(kept);
+        }
+        names
     }
 
     fn push_loop(&mut self, continue_target: Option<usize>) {

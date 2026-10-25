@@ -208,3 +208,17 @@ fn unknown_std_modules() {
         "std module not found: nothinglikeit",
     );
 }
+
+#[test]
+fn an_unused_declaration_a_typo_points_at_is_suggested() {
+    // `total` is never called by its own name, so the optimizer would drop it;
+    // a misspelled call keeps it for the suggestion.
+    assert_error(
+        "fn total(items) { return items.length; }\nprint(totl([1]));",
+        "undefined variable 'totl'; did you mean 'total'?",
+    );
+    assert_error(
+        "class Shape {}\nlet s = Shpe();",
+        "undefined variable 'Shpe'; did you mean 'Shape'?",
+    );
+}
