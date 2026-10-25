@@ -1066,26 +1066,26 @@ pub fn start() -> io::Result<()> {
 
                     let mut lenses = Vec::new();
 
-                    // Re-parse or use cached AST?
+                    // A script runs from its first line, so the lenses run or debug
+                    // the whole file; they sit above its first statement.
                     let tokens = pleno_lexer::lex(text).unwrap_or_default();
                     let mut parser = pleno_parser::Parser::new(tokens, text);
-                    if let Ok(program) = parser.parse_program() {
-                        for stmt in &program.statements {
-                            if let pleno_ast::StmtKind::Fn { .. } = &stmt.kind {
-                                let (start, _) =
-                                    span_to_range(text, stmt.span.start, stmt.span.end);
-                                lenses.push(json!({
-                                    "range": {
-                                        "start": start,
-                                        "end": start
-                                    },
-                                    "command": {
-                                        "title": "$(play) Run Function",
-                                        "command": "pleno.runFile",
-                                        "arguments": [uri_str]
-                                    }
-                                }));
-                            }
+                    if let Ok(program) = parser.parse_program()
+                        && let Some(first) = program.statements.first()
+                    {
+                        let (start, _) = span_to_range(text, first.span.start, first.span.end);
+                        for (title, command) in [
+                            ("$(play) Run File", "pleno.runFile"),
+                            ("$(debug-alt) Debug File", "pleno.debugFile"),
+                        ] {
+                            lenses.push(json!({
+                                "range": { "start": start, "end": start },
+                                "command": {
+                                    "title": title,
+                                    "command": command,
+                                    "arguments": [uri_str]
+                                }
+                            }));
                         }
                     }
 

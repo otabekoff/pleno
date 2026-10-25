@@ -74,64 +74,66 @@ pub fn run_pleno() {
             handle_run(&mut args);
         }
         "format" | "fmt" => {
-            let mut path = None;
-            let mut stdout = false;
-
-            for arg in args.by_ref() {
-                if arg == "--stdout" {
-                    stdout = true;
-                } else if path.is_none() {
-                    path = Some(arg);
-                }
-            }
-
-            let path = path.unwrap_or_else(|| {
-                eprintln!("Error: 'format' requires a file or directory path");
-                process::exit(1);
-            });
-            format_file(&path, stdout);
+            let parsed = SubcommandArgs::parse(
+                "format <path> [--stdout]",
+                "Formats a .pln file, or every .pln file in a folder, in place; --stdout prints the result instead.",
+                args,
+                &["--stdout"],
+                &[],
+                1,
+            );
+            let path = parsed.required_path("format", "a file or directory path");
+            format_file(&path, parsed.has("--stdout"));
         }
         "lint" => {
-            let path = args.next().unwrap_or_else(|| {
-                eprintln!("Error: 'lint' requires a file or directory path");
-                process::exit(1);
-            });
-            lint_file(&path);
+            let parsed = SubcommandArgs::parse(
+                "lint <path>",
+                "Lints a .pln file, or every .pln file in a folder.",
+                args,
+                &[],
+                &[],
+                1,
+            );
+            lint_file(&parsed.required_path("lint", "a file or directory path"));
         }
         "check" => {
-            let mut path = None;
-            let mut json_output = false;
-            for arg in args.by_ref() {
-                if arg == "--json" {
-                    json_output = true;
-                } else {
-                    path = Some(arg);
-                }
-            }
-            let path = path.unwrap_or_else(|| {
-                eprintln!("Error: 'check' requires a file path");
-                process::exit(1);
-            });
-            check_file(&path, json_output);
+            let parsed = SubcommandArgs::parse(
+                "check <file.pln> [--json]",
+                "Checks a file without running it; --json prints the problems for editors.",
+                args,
+                &["--json"],
+                &[],
+                1,
+            );
+            let path = parsed.required_path("check", "a file path");
+            check_file(&path, parsed.has("--json"));
         }
         "test" => {
-            let mut test_path = default_test_dir();
-            let mut json_output = false;
-            for arg in args.by_ref() {
-                if arg == "--json" {
-                    json_output = true;
-                } else {
-                    test_path = arg;
-                }
-            }
-            run_tests(&test_path, json_output, BuildProfile::Test);
+            let parsed = SubcommandArgs::parse(
+                "test [path] [--json]",
+                "Runs the tests in a file or folder (default: the package's tests); --json prints results for editors.",
+                args,
+                &["--json"],
+                &[],
+                1,
+            );
+            let test_path = parsed
+                .paths
+                .first()
+                .cloned()
+                .unwrap_or_else(default_test_dir);
+            run_tests(&test_path, parsed.has("--json"), BuildProfile::Test);
         }
         "debug-ast" => {
-            let path = args.next().unwrap_or_else(|| {
-                eprintln!("Error: 'debug-ast' requires a file path");
-                process::exit(1);
-            });
-            debug_ast(&path);
+            let parsed = SubcommandArgs::parse(
+                "debug-ast <file.pln>",
+                "Prints the syntax tree of a file.",
+                args,
+                &[],
+                &[],
+                1,
+            );
+            debug_ast(&parsed.required_path("debug-ast", "a file path"));
         }
         "lsp" => {
             if let Err(e) = pleno_lsp::start() {
@@ -146,23 +148,42 @@ pub fn run_pleno() {
             }
         }
         "compile" => {
-            let path = args.next().unwrap_or_else(|| {
-                eprintln!("Error: 'compile' requires a file path");
-                process::exit(1);
-            });
-            compile_file(&path, BuildProfile::Debug);
+            let parsed = SubcommandArgs::parse(
+                "compile <file.pln> [-o <file.plc>]",
+                "Compiles a file to bytecode, written next to it as .plc unless -o names the output.",
+                args,
+                &[],
+                &["-o", "--output"],
+                1,
+            );
+            let path = parsed.required_path("compile", "a file path");
+            let output = parsed.value("-o").or_else(|| parsed.value("--output"));
+            compile_file(&path, output, BuildProfile::Debug);
         }
         "watch" => {
-            let path = args.next().unwrap_or_else(|| {
-                eprintln!("Error: 'watch' requires a file path");
-                process::exit(1);
-            });
-            watch_file(&path);
+            let parsed = SubcommandArgs::parse(
+                "watch <file.pln>",
+                "Runs a file, and again whenever it changes.",
+                args,
+                &[],
+                &[],
+                1,
+            );
+            watch_file(&parsed.required_path("watch", "a file path"));
         }
         "doc" => {
-            let path = args.next();
-            let output = args.next();
-            handle_doc(path.as_deref(), output.as_deref());
+            let parsed = SubcommandArgs::parse(
+                "doc [path] [out]",
+                "Generates HTML documentation from the doc comments in path (default: .) into out (default: docs_out).",
+                args,
+                &[],
+                &[],
+                2,
+            );
+            handle_doc(
+                parsed.paths.first().map(String::as_str),
+                parsed.paths.get(1).map(String::as_str),
+            );
         }
         "dap" => {
             handle_dap(&mut args);
@@ -170,6 +191,76 @@ pub fn run_pleno() {
         _ => {
             run_file(&command, None, BuildProfile::Debug);
         }
+    }
+}
+
+/// The arguments of a subcommand: its paths, the flags it accepts and the
+/// options that take a value. `-h`/`--help` prints `usage` and exits; an
+/// unknown option or one path too many is an error instead of being ignored.
+struct SubcommandArgs {
+    paths: Vec<String>,
+    flags: Vec<String>,
+    values: Vec<(String, String)>,
+}
+
+impl SubcommandArgs {
+    fn parse(
+        usage: &str,
+        description: &str,
+        args: impl Iterator<Item = String>,
+        flags: &[&str],
+        options: &[&str],
+        max_paths: usize,
+    ) -> Self {
+        let command = usage.split(' ').next().unwrap_or(usage);
+        let fail = |message: String| -> ! {
+            eprintln!("Error: {message}\nUsage: pleno {usage}");
+            process::exit(2);
+        };
+        let mut parsed = SubcommandArgs {
+            paths: Vec::new(),
+            flags: Vec::new(),
+            values: Vec::new(),
+        };
+        let mut args = args;
+        while let Some(arg) = args.next() {
+            if arg == "-h" || arg == "--help" {
+                println!("Usage: pleno {usage}\n\n{description}");
+                process::exit(0);
+            } else if flags.contains(&arg.as_str()) {
+                parsed.flags.push(arg);
+            } else if options.contains(&arg.as_str()) {
+                match args.next() {
+                    Some(value) => parsed.values.push((arg, value)),
+                    None => fail(format!("'{arg}' needs a value")),
+                }
+            } else if arg.starts_with('-') && arg.len() > 1 {
+                fail(format!("'{command}' has no option '{arg}'"));
+            } else if parsed.paths.len() == max_paths {
+                fail(format!("unexpected argument '{arg}'"));
+            } else {
+                parsed.paths.push(arg);
+            }
+        }
+        parsed
+    }
+
+    fn has(&self, flag: &str) -> bool {
+        self.flags.iter().any(|f| f == flag)
+    }
+
+    fn value(&self, option: &str) -> Option<&str> {
+        self.values
+            .iter()
+            .find(|(name, _)| name == option)
+            .map(|(_, value)| value.as_str())
+    }
+
+    fn required_path(&self, command: &str, what: &str) -> String {
+        self.paths.first().cloned().unwrap_or_else(|| {
+            eprintln!("Error: '{command}' requires {what}");
+            process::exit(1);
+        })
     }
 }
 
@@ -263,7 +354,10 @@ pub fn print_help() {
                     "Check a file without running it (--json for editors)",
                 ),
                 ("test <path>", "Run tests in a file or directory (--json)"),
-                ("compile <file.pln>", "Compile a file to .plc bytecode"),
+                (
+                    "compile <file.pln>",
+                    "Compile a file to .plc bytecode (-o <file> names it)",
+                ),
                 (
                     "build [file]",
                     "Compile the package's main file (--release, --test)",
@@ -1098,7 +1192,8 @@ fn watch_file(path: &str) {
     }
 }
 
-fn compile_file(path: &str, profile: BuildProfile) {
+/// Compiles `path` to bytecode at `output`, or next to it with a `.plc` extension.
+fn compile_file(path: &str, output: Option<&str>, profile: BuildProfile) {
     if !path.ends_with(".pln") {
         eprintln!("Error: Only .pln format file extensions are supported");
         process::exit(1);
@@ -1143,7 +1238,9 @@ fn compile_file(path: &str, profile: BuildProfile) {
         }
     };
 
-    let output_path = std::path::Path::new(path).with_extension("plc");
+    let output_path = output
+        .map(PathBuf::from)
+        .unwrap_or_else(|| std::path::Path::new(path).with_extension("plc"));
     // The file starts with the `PLNC` magic and the bytecode format version, so a
     // `pleno` that reads another format rejects it instead of misreading it.
     let bytes = match pleno_bytecode::encode_chunk(&chunk) {
@@ -1154,6 +1251,14 @@ fn compile_file(path: &str, profile: BuildProfile) {
         }
     };
 
+    if let Some(dir) = output_path
+        .parent()
+        .filter(|dir| !dir.as_os_str().is_empty())
+        && let Err(err) = fs::create_dir_all(dir)
+    {
+        eprintln!("Failed to create {}: {}", dir.display(), err);
+        process::exit(1);
+    }
     match fs::write(&output_path, bytes) {
         Ok(()) => {
             println!("Compiled {} -> {}", path, output_path.display());
@@ -1558,118 +1663,20 @@ obligated to maintain confidentiality with regard to the reporter of an incident
         fs::create_dir_all(vscode_dir).expect("Failed to create .vscode directory");
     }
 
-    // tasks.json
-    let tasks_json = vscode_dir.join("tasks.json");
-    if !tasks_json.exists() {
-        let content = r#"{
-  "version": "2.0.0",
-  "tasks": [
-    {
-      "label": "plm: plm build --debug",
-      "type": "shell",
-      "command": "plm",
-      "args": ["build", "--debug"],
-      "group": "build",
-      "presentation": {
-        "reveal": "always",
-        "panel": "new"
-      },
-      "problemMatcher": []
-    },
-    {
-      "label": "plm: plm build --release",
-      "type": "shell",
-      "command": "plm",
-      "args": ["build", "--release"],
-      "group": "build",
-      "presentation": {
-        "reveal": "always",
-        "panel": "new"
-      },
-      "problemMatcher": []
-    },
-    {
-      "label": "plm: plm test",
-      "type": "shell",
-      "command": "plm",
-      "args": ["test"],
-      "group": "test",
-      "presentation": {
-        "reveal": "always",
-        "panel": "new"
-      },
-      "problemMatcher": []
-    },
-    {
-      "label": "pleno: pleno format .",
-      "type": "shell",
-      "command": "pleno",
-      "args": ["format", "."],
-      "presentation": {
-        "reveal": "silent",
-        "panel": "shared"
-      },
-      "problemMatcher": []
-    },
-    {
-      "label": "plm: plm build",
-      "type": "shell",
-      "command": "plm",
-      "args": ["build"],
-      "group": {
-        "kind": "build",
-        "isDefault": true
-      },
-      "presentation": {
-        "reveal": "always",
-        "panel": "shared"
-      },
-      "problemMatcher": []
-    },
-    {
-      "label": "plm: plm run dev",
-      "type": "shell",
-      "command": "plm",
-      "args": ["run", "dev"],
-      "presentation": {
-        "reveal": "always",
-        "panel": "shared"
-      },
-      "problemMatcher": []
-    }
-  ]
-}"#;
-        fs::write(tasks_json, content).expect("Failed to create .vscode/tasks.json");
-    }
+    // No tasks.json: the Pleno extension provides a task for each `plm`
+    // command and each script in pleno.toml.
 
     // settings.json
     let settings_json = vscode_dir.join("settings.json");
     if !settings_json.exists() {
         let content = r#"{
-  "files.autoSave": "afterDelay",
-  "files.autoSaveDelay": 0,
-  "files.autoSaveWhenNoErrors": true,
-  "files.autoSaveWorkspaceFilesOnly": true,
-  "files.refactoring.autoSave": true,
-  "editor.formatOnSave": true,
-  "editor.formatOnSaveMode": "file",
-  "files.associations": {
-    ".pln": "pleno"
+  "[pleno]": {
+    "editor.defaultFormatter": "pleno.pleno-language",
+    "editor.formatOnSave": true
   },
   "explorer.fileNesting.enabled": true,
-  "explorer.fileNesting.expand": false,
   "explorer.fileNesting.patterns": {
-    "*.ts": "${capture}.js",
-    "*.js": "${capture}.js.map, ${capture}.min.js, ${capture}.d.ts",
-    "*.jsx": "${capture}.js",
-    "*.tsx": "${capture}.ts",
-    "tsconfig.json": "tsconfig.*.json",
-    "package.json": "package-lock.json, yarn.lock, pnpm-lock.yaml, bun.lockb, bun.lock",
-    "pubspec.yaml": "pubspec.lock,pubspec_overrides.yaml,.packages,.flutter-plugins,.flutter-plugins-dependencies,.metadata",
-    "*.dart": "${capture}.g.dart",
-    "Cargo.toml": "Cargo.lock",
-    "pleno.toml": "pleno.lock",
-    "README.md": "CONTRIBUTING.*, LICENSE, LICENCE, LICENSE.*, LICENCE.*, COPYING, AUTHORS, MODERATORS, CONTRIBUTORS, SECURITY.*, CHANGELOG, CHANGELOG.*, CODE_OF_CONDUCT.*"
+    "pleno.toml": "pleno.lock"
   }
 }"#;
         fs::write(settings_json, content).expect("Failed to create .vscode/settings.json");
@@ -1684,9 +1691,8 @@ obligated to maintain confidentiality with regard to the reporter of an incident
         {
             "type": "pleno",
             "request": "launch",
-            "name": "Launch main.pln",
-            "program": "src/main.pln",
-            "stopOnEntry": false
+            "name": "Debug main.pln",
+            "program": "${workspaceFolder}/src/main.pln"
         }
     ]
 }"#;
@@ -1749,7 +1755,6 @@ const INIT_FILES: &[&str] = &[
     ".gitignore",
     ".editorconfig",
     ".vscode/settings.json",
-    ".vscode/tasks.json",
     ".vscode/launch.json",
     ".vscode/extensions.json",
 ];
@@ -2028,23 +2033,16 @@ fn handle_plm_search(args: &mut std::iter::Peekable<std::iter::Skip<std::env::Ar
 }
 
 fn handle_build(args: &mut std::iter::Peekable<std::iter::Skip<std::env::Args>>) {
-    let mut target = None;
-    // let mut debug = false;
-    let mut release = false;
-    let mut test_mode = false;
-
-    for arg in args.by_ref() {
-        if arg == "--debug" {
-            // debug = true;
-        } else if arg == "--release" {
-            release = true;
-        } else if arg == "--test" {
-            test_mode = true;
-        } else if target.is_none() {
-            target = Some(arg);
-        }
-    }
-
+    let parsed = SubcommandArgs::parse(
+        "build [file.pln] [--release | --test | --debug] [-o <file.plc>]",
+        "Compiles a file, or the package's main file from pleno.toml, to .plc bytecode.",
+        args.by_ref(),
+        &["--debug", "--release", "--test"],
+        &["-o", "--output"],
+        1,
+    );
+    let release = parsed.has("--release");
+    let test_mode = parsed.has("--test");
     let build_profile = if release {
         BuildProfile::Release
     } else if test_mode {
@@ -2052,9 +2050,25 @@ fn handle_build(args: &mut std::iter::Peekable<std::iter::Skip<std::env::Args>>)
     } else {
         BuildProfile::Debug
     };
+    let output = parsed.value("-o").or_else(|| parsed.value("--output"));
+
+    let entry = match parsed.paths.first() {
+        Some(file) if file.ends_with(".pln") => file.clone(),
+        Some(other) => {
+            eprintln!("Error: 'build' takes a .pln file, not '{other}'");
+            process::exit(2);
+        }
+        None => match Manifest::load_from_file("pleno.toml") {
+            Ok(manifest) => manifest.package.main,
+            Err(_) => {
+                eprintln!("Error: 'build' needs a .pln file or a pleno.toml in this folder");
+                process::exit(1);
+            }
+        },
+    };
 
     println!(
-        "Building for {}...",
+        "Building {entry} for {}...",
         if release {
             "release"
         } else if test_mode {
@@ -2063,32 +2077,7 @@ fn handle_build(args: &mut std::iter::Peekable<std::iter::Skip<std::env::Args>>)
             "debug"
         }
     );
-
-    match target {
-        Some(t) if t.ends_with(".pln") => {
-            compile_file(&t, build_profile);
-        }
-        Some(t) => {
-            if let Ok(manifest) = Manifest::load_from_file("pleno.toml") {
-                let entry = &manifest.package.main;
-                compile_file(entry, build_profile);
-            } else {
-                eprintln!("Error: No pleno.toml found and '{}' is not a .pln file", t);
-                process::exit(1);
-            }
-        }
-        None => {
-            if let Ok(manifest) = Manifest::load_from_file("pleno.toml") {
-                let entry = &manifest.package.main;
-                compile_file(entry, build_profile);
-            } else {
-                eprintln!(
-                    "Error: 'build' requires a target (file or package) and no pleno.toml found"
-                );
-                process::exit(1);
-            }
-        }
-    }
+    compile_file(&entry, output, build_profile);
 }
 
 fn handle_plm_info(args: &mut std::iter::Peekable<std::iter::Skip<std::env::Args>>) {
