@@ -5,6 +5,21 @@ All notable changes to the "pleno" extension will be documented in this file.
 Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
 
 
+## [Unreleased]
+
+### Added
+
+- Diagnostics show their source (`pleno`, `pleno-lint`) and rule code, cover the whole offending name or operator, and unused names are faded out.
+- Quick fixes: remove an unused import or variable, prefix an unused name with `_`, and add spaces around an operator.
+- Highlighting of every use of the name under the cursor, **Go to Symbol in Workspace**, **Expand Selection**, and **Format Selection**.
+- Rename refuses keywords, built-ins and non-names before asking for the new name.
+- Settings `pleno.lint.enabled`, `pleno.lint.maxLineLength` and `pleno.lint.rules`, applied without a restart.
+- The status bar item shows when the language server is starting or has stopped.
+
+### Fixed
+
+- Find references, rename and highlights from a function name or parameter found only the declaration.
+
 ## [0.2.0] - 2026-10-24
 
 ### Added

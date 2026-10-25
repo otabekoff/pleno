@@ -140,7 +140,7 @@ impl ScopeTracker {
 }
 
 /// The globals the standard library defines, which every program can use.
-fn builtin_globals() -> &'static HashSet<String> {
+pub fn builtin_globals() -> &'static HashSet<String> {
     static NAMES: OnceLock<HashSet<String>> = OnceLock::new();
     NAMES.get_or_init(|| {
         let mut vm = pleno_vm::VM::new();

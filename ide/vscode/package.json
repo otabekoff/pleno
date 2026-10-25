@@ -148,6 +148,62 @@
           "default": true,
           "description": "Enable/disable semantic highlighting."
         },
+        "pleno.lint.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Report lint warnings (unused names, spacing, line length, ...) as you type. Syntax errors and `pleno check` errors are always reported."
+        },
+        "pleno.lint.maxLineLength": {
+          "type": "number",
+          "default": 100,
+          "minimum": 0,
+          "description": "Maximum line length for the `max-line-length` lint rule. 0 turns the rule off."
+        },
+        "pleno.lint.rules": {
+          "type": "object",
+          "default": {},
+          "markdownDescription": "Turn individual lint rules on or off, for example `{ \"operator-spacing\": false }`. Rules are on unless set to `false`.",
+          "properties": {
+            "no-unused-vars": {
+              "type": "boolean",
+              "default": true,
+              "description": "Names that are declared but never used. Prefix a name with `_` to mark it as intentionally unused."
+            },
+            "no-undef": {
+              "type": "boolean",
+              "default": true,
+              "description": "Use of a name that is not declared."
+            },
+            "no-shadow": {
+              "type": "boolean",
+              "default": true,
+              "description": "A variable that shadows one from an outer scope."
+            },
+            "operator-spacing": {
+              "type": "boolean",
+              "default": true,
+              "description": "Missing spaces around a binary operator."
+            },
+            "max-line-length": {
+              "type": "boolean",
+              "default": true,
+              "description": "Lines longer than `pleno.lint.maxLineLength`."
+            },
+            "no-trailing-spaces": {
+              "type": "boolean",
+              "default": true,
+              "description": "Whitespace at the end of a line."
+            },
+            "semi-spacing": {
+              "type": "boolean",
+              "default": true,
+              "description": "Missing space after a semicolon."
+            }
+          },
+          "additionalProperties": {
+            "type": "boolean"
+          }
+        },
         "pleno.trace.server": {
           "type": "string",
           "enum": [
