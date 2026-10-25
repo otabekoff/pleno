@@ -26,7 +26,17 @@ print(typeof(2.5));                  // Float
 
 ## String Operations
 
-Positions count characters. With text that is not ASCII, `length`, `indexOf`, `substring` and `charAt` currently count bytes; see [Strings](./index.md#strings).
+Every position and length counts Unicode characters (scalar values), not UTF-8 bytes; see [Strings](./index.md#strings). Positions start at 0. A negative position, or one past the end, is handled as follows:
+
+| Operation | Positions out of range |
+| --- | --- |
+| `s[i]` | Error `string index out of bounds` when `i` is negative or not less than `length` |
+| `s[a..b]`, `s[a..=b]`, `s[a..]` | Positions are clamped to `0..length`; `b < a` gives `""` |
+| `s.substring(start, end?)` | Like JavaScript: both are clamped to `0..length`, swapped when `start > end`; `end` defaults to `length` |
+| `s.charAt(i)` | `null` when `i` is negative or not less than `length` |
+| `s.indexOf(sub)` | The position of the first `sub`, `-1` when missing, `0` for `""` |
+| `s.split(sep)` | `split("")` gives the characters; `sep` defaults to `","` |
+| `s.repeat(n)` | Error when `n` is negative |
 
 ```pleno
 let str = "Hello, World!";
@@ -44,6 +54,16 @@ print(str.substring(0, 5));           // Hello
 print(str.charAt(0));                 // H
 print(str.indexOf("o"));              // 4
 print("ab".repeat(3));                // ababab
+
+// Positions count characters, also outside ASCII
+let word = "héllo";
+print(word.length);                   // 5
+print(word[1]);                       // é
+print(word[1..3]);                    // él
+print(word.indexOf("l"));             // 2
+print(word.substring(0, 2));          // hé
+print(word.charAt(9));                // null
+print("a€😀".split(""));              // [a, €, 😀]
 
 // String interpolation
 let name = "Alice";

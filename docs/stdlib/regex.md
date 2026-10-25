@@ -142,7 +142,7 @@ The `Match` object returned by `match()` and `findAll()` contains:
 | Property   | Type       | Description                                |
 | ---------- | ---------- | ------------------------------------------ |
 | `value`    | `String`   | The matched text                           |
-| `index`    | `Int`      | Start position in input, in bytes          |
+| `index`    | `Int`      | Start position in input, in characters     |
 | `groups`   | `String[]` | Captured groups                            |
 | `group(i)` | `String?`  | Group `i`; `group(0)` is the whole match   |
 
