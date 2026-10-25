@@ -178,6 +178,34 @@ fn xml_parse_throws_without_a_complete_root() {
     );
 }
 
+#[test]
+fn number_and_bool_map_keys_are_strings() {
+    let source = r#"
+        let m = {1: "a", 2.5: "b", true: "c", -3: "d", 0x10: "e", "s": "f", name: "g"};
+        m[2] = "two";
+        m[false] = "no";
+        m.put(7, "seven");
+        let c = {1: 0};
+        c[1] += 5;
+        [
+            m.keys().join(","),
+            m[1], m["1"], m[1.0], m[2.5], m[true], m[-3], m[16], m["2"], m["false"],
+            m.get(1), m.containsKey(2.5).toString(), m.remove(true).toString(),
+            m.containsKey("true").toString(), m["7"], typeof(m.keys()[0]), c["1"].toString(),
+        ].join(" ")
+    "#;
+    assert_eq!(
+        eval_string(source),
+        "1,2.5,true,-3,16,s,name,2,false,7 a a a b c d e two no a true true false seven String 5"
+    );
+}
+
+#[test]
+fn other_map_literal_keys_are_still_a_syntax_error() {
+    let message = eval_error(r#"let m = {null: 1};"#);
+    assert!(message.contains("key in map"), "{message}");
+}
+
 fn unix_now() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)

@@ -16,6 +16,7 @@ Notable changes to Pleno. The format follows [Keep a Changelog](https://keepacha
 - Return type annotations are checked at runtime, at every `return` and when a function ends without one: `fn f(): Int { return "s"; }` throws `TypeError: f returned String, expected Int`, and falling off the end of a function annotated `Int` throws `f returned Null, expected Int`. This covers functions, methods, getters, lambdas and `async` functions (whose annotation, `Int` or `Promise<Int>`, describes the resolved value). `Void`, `Any` and annotations mentioning a type parameter are not checked. `pleno check` also reports returned literals that cannot match (`f is declared to return Int but returns a String literal`).
 - `Regex(pattern, flags)` applies its flags: `i` (case-insensitive), `m` (multi-line), `s` (`.` matches newlines) and `x` (verbose); `regex.flags` returns them. Before, the second argument was ignored. Unknown flag letters and invalid patterns throw when the regex is created.
 - `CSV.parse(text, { header: false })` (or `header: false` as a named argument) returns every row, the first one included, for input without a header line. The default is unchanged: the first row is the header and is dropped.
+- Number and Bool literals as map literal keys: `{1: "a", 2.5: "b", true: "c"}` is `{"1": "a", "2.5": "b", "true": "c"}`, since map keys are strings. Reading and writing with such an index (`m[1]`, `m[true] = x`) and `get`, `put`, `with`, `remove` and `containsKey` use the same string, so `m[1]` reads the key `"1"`.
 
 ### Changed
 
