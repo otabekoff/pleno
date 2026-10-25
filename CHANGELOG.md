@@ -6,6 +6,10 @@ Notable changes to Pleno. The format follows [Keep a Changelog](https://keepacha
 
 ### Added
 
+- `<`, `<=`, `>` and `>=` compare strings and characters, by Unicode code point (`"abc" < "abd"`); before, they were an error.
+- `Comparable` is a built-in constraint: `T: Comparable` accepts `Int`, `Float`, `String`, `Char` and classes that define `operator <` or `operator >`.
+- `<`, `<=`, `>` and `>=` compare strings and characters, by Unicode code point (`"abc" < "abd"`); before, they were an error.
+- `Comparable` is a built-in constraint: `T: Comparable` accepts `Int`, `Float`, `String`, `Char` and classes that define `operator <` or `operator >`.
 - `pleno new <folder>` (and `plm new`) creates the folder and a package in it, named after the folder or `--name`; it refuses a folder that already has files. `pleno init` still sets up the current folder.
 - `pleno-dap --version`, `pleno-repl --version` and `--help` for both.
 - `vmStats()` in `std:reflect`: instructions executed, current and peak memory.
@@ -39,6 +43,8 @@ Notable changes to Pleno. The format follows [Keep a Changelog](https://keepacha
 
 ### Fixed
 
+- Generic constraints were checked only with explicit type arguments: `greet(Rock())` with `fn greet<T: Named>(x: T)` was accepted and failed later. A parameter annotated `T` is now checked against `T`'s constraints, and the error names them (`expected T: Named, got Rock`). `T: Comparable` rejected `Int`.
+- Generic constraints were checked only with explicit type arguments: `greet(Rock())` with `fn greet<T: Named>(x: T)` was accepted and failed later. A parameter annotated `T` is now checked against `T`'s constraints, and the error names them (`expected T: Named, got Rock`). `T: Comparable` rejected `Int`.
 - A sandbox limit (`--max-instructions`, `--max-memory`, `Sandbox` options) could be caught by `try`/`catch`, so a program could catch it and run on past its limit. Reaching a limit now ends the sandboxed program; the program that started a `Sandbox` still catches it as a `SandboxError` (before, that error arrived named `Error`).
 - `a != b` ignored a class's `operator ==`: with `==` overloaded, `V(1) != V(1)` was `true`. It is now `!(a == b)` unless the class defines its own `operator !=`.
 - An error thrown inside a callback (`map`, `filter`, ...) and caught outside read `uncaught exception: uncaught exception: ...`; it now has its own message.

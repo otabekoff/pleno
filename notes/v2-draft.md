@@ -59,7 +59,7 @@ Status: partial.
 
 - Lambda parameter annotations are not checked.
 - Return annotations are not checked for `Void`, for annotations that mention a type parameter, and for `@inline` functions.
-- Generic constraints (`T: Shape`) are checked only with explicit type arguments; inferred type arguments are not checked.
+- With inferred type arguments, constraints are checked for parameters annotated `T`, not for the elements of a `T[]` parameter.
 
 ### Static type checking
 
@@ -144,4 +144,3 @@ These are not features but differences between the reference and the implementat
 
 - String positions: `length`, `indexOf`, `substring`, `charAt` and `s[a..b]` count UTF-8 bytes while `s[i]` counts characters; `substring` and `charAt` inside a multi-byte character panic the VM. `"abc".split("")` returns `["", "a", "b", "c", ""]`.
 - `@pure` rejects non-empty array and map literals.
-- Generic constraints report `Type 'Unknown'` for a class's explicit type argument (`Box<Int>(5)`), and `T: Comparable` rejects `Int` although `Int` is marked as implementing `Comparable` internally.

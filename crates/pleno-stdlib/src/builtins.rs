@@ -178,6 +178,27 @@ pub fn register_builtins(vm: &mut dyn VMProvider) {
     };
     vm.register_global("Int".to_string(), Value::Map(int_map));
 
+    // `T: Comparable`: the values `<` and `>` work on (see `is_comparable` in
+    // the VM). It has no methods; the marker annotation tells it apart from an
+    // interface a program declares with the same name.
+    let comparable = vm
+        .get_gc()
+        .allocate(pleno_value::Interface {
+            name: Rc::new("Comparable".to_string()),
+            methods: IndexMap::new(),
+            getters: IndexMap::new(),
+            setters: IndexMap::new(),
+            type_params: Vec::new(),
+            type_constraints: IndexMap::new(),
+            annotations: vec![pleno_value::RuntimeAnnotation {
+                name: pleno_value::BUILTIN_COMPARABLE.to_string(),
+                args: Vec::new(),
+            }],
+            module: None,
+        })
+        .unwrap();
+    vm.register_global("Comparable".to_string(), Value::Interface(comparable));
+
     let float_map = {
         let mut m = IndexMap::new();
         m.insert(

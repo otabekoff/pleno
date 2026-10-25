@@ -3933,6 +3933,18 @@ impl VM {
 
                     // `c = 1` marks a name read by the program, which must exist;
                     // the compiler's own type lookups use `c = 0` and get null.
+                    // An inferred type parameter with constraints (`T: Named`,
+                    // `T: A & B`) stands for them, so `greet(Rock())` is checked too.
+                    if value.is_none()
+                        && is_type_param
+                        && let Some(constraints) = function.type_constraints.get(name.as_str())
+                    {
+                        value = match constraints.as_slice() {
+                            [] => None,
+                            [constraint] => self.lookup_type_name(constraint),
+                            several => Some(Value::String(Rc::new(several.join(" & ")))),
+                        };
+                    }
                     let value = match value {
                         Some(value) => value,
                         None if is_type_param => Value::String(Rc::new("Any".to_string())),
@@ -5579,6 +5591,9 @@ impl VM {
                 }
                 _ => false,
             },
+            Value::Interface(target_iface) if target_iface.borrow().is_builtin_comparable() => {
+                is_comparable_value(value)
+            }
             Value::Interface(target_iface) => match value {
                 Value::Object(obj) => {
                     let obj = obj.borrow();
@@ -5770,6 +5785,9 @@ impl VM {
                     }
                 }
                 false
+            }
+            Value::Interface(target_iface) if target_iface.borrow().is_builtin_comparable() => {
+                is_comparable_type(val_type)
             }
             Value::Interface(target_iface) => match val_type {
                 Value::Class(cls) => {
@@ -7253,6 +7271,51 @@ fn owner_from_nan(value: NanValue) -> Option<MethodOwner> {
         Value::String(name) => Some(MethodOwner::Builtin(name)),
         _ => None,
     }
+}
+
+/// Whether `<` and `>` work on `value`: numbers, strings and characters, and
+/// objects whose class (or a parent) defines `operator <` or `operator >`, or
+/// implements an interface named `Comparable`.
+fn is_comparable_value(value: &Value) -> bool {
+    match value {
+        Value::Int(_) | Value::Float(_) | Value::String(_) | Value::Char(_) => true,
+        Value::Object(obj) => obj.borrow().class.as_ref().is_some_and(is_comparable_class),
+        _ => false,
+    }
+}
+
+/// Whether a type argument names a comparable type (see `is_comparable_value`).
+fn is_comparable_type(type_value: &Value) -> bool {
+    match type_value {
+        Value::Map(map) => matches!(
+            map.borrow().entries.get("__native_type"),
+            Some(Value::String(name)) if matches!(name.as_str(), "Int" | "Float")
+        ),
+        Value::String(name) => matches!(name.as_str(), "String" | "Char" | "Int" | "Float"),
+        Value::Class(class) => is_comparable_class(class),
+        Value::BoundClass(bound) => is_comparable_class(&bound.borrow().class),
+        _ => false,
+    }
+}
+
+fn is_comparable_class(class: &GcRc<Class>) -> bool {
+    let mut current = Some(class.clone());
+    while let Some(class) = current {
+        let class_ref = class.borrow();
+        let implements = class_ref.implements.iter().any(|imp| match imp {
+            Value::Interface(i) => i.borrow().name.as_str() == "Comparable",
+            Value::BoundInterface(b) => b.borrow().interface.borrow().name.as_str() == "Comparable",
+            _ => false,
+        });
+        if implements
+            || class_ref.operators.contains_key("<")
+            || class_ref.operators.contains_key(">")
+        {
+            return true;
+        }
+        current = class_ref.superclass.clone();
+    }
+    false
 }
 
 /// Registers that `append_in_place` scans at most for copies of a string.
