@@ -34,7 +34,7 @@ pleno-doc = { path = "crates/pleno-doc" }
 pleno-optimizer = { path = "crates/pleno-optimizer" }
 thiserror = "1"
 serde_json = { version = "1", features = ["preserve_order"] }
-rustyline = "14"
+rustyline = "17"
 reqwest = { version = "0.12", default-features = false, features = [
     "blocking",
     "json",
