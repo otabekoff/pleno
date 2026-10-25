@@ -15,6 +15,7 @@ Notable changes to Pleno. The format follows [Keep a Changelog](https://keepacha
 
 ### Changed
 
+- Programs run with an instruction or memory limit (`--max-instructions`, `--max-memory`, the playground) use the fast interpreter loop too, which checks the limits itself: about 1.6 times faster than before under a limit.
 - A variable declared without `mut` (or with `const`) can no longer be reassigned from inside a function or closure; before, `let x = 1; fn f() { x = 2; } f();` changed `x`. Assigning to a name declared with `fn`, `class`, `enum` or `interface` says so (`cannot assign to function 'g'`) instead of `unknown local or global`.
 - Compile errors in unused functions and classes and in code after a `return` are reported by `pleno run` and `pleno check`; before, the optimizer dropped that code first and its errors went unnoticed until it was used.
 - Every caught error is an `Error` instance with `name` and `message`: runtime errors, failed type annotations (`TypeError`), denied operations (`SecurityError`) and sandbox limits (`SandboxError`) included, so `catch (e: Error)` catches them and `e.message` always works.

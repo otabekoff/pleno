@@ -16,6 +16,9 @@ pleno-lexer = { path = "../crates/pleno-lexer" }
 pleno-parser = { path = "../crates/pleno-parser" }
 pleno-ast = { path = "../crates/pleno-ast" }
 pleno-compiler = { path = "../crates/pleno-compiler" }
+pleno-value = { path = "../crates/pleno-value" }
+pleno-vm = { path = "../crates/pleno-vm" }
+pleno-stdlib = { path = "../crates/pleno-stdlib" }
 
 [[bin]]
 name = "fuzz_lexer"
@@ -34,6 +37,13 @@ bench = false
 [[bin]]
 name = "fuzz_compile"
 path = "fuzz_targets/fuzz_compile.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_run"
+path = "fuzz_targets/fuzz_run.rs"
 test = false
 doc = false
 bench = false
