@@ -78,6 +78,14 @@ pub struct Compiler {
     /// Names the program defines as globals: functions, classes, enums, interfaces.
     global_defs: HashSet<String>,
     chunk: Chunk,
+    /// Where each `LoadConst` is, by constant index. A constant that is only
+    /// ever loaded can move above index 255 (`LoadConst` takes a 16-bit index)
+    /// to make room for one that an 8-bit operand names; see `add_constant`.
+    constant_loads: HashMap<usize, Vec<usize>>,
+    /// Constants named by an 8-bit operand (names, keys), which cannot move.
+    pinned_constants: HashSet<usize>,
+    /// Set when a function needs more constants than its operands can name.
+    constant_overflow: Option<(String, Span)>,
     registers: RegisterAllocator,
     last_expr_register: Option<u8>,
     locals: Vec<HashMap<String, Local>>,
@@ -131,6 +139,9 @@ impl Compiler {
             global_reads: Vec::new(),
             global_defs: HashSet::new(),
             chunk: Chunk::new(),
+            constant_loads: HashMap::new(),
+            pinned_constants: HashSet::new(),
+            constant_overflow: None,
             registers: RegisterAllocator::new(),
             last_expr_register: None,
             locals: vec![HashMap::new()],
@@ -212,6 +223,7 @@ impl Compiler {
             }
         };
         self.emit(Opcode::Return, return_reg, 0, 0);
+        self.check_constants()?;
         self.chunk.max_registers = self.registers.max_used;
         self.chunk.module_name = None;
         Ok(self.chunk.clone())
@@ -257,6 +269,7 @@ impl Compiler {
         self.emit(Opcode::Return, exports_reg, 0, 0);
         self.chunk.max_registers = self.registers.max_used;
         self.chunk.module_name = self.module_name.clone();
+        self.check_constants()?;
         Ok(self.chunk.clone())
     }
 
@@ -1197,22 +1210,12 @@ impl Compiler {
                     Literal::Int(value) if (-128..=127).contains(value) => {
                         self.emit(Opcode::LoadInt, reg, *value as u8, 0)
                     }
-                    Literal::Int(value) => {
-                        let const_idx = self.add_constant(Value::Int(*value));
-                        self.emit(Opcode::LoadConst, reg, const_idx, 0)
-                    }
-                    Literal::Float(value) => {
-                        let const_idx = self.add_constant(Value::Float(*value));
-                        self.emit(Opcode::LoadConst, reg, const_idx, 0)
-                    }
+                    Literal::Int(value) => self.emit_load_constant(reg, Value::Int(*value)),
+                    Literal::Float(value) => self.emit_load_constant(reg, Value::Float(*value)),
                     Literal::String(value) => {
-                        let const_idx = self.add_constant(Value::String(value.clone().into()));
-                        self.emit(Opcode::LoadConst, reg, const_idx, 0)
+                        self.emit_load_constant(reg, Value::String(value.clone().into()))
                     }
-                    Literal::Char(value) => {
-                        let const_idx = self.add_constant(Value::Char(*value));
-                        self.emit(Opcode::LoadConst, reg, const_idx, 0)
-                    }
+                    Literal::Char(value) => self.emit_load_constant(reg, Value::Char(*value)),
                 }
                 Ok(reg)
             }
@@ -1681,23 +1684,101 @@ impl Compiler {
         }
     }
 
-    fn add_constant(&mut self, value: Value) -> u8 {
-        for (idx, constant) in self.chunk.constants.iter().enumerate() {
-            if constant == &value {
-                return idx as u8;
-            }
+    fn constant_index(&mut self, value: Value) -> usize {
+        if let Some(idx) = self.chunk.constants.iter().position(|c| c == &value) {
+            return idx;
         }
         self.chunk.constants.push(value);
-        let idx = self.chunk.constants.len() - 1;
+        self.chunk.constants.len() - 1
+    }
+
+    /// The index of a constant for an 8-bit operand (a name, a key, ...).
+    ///
+    /// Only 256 constants fit such operands, but constants that are only ever
+    /// loaded with `LoadConst` (16-bit index) can live anywhere, so when the
+    /// first 256 slots are full one of those moves up to make room.
+    fn add_constant(&mut self, value: Value) -> u8 {
+        let mut idx = self.constant_index(value);
         if idx > 255 {
-            panic!("too many constants in function (max 255)");
+            match (0..=255).find(|slot| !self.pinned_constants.contains(slot)) {
+                Some(slot) => {
+                    self.swap_constants(slot, idx);
+                    idx = slot;
+                }
+                None => {
+                    if self.constant_overflow.is_none() {
+                        self.constant_overflow = Some((
+                            "this function uses more than 256 different names and constant keys;                              split it into smaller functions"
+                                .to_string(),
+                            self.current_span,
+                        ));
+                    }
+                    return 0;
+                }
+            }
         }
+        self.pinned_constants.insert(idx);
         idx as u8
+    }
+
+    /// Emits `LoadConst reg, idx` with the 16-bit index in operands b and c.
+    fn emit_load_constant(&mut self, reg: u8, value: Value) {
+        let idx = self.constant_index(value);
+        if idx > u16::MAX as usize {
+            if self.constant_overflow.is_none() {
+                self.constant_overflow = Some((
+                    "this function has more than 65536 constants; split it into smaller functions"
+                        .to_string(),
+                    self.current_span,
+                ));
+            }
+            return;
+        }
+        self.emit(Opcode::LoadConst, reg, (idx & 0xff) as u8, (idx >> 8) as u8);
+    }
+
+    /// Swaps two constants and repoints the `LoadConst` instructions of both.
+    fn swap_constants(&mut self, a: usize, b: usize) {
+        self.chunk.constants.swap(a, b);
+        let loads_a = self.constant_loads.remove(&a).unwrap_or_default();
+        let loads_b = self.constant_loads.remove(&b).unwrap_or_default();
+        for (positions, target) in [(&loads_a, b), (&loads_b, a)] {
+            for &pos in positions {
+                let register = self.chunk.code[pos].a();
+                self.chunk.code[pos] = Instruction::new(
+                    Opcode::LoadConst,
+                    register,
+                    (target & 0xff) as u8,
+                    (target >> 8) as u8,
+                );
+            }
+        }
+        if !loads_a.is_empty() {
+            self.constant_loads.insert(b, loads_a);
+        }
+        if !loads_b.is_empty() {
+            self.constant_loads.insert(a, loads_b);
+        }
+    }
+
+    /// Fails if the function needed more constants than its operands can name.
+    fn check_constants(&self) -> Result<(), CompileError> {
+        match &self.constant_overflow {
+            Some((message, span)) => Err(self.error(message, *span)),
+            None => Ok(()),
+        }
     }
 
     fn emit(&mut self, opcode: Opcode, a: u8, b: u8, c: u8) {
         if opcode == Opcode::Move && a == b {
             return;
+        }
+        if opcode == Opcode::LoadConst {
+            let idx = b as usize | (c as usize) << 8;
+            self.constant_loads
+                .entry(idx)
+                .or_default()
+                .push(self.chunk.code.len());
         }
         self.chunk.code.push(Instruction::new(opcode, a, b, c));
         let line = self._source_map.get_line_col(self.current_span.start).0;
@@ -3031,6 +3112,7 @@ impl Compiler {
             }
         };
         compiler.emit(Opcode::Return, return_reg, 0, 0);
+        compiler.check_constants()?;
         compiler.chunk.max_registers = compiler.registers.max_used.max(params.len());
         compiler.chunk.module_name = self.module_name.clone();
         self.global_reads.append(&mut compiler.global_reads);
@@ -3347,6 +3429,7 @@ impl Compiler {
             }
         };
         compiler.emit(Opcode::Return, return_reg, 0, 0);
+        compiler.check_constants()?;
         compiler.chunk.max_registers = compiler.registers.max_used.max(params.len());
         compiler.chunk.module_name = self.module_name.clone();
         self.global_reads.append(&mut compiler.global_reads);

@@ -29,3 +29,11 @@ fn malformed_generic_annotations_are_errors() {
         compile(source);
     }
 }
+
+#[test]
+fn more_than_256_constants_in_one_function() {
+    // crash-bdb3e6d158d16387f18357b9190bfeac41e696e8 (fuzz_compile, 12 minutes into a long run)
+    compile(
+        r#"2+{}+O+OO0O+3+{is0OO}+O+OO0O+O4+O+OOis0OO4+O+O+{}+O+OO1O+2+{is0O+{}+O+OO1O+2+{is0OO}+Os0OO4+O+O+{}+O+OO1i*o??foO}+Os0OO4+O+O+{}+O+OO1i*o??fo??false..lafo??fo??o??tr??rO+2+{is0OO}+sO+O4+O+OOis0Ois0O"#,
+    );
+}

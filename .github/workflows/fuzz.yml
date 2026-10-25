@@ -34,10 +34,20 @@ jobs:
       - name: Install cargo-fuzz
         run: cargo install cargo-fuzz --locked
 
+      # Short runs (pull requests, the weekly run) use AddressSanitizer. Long
+      # runs use none: its quarantine and bookkeeping grow with every input
+      # and ran out of memory after 74 minutes on 2026-10-24 with only 35 MB
+      # of live heap. The fuzzed crates are safe Rust, so a panic still
+      # fails the run.
       - name: Fuzz
         env:
           SECONDS_TO_RUN: ${{ inputs.seconds || '120' }}
-        run: cargo fuzz run ${{ matrix.target }} -- -max_total_time="$SECONDS_TO_RUN"
+        run: |
+          if [ "$SECONDS_TO_RUN" -gt 600 ]; then
+            cargo fuzz run --sanitizer none ${{ matrix.target }} -- -max_total_time="$SECONDS_TO_RUN" -rss_limit_mb=4096
+          else
+            cargo fuzz run ${{ matrix.target }} -- -max_total_time="$SECONDS_TO_RUN"
+          fi
 
       - name: Upload crashing inputs
         if: failure()

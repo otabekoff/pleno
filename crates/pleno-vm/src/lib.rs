@@ -1579,7 +1579,10 @@ impl VM {
                     self.registers[base + a] = self.registers[base + b];
                 }
                 Opcode::LoadConst => {
-                    let value = &function.chunk.constants[b];
+                    // A 16-bit constant index: b is the low byte, c the high byte.
+                    let Some(value) = function.chunk.constants.get(b | (c << 8)) else {
+                        return Err(RuntimeError::new("constant index out of range"));
+                    };
                     self.registers[base + a] = NanValue::from_value(value);
                 }
                 Opcode::LoadMissing => {
