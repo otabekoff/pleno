@@ -1,6 +1,6 @@
 import * as vscode from "vscode";
 import * as path from "path";
-import * as fs from "fs";
+import { execFile } from "child_process";
 import {
     LanguageClient,
     LanguageClientOptions,
@@ -9,15 +9,14 @@ import {
     TransportKind,
 } from "vscode-languageclient/node";
 import { restorePatchedIconThemes } from "./iconInjector";
-import { clearToolCache, findTool, getPlenoPath, Tool } from "./utils";
+import { clearToolCache, findTool, getPlenoPath, Tool, toolVersion } from "./utils";
 import {
     exposeToolchainToTerminals,
     installedVersion,
     installToolchain,
     uninstallToolchain,
 } from "./toolchain";
-import { PlenoOutlineProvider, PlenoProjectProvider } from "./projectExplorer";
-import { PlenoDashboardPanel } from "./dashboard";
+import { PlenoProjectProvider, Project, ProjectItem } from "./projectExplorer";
 import { PlenoFormattingProvider } from "./formatter";
 import { PlenoDiagnosticsProvider } from "./diagnostics";
 import {
@@ -27,137 +26,114 @@ import {
 import { PlenoTestController } from "./testController";
 
 const DOCS_URL = "https://pleno.mohirlab.uz/";
-const SETUP_URL = "https://github.com/otabekoff/pleno#installation";
+const INSTALL_URL = "https://pleno.mohirlab.uz/guide/installation";
 
-/**
- * Runs a Pleno tool as a task in the shared terminal panel. The executable is
- * started directly rather than through a shell, so paths with spaces work in
- * every shell.
- */
-function runToolTask(
-    context: vscode.ExtensionContext,
-    tool: Tool,
-    args: string[],
-    name: string,
-    cwd?: string,
-): Thenable<vscode.TaskExecution> {
-    const task = new vscode.Task(
-        { type: "pleno", command: args.join(" ") },
-        vscode.workspace.workspaceFolders?.[0] ?? vscode.TaskScope.Workspace,
-        name,
-        "pleno",
-        new vscode.ProcessExecution(findTool(context, tool).path, args, { cwd }),
-    );
+/** The folder to run a file in: its workspace folder, or its own folder. */
+function folderOf(file: string): string {
+    return vscode.workspace.getWorkspaceFolder(vscode.Uri.file(file))?.uri.fsPath ?? path.dirname(file);
+}
+
+function presentation(task: vscode.Task): vscode.Task {
     task.presentationOptions = {
         reveal: vscode.TaskRevealKind.Always,
         panel: vscode.TaskPanelKind.Shared,
         clear: true,
         showReuseMessage: false,
     };
-    return vscode.tasks.executeTask(task);
+    return task;
 }
 
+/**
+ * `pleno run <file>` or `pleno check <file>`. The executable is started
+ * directly rather than through a shell, so paths with spaces work in every
+ * shell.
+ */
+function plenoFileTask(
+    context: vscode.ExtensionContext,
+    definition: vscode.TaskDefinition,
+    scope?: vscode.WorkspaceFolder | vscode.TaskScope,
+): vscode.Task {
+    const file: string = definition.file || "${file}";
+    const folder = scope && typeof scope === "object" ? scope : undefined;
+    return presentation(new vscode.Task(
+        definition,
+        scope ?? vscode.TaskScope.Workspace,
+        `${definition.command} ${definition.file ? path.basename(definition.file) : "current file"}`,
+        "pleno",
+        new vscode.ProcessExecution(getPlenoPath(context), [definition.command, file], {
+            cwd: definition.file ? folderOf(definition.file) : folder?.uri.fsPath,
+        }),
+    ));
+}
+
+/** `plm <command>` in a project folder, run as `pleno plm ...` so only one binary is needed. */
+function plmTask(
+    context: vscode.ExtensionContext,
+    command: string,
+    folder: vscode.WorkspaceFolder,
+    group?: vscode.TaskGroup,
+): vscode.Task {
+    const task = presentation(new vscode.Task(
+        { type: "plm", command },
+        folder,
+        `plm ${command}`,
+        "plm",
+        new vscode.ProcessExecution(getPlenoPath(context), ["plm", ...command.split(" ")], {
+            cwd: folder.uri.fsPath,
+        }),
+    ));
+    task.group = group;
+    return task;
+}
+
+/** Tasks for each project: build, test, install, update, and its scripts. */
 class PlmTaskProvider implements vscode.TaskProvider {
-    static PlmType = "plm";
+    constructor(
+        private readonly context: vscode.ExtensionContext,
+        private readonly projects: PlenoProjectProvider,
+    ) { }
 
-    constructor(private context: vscode.ExtensionContext) { }
-
-    provideTasks(): vscode.ProviderResult<vscode.Task[]> {
-        const tasks: vscode.Task[] = [];
-        for (const folder of vscode.workspace.workspaceFolders ?? []) {
-            if (!fs.existsSync(path.join(folder.uri.fsPath, "pleno.toml"))) {
-                continue;
-            }
-            tasks.push(this.createTask("build", folder, vscode.TaskGroup.Build));
-            tasks.push(this.createTask("build --release", folder, vscode.TaskGroup.Build));
-            tasks.push(this.createTask("install", folder));
-            tasks.push(this.createTask("update", folder));
-            tasks.push(this.createTask("test", folder, vscode.TaskGroup.Test));
-            tasks.push(this.createTask("run test", folder, vscode.TaskGroup.Test));
-        }
-        return tasks;
+    provideTasks(): vscode.Task[] {
+        return this.projects.getProjects().flatMap((project) => [
+            plmTask(this.context, "build", project.folder, vscode.TaskGroup.Build),
+            plmTask(this.context, "build --release", project.folder, vscode.TaskGroup.Build),
+            plmTask(this.context, "test", project.folder, vscode.TaskGroup.Test),
+            plmTask(this.context, "install", project.folder),
+            plmTask(this.context, "update", project.folder),
+            ...Object.keys(project.scripts).map((script) =>
+                plmTask(this.context, `run ${script}`, project.folder)),
+        ]);
     }
 
     resolveTask(task: vscode.Task): vscode.Task | undefined {
         const command: string | undefined = task.definition.command;
-        if (!command) {
+        const folder = typeof task.scope === "object" ? task.scope : vscode.workspace.workspaceFolders?.[0];
+        if (!command || !folder) {
             return undefined;
         }
-        return new vscode.Task(
-            task.definition,
-            task.scope ?? vscode.TaskScope.Workspace,
-            `plm ${command}`,
-            "plm",
-            this.execution(command),
-        );
-    }
-
-    private execution(command: string, cwd?: string): vscode.ProcessExecution {
-        // `pleno plm ...` is the same as `plm ...` and needs only one binary.
-        return new vscode.ProcessExecution(
-            getPlenoPath(this.context),
-            ["plm", ...command.split(" ")],
-            { cwd },
-        );
-    }
-
-    private createTask(
-        command: string,
-        folder: vscode.WorkspaceFolder,
-        group?: vscode.TaskGroup,
-    ): vscode.Task {
-        const task = new vscode.Task(
-            { type: PlmTaskProvider.PlmType, command },
-            folder,
-            `plm ${command}`,
-            "plm",
-            this.execution(command, folder.uri.fsPath),
-        );
-        if (group) {
-            task.group = group;
-        }
-        return task;
+        const resolved = plmTask(this.context, command, folder);
+        // Keep the definition from tasks.json so VS Code matches the two.
+        return new vscode.Task(task.definition, folder, resolved.name, "plm", resolved.execution);
     }
 }
 
+/** `pleno run` and `pleno check` for the active file. */
 class PlenoTaskProvider implements vscode.TaskProvider {
-    static PlenoType = "pleno";
+    constructor(private readonly context: vscode.ExtensionContext) { }
 
-    constructor(private context: vscode.ExtensionContext) { }
-
-    provideTasks(): vscode.ProviderResult<vscode.Task[]> {
-        const editor = vscode.window.activeTextEditor;
-        if (!editor || editor.document.languageId !== "pleno") {
+    provideTasks(): vscode.Task[] {
+        if (vscode.window.activeTextEditor?.document.languageId !== "pleno") {
             return [];
         }
-        const file = editor.document.fileName;
         return ["run", "check"].map((command) =>
-            this.createTask({ type: PlenoTaskProvider.PlenoType, command, file })
-        );
+            plenoFileTask(this.context, { type: "pleno", command }));
     }
 
     resolveTask(task: vscode.Task): vscode.Task | undefined {
         if (!task.definition.command) {
             return undefined;
         }
-        return this.createTask(task.definition, task.scope);
-    }
-
-    private createTask(
-        definition: vscode.TaskDefinition,
-        scope?: vscode.WorkspaceFolder | vscode.TaskScope,
-    ): vscode.Task {
-        const file: string = definition.file || "${file}";
-        return new vscode.Task(
-            definition,
-            scope ?? vscode.TaskScope.Workspace,
-            `pleno ${definition.command}`,
-            "pleno",
-            new vscode.ProcessExecution(getPlenoPath(this.context), [
-                definition.command,
-                file,
-            ]),
-        );
+        return plenoFileTask(this.context, task.definition, task.scope);
     }
 }
 
@@ -166,9 +142,8 @@ let statusBarItem: vscode.StatusBarItem;
 let outputChannel: vscode.OutputChannel;
 let diagnosticsProvider: PlenoDiagnosticsProvider | undefined;
 let formatterRegistration: vscode.Disposable | undefined;
-let testController: PlenoTestController;
+let testController: PlenoTestController | undefined;
 let serverState: State | undefined;
-let statusContext: vscode.ExtensionContext | undefined;
 
 export function activate(context: vscode.ExtensionContext) {
     try {
@@ -183,52 +158,36 @@ export function activate(context: vscode.ExtensionContext) {
 
 function activateExtension(context: vscode.ExtensionContext) {
     outputChannel = vscode.window.createOutputChannel("Pleno");
-    outputChannel.appendLine("Pleno extension activating...");
     context.subscriptions.push(outputChannel);
 
     exposeToolchainToTerminals(context);
 
-    // Tree views
-    const rootPath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-    const projectProvider = new PlenoProjectProvider(context, rootPath);
-    const outlineProvider = new PlenoOutlineProvider();
+    const projects = new PlenoProjectProvider();
     context.subscriptions.push(
-        vscode.window.createTreeView("plenoProject", {
-            treeDataProvider: projectProvider,
-            showCollapseAll: true,
-        }),
-        vscode.window.createTreeView("plenoOutline", {
-            treeDataProvider: outlineProvider,
-            showCollapseAll: true,
-        }),
+        projects,
+        vscode.window.createTreeView("plenoProject", { treeDataProvider: projects }),
     );
 
-    // Debugging
     context.subscriptions.push(
         vscode.debug.registerDebugConfigurationProvider(
             "pleno",
-            new PlenoDebugConfigurationProvider(context),
+            new PlenoDebugConfigurationProvider(),
         ),
         vscode.debug.registerDebugAdapterDescriptorFactory(
             "pleno",
-            new PlenoDebugAdapterFactory(context, outputChannel),
+            new PlenoDebugAdapterFactory(context),
         ),
     );
 
     testController = new PlenoTestController(context, outputChannel);
+    context.subscriptions.push(testController);
 
     context.subscriptions.push(
-        vscode.tasks.registerTaskProvider(
-            PlmTaskProvider.PlmType,
-            new PlmTaskProvider(context),
-        ),
-        vscode.tasks.registerTaskProvider(
-            PlenoTaskProvider.PlenoType,
-            new PlenoTaskProvider(context),
-        ),
+        vscode.tasks.registerTaskProvider("plm", new PlmTaskProvider(context, projects)),
+        vscode.tasks.registerTaskProvider("pleno", new PlenoTaskProvider(context)),
     );
 
-    registerCommands(context, projectProvider);
+    registerCommands(context, projects);
 
     restorePatchedIconThemes(context);
 
@@ -236,7 +195,8 @@ function activateExtension(context: vscode.ExtensionContext) {
         vscode.StatusBarAlignment.Right,
         100,
     );
-    statusBarItem.command = "pleno.showControlPanel";
+    statusBarItem.name = "Pleno";
+    statusBarItem.command = "pleno.showStatus";
     context.subscriptions.push(statusBarItem);
 
     // Changing a tool path takes effect without reloading the window.
@@ -257,7 +217,7 @@ function activateExtension(context: vscode.ExtensionContext) {
         const lsp = findTool(context, "pleno-lsp");
         const cli = findTool(context, "pleno");
         if (!lsp.found || !cli.found) {
-            void offerInstall(context, [
+            void offerInstall([
                 ...(cli.found ? [] : ["pleno"]),
                 ...(lsp.found ? [] : ["pleno-lsp"]),
             ]);
@@ -282,7 +242,7 @@ async function startTooling(context: vscode.ExtensionContext): Promise<void> {
         client = undefined;
     }
     if (lsp.found) {
-        await startLanguageServer(lsp.path);
+        await startLanguageServer(context, lsp.path);
     }
 
     const useFallback = !client && cli.found;
@@ -304,10 +264,11 @@ async function startTooling(context: vscode.ExtensionContext): Promise<void> {
 }
 
 function updateStatus(context: vscode.ExtensionContext): void {
-    statusContext = context;
     const lsp = findTool(context, "pleno-lsp");
     const cli = findTool(context, "pleno");
     const version = installedVersion(context);
+    void vscode.commands.executeCommand("setContext", "pleno.toolchainFound", cli.found && lsp.found);
+    void vscode.commands.executeCommand("setContext", "pleno.toolchainInstalled", version !== undefined);
     if (client && serverState === State.Starting) {
         statusBarItem.text = "$(sync~spin) Pleno";
         statusBarItem.tooltip = "The Pleno language server is starting...";
@@ -340,10 +301,7 @@ function updateStatus(context: vscode.ExtensionContext): void {
     statusBarItem.show();
 }
 
-async function offerInstall(
-    context: vscode.ExtensionContext,
-    missing: string[],
-): Promise<void> {
+async function offerInstall(missing: string[]): Promise<void> {
     const choice = await vscode.window.showWarningMessage(
         `${missing.join(" and ")} ${missing.length > 1 ? "were" : "was"} not found. Install the Pleno toolchain?`,
         "Install",
@@ -358,86 +316,150 @@ async function offerInstall(
             "pleno path",
         );
     } else if (choice === "Instructions") {
-        await vscode.env.openExternal(vscode.Uri.parse(SETUP_URL));
+        await vscode.env.openExternal(vscode.Uri.parse(INSTALL_URL));
     }
 }
 
-/** The active Pleno file, saved first so the CLI sees the current text. */
-async function activePlenoFile(): Promise<string | undefined> {
-    const editor = vscode.window.activeTextEditor;
-    if (!editor || editor.document.languageId !== "pleno") {
+/**
+ * The Pleno file a command acts on: the one it was given (from the explorer,
+ * an editor menu or a code lens) or the active editor's. Unsaved changes are
+ * saved first so the CLI sees them.
+ */
+async function targetFile(resource?: unknown): Promise<string | undefined> {
+    let uri: vscode.Uri | undefined;
+    if (resource instanceof vscode.Uri) {
+        uri = resource;
+    } else if (typeof resource === "string") {
+        uri = vscode.Uri.parse(resource);
+    } else {
+        const editor = vscode.window.activeTextEditor;
+        if (editor?.document.languageId === "pleno") {
+            uri = editor.document.uri;
+        }
+    }
+    if (!uri) {
         vscode.window.showWarningMessage("Open a Pleno file first.");
         return undefined;
     }
-    if (editor.document.isUntitled) {
+    const document = vscode.workspace.textDocuments.find((doc) => doc.uri.toString() === uri!.toString());
+    if (document?.isUntitled || uri.scheme !== "file") {
         vscode.window.showWarningMessage("Save the file before running it.");
         return undefined;
     }
-    if (editor.document.isDirty) {
-        await editor.document.save();
+    if (document?.isDirty) {
+        await document.save();
     }
-    return editor.document.fileName;
+    return uri.fsPath;
+}
+
+/** Asks which project to use when there is more than one. */
+async function pickProject(projects: Project[]): Promise<Project | undefined> {
+    if (projects.length <= 1) {
+        return projects[0];
+    }
+    const picked = await vscode.window.showQuickPick(
+        projects.map((project) => ({ label: project.name ?? project.folder.name, description: project.folder.uri.fsPath, project })),
+        { placeHolder: "Pleno project" },
+    );
+    return picked?.project;
 }
 
 function registerCommands(
     context: vscode.ExtensionContext,
-    projectProvider: PlenoProjectProvider,
+    projects: PlenoProjectProvider,
 ): void {
     const register = (command: string, callback: (...args: any[]) => any) =>
         context.subscriptions.push(
             vscode.commands.registerCommand(command, callback),
         );
 
-    register("pleno.showControlPanel", async () => {
-        const items: (vscode.QuickPickItem & { command: string })[] = [
-            { label: "$(play) Run Current File", description: "pleno run", command: "pleno.runFile" },
-            { label: "$(debug-alt) Start Debugging", description: "Debug the current file", command: "pleno.startDebugging" },
-            { label: "$(terminal) Open Interactive REPL", description: "pleno repl", command: "pleno.openRepl" },
-            { label: "$(cloud-download) Install or Update Toolchain", description: "Download the latest release", command: "pleno.installToolchain" },
-            { label: "$(refresh) Restart Language Server", description: "pleno-lsp", command: "pleno.restartServer" },
-            { label: "$(info) Show Status", description: "Toolchain paths and versions", command: "pleno.showStatus" },
-            { label: "$(output) Show Output", description: "Extension logs", command: "pleno.showOutput" },
-            { label: "$(rocket) Getting Started", description: "Walkthrough", command: "pleno.openWalkthrough" },
-            { label: "$(book) Open Documentation", description: DOCS_URL, command: "pleno.openDocs" },
-            { label: "$(dashboard) Open Dashboard", description: "Project dashboard", command: "pleno.showDashboard" },
-        ];
-        const selected = await vscode.window.showQuickPick(items, {
-            placeHolder: "Pleno",
-            matchOnDescription: true,
-        });
-        if (selected) {
-            await vscode.commands.executeCommand(selected.command);
+    register("pleno.runFile", async (resource?: unknown) => {
+        const file = await targetFile(resource);
+        if (file) {
+            await vscode.tasks.executeTask(plenoFileTask(context, { type: "pleno", command: "run", file }));
         }
     });
 
-    register("pleno.showOutput", () => outputChannel.show());
-
-    register("pleno.runFile", async () => {
-        const file = await activePlenoFile();
+    register("pleno.checkFile", async (resource?: unknown) => {
+        const file = await targetFile(resource);
         if (file) {
-            await runToolTask(context, "pleno", ["run", file], `run ${path.basename(file)}`, path.dirname(file));
+            await vscode.tasks.executeTask(plenoFileTask(context, { type: "pleno", command: "check", file }));
         }
     });
 
-    register("pleno.checkFile", async () => {
-        const file = await activePlenoFile();
+    register("pleno.debugFile", async (resource?: unknown) => {
+        const file = await targetFile(resource);
         if (file) {
-            await runToolTask(context, "pleno", ["check", file], `check ${path.basename(file)}`, path.dirname(file));
+            await vscode.debug.startDebugging(
+                vscode.workspace.getWorkspaceFolder(vscode.Uri.file(file)),
+                { type: "pleno", request: "launch", name: `Debug ${path.basename(file)}`, program: file },
+            );
+        }
+    });
+
+    register("pleno.runScript", async (target?: ProjectItem | string) => {
+        let project = target instanceof ProjectItem ? target.project : undefined;
+        let script = target instanceof ProjectItem ? target.script : target;
+        if (!project) {
+            const choices = projects.getProjects().flatMap((candidate) =>
+                Object.entries(candidate.scripts)
+                    .filter(([name]) => script === undefined || name === script)
+                    .map(([name, command]) => ({
+                        label: name,
+                        description: command,
+                        detail: projects.getProjects().length > 1 ? candidate.folder.name : undefined,
+                        project: candidate,
+                    })));
+            if (choices.length === 0) {
+                vscode.window.showInformationMessage("There are no scripts in pleno.toml.");
+                return;
+            }
+            const picked = choices.length === 1 && script
+                ? choices[0]
+                : await vscode.window.showQuickPick(choices, { placeHolder: "Script to run with plm run" });
+            project = picked?.project;
+            script = picked?.label;
+        }
+        if (project && script) {
+            await vscode.tasks.executeTask(plmTask(context, `run ${script}`, project.folder));
+        }
+    });
+
+    register("pleno.openRepl", () => {
+        const repl = findTool(context, "pleno-repl");
+        const terminal = repl.found
+            ? vscode.window.createTerminal({ name: "Pleno REPL", shellPath: repl.path })
+            : vscode.window.createTerminal({
+                name: "Pleno REPL",
+                shellPath: getPlenoPath(context),
+                shellArgs: ["repl"],
+            });
+        terminal.show();
+    });
+
+    register("pleno.createProject", () => createProject(context, projects));
+
+    register("pleno.openManifest", async () => {
+        const project = await pickProject(projects.getProjects());
+        if (project) {
+            await vscode.window.showTextDocument(project.manifest);
+        } else {
+            vscode.window.showInformationMessage("There is no pleno.toml in the workspace.");
         }
     });
 
     register("pleno.restartServer", async () => {
         await vscode.window.withProgress({
-            location: vscode.ProgressLocation.Notification,
-            title: "Restarting the Pleno language server...",
+            location: vscode.ProgressLocation.Window,
+            title: "Restarting the Pleno language server",
         }, () => {
             clearToolCache();
             return startTooling(context);
         });
-        if (client) {
-            vscode.window.showInformationMessage("Pleno language server restarted.");
-        } else {
-            void offerInstall(context, ["pleno-lsp"]);
+        projects.refresh();
+        void testController?.refresh();
+        if (!client) {
+            void offerInstall(["pleno-lsp"]);
         }
     });
 
@@ -469,40 +491,10 @@ function registerCommands(
         }
     });
 
+    register("pleno.showStatus", () => showStatus(context));
+
     register("pleno.openDocs", () =>
         vscode.env.openExternal(vscode.Uri.parse(DOCS_URL))
-    );
-
-    register("pleno.openRepl", () => {
-        const repl = findTool(context, "pleno-repl");
-        const terminal = repl.found
-            ? vscode.window.createTerminal({ name: "Pleno REPL", shellPath: repl.path })
-            : vscode.window.createTerminal({
-                name: "Pleno REPL",
-                shellPath: getPlenoPath(context),
-                shellArgs: ["repl"],
-            });
-        terminal.show();
-    });
-
-    register("pleno.runScript", async (scriptName?: string) => {
-        const name = scriptName ?? await vscode.window.showInputBox({
-            prompt: "Script from pleno.toml to run",
-            placeHolder: "build, test, ...",
-        });
-        if (name) {
-            await runToolTask(
-                context,
-                "pleno",
-                ["plm", "run", name],
-                `plm run ${name}`,
-                vscode.workspace.workspaceFolders?.[0]?.uri.fsPath,
-            );
-        }
-    });
-
-    register("pleno.showDashboard", () =>
-        PlenoDashboardPanel.createOrShow(context.extensionUri)
     );
 
     register("pleno.openWalkthrough", () =>
@@ -512,89 +504,138 @@ function registerCommands(
             false,
         )
     );
-
-    register("pleno.openManifest", async () => {
-        const folder = vscode.workspace.workspaceFolders?.[0];
-        if (!folder) {
-            vscode.window.showErrorMessage("No workspace folder is open.");
-            return;
-        }
-        const manifest = vscode.Uri.joinPath(folder.uri, "pleno.toml");
-        try {
-            await vscode.workspace.fs.stat(manifest);
-            await vscode.window.showTextDocument(manifest);
-        } catch {
-            vscode.window.showErrorMessage("There is no pleno.toml in the workspace root.");
-        }
-    });
-
-    register("pleno.reloadWorkspace", async () => {
-        clearToolCache();
-        await startTooling(context);
-        projectProvider.refresh();
-        testController?.refresh();
-        vscode.window.showInformationMessage("Pleno workspace reloaded.");
-    });
-
-    register("pleno.showStatus", () => {
-        const describe = (tool: Tool) => {
-            const location = findTool(context, tool);
-            return location.found
-                ? `${location.path} (${location.source})`
-                : "not found";
-        };
-        outputChannel.show();
-        outputChannel.appendLine("");
-        outputChannel.appendLine("=== Pleno Status ===");
-        outputChannel.appendLine(`Extension:        ${context.extension.packageJSON.version}`);
-        outputChannel.appendLine(`Toolchain:        ${installedVersion(context) ?? "not installed by the extension"}`);
-        outputChannel.appendLine(`pleno:            ${describe("pleno")}`);
-        outputChannel.appendLine(`pleno-lsp:        ${describe("pleno-lsp")}`);
-        outputChannel.appendLine(`pleno-dap:        ${describe("pleno-dap")}`);
-        outputChannel.appendLine(`pleno-repl:       ${describe("pleno-repl")}`);
-        outputChannel.appendLine(`Language server:  ${client ? "running" : "not running"}`);
-        outputChannel.appendLine(`Workspace:        ${vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? "none"}`);
-        outputChannel.appendLine("====================");
-    });
-
-    register("pleno.refreshProject", () => projectProvider.refresh());
-
-    register("pleno.startDebugging", () => {
-        const editor = vscode.window.activeTextEditor;
-        if (editor && editor.document.languageId === "pleno") {
-            vscode.debug.startDebugging(undefined, {
-                type: "pleno",
-                name: "Debug Pleno",
-                request: "launch",
-                program: editor.document.fileName,
-                stopOnEntry: true,
-            });
-        } else {
-            vscode.window.showWarningMessage(
-                "Open a Pleno file to start debugging.",
-            );
-        }
-    });
-
-    register("pleno.createProject", async () => {
-        const folder = vscode.workspace.workspaceFolders?.[0];
-        if (!folder) {
-            vscode.window.showErrorMessage("Open a folder to create the project in.");
-            return;
-        }
-        const name = await vscode.window.showInputBox({
-            prompt: "Project name",
-            placeHolder: "my-pleno-project",
-            validateInput: (value) =>
-                /^[A-Za-z0-9_-]+$/.test(value) ? undefined : "Use letters, digits, '-' and '_'.",
-        });
-        if (name) {
-            await runToolTask(context, "pleno", ["plm", "init", name], `plm init ${name}`, folder.uri.fsPath);
-        }
-    });
 }
 
-async function startLanguageServer(serverPath: string): Promise<void> {
+type StatusPick = vscode.QuickPickItem & { run?: () => unknown };
+
+/**
+ * The status bar menu: where each tool was found and its version, whether
+ * the language server runs, and the commands to fix or change that.
+ */
+async function showStatus(context: vscode.ExtensionContext): Promise<void> {
+    const picker = vscode.window.createQuickPick<StatusPick>();
+    picker.title = "Pleno";
+    picker.placeholder = "Toolchain status and actions";
+    picker.matchOnDescription = true;
+
+    const settings: Partial<Record<Tool, string>> = {
+        "pleno": "pleno.cli.path",
+        "pleno-lsp": "pleno.lsp.path",
+        "pleno-dap": "pleno.dap.path",
+    };
+    const sources: Record<string, string> = {
+        setting: "from settings",
+        toolchain: "installed by the extension",
+        path: "on PATH",
+        home: "in ~/.pleno/bin",
+        repository: "built in this repository",
+    };
+    const tools: Tool[] = ["pleno", "plm", "pleno-lsp", "pleno-dap", "pleno-repl"];
+    const toolItem = (tool: Tool, version?: string): StatusPick => {
+        const location = findTool(context, tool);
+        const state = tool === "pleno-lsp" && location.found
+            ? (client && serverState === State.Running ? "running" : "not running")
+            : undefined;
+        const setting = settings[tool];
+        return {
+            label: `${location.found ? "$(check)" : "$(error)"} ${tool}`,
+            description: location.found
+                ? [version, state, sources[location.source]].filter(Boolean).join(" · ")
+                : "not found",
+            detail: location.found ? location.path : undefined,
+            run: setting
+                ? () => vscode.commands.executeCommand("workbench.action.openSettings", setting)
+                : undefined,
+        };
+    };
+    const actions: StatusPick[] = [
+        { label: "Actions", kind: vscode.QuickPickItemKind.Separator },
+        { label: "$(cloud-download) Install or Update Toolchain", run: () => vscode.commands.executeCommand("pleno.installToolchain") },
+        { label: "$(debug-restart) Restart Language Server", run: () => vscode.commands.executeCommand("pleno.restartServer") },
+        { label: "$(output) Show Output", run: () => outputChannel.show() },
+        { label: "$(book) Open Documentation", run: () => vscode.commands.executeCommand("pleno.openDocs") },
+    ];
+    const render = (versions: (string | undefined)[]) => {
+        picker.items = [
+            { label: "Toolchain", kind: vscode.QuickPickItemKind.Separator },
+            ...tools.map((tool, index) => toolItem(tool, versions[index])),
+            ...actions,
+        ];
+    };
+
+    render([]);
+    picker.busy = true;
+    picker.onDidAccept(() => {
+        const picked = picker.selectedItems[0];
+        picker.hide();
+        void picked?.run?.();
+    });
+    picker.onDidHide(() => picker.dispose());
+    picker.show();
+
+    // `pleno-dap` and `pleno-repl` have no --version flag.
+    const versions = await Promise.all(tools.map((tool) =>
+        tool === "pleno-dap" || tool === "pleno-repl"
+            ? Promise.resolve(undefined)
+            : toolVersion(findTool(context, tool))));
+    render(versions);
+    picker.busy = false;
+}
+
+/**
+ * Runs `plm init` in a folder: the open workspace folder when it has no
+ * project yet, or one the user picks, which is then opened.
+ */
+async function createProject(context: vscode.ExtensionContext, projects: PlenoProjectProvider): Promise<void> {
+    const taken = new Set(projects.getProjects().map((project) => project.folder.uri.toString()));
+    let folder = vscode.workspace.workspaceFolders?.find((candidate) => !taken.has(candidate.uri.toString()))?.uri;
+    if (!folder) {
+        const picked = await vscode.window.showOpenDialog({
+            canSelectFolders: true,
+            canSelectFiles: false,
+            openLabel: "Create Project Here",
+            title: "Folder for the new Pleno project",
+        });
+        folder = picked?.[0];
+    }
+    if (!folder) {
+        return;
+    }
+    const name = await vscode.window.showInputBox({
+        title: "New Pleno project",
+        prompt: `Package name. plm init writes pleno.toml and src/main.pln in ${folder.fsPath}.`,
+        value: path.basename(folder.fsPath).replace(/[^A-Za-z0-9_-]/g, "-"),
+        validateInput: (value) =>
+            /^[A-Za-z0-9_-]+$/.test(value) ? undefined : "Use letters, digits, '-' and '_'.",
+    });
+    if (!name) {
+        return;
+    }
+
+    const failed = await vscode.window.withProgress({
+        location: vscode.ProgressLocation.Notification,
+        title: `plm init ${name}`,
+    }, () => new Promise<string | undefined>((resolve) => {
+        execFile(getPlenoPath(context), ["plm", "init", name], { cwd: folder!.fsPath, timeout: 60_000 }, (error, stdout, stderr) => {
+            outputChannel.appendLine(stdout + stderr);
+            resolve(error ? (stderr.trim() || error.message) : undefined);
+        });
+    }));
+    if (failed) {
+        vscode.window.showErrorMessage(`plm init failed: ${failed}`);
+        return;
+    }
+
+    const main = vscode.Uri.joinPath(folder, "src", "main.pln");
+    if (vscode.workspace.getWorkspaceFolder(folder)) {
+        projects.refresh();
+        await vscode.window.showTextDocument(main);
+    } else {
+        await vscode.commands.executeCommand("vscode.openFolder", folder);
+    }
+}
+
+async function startLanguageServer(context: vscode.ExtensionContext, serverPath: string): Promise<void> {
     const serverOptions: ServerOptions = {
         run: { command: serverPath, transport: TransportKind.stdio },
         debug: { command: serverPath, transport: TransportKind.stdio },
@@ -614,12 +655,6 @@ async function startLanguageServer(serverPath: string): Promise<void> {
                 maxLineLength: config.get("lint.maxLineLength", 100),
                 rules: config.get("lint.rules", {}),
             },
-            inlayHints: {
-                enabled: config.get("inlayHints.enabled", true),
-            },
-            semanticHighlighting: {
-                enabled: config.get("semanticHighlighting.enabled", true),
-            },
         },
         outputChannel,
     };
@@ -634,9 +669,7 @@ async function startLanguageServer(serverPath: string): Promise<void> {
     // Keep the status bar in step when the server stops or restarts later.
     languageClient.onDidChangeState((event) => {
         serverState = event.newState;
-        if (statusContext) {
-            updateStatus(statusContext);
-        }
+        updateStatus(context);
     });
     try {
         await languageClient.start();
@@ -650,6 +683,5 @@ async function startLanguageServer(serverPath: string): Promise<void> {
 export function deactivate(): Thenable<void> | undefined {
     diagnosticsProvider?.dispose();
     formatterRegistration?.dispose();
-    testController?.dispose();
     return client?.stop();
 }
