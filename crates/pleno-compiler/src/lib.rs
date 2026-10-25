@@ -7,8 +7,7 @@ use pleno_ast::{
     Program, Span, Stmt, StmtKind, Visibility,
 };
 use pleno_bytecode::{Chunk, FunctionProto, Instruction, Opcode, ParamSpec};
-use pleno_value::gc::GcRc;
-use pleno_value::{ArrayState, MapState, RuntimeAnnotation, Value};
+use pleno_value::{RuntimeAnnotation, Value};
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
@@ -1123,32 +1122,9 @@ impl Compiler {
                 Literal::String(s) => Value::String(s.clone().into()),
                 Literal::Char(c) => Value::Char(*c),
             }),
-            ExprKind::ArrayLiteral(items) => {
-                let mut values = Vec::new();
-                for item in items {
-                    values.push(self.try_fold_expr(item)?);
-                }
-                Some(Value::Array(GcRc::new(ArrayState {
-                    elements: values,
-                    is_immutable: false,
-                })))
-            }
-            ExprKind::MapLiteral(entries) => {
-                let mut map = IndexMap::new();
-                for item in entries {
-                    match item {
-                        MapItem::Entry(key, value_expr) => {
-                            let value = self.try_fold_expr(value_expr)?;
-                            map.insert(key.clone(), value);
-                        }
-                        MapItem::Spread(_) => return None,
-                    }
-                }
-                Some(Value::Map(GcRc::new(MapState {
-                    entries: map,
-                    is_immutable: false,
-                })))
-            }
+            // Arrays and maps are mutable, so each evaluation of a literal must
+            // create a new one: a folded constant would be shared by every call.
+            ExprKind::ArrayLiteral(_) | ExprKind::MapLiteral(_) => None,
             ExprKind::Binary { left, op, right } => {
                 let l_val = self.try_fold_expr(left)?;
                 let r_val = self.try_fold_expr(right)?;
