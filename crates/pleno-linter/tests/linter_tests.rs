@@ -484,7 +484,7 @@ fn test_no_undef() {
     let messages_valid = lint(input_valid);
     assert!(!messages_valid.iter().any(|msg| msg.rule_name == "no-undef"));
 
-    let input_builtin = "println(\"hello\");";
+    let input_builtin = "print(\"hello\");";
     let messages_builtin = lint(input_builtin);
     assert!(
         !messages_builtin
