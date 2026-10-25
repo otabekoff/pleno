@@ -351,6 +351,15 @@ impl NanValue {
         }
     }
 
+    /// An integer that fits inline (no table slot), or `None` for one that
+    /// `from_int` would box.
+    #[inline]
+    pub fn inline_int(i: i64) -> Option<Self> {
+        (INLINE_INT_MIN..=INLINE_INT_MAX)
+            .contains(&i)
+            .then(|| Self::encode(TAG_INT, (i << 1) as u64))
+    }
+
     #[inline]
     pub fn as_int(self) -> Option<i64> {
         if self.tag() != TAG_INT {
@@ -444,6 +453,11 @@ impl NanValue {
     }
 
     #[inline]
+    pub fn is_range(self) -> bool {
+        self.tag() == TAG_RANGE
+    }
+
+    #[inline]
     pub fn is_string(self) -> bool {
         self.tag() == TAG_STRING
     }
@@ -504,7 +518,25 @@ impl NanValue {
         }
     }
 
+    /// The `Value` this stands for. Numbers, booleans and null convert inline;
+    /// everything else in `to_value_slow`.
+    #[inline]
     pub fn to_value(self) -> Value {
+        if self.is_f64() {
+            return Value::Float(self.as_f64());
+        }
+        if let Some(int) = self.as_inline_int() {
+            return Value::Int(int);
+        }
+        match self.tag() {
+            TAG_BOOL => Value::Bool(self.0 & 1 == 1),
+            TAG_NULL => Value::Null,
+            _ => self.to_value_slow(),
+        }
+    }
+
+    #[inline(never)]
+    fn to_value_slow(self) -> Value {
         if self.is_f64() {
             Value::Float(self.as_f64())
         } else {
@@ -817,7 +849,21 @@ impl NanValue {
         }
     }
 
+    /// The NaN-boxed form of `v`. Numbers, booleans and null convert inline;
+    /// everything else in `from_value_slow`.
+    #[inline]
     pub fn from_value(v: &Value) -> Self {
+        match v {
+            Value::Int(i) => Self::from_int(*i),
+            Value::Float(f) => Self::from_f64(*f),
+            Value::Bool(b) => Self::from_bool(*b),
+            Value::Null => Self::null(),
+            _ => Self::from_value_slow(v),
+        }
+    }
+
+    #[inline(never)]
+    fn from_value_slow(v: &Value) -> Self {
         match v {
             Value::Null => Self::null(),
             Value::Missing => Self::missing(),
