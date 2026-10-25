@@ -1,5 +1,7 @@
 # std:uuid
 
+> **Stability:** stable in 1.0.
+
 UUID generation and parsing.
 
 ## Import

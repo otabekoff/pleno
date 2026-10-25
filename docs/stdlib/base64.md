@@ -1,5 +1,7 @@
 # std:base64
 
+> **Stability:** stable in 1.0.
+
 Base64 encoding and decoding (standard alphabet, with padding).
 
 ## Import

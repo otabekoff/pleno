@@ -1,5 +1,7 @@
 # std:os
 
+> **Stability:** stable in 1.0.
+
 Information about the operating system and machine.
 
 ## Import

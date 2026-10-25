@@ -1,5 +1,7 @@
 # std:xml
 
+> **Stability:** stable in 1.0.
+
 XML parsing.
 
 ## Import
@@ -14,7 +16,7 @@ import { XML } from "std:xml";
 
 ### `parse(xml: String): Map`
 
-Parses an XML string and returns its root element as a Map. Whitespace around text is trimmed. Invalid XML throws an error.
+Parses an XML string and returns its root element as a Map. Whitespace around text is trimmed. Malformed XML, such as a mismatched closing tag or an unquoted attribute, throws an error. Input without a complete root element (an empty string, or `<a>` that is never closed) currently returns `null` instead of throwing; check for `null` if the input is not trusted. This case is unspecified and may become an error.
 
 ```pleno
 import { XML } from "std:xml";

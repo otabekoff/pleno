@@ -1,10 +1,18 @@
 # std:core
 
+> **Stability:** stable in 1.0.
+
 Core types and utilities available in every Pleno program.
 
 ## Import
 
-These types are available globally without explicit import.
+These types are available globally without explicit import. `Ok`, `Err`, `Some` and `None` can also be imported explicitly:
+
+```pleno
+import { Ok, Err, Some, None } from "std:core";
+
+print(Ok(1).isOk());  // true
+```
 
 ## Result Type
 

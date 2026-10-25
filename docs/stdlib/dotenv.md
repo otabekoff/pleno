@@ -1,5 +1,7 @@
 # std:dotenv
 
+> **Stability:** stable in 1.0.
+
 Load environment variables from `.env` files.
 
 ## Import

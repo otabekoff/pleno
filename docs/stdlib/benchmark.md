@@ -1,5 +1,7 @@
 # std:benchmark
 
+> **Stability:** stable in 1.0. The line `run` prints is meant for people; its format may change.
+
 Performance measurement utilities for benchmarking code execution.
 
 ## Import

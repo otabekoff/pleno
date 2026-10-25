@@ -2,6 +2,8 @@
 
 ## Conditionals
 
+A condition is false only when it is `false` or `null`. Every other value is true, including `0`, `""`, `[]` and `None`. `!`, `&&` and `||` follow the same rule and always produce a `Bool`: `null || 3` is `true`, not `3`; use `??` to pick a default value.
+
 ### If and else
 
 ```pleno
@@ -64,7 +66,7 @@ for (let i = 0; i < 3; i++) {
     print(i);
 }
 
-// Over the items of an array, map, set or string
+// Over the items of an array, set or range, or the keys of a map
 let fruits = ["apple", "pear", "plum"];
 for (fruit in fruits) {
     print(fruit);
@@ -83,6 +85,8 @@ for (i in 0..=3) {    // 0, 1, 2, 3
     print(i);
 }
 ```
+
+A string cannot be iterated directly (`type 'String' is not iterable`); index it in a loop instead. `for (key, value in map)` gives a map's keys and values.
 
 ### While and do-while
 

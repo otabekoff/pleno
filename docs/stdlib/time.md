@@ -1,5 +1,7 @@
 # std:time
 
+> **Stability:** stable in 1.0.
+
 Date, time, and duration utilities. All dates are in UTC.
 
 ## Import

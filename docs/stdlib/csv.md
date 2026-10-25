@@ -1,5 +1,7 @@
 # std:csv
 
+> **Stability:** stable in 1.0.
+
 CSV parsing.
 
 ## Import
@@ -16,7 +18,7 @@ import { CSV } from "std:csv";
 
 Parses a CSV string into an array of rows. Each row is an array of strings. Quoted fields may contain commas.
 
-The first row is treated as the header and is not included in the result. Rows with a different number of fields than the header throw an error.
+The first row is always treated as the header and is not included in the result; there is no option to keep it. Input with only one row gives `[]`. If the first line is data, put a header line in front of the text before parsing. Rows with a different number of fields than the header throw an error.
 
 ```pleno
 import { CSV } from "std:csv";

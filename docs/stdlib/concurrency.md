@@ -1,5 +1,7 @@
 # std:concurrency
 
+> **Stability:** stable in 1.0.
+
 Concurrency primitives: Mutex and Channel. They coordinate tasks started with `spawn` or async functions.
 
 ## Import
@@ -7,6 +9,8 @@ Concurrency primitives: Mutex and Channel. They coordinate tasks started with `s
 ```pleno
 import { Mutex, Channel } from "std:concurrency";
 ```
+
+The module also exports `MutexProto` and `ChannelProto`, the method tables the VM uses for mutexes and channels. They are internal: not covered by the [1.x compatibility promise](../specs/compatibility.md). The same holds for the `iterator` and `next` methods of a channel; use a `for` loop instead.
 
 ---
 
