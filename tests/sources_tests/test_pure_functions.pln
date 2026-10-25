@@ -1,6 +1,6 @@
 // Test @pure function enforcement
 
-let global_var = 10;
+let mut global_var = 10;
 
 @pure
 fn pure_add(a, b) {

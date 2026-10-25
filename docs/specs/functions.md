@@ -78,7 +78,7 @@ let operation: (Int, Int) => Int = fn(a, b) => a * b;
 ### 3.6 Closures
 ```pleno
 fn makeCounter(): () => Int {
-    let count = 0;
+    let mut count = 0;
     return fn() => {
         count += 1;
         return count;

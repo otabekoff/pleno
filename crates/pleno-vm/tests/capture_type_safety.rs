@@ -17,7 +17,7 @@ fn eval_result(source: &str) -> Result<pleno_value::Value, String> {
 #[test]
 fn test_capture_reassignment_type_error() {
     let source = r#"
-        let x: Int = 1;
+        let mut x: Int = 1;
         fn mutate() {
             x = "string";
         }
@@ -34,7 +34,7 @@ fn test_capture_reassignment_type_error() {
 #[test]
 fn test_capture_reassignment_valid() {
     let source = r#"
-        let x: Int = 1;
+        let mut x: Int = 1;
         fn mutate() {
             x = 2;
         }
@@ -48,7 +48,7 @@ fn test_capture_reassignment_valid() {
 #[test]
 fn test_capture_nested_reassignment_type_error() {
     let source = r#"
-        let x: Int = 1;
+        let mut x: Int = 1;
         fn outer() {
             fn inner() {
                 x = "string";

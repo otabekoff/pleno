@@ -13,12 +13,14 @@
 
 ### 1.2 Variables & Constants
 
-#### Variables (mutable)
+#### Variables
 ```pleno
 let x = 10;                    // Type inference
 let name: String = "Alice";    // Explicit type
 let mut counter = 0;           // Explicitly mutable
 ```
+
+A binding without `mut` cannot be reassigned from anywhere, including from a function or closure that captures it: `let x = 1; fn f() { x = 2; }` is a compile error (`cannot assign to immutable binding`). The same holds for `++` and `--`. Names declared with `fn`, `class`, `enum` and `interface` cannot be assigned either (`cannot assign to function 'f'`); use `let mut` for a name that should point to different values over time.
 
 #### Destructuring
 ```pleno
