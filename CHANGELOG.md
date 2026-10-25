@@ -8,8 +8,6 @@ Notable changes to Pleno. The format follows [Keep a Changelog](https://keepacha
 
 - `<`, `<=`, `>` and `>=` compare strings and characters, by Unicode code point (`"abc" < "abd"`); before, they were an error.
 - `Comparable` is a built-in constraint: `T: Comparable` accepts `Int`, `Float`, `String`, `Char` and classes that define `operator <` or `operator >`.
-- `<`, `<=`, `>` and `>=` compare strings and characters, by Unicode code point (`"abc" < "abd"`); before, they were an error.
-- `Comparable` is a built-in constraint: `T: Comparable` accepts `Int`, `Float`, `String`, `Char` and classes that define `operator <` or `operator >`.
 - `@deprecated` and `@deprecated("note")` on a function or method print `warning: f is deprecated: note` the first time it is called, and `pleno check` and the editor report calls to a deprecated top-level function. This is how stable APIs will be deprecated in 1.x.
 - `pleno new <folder>` (and `plm new`) creates the folder and a package in it, named after the folder or `--name`; it refuses a folder that already has files. `pleno init` still sets up the current folder.
 - `pleno-dap --version`, `pleno-repl --version` and `--help` for both.
@@ -45,8 +43,8 @@ Notable changes to Pleno. The format follows [Keep a Changelog](https://keepacha
 
 ### Fixed
 
+- An error raised deep in the call stack no longer copies the whole stack into its backtrace. A `catch` that throws again at each of 16,000 nested levels took 5 seconds, and the time grew with the square of the depth; it now takes about 0.1 seconds. A backtrace deeper than 60 calls keeps the innermost 50 and outermost 10 frames, with a `... N more frames` line between them.
 - A very long chain of operators or calls in one statement (`1 + 1 + ...` with tens of thousands of terms) overflowed the stack while compiling. A statement can now chain up to 1,000 operators and calls; a longer one is a parse error (`expression too long`). The browser playground gets an 8 MB WebAssembly stack instead of 1 MB. Found by the `fuzz_compile` fuzz target.
-- Generic constraints were checked only with explicit type arguments: `greet(Rock())` with `fn greet<T: Named>(x: T)` was accepted and failed later. A parameter annotated `T` is now checked against `T`'s constraints, and the error names them (`expected T: Named, got Rock`). `T: Comparable` rejected `Int`.
 - Generic constraints were checked only with explicit type arguments: `greet(Rock())` with `fn greet<T: Named>(x: T)` was accepted and failed later. A parameter annotated `T` is now checked against `T`'s constraints, and the error names them (`expected T: Named, got Rock`). `T: Comparable` rejected `Int`.
 - Runaway recursion crashed the process: plain recursion grew memory until an allocation failed, and recursion through callbacks (`map`, operators, `test` inside `afterEach`) overflowed the stack. Both now raise a catchable `RecursionError`: calls can nest 100,000 deep, and calls from built-in functions back into Pleno 200 deep (64 in the browser playground). Found by the `fuzz_run` fuzz target.
 - String positions and lengths count Unicode characters everywhere, as the reference says: `length`, `s[a..b]`, `indexOf`, `substring`, `charAt`, a regex match's `index` and `assert.lengthOf` counted UTF-8 bytes while `s[i]` counted characters, so `"héllo".length` was 6. `"héllo".substring(0, 2)` and `charAt(1)` stopped the VM with a panic; they now give `hé` and `é`. `split("")` returns the characters (`["a", "b", "c"]` instead of `["", "a", "b", "c", ""]`). `substring` clamps negative positions to 0 and swaps its arguments when `start > end`, like JavaScript (before, both gave `""`), and `repeat` with a negative count throws an error instead of stopping the VM.

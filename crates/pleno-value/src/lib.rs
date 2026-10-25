@@ -629,6 +629,30 @@ pub struct StackFrame {
     pub span: Option<pleno_common::Span>,
 }
 
+impl StackFrame {
+    /// The line that stands for the frames a deep backtrace leaves out.
+    pub fn omitted(count: usize) -> Self {
+        Self {
+            function_name: format!("... {count} more frames"),
+            span: None,
+        }
+    }
+
+    /// Whether this is an `omitted` line rather than a function.
+    pub fn is_omitted(&self) -> bool {
+        self.span.is_none() && self.function_name.starts_with("... ")
+    }
+
+    /// `at f`, or the `omitted` line as it is.
+    pub fn describe(&self) -> String {
+        if self.is_omitted() {
+            self.function_name.clone()
+        } else {
+            format!("at {}", self.function_name)
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RuntimeError {
     pub message: String,
@@ -699,7 +723,7 @@ impl pleno_diagnostics::ToDiagnostic for RuntimeError {
                 // For now, let's just use the main span.
                 // We can format stack trace into the message or notes.
             }
-            diagnostic = diagnostic.with_note(format!("at {}", frame.function_name));
+            diagnostic = diagnostic.with_note(frame.describe());
         }
         diagnostic
     }
