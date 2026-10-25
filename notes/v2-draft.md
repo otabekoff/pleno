@@ -118,7 +118,7 @@ Status: `Router` and `Server` are experimental in 1.0. Missing: middleware (`app
 
 ### Sandboxing
 
-Status: `std:security` is experimental. Planned: path rules that normalize paths (today `--allow-read data/` is a string prefix test that `data/../x` passes), keeping the original error `name` for errors from `Sandbox.run`, a time limit, and restricting `File.exists`.
+Status: `std:security` is experimental. Planned: path rules that normalize paths (today `--allow-read data/` is a string prefix test that `data/../x` passes), a time limit, and restricting `File.exists`.
 
 ## Tooling
 
@@ -142,8 +142,5 @@ Status: `std:security` is experimental. Planned: path rules that normalize paths
 
 These are not features but differences between the reference and the implementation; the reference describes the intended behavior.
 
-- `a != b` does not use `operator ==`.
 - `@pure` rejects non-empty array and map literals.
 - Generic constraints report `Type 'Unknown'` for a class's explicit type argument (`Box<Int>(5)`), and `T: Comparable` rejects `Int` although `Int` is marked as implementing `Comparable` internally.
-- Under `--max-instructions`, a limit hit inside `try` ends the program silently with exit status 0.
-- Errors from `Sandbox.run` arrive as `Error` with the message `uncaught exception: SandboxError: ...`.
