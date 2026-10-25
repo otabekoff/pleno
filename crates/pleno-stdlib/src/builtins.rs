@@ -1148,7 +1148,7 @@ fn native_array_find(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, R
         .ok_or_else(|| RuntimeError::new("find expects callback"))?;
     let items = arr.borrow().elements.clone();
     for item in items {
-        if is_truthy(&vm.call(cb.clone(), vec![item.clone()])?) {
+        if is_truthy(&vm.call_with(&cb, std::slice::from_ref(&item))?) {
             return Ok(item);
         }
     }
@@ -1166,7 +1166,7 @@ fn native_array_map(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, Ru
     let items = arr.borrow().elements.clone();
     let mut results = Vec::with_capacity(items.len());
     for item in items {
-        results.push(vm.call(cb.clone(), vec![item])?);
+        results.push(vm.call_with(&cb, std::slice::from_ref(&item))?);
     }
     Ok(Value::Array(
         vm.get_gc().allocate(ArrayState::new(results))?,
@@ -1184,7 +1184,7 @@ fn native_array_filter(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value,
     let items = arr.borrow().elements.clone();
     let mut results = Vec::new();
     for item in items {
-        if is_truthy(&vm.call(cb.clone(), vec![item.clone()])?) {
+        if is_truthy(&vm.call_with(&cb, std::slice::from_ref(&item))?) {
             results.push(item);
         }
     }
@@ -1214,7 +1214,7 @@ fn native_array_reduce(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value,
         (b.elements[0].clone(), 1)
     };
     for item in b.elements.iter().skip(start) {
-        acc = vm.call(cb.clone(), vec![acc, item.clone()])?;
+        acc = vm.call_with(&cb, &[acc, item.clone()])?;
     }
     Ok(acc)
 }
@@ -1229,7 +1229,7 @@ fn native_array_for_each(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Valu
         .ok_or_else(|| RuntimeError::new("forEach expects callback"))?;
     let items = arr.borrow().elements.clone();
     for item in items {
-        vm.call(cb.clone(), vec![item])?;
+        vm.call_with(&cb, std::slice::from_ref(&item))?;
     }
     Ok(Value::Null)
 }
@@ -1246,7 +1246,7 @@ fn native_array_flat_map(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Valu
     let items = arr.borrow().elements.clone();
     let mut results = Vec::new();
     for item in items {
-        let res = vm.call(cb.clone(), vec![item])?;
+        let res = vm.call_with(&cb, std::slice::from_ref(&item))?;
         match res {
             Value::Array(inner) => {
                 results.extend(inner.borrow().elements.clone());
@@ -1270,7 +1270,7 @@ fn native_array_every(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, 
         .ok_or_else(|| RuntimeError::new("every expects callback"))?;
     let items = arr.borrow().elements.clone();
     for item in items {
-        let res = vm.call(cb.clone(), vec![item])?;
+        let res = vm.call_with(&cb, std::slice::from_ref(&item))?;
         if !is_truthy(&res) {
             return Ok(Value::Bool(false));
         }
@@ -1289,7 +1289,7 @@ fn native_array_some(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, R
         .ok_or_else(|| RuntimeError::new("some expects callback"))?;
     let items = arr.borrow().elements.clone();
     for item in items {
-        let res = vm.call(cb.clone(), vec![item])?;
+        let res = vm.call_with(&cb, std::slice::from_ref(&item))?;
         if is_truthy(&res) {
             return Ok(Value::Bool(true));
         }

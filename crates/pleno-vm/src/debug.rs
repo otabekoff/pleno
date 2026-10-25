@@ -64,6 +64,8 @@ pub struct DebugContext {
     pub variable_tracker: VariableTracker,
     /// Set when resuming, so execution moves past the instruction it paused on.
     pub skip_next_check: bool,
+    /// Set while stepping, so the VM returns to the debugger after each instruction.
+    pub stepping: bool,
 }
 
 impl DebugContext {
@@ -113,6 +115,16 @@ impl DebugContext {
         None
     }
 
+    /// Whether `should_pause` or stepping can stop execution: false while no
+    /// debugger is attached, so the VM skips the checks.
+    #[inline]
+    pub fn is_active(&self) -> bool {
+        self.skip_next_check
+            || self.stepping
+            || !self.breakpoints.is_empty()
+            || self.state != DebugState::Running
+    }
+
     pub fn should_pause(
         &mut self,
         func_idx: usize,
@@ -124,6 +136,10 @@ impl DebugContext {
         }
         if let DebugState::Paused(_) = self.state {
             return true;
+        }
+        // Without breakpoints there is nothing to look up (the common case).
+        if self.breakpoints.is_empty() {
+            return false;
         }
 
         if let Some(_bp) = self.get_breakpoint(func_idx, ip, functions) {
