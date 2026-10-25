@@ -350,3 +350,19 @@
     margin-left: 0 !important;
   }
 }
+
+/* "Copied" and the copy button read as one control: drop the button's left
+   border where the label joins it, and match the label's corners. */
+.vp-doc [class*='language-'] > button.copy.copied,
+.vp-doc [class*='language-'] > button.copy:hover.copied {
+  border-left-color: transparent;
+  border-radius: 0 var(--pl-radius-sm) var(--pl-radius-sm) 0;
+}
+
+.vp-doc [class*='language-'] > button.copy.copied::before,
+.vp-doc [class*='language-'] > button.copy:hover.copied::before {
+  border-radius: var(--pl-radius-sm) 0 0 var(--pl-radius-sm);
+  /* Overlap the button's (transparent) left border instead of stopping 1px
+     short of it, so no seam shows on fractional pixel positions. */
+  transform: translateX(-100%);
+}
