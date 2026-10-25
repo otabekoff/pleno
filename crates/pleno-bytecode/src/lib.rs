@@ -10,6 +10,7 @@ pub use format::{
 };
 
 use num_derive::{FromPrimitive, ToPrimitive};
+#[cfg(test)]
 use num_traits::FromPrimitive;
 
 #[repr(u8)]
@@ -136,7 +137,14 @@ pub enum Opcode {
     /// Checks the shape of a value before a destructuring `let` reads it:
     /// a = value, b = mode (`DESTRUCTURE_*`), c = element count.
     Destructure,
+    /// Calls the value in register b with the c arguments in the registers
+    /// after it (b + 1 ..= b + c) and stores the result in a. Unlike `Call`,
+    /// it needs no argument array.
+    CallRegs,
 }
+
+/// The opcode with the highest discriminant: keep it the last variant.
+const LAST_OPCODE: Opcode = Opcode::CallRegs;
 
 /// `Destructure` mode: a tuple with exactly `c` elements.
 pub const DESTRUCTURE_TUPLE: u8 = 0;
@@ -154,8 +162,16 @@ impl Instruction {
         Self(bits)
     }
 
+    #[inline]
     pub fn opcode(self) -> Opcode {
-        Opcode::from_u8((self.0 & 0xFF) as u8).unwrap_or(Opcode::LoadNull)
+        let byte = (self.0 & 0xFF) as u8;
+        if byte <= LAST_OPCODE as u8 {
+            // SAFETY: `Opcode` is `repr(u8)` with the discriminants
+            // `0..=LAST_OPCODE` and no gaps (checked by a test).
+            unsafe { std::mem::transmute::<u8, Opcode>(byte) }
+        } else {
+            Opcode::LoadNull
+        }
     }
 
     pub fn a(self) -> u8 {
@@ -237,4 +253,19 @@ pub struct ParamSpec {
     pub is_variadic: bool,
     pub is_keyword_only: bool,
     pub ownership: Ownership,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn opcodes_decode_like_from_primitive() {
+        for byte in 0..=u8::MAX {
+            let decoded = Instruction(byte as u32).opcode();
+            let expected = Opcode::from_u8(byte).unwrap_or(Opcode::LoadNull);
+            assert_eq!(decoded, expected, "opcode byte {byte}");
+        }
+        assert!(Opcode::from_u8(LAST_OPCODE as u8 + 1).is_none());
+    }
 }

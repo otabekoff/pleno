@@ -348,6 +348,30 @@ impl NanValue {
         }
     }
 
+    /// The index of a bytecode function (not a native one).
+    #[inline]
+    pub fn as_function_index(self) -> Option<usize> {
+        if self.tag() != TAG_FUNC {
+            return None;
+        }
+        let payload = self.0 & PAYLOAD_MASK;
+        if payload & 0x1 != 0 {
+            None
+        } else {
+            Some((payload >> 1) as usize)
+        }
+    }
+
+    #[inline]
+    pub fn is_closure(self) -> bool {
+        self.tag() == TAG_CLOSURE
+    }
+
+    #[inline]
+    pub fn is_thunk(self) -> bool {
+        self.tag() == TAG_THUNK
+    }
+
     #[inline]
     pub fn as_ptr<T>(self) -> Option<*const T> {
         if self.tag() >= TAG_STRING {

@@ -2286,6 +2286,25 @@ impl Compiler {
             self.free_temp(wrapper_reg);
             Ok(())
         } else {
+            // Positional arguments only: pass them in consecutive registers
+            // after a copy of the callee, without building an argument array.
+            let all_positional = args
+                .iter()
+                .all(|arg| matches!(arg, pleno_ast::CallArg::Positional(_)));
+            if all_positional && let Some(block) = self.registers.allocate_block(args.len() + 1) {
+                for (index, arg) in args.iter().enumerate() {
+                    if let pleno_ast::CallArg::Positional(expr) = arg {
+                        let arg_reg = self.compile_expr(expr)?;
+                        self.emit(Opcode::Move, block + 1 + index as u8, arg_reg, 0);
+                        self.free_temp(arg_reg);
+                    }
+                }
+                // Read the callee after the arguments, as `Call` does.
+                self.emit(Opcode::Move, block, callee_reg, 0);
+                self.emit(Opcode::CallRegs, dest, block, args.len() as u8);
+                self.registers.free_block(block, args.len() + 1);
+                return Ok(());
+            }
             let args_reg = self.registers.allocate()?;
             self.emit(Opcode::NewArray, args_reg, 0, 0);
             for arg in args {
@@ -5892,6 +5911,25 @@ impl RegisterAllocator {
         self.next = self.next.saturating_add(1);
         self.max_used = self.max_used.max(self.next as usize);
         Ok(reg)
+    }
+
+    /// `count` consecutive registers above every register in use, or `None`
+    /// if they do not fit. Free them with `free_block`.
+    fn allocate_block(&mut self, count: usize) -> Option<u8> {
+        let start = self.next;
+        let end = start as usize + count;
+        if end >= u8::MAX as usize {
+            return None;
+        }
+        self.next = end as u8;
+        self.max_used = self.max_used.max(end);
+        Some(start)
+    }
+
+    fn free_block(&mut self, start: u8, count: usize) {
+        for offset in (0..count).rev() {
+            self.free(start + offset as u8);
+        }
     }
 
     fn free(&mut self, reg: u8) {

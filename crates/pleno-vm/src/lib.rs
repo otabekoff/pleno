@@ -916,6 +916,17 @@ impl VM {
             return Ok(ExecutionStatus::Finished(Value::Null));
         };
         self.debug_context.resume();
+        self.debug_context.stepping = true;
+        let result = self.step_until_inner(start, arrived);
+        self.debug_context.stepping = false;
+        result
+    }
+
+    fn step_until_inner(
+        &mut self,
+        start: (usize, u32),
+        arrived: impl Fn((usize, u32), (usize, u32)) -> bool,
+    ) -> Result<ExecutionStatus, RuntimeError> {
         loop {
             match self.run_step(0) {
                 Ok(Some(status)) => return Ok(status),
@@ -1327,25 +1338,36 @@ impl VM {
             }
         }
     }
+    /// Runs instructions until the frame at `depth` returns, the program pauses
+    /// or an instruction asks the caller to check its state (`Ok(None)`).
     fn run_step(&mut self, depth: usize) -> Result<Option<ExecutionStatus>, RuntimeError> {
-        let roots = VmRoots {
-            registers: &self.registers,
-            frames: &self.frames,
-            globals: &self.globals,
-            modules: &self.modules,
-            builtin_extensions: &self.builtin_extensions,
-            pending_tasks: &self.pending_tasks,
-            suspended_frames: &self.suspended_frames,
-            promises: &self.promises,
-            multi_waiters: &self.multi_waiters,
-        };
-        self.gc.maybe_collect(&[&roots]);
-
-        if self.frames.len() == depth {
-            return Ok(Some(ExecutionStatus::Finished(Value::Null)));
-        }
-
+        let mut first = true;
         loop {
+            // The debugger's stepping commands look at each instruction.
+            if !std::mem::take(&mut first) && self.debug_context.stepping {
+                return Ok(None);
+            }
+            // Between instructions every live value is in a register, a frame or
+            // another root, so this is where the collector may run.
+            if self.gc.current_allocation >= self.gc.gc.allocation_threshold {
+                let roots = VmRoots {
+                    registers: &self.registers,
+                    frames: &self.frames,
+                    globals: &self.globals,
+                    modules: &self.modules,
+                    builtin_extensions: &self.builtin_extensions,
+                    pending_tasks: &self.pending_tasks,
+                    suspended_frames: &self.suspended_frames,
+                    promises: &self.promises,
+                    multi_waiters: &self.multi_waiters,
+                };
+                self.gc.maybe_collect(&[&roots]);
+            }
+
+            if self.frames.len() == depth {
+                return Ok(Some(ExecutionStatus::Finished(Value::Null)));
+            }
+
             let (func_index, ip) = {
                 let frame = self
                     .frames
@@ -1749,7 +1771,12 @@ impl VM {
                     self.registers[base + a] = NanValue::from_value(&Value::Thunk(thunk));
                 }
                 Opcode::ForceThunk => {
-                    let value = self.registers[base + b].to_value();
+                    let value_nan = self.registers[base + b];
+                    if !value_nan.is_thunk() {
+                        self.registers[base + a] = value_nan;
+                        continue;
+                    }
+                    let value = value_nan.to_value();
                     let forced = self.force_thunk(value)?;
                     self.registers[base + a] = NanValue::from_value(&forced);
                 }
@@ -3324,15 +3351,13 @@ impl VM {
                 }
                 Opcode::JumpIf => {
                     let offset = decode_offset(instruction.b(), instruction.c());
-                    let value = self.registers[base + a].to_value();
-                    if is_truthy(&value) {
+                    if crate::value_ops::is_truthy_nan(self.registers[base + a]) {
                         frame.ip = apply_offset(frame.ip, offset)?;
                     }
                 }
                 Opcode::JumpIfNot => {
                     let offset = decode_offset(instruction.b(), instruction.c());
-                    let value = self.registers[base + a].to_value();
-                    if !is_truthy(&value) {
+                    if !crate::value_ops::is_truthy_nan(self.registers[base + a]) {
                         frame.ip = apply_offset(frame.ip, offset)?;
                     }
                 }
@@ -3345,6 +3370,18 @@ impl VM {
                     // We need to look up the function to check if it is async
                     let function_is_async = self.functions[frame.function_index].is_async;
                     let function_arity = self.functions[frame.function_index].arity;
+
+                    // A plain return to a caller in this run: copy the register
+                    // without converting it to a `Value` and back.
+                    if !function_is_async
+                        && frame.return_override.is_none()
+                        && self.frames.len() > depth
+                    {
+                        let result = self.registers[base + a];
+                        self.release_registers(frame.base);
+                        self.registers[frame.return_reg] = result;
+                        continue;
+                    }
 
                     let result = frame
                         .return_override
@@ -3397,17 +3434,17 @@ impl VM {
                     }
 
                     let name = match &function.chunk.constants[b] {
-                        Value::String(value) => value.as_str().to_string(),
+                        Value::String(value) => Rc::clone(value),
                         _ => return Err(RuntimeError::new("global name must be string")),
                     };
-                    let mut value = self.globals.get(&name).cloned();
+                    let mut value = self.globals.get(name.as_str()).cloned();
 
                     // An unspecialized type parameter (e.g. `T` in `Box(3)`) accepts any type.
                     let mut is_type_param = false;
                     if value.is_none() {
                         // Check function type parameters
                         for (i, param) in function.type_params.iter().enumerate() {
-                            if param.name == name {
+                            if param.name == *name {
                                 is_type_param = true;
                                 if i < frame.type_args.len() {
                                     value = Some(frame.type_args[i].clone());
@@ -3422,7 +3459,7 @@ impl VM {
                         {
                             let cls = cls.borrow();
                             for (i, param) in cls.type_params.iter().enumerate() {
-                                if param.name == name {
+                                if param.name == *name {
                                     is_type_param = true;
                                     // First try to get from receiver (this)
                                     if let Value::Object(obj) =
@@ -4629,6 +4666,34 @@ impl VM {
                     };
                     self.call_any_value(callee, args, base + a)?;
                 }
+                Opcode::CallRegs => {
+                    let callee_nan = self.registers[base + b];
+                    let args_start = base + b + 1;
+                    if args_start + c > self.registers.len() {
+                        return Err(RuntimeError::new("call arguments out of range"));
+                    }
+                    let previous = ip.checked_sub(1).map(|prev| function.chunk.code[prev]);
+                    if self.try_call_regs(callee_nan, args_start, c, base + a)? {
+                        continue;
+                    }
+                    let callee = callee_nan.to_value();
+                    // The compiler copies the callee into register b just before
+                    // the call; describe the register it came from.
+                    if matches!(callee, Value::Null)
+                        && let Some(copy) = previous
+                        && copy.opcode() == Opcode::Move
+                        && copy.a() as usize == b
+                        && let Some(message) =
+                            self.describe_missing_method(ip - 1, copy.b() as usize)
+                    {
+                        return Err(RuntimeError::new(message));
+                    }
+                    let args = self.registers[args_start..args_start + c]
+                        .iter()
+                        .map(|arg| arg.to_value())
+                        .collect();
+                    self.call_any_value(callee, args, base + a)?;
+                }
 
                 Opcode::CallNamed => {
                     let callee = self.registers[base + b].to_value();
@@ -4750,7 +4815,6 @@ impl VM {
                     }
                 }
             }
-            return Ok(None);
         }
     }
 
@@ -5256,6 +5320,73 @@ impl VM {
         Ok(false)
     }
 
+    /// The common call of a bytecode function or closure with positional
+    /// arguments already in registers: copies them into the new frame without
+    /// converting them to `Value`s. Returns `false` (doing nothing) for calls
+    /// that need `call_any_value`: other callees, async functions, variadic or
+    /// keyword-only parameters, and argument counts that are errors.
+    fn try_call_regs(
+        &mut self,
+        callee: NanValue,
+        args_start: usize,
+        argc: usize,
+        return_reg: usize,
+    ) -> Result<bool, RuntimeError> {
+        let (function_index, closure_state) = if let Some(index) = callee.as_function_index() {
+            (index, None)
+        } else if callee.is_closure() {
+            let Value::Closure(state) = callee.to_value() else {
+                return Ok(false);
+            };
+            let index = state.borrow().function;
+            (index, Some(state))
+        } else {
+            return Ok(false);
+        };
+        let Some(function) = self.functions.get(function_index) else {
+            return Ok(false);
+        };
+        if function.is_async
+            || argc > function.arity
+            || argc > function.params.len()
+            || function.params.iter().enumerate().any(|(index, param)| {
+                param.is_variadic || param.is_keyword_only || (index >= argc && !param.has_default)
+            })
+        {
+            return Ok(false);
+        }
+        let param_count = function.params.len();
+        let register_count = function.chunk.max_registers.max(function.arity);
+        let current_module = function.module.clone();
+        let current_module_path = function.module_path.clone();
+
+        let base = self.registers.len();
+        self.registers
+            .extend(std::iter::repeat_n(NanValue::null(), register_count));
+        let copied = argc.min(register_count);
+        self.registers
+            .copy_within(args_start..args_start + copied, base);
+        // Parameters left out take their default values.
+        for index in argc..param_count.min(register_count) {
+            self.registers[base + index] = NanValue::missing();
+        }
+
+        self.frames.push(CallFrame {
+            function_index,
+            ip: 0,
+            base,
+            return_reg,
+            return_override: None,
+            closure_state,
+            current_owner: None,
+            current_module,
+            current_module_path,
+            type_args: Vec::new(),
+            exception_handlers: Vec::new(),
+        });
+        Ok(true)
+    }
+
     #[allow(clippy::cognitive_complexity)]
     fn call_function(
         &mut self,
@@ -5283,37 +5414,42 @@ impl VM {
             }
             _ => return Err(RuntimeError::new("expected function or closure")),
         };
+        // Copy out what the call needs instead of cloning the whole function
+        // (its chunk, constants and parameter list) on every call.
         let function = self
             .functions
             .get(function_index)
-            .ok_or_else(|| RuntimeError::new("unknown function handle"))?
-            .clone();
+            .ok_or_else(|| RuntimeError::new("unknown function handle"))?;
         let current_module = function.module.clone();
         let current_module_path = function.module_path.clone();
+        let function_arity = function.arity;
+        let function_is_async = function.is_async;
+        let max_registers = function.chunk.max_registers;
+        let param_count = function.params.len();
 
         let processed_args = if args_already_processed {
             args.to_vec()
         } else {
-            let mut final_args = Vec::new();
+            let mut final_args = Vec::with_capacity(args.len() + 2);
             if let Some(recv) = receiver.clone() {
                 final_args.push(recv);
             }
             final_args.extend(args.iter().cloned());
 
-            let has_variadic = function
+            let has_variadic = self.functions[function_index]
                 .params
                 .last()
                 .map(|p| p.is_variadic)
                 .unwrap_or(false);
 
-            if !has_variadic && final_args.len() > function.arity {
+            if !has_variadic && final_args.len() > function_arity {
                 return Err(self.throw_runtime_error("too many positional arguments"));
             }
 
-            let mut processed = Vec::new();
+            let mut processed = Vec::with_capacity(param_count);
             let mut arg_idx = 0;
 
-            if function.is_async {
+            if function_is_async {
                 let promise_id = override_promise_id.unwrap_or_else(|| {
                     let id = self.next_promise_id;
                     self.next_promise_id += 1;
@@ -5343,19 +5479,22 @@ impl VM {
                 self.registers[return_reg_idx] = NanValue::from_value(&promise);
             }
 
-            for param in function.params.iter() {
-                if param.is_variadic {
+            for param_index in 0..param_count {
+                let param = &self.functions[function_index].params[param_index];
+                let (is_variadic, is_keyword_only, has_default) =
+                    (param.is_variadic, param.is_keyword_only, param.has_default);
+                if is_variadic {
                     let rest = final_args[arg_idx..].to_vec();
                     processed.push(Value::Array(self.gc.allocate(ArrayState::new(rest))?));
                     arg_idx = final_args.len();
                     break;
                 }
 
-                if param.is_keyword_only {
+                if is_keyword_only {
                     if arg_idx < final_args.len() {
                         return Err(self.throw_runtime_error("keyword-only argument requires name"));
                     }
-                    if param.has_default {
+                    if has_default {
                         processed.push(Value::Missing);
                     } else {
                         return Err(
@@ -5368,7 +5507,7 @@ impl VM {
                 if arg_idx < final_args.len() {
                     processed.push(final_args[arg_idx].clone());
                     arg_idx += 1;
-                } else if param.has_default {
+                } else if has_default {
                     processed.push(Value::Missing);
                 } else {
                     return Err(self.throw_runtime_error("missing required argument"));
@@ -5380,16 +5519,16 @@ impl VM {
             }
             log::trace!(
                 "Calling function. is_async: {}, arity: {}, params: {}",
-                function.is_async,
-                function.arity,
-                function.params.len()
+                function_is_async,
+                function_arity,
+                param_count
             );
 
             processed
         };
 
         let base = self.registers.len();
-        let register_count = function.chunk.max_registers.max(function.arity);
+        let register_count = max_registers.max(function_arity);
         self.registers
             .extend(std::iter::repeat_n(NanValue::null(), register_count));
 
