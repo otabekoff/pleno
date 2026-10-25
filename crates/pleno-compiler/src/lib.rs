@@ -1669,6 +1669,44 @@ impl Compiler {
                     return Ok(dest);
                 }
 
+                // `object.name(args)`: look the method up where `GetProperty`
+                // would read it, then call it with the receiver, without a bound
+                // method in between.
+                if let ExprKind::Property { object, name } = &callee.kind
+                    && !matches!(object.kind, ExprKind::Super)
+                    && args
+                        .iter()
+                        .all(|arg| matches!(arg, pleno_ast::CallArg::Positional(_)))
+                {
+                    let object_reg = self.compile_expr(object)?;
+                    let name_idx = self.add_constant(Value::String(name.clone().into()));
+                    let dest = self.registers.allocate()?;
+                    if let Some(block) = self.registers.allocate_block(args.len() + 3) {
+                        self.emit(Opcode::GetMethod, block, object_reg, name_idx);
+                        self.free_temp(object_reg);
+                        for (index, arg) in args.iter().enumerate() {
+                            if let pleno_ast::CallArg::Positional(arg_expr) = arg {
+                                let start = self.chunk.code.len();
+                                let arg_reg = self.compile_expr(arg_expr)?;
+                                let slot = block + 3 + index as u8;
+                                if !self.retarget_last(arg_reg, slot, start) {
+                                    self.emit(Opcode::Move, slot, arg_reg, 0);
+                                }
+                                self.free_temp(arg_reg);
+                            }
+                        }
+                        self.emit(Opcode::CallMethod, dest, block, args.len() as u8);
+                        self.registers.free_block(block, args.len() + 3);
+                    } else {
+                        let callee_reg = self.registers.allocate()?;
+                        self.emit(Opcode::GetProperty, callee_reg, object_reg, name_idx);
+                        self.free_temp(object_reg);
+                        self.compile_call_internal(callee_reg, args, dest, expr.span)?;
+                        self.free_temp(callee_reg);
+                    }
+                    return Ok(dest);
+                }
+
                 let callee_reg = self.compile_expr(callee)?;
                 let dest = self.registers.allocate()?;
                 self.compile_call_internal(callee_reg, args, dest, expr.span)?;
@@ -1929,6 +1967,7 @@ impl Compiler {
                 | Opcode::LoadFalse
                 | Opcode::GetIndex
                 | Opcode::CallRegs
+                | Opcode::CallMethod
         );
         if last.a() != temp || !pure_result {
             return false;

@@ -145,6 +145,18 @@ pub enum Opcode {
     /// after it (b + 1 ..= b + c) and stores the result in a. Unlike `Call`,
     /// it needs no argument array.
     CallRegs,
+    /// Looks up method c (a name constant) of the value in register b for a
+    /// `CallMethod` at a: R[a] = the method or other callee, R[a+1] = the
+    /// receiver, R[a+2] = how to call R[a]: `false` for a plain call, `true`
+    /// for a native method that takes the receiver first, or the method's
+    /// owner (a class, enum, interface or built-in type name) for a bytecode
+    /// method. Reading a property that is not such a method stores what
+    /// `GetProperty` gives (calling a getter) with `false`.
+    GetMethod,
+    /// Calls the method that `GetMethod` looked up in registers b..=b+2 with
+    /// the c arguments in the registers after them (b + 3 ..= b + 2 + c) and
+    /// stores the result in a, without allocating a bound method.
+    CallMethod,
 }
 
 /// Whether a value checked against the annotation `ty` is stored as a `Float`
@@ -187,7 +199,7 @@ pub fn annotation_widens_int(ty: &str) -> bool {
 }
 
 /// The opcode with the highest discriminant: keep it the last variant.
-const LAST_OPCODE: Opcode = Opcode::CallRegs;
+const LAST_OPCODE: Opcode = Opcode::CallMethod;
 
 /// `Destructure` mode: a tuple with exactly `c` elements.
 pub const DESTRUCTURE_TUPLE: u8 = 0;

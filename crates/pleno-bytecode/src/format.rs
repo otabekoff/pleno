@@ -27,7 +27,7 @@ pub const BYTECODE_MAGIC: [u8; 4] = *b"PLNC";
 /// or reordered field or opcode, a change to `Value`, `FunctionProto` or any
 /// other type stored in a chunk, or a change to the bincode options below.
 /// Files with any other version are rejected on load.
-pub const BYTECODE_FORMAT_VERSION: u32 = 3;
+pub const BYTECODE_FORMAT_VERSION: u32 = 4;
 
 /// Size of the header in bytes: the magic followed by the version.
 pub const BYTECODE_HEADER_LEN: usize = 8;
