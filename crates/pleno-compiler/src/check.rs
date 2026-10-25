@@ -16,8 +16,9 @@
 use pleno_ast::visitor::{self, Visitor};
 use pleno_ast::{
     CallArg, CatchBlock, Expr, ExprKind, FunctionDecl, FunctionKind, ImportKind, Literal, Param,
-    Pattern, PatternKind, Program, Span, Stmt, StmtKind, UnaryOp,
+    Pattern, PatternKind, Program, Span, Stmt, StmtKind, UnaryOp, Visibility,
 };
+use pleno_value::suggest::did_you_mean;
 use std::collections::{HashMap, HashSet};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -256,6 +257,8 @@ struct ClassInfo<'ast> {
     methods: &'ast [FunctionDecl],
     properties: Vec<&'ast str>,
     nested: Vec<&'ast str>,
+    /// The members declared `private`, which subclasses cannot use.
+    private: HashSet<&'ast str>,
     /// No decorator, `implements` or `extend` can change its members.
     plain: bool,
     is_abstract: bool,
@@ -325,6 +328,23 @@ impl<'ast> Tables<'ast> {
                             _ => None,
                         })
                         .collect();
+                    let private = fields
+                        .iter()
+                        .filter(|f| f.visibility == Some(Visibility::Private))
+                        .map(|f| f.name.as_str())
+                        .chain(
+                            methods
+                                .iter()
+                                .filter(|m| m.visibility == Some(Visibility::Private))
+                                .map(|m| m.name.as_str()),
+                        )
+                        .chain(
+                            properties
+                                .iter()
+                                .filter(|p| p.visibility == Some(Visibility::Private))
+                                .map(|p| p.name.as_str()),
+                        )
+                        .collect();
                     tables.classes.insert(
                         name,
                         ClassInfo {
@@ -333,6 +353,7 @@ impl<'ast> Tables<'ast> {
                             methods,
                             properties: properties.iter().map(|p| p.name.as_str()).collect(),
                             nested,
+                            private,
                             plain: annotations.is_empty()
                                 && implements.is_empty()
                                 && !facts.extended.contains(name.as_str()),
@@ -536,7 +557,14 @@ impl<'a, 'ast> Checker<'a, 'ast> {
         for (name, expr) in &named {
             match params.iter().find(|p| p.name == *name) {
                 None => {
-                    let message = format!("{callee} has no parameter named '{name}'");
+                    let hint = did_you_mean(
+                        name,
+                        params
+                            .iter()
+                            .filter(|p| !p.is_variadic)
+                            .map(|p| p.name.as_str()),
+                    );
+                    let message = format!("{callee} has no parameter named '{name}'{hint}");
                     self.report(Severity::Error, message, expr.span);
                     return;
                 }
@@ -702,7 +730,24 @@ impl<'a, 'ast> Checker<'a, 'ast> {
         }
         match found {
             None => {
-                let message = format!("{class} has no method '{method}'");
+                // Members the class itself declares, and those of its
+                // superclasses that are not private.
+                let members = chain.iter().enumerate().flat_map(|(depth, info)| {
+                    info.fields
+                        .iter()
+                        .chain(&info.properties)
+                        .chain(&info.nested)
+                        .copied()
+                        .chain(
+                            info.methods
+                                .iter()
+                                .filter(|m| m.name != "constructor")
+                                .map(|m| m.name.as_str()),
+                        )
+                        .filter(move |name| depth == 0 || !info.private.contains(name))
+                });
+                let hint = did_you_mean(method, members);
+                let message = format!("{class} has no method '{method}'{hint}");
                 self.report(Severity::Warning, message, callee_span);
             }
             Some(decl)

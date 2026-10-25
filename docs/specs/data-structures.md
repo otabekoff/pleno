@@ -42,7 +42,17 @@ Strings slice the same way, by character: `"hello"[..=1]` is `"he"`.
 
 ## Maps (Dictionaries)
 
-Map keys are strings. In a literal, a key is a string or a bare name (`{host: "x"}` is `{"host": "x"}`); other keys, such as `{1: "a"}`, are a syntax error.
+Map keys are strings. In a literal, a key is a string, a bare name (`{host: "x"}` is `{"host": "x"}`), or a number or Bool literal, which is converted to the string it prints as: `{1: "a", -2.5: "b", true: "c"}` is `{"1": "a", "-2.5": "b", "true": "c"}`. Other keys, such as `{null: 1}` or an expression, are a syntax error; use a string key built at runtime instead (`m[key.toString()] = v`).
+
+Indexing follows the same rule: `m[1]`, `m[1.0]` and `m["1"]` all read the key `"1"`, `m[true] = x` writes the key `"true"`, and so do `get`, `put`, `with`, `remove` and `containsKey`. `m.keys()` returns strings.
+
+```pleno
+let codes = {200: "OK", 404: "Not Found"};
+print(codes[404]);            // Not Found
+print(codes["200"]);          // OK
+print(codes.containsKey(200)); // true
+print(codes.keys());          // [200, 404]: the strings "200" and "404"
+```
 
 ```pleno
 // Map literal

@@ -3687,16 +3687,34 @@ impl Parser {
                     let value = self.parse_expr()?;
                     entries.push(pleno_ast::MapItem::Spread(value));
                 } else {
+                    // Map keys are strings. A number or Bool literal key is
+                    // converted to the string it prints as, the key `m[1]`
+                    // reads: `{1: "a"}` is `{"1": "a"}`.
                     let key = match self.advance().kind.clone() {
                         TokenKind::String(value) => pleno_lexer::unescape_dollar(&value),
                         TokenKind::Ident(value) => value,
+                        TokenKind::Int(value) => value.to_string(),
+                        TokenKind::Float(value) => value.to_string(),
+                        TokenKind::Bool(value) => value.to_string(),
+                        TokenKind::Minus
+                            if matches!(
+                                self.peek_kind(),
+                                TokenKind::Int(_) | TokenKind::Float(_)
+                            ) =>
+                        {
+                            match self.advance().kind.clone() {
+                                TokenKind::Int(value) => (-value).to_string(),
+                                TokenKind::Float(value) => (-value).to_string(),
+                                _ => unreachable!("checked by the guard"),
+                            }
+                        }
                         keyword if keyword.keyword_text().is_some() => {
                             keyword.keyword_text().unwrap_or_default().to_string()
                         }
                         other => {
                             return Err(self.error(
                                 format!(
-                                    "Expected string literal or identifier key in map, found {other:?}"
+                                    "Expected a string, number, Bool or identifier key in map, found {other:?}"
                                 ),
                                 self.previous_span(),
                             ));

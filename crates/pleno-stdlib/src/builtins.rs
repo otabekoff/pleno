@@ -551,6 +551,89 @@ fn native_file_read_lines(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Val
     Ok(Value::Array(vm.get_gc().allocate(ArrayState::new(lines))?))
 }
 
+/// Every method name `resolve_builtin_method` knows, for some type: what
+/// "did you mean" suggestions choose from (each checked against the type).
+pub const BUILTIN_METHOD_NAMES: &[&str] = &[
+    "add",
+    "catch",
+    "charAt",
+    "clear",
+    "clone",
+    "close",
+    "contains",
+    "containsKey",
+    "difference",
+    "endsWith",
+    "entries",
+    "every",
+    "expect",
+    "filter",
+    "finally",
+    "find",
+    "findAll",
+    "flatMap",
+    "flush",
+    "forEach",
+    "get",
+    "indexOf",
+    "insert",
+    "intersection",
+    "isAlpha",
+    "isDigit",
+    "isEmpty",
+    "isErr",
+    "isNone",
+    "isOk",
+    "isSome",
+    "isWhitespace",
+    "iterator",
+    "join",
+    "keys",
+    "lock",
+    "lower",
+    "map",
+    "match",
+    "next",
+    "pop",
+    "push",
+    "put",
+    "read",
+    "readLines",
+    "recv",
+    "reduce",
+    "remove",
+    "repeat",
+    "replace",
+    "reverse",
+    "send",
+    "shift",
+    "size",
+    "slice",
+    "some",
+    "sort",
+    "split",
+    "startsWith",
+    "substring",
+    "test",
+    "then",
+    "toArray",
+    "toFloat",
+    "toInt",
+    "toLowerCase",
+    "toString",
+    "toUpperCase",
+    "trim",
+    "union",
+    "unlock",
+    "unshift",
+    "unwrap",
+    "unwrapOr",
+    "upper",
+    "values",
+    "with",
+    "write",
+];
+
 pub fn resolve_builtin_method(ty: &str, name: &str) -> Option<pleno_value::NativeFunction> {
     match (ty, name) {
         ("String", "toUpperCase") | ("String", "upper") => Some(native_string_upper),
@@ -1464,9 +1547,13 @@ fn native_map_put(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, Run
         _ => return Err(RuntimeError::new("expected map")),
     };
     map.borrow().ensure_mutable()?;
-    let key = match args.get(1) {
-        Some(Value::String(s)) => s.as_str().to_string(),
-        _ => return Err(RuntimeError::new("map key must be string")),
+    let key = match args.get(1).and_then(pleno_value::map_key) {
+        Some(key) => key.into_owned(),
+        None => {
+            return Err(RuntimeError::new(
+                "map key must be a String, number or Bool",
+            ));
+        }
     };
     map.borrow_mut()
         .entries
@@ -1479,9 +1566,13 @@ fn native_map_with(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, Run
         Value::Map(m) => m,
         _ => return Err(RuntimeError::new("expected map")),
     };
-    let key = match args.get(1) {
-        Some(Value::String(s)) => s.as_str().to_string(),
-        _ => return Err(RuntimeError::new("map key must be string")),
+    let key = match args.get(1).and_then(pleno_value::map_key) {
+        Some(key) => key.into_owned(),
+        None => {
+            return Err(RuntimeError::new(
+                "map key must be a String, number or Bool",
+            ));
+        }
     };
     let mut entries = map.borrow().entries.clone();
     entries.insert(key, args.get(2).cloned().unwrap_or(Value::Null));
@@ -1497,14 +1588,14 @@ fn native_map_get(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, Run
         Value::Map(m) => m,
         _ => return Err(RuntimeError::new("expected map")),
     };
-    let key = match args.get(1) {
-        Some(Value::String(s)) => s.as_str(),
-        _ => return Ok(Value::Null),
+    let key = match args.get(1).and_then(pleno_value::map_key) {
+        Some(key) => key,
+        None => return Ok(Value::Null),
     };
     Ok(map
         .borrow()
         .entries
-        .get(key)
+        .get(key.as_ref())
         .cloned()
         .unwrap_or(Value::Null))
 }
@@ -1514,12 +1605,15 @@ fn native_map_remove(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, 
         _ => return Err(RuntimeError::new("expected map")),
     };
     map.borrow().ensure_mutable()?;
-    let key = match args.get(1) {
-        Some(Value::String(s)) => s.as_str(),
-        _ => return Ok(Value::Bool(false)),
+    let key = match args.get(1).and_then(pleno_value::map_key) {
+        Some(key) => key,
+        None => return Ok(Value::Bool(false)),
     };
     Ok(Value::Bool(
-        map.borrow_mut().entries.shift_remove(key).is_some(),
+        map.borrow_mut()
+            .entries
+            .shift_remove(key.as_ref())
+            .is_some(),
     ))
 }
 fn native_map_keys(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
@@ -1892,11 +1986,11 @@ fn native_map_contains_key(
         Value::Map(m) => m,
         _ => return Err(RuntimeError::new("expected map")),
     };
-    let key = match args.get(1) {
-        Some(Value::String(s)) => s.as_str(),
-        _ => return Ok(Value::Bool(false)),
+    let key = match args.get(1).and_then(pleno_value::map_key) {
+        Some(key) => key,
+        None => return Ok(Value::Bool(false)),
     };
-    Ok(Value::Bool(map.borrow().entries.contains_key(key)))
+    Ok(Value::Bool(map.borrow().entries.contains_key(key.as_ref())))
 }
 
 fn native_string_contains(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
@@ -2093,4 +2187,58 @@ fn native_set_constructor(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Val
         }
     }
     Ok(Value::Set(vm.get_gc().allocate(SetState::new(result))?))
+}
+
+#[cfg(test)]
+mod method_name_tests {
+    use super::*;
+
+    /// The method names in the arms of `resolve_builtin_method`, read from
+    /// this file, so that a method added there cannot be missed here.
+    fn resolved_names() -> Vec<String> {
+        let source = include_str!("builtins.rs");
+        let start = source.find("pub fn resolve_builtin_method(").unwrap();
+        let body = &source[start..];
+        // The function ends at the first line that starts with `}`.
+        let body = &body[..body.find("\n}").unwrap()];
+        let mut names = Vec::new();
+        for line in body.lines() {
+            let mut rest = line;
+            while let Some(at) = rest.find(", \"") {
+                let after = &rest[at + 3..];
+                let Some(end) = after.find('"') else { break };
+                names.push(after[..end].to_string());
+                rest = &after[end..];
+            }
+        }
+        names
+    }
+
+    #[test]
+    fn every_resolved_method_is_listed() {
+        let names = resolved_names();
+        assert!(names.len() > 50, "found only {names:?}");
+        for name in names {
+            assert!(
+                BUILTIN_METHOD_NAMES.contains(&name.as_str()),
+                "BUILTIN_METHOD_NAMES is missing '{name}'"
+            );
+        }
+    }
+
+    #[test]
+    fn every_listed_method_resolves_for_some_type() {
+        let types = [
+            "String", "Array", "Map", "Set", "Result", "Option", "File", "Promise", "Mutex",
+            "Channel", "Regex", "Tuple", "Range", "Iterator", "Char",
+        ];
+        for name in BUILTIN_METHOD_NAMES {
+            assert!(
+                types
+                    .iter()
+                    .any(|ty| resolve_builtin_method(ty, name).is_some()),
+                "'{name}' resolves for no type"
+            );
+        }
+    }
 }

@@ -52,7 +52,7 @@ jobs:
           - { target: x86_64-pc-windows-msvc, os: windows-latest }
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -134,10 +134,10 @@ jobs:
     name: Build VS Code Extension
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: "20"
 
@@ -168,7 +168,7 @@ jobs:
       contents: write
       id-token: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Download all artifacts
         uses: actions/download-artifact@v4
@@ -178,7 +178,7 @@ jobs:
           merge-multiple: true
 
       - name: Install Cosign
-        uses: sigstore/cosign-installer@v3.8.1
+        uses: sigstore/cosign-installer@v4.1.2
 
       - name: Sign Release Assets
         run: |
@@ -196,7 +196,7 @@ jobs:
           cd ..
 
       - name: Upload Release Assets
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: all-artifacts/*
           generate_release_notes: true
@@ -214,7 +214,7 @@ jobs:
     needs: [build, check-secrets]
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && needs.check-secrets.outputs.has-dockerhub == 'true'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Download Linux amd64
         uses: actions/download-artifact@v4
@@ -247,7 +247,7 @@ jobs:
           chmod +x binaries/*/pleno binaries/*/plm binaries/*/pleno-lsp binaries/*/pleno-repl
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
 
       - name: Login to Docker Hub
         uses: docker/login-action@v3
@@ -288,7 +288,7 @@ jobs:
     needs: [publish-github, check-secrets]
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && !contains(github.ref_name, '-') && needs.check-secrets.outputs.has-homebrew == 'true'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Write the formula
         env:

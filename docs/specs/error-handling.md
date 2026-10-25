@@ -35,7 +35,7 @@ for (kind in ["network", "input", "other"]) {
 }
 ```
 
-An error that nothing catches stops the program with exit status 1. It prints the message, the line that threw, and a backtrace of the calls that led there.
+An error that nothing catches stops the program with exit status 1. It prints the message, the line that threw, and a backtrace of the calls that led there. A backtrace deeper than 60 calls shows the innermost 50 and the outermost 10, with a `... N more frames` line between them.
 
 ## What an error looks like
 
@@ -76,6 +76,21 @@ try {
 ```
 
 `throw` also accepts any other value, such as a string, and `catch` receives it unchanged; throwing an `Error` keeps errors uniform. For how much memory or how many instructions a program used, call `vmStats()` from `std:reflect`.
+
+### "Did you mean" hints
+
+When an error names something that does not exist, and a name close to it does, the message ends with `; did you mean '<name>'?`. This covers undefined variables (locals, parameters, globals, imports and built-ins in scope), unknown properties and methods (the type's built-in methods, methods added with `extend`, a map's keys, a module's exports, and a class's fields, methods and getters that the code may use, so a `private` member is suggested only inside its class), enum variants, unknown named arguments and unknown `std:` modules. `pleno check` and the language server add the same hints to their diagnostics, and `pleno check` warns about a name a `std:` module does not export.
+
+```pleno
+let items = [1, 2, 3];
+try {
+    items.pushh(4);
+} catch (e) {
+    print(e.message);   // cannot read property 'pushh' of Array; did you mean 'push'?
+}
+```
+
+A hint is given only for a single closest name, at most a third of the name's length in edits away (at least one edit; case differences count as close). The text before the hint does not change, so code that checks the start of a message keeps working.
 
 ## Custom errors
 
