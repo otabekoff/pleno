@@ -1,7 +1,7 @@
 import { test, assert, describe, beforeEach, afterEach } from "std:test";
 
-let setupCount = 0;
-let tearDownCount = 0;
+let mut setupCount = 0;
+let mut tearDownCount = 0;
 
 describe("Testing Framework Verification", fn() {
     
@@ -49,7 +49,7 @@ describe("Testing Framework Verification", fn() {
     });
     
     describe("Nested Suite", fn() {
-        let nestedSetup = 0;
+        let mut nestedSetup = 0;
         
         beforeEach(fn() {
             nestedSetup = nestedSetup + 1;

@@ -1003,9 +1003,10 @@ fn check_source(source: &str) -> Vec<Problem> {
         Ok(program) => program,
         Err(err) => return vec![Problem::error(err.message, err.span.start, err.span.end)],
     };
-    // Compiling optimizes the program in place, so check it first.
+    // Compiling may change the program in place, so check it first.
     let static_problems = pleno_compiler::check::check_program(&program);
-    let mut compiler = pleno_compiler::Compiler::new(source.to_string());
+    // Unused functions and code after a `return` are checked too.
+    let mut compiler = pleno_compiler::Compiler::new(source.to_string()).keeping_unused_code();
     if let Err(err) = compiler.compile(&mut program) {
         let span = err
             .diagnostic

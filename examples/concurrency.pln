@@ -3,7 +3,7 @@ import { DateTime } from "std:time";
 
 // 1. Mutex example: Protecting shared state
 let mutex = Mutex();
-let counter = 0;
+let mut counter = 0;
 
 async fn increment(id: Int, count: Int) {
     for (i in 0..count) {
