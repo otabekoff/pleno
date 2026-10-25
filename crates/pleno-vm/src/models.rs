@@ -96,6 +96,8 @@ pub struct VmRoots<'a> {
     pub globals: &'a IndexMap<String, Value>,
     pub modules: &'a IndexMap<String, Value>,
     pub module_globals: &'a IndexMap<String, IndexMap<String, Value>>,
+    /// Built-in globals the main program replaced, which modules still see.
+    pub replaced_globals: &'a IndexMap<String, Value>,
     pub pending_tasks: &'a [AsyncTask],
     pub suspended_frames: &'a IndexMap<u64, SuspendedFrame>,
     pub promises: &'a IndexMap<u64, Value>,
@@ -122,6 +124,9 @@ impl<'a> GcObject for VmRoots<'a> {
             .values()
             .flat_map(|names| names.values())
         {
+            val.mark(gc);
+        }
+        for val in self.replaced_globals.values() {
             val.mark(gc);
         }
         for task in self.pending_tasks {

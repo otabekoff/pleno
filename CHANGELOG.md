@@ -6,6 +6,7 @@ Notable changes to Pleno. The format follows [Keep a Changelog](https://keepacha
 
 ### Added
 
+- `pleno-dap --version`, `pleno-repl --version` and `--help` for both.
 - `vmStats()` in `std:reflect`: instructions executed, current and peak memory.
 - `Error` is a class: `Error(message)` instances print as `Error: message` and have `toString()`; subclasses get their class name as `name`.
 - Destructuring in `let`: `let (a, b) = pair;`, `let mut (x, (y, _)) = nested;` and `let [first, ...rest] = items;`, with runtime errors such as `tuple has 2 elements, pattern expects 3`. Tuple type annotations such as `(Int, String)` and `(Int, Int)[]` are checked at runtime.
@@ -15,6 +16,11 @@ Notable changes to Pleno. The format follows [Keep a Changelog](https://keepacha
 
 ### Changed
 
+- Programs run with an instruction or memory limit (`--max-instructions`, `--max-memory`, the playground) use the fast interpreter loop too, which checks the limits itself: about 1.6 times faster than before under a limit.
+- `pleno format`, `lint`, `check`, `test`, `compile`, `watch`, `doc`, `debug-ast` and `build` reject options and arguments they do not take (`Error: 'compile' has no option '--bogus'`, exit status 2) instead of ignoring them, and print their own usage with `--help`. `pleno compile` and `pleno build` take `-o <file.plc>` and create its folder.
+- `pleno build` with a target that is not a `.pln` file is an error; before, it built the package's main file instead.
+- The editor's code lenses are "Run File" and "Debug File" above the first statement, instead of a "Run Function" over every function that ran the whole file.
+- `plm init` no longer writes `.vscode/tasks.json` (the extension provides those tasks), its `.vscode/settings.json` only sets formatting for Pleno files and nests `pleno.lock` under `pleno.toml`, and `launch.json` drops the unsupported `stopOnEntry`.
 - A variable declared without `mut` (or with `const`) can no longer be reassigned from inside a function or closure; before, `let x = 1; fn f() { x = 2; } f();` changed `x`. Assigning to a name declared with `fn`, `class`, `enum` or `interface` says so (`cannot assign to function 'g'`) instead of `unknown local or global`.
 - Compile errors in unused functions and classes and in code after a `return` are reported by `pleno run` and `pleno check`; before, the optimizer dropped that code first and its errors went unnoticed until it was used.
 - Every caught error is an `Error` instance with `name` and `message`: runtime errors, failed type annotations (`TypeError`), denied operations (`SecurityError`) and sandbox limits (`SandboxError`) included, so `catch (e: Error)` catches them and `e.message` always works.
@@ -30,6 +36,7 @@ Notable changes to Pleno. The format follows [Keep a Changelog](https://keepacha
 
 ### Fixed
 
+- Code in a module could call the top-level functions and classes of the program that imported it (`helper()` in a module found the main program's `helper`). A module now sees its own names, its imports and the built-in globals only, and still gets the built-in `print` or `typeof` when the main program defines its own.
 - A callback given to `map`, `filter` and the other natives that call back returned its first argument instead of `null` when that argument was a map with a `variant` key: `[Ok(1)].map(|r| => null)` was `[Ok(1)]`.
 - An array or map literal made only of constants (`[]`, `[0, 0]`, `{"n": 0}`) was created once and shared: a function returning `let a = []; a.push(1); return a;` gave the same array on every call, so it grew. Each evaluation now creates a new one.
 - Changing an array inside its `reduce` callback, or a set inside its `forEach` or `filter` callback, crashed the VM (`RefCell already borrowed`). These now iterate over the elements as they were when called, like `map` and `forEach` on arrays.
