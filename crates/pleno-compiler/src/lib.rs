@@ -18,6 +18,15 @@ pub enum BuildProfile {
     Test,
 }
 
+/// What a `for ... in` loop binds each item to.
+#[derive(Clone, Copy)]
+enum ForBinding<'a> {
+    /// `for (x in xs)` or `for (k, v in m)`.
+    Names(&'a [String]),
+    /// `for ((k, v) in pairs)`.
+    Pattern(&'a pleno_ast::BindingPattern),
+}
+
 #[derive(Debug, Clone)]
 struct MacroDef {
     params: Vec<String>,
@@ -104,9 +113,23 @@ impl pleno_diagnostics::ToDiagnostic for CompileError {
     }
 }
 
+/// The end of a chain of `Compiler::scope_names` entries.
+const NO_SCOPE_NAME: usize = usize::MAX;
+
 pub struct Compiler {
-    /// Names the program reads as globals, with where (for `pleno check`).
-    global_reads: Vec<(String, Span)>,
+    /// Names the program reads as globals, with where (for `pleno check`) and
+    /// the `scope_names` entry of the innermost local in scope there.
+    global_reads: Vec<(String, Span, usize)>,
+    /// Every local declared so far, each with the entry of the local declared
+    /// before it in an enclosing or the same scope (`NO_SCOPE_NAME` for none):
+    /// following the links from an entry lists the locals in scope at a point.
+    /// Shared with the compilers of nested functions, which see the
+    /// enclosing locals. Read only for "did you mean" hints.
+    scope_names: Rc<std::cell::RefCell<Vec<(String, usize)>>>,
+    /// The entry of the innermost local in scope now.
+    scope_head: usize,
+    /// `scope_head` when each open scope began.
+    scope_heads: Vec<usize>,
     /// Names the program defines as globals: functions, classes, enums, interfaces.
     global_defs: HashSet<String>,
     chunk: Chunk,
@@ -185,6 +208,9 @@ impl Compiler {
     pub fn new(source: String) -> Self {
         Self {
             global_reads: Vec::new(),
+            scope_names: Rc::default(),
+            scope_head: NO_SCOPE_NAME,
+            scope_heads: Vec::new(),
             global_defs: HashSet::new(),
             chunk: Chunk::new(),
             constant_loads: HashMap::new(),
@@ -272,8 +298,47 @@ impl Compiler {
     pub fn undefined_globals(&self, is_builtin: impl Fn(&str) -> bool) -> Vec<(String, Span)> {
         self.global_reads
             .iter()
-            .filter(|(name, _)| !self.global_defs.contains(name) && !is_builtin(name))
-            .cloned()
+            .filter(|(name, _, _)| !self.global_defs.contains(name) && !is_builtin(name))
+            .map(|(name, span, _)| (name.clone(), *span))
+            .collect()
+    }
+
+    /// [`undefined_globals`](Self::undefined_globals), each with a hint to
+    /// append to its error: `"; did you mean 'x'?"` for the closest name in
+    /// scope where it is read (a local, a global the program defines, or one
+    /// of `builtins`), or an empty string.
+    pub fn undefined_globals_with_hints<'a>(
+        &self,
+        is_builtin: impl Fn(&str) -> bool,
+        builtins: impl IntoIterator<Item = &'a str>,
+    ) -> Vec<(String, Span, String)> {
+        let undefined: Vec<&(String, Span, usize)> = self
+            .global_reads
+            .iter()
+            .filter(|(name, _, _)| !self.global_defs.contains(name) && !is_builtin(name))
+            .collect();
+        if undefined.is_empty() {
+            return Vec::new();
+        }
+        let builtins: Vec<&str> = builtins
+            .into_iter()
+            .filter(|name| !name.starts_with("__"))
+            .collect();
+        let scope_names = self.scope_names.borrow();
+        undefined
+            .into_iter()
+            .map(|(name, span, head)| {
+                let mut candidates: Vec<&str> = Vec::new();
+                let mut entry = *head;
+                while let Some((local, parent)) = scope_names.get(entry) {
+                    candidates.push(local);
+                    entry = *parent;
+                }
+                candidates.extend(self.global_defs.iter().map(String::as_str));
+                candidates.extend(builtins.iter().copied());
+                let hint = pleno_value::suggest::did_you_mean(name, candidates);
+                (name.clone(), *span, hint)
+            })
             .collect()
     }
 
@@ -311,6 +376,7 @@ impl Compiler {
         };
         self.emit(Opcode::Return, return_reg, 0, 0);
         self.check_constants()?;
+        self.record_open_locals();
         self.chunk.max_registers = self.registers.max_used;
         self.chunk.module_name = None;
         Ok(self.chunk.clone())
@@ -355,6 +421,7 @@ impl Compiler {
             }
         }
         self.emit(Opcode::Return, exports_reg, 0, 0);
+        self.record_open_locals();
         self.chunk.max_registers = self.registers.max_used;
         self.chunk.module_name = self.module_name.clone();
         self.check_constants()?;
@@ -661,9 +728,13 @@ impl Compiler {
             StmtKind::For {
                 label: _,
                 names,
+                pattern,
                 iterable,
                 body,
-            } => self.compile_for_stmt(names, iterable, body),
+            } => match pattern {
+                Some(pattern) => self.compile_for_pattern(pattern, iterable, body),
+                None => self.compile_for_stmt(names, iterable, body),
+            },
             StmtKind::DoWhile { body, condition } => {
                 let loop_start = self.chunk.code.len();
                 self.push_loop(None);
@@ -1432,7 +1503,8 @@ impl Compiler {
                     let name_idx = self.add_constant(Value::String(name.clone().into()));
                     // `c = 1`: reading an undefined name is an error.
                     self.emit(Opcode::GetGlobal, dest, name_idx, 1);
-                    self.global_reads.push((name.clone(), expr.span));
+                    self.global_reads
+                        .push((name.clone(), expr.span, self.scope_head));
                     let forced = self.registers.allocate()?;
                     self.emit(Opcode::ForceThunk, forced, dest, 0);
                     self.free_temp(dest);
@@ -2446,7 +2518,28 @@ impl Compiler {
                 iterable.span,
             ));
         }
-        self.compile_for_iterable(names, iterable, body)
+        self.compile_for_iterable(ForBinding::Names(names), iterable, body)
+    }
+
+    /// `for ((k, v) in pairs)`: each item is matched against the pattern the
+    /// way a destructuring `let` matches its value. Over a map, the items are
+    /// its `(key, value)` entries.
+    fn compile_for_pattern(
+        &mut self,
+        pattern: &pleno_ast::BindingPattern,
+        iterable: &Expr,
+        body: &Stmt,
+    ) -> Result<(), CompileError> {
+        if matches!(iterable.kind, ExprKind::Range { .. }) {
+            return Err(self.error(
+                "a range yields numbers, which a destructuring pattern cannot match",
+                pattern.span,
+            ));
+        }
+        if matches!(iterable.kind, ExprKind::Literal(_)) {
+            return Err(self.error("for loop expects array, set, or range", iterable.span));
+        }
+        self.compile_for_iterable(ForBinding::Pattern(pattern), iterable, body)
     }
 
     fn compile_break_stmt(&mut self, label: Option<&str>, span: Span) -> Result<(), CompileError> {
@@ -2746,7 +2839,7 @@ impl Compiler {
 
     fn compile_for_iterable(
         &mut self,
-        names: &[String],
+        binding: ForBinding<'_>,
         iterable: &Expr,
         body: &Stmt,
     ) -> Result<(), CompileError> {
@@ -2754,13 +2847,12 @@ impl Compiler {
         let source_reg = self.compile_expr(iterable)?;
         let iter_reg = self.registers.allocate()?;
 
-        let is_entries = names.len() > 1;
-        self.emit(
-            Opcode::GetIterator,
-            iter_reg,
-            source_reg,
-            if is_entries { 1 } else { 0 },
-        );
+        let mode = match binding {
+            ForBinding::Names(names) if names.len() > 1 => pleno_bytecode::ITER_ENTRIES,
+            ForBinding::Names(_) => pleno_bytecode::ITER_VALUES,
+            ForBinding::Pattern(_) => pleno_bytecode::ITER_MAP_ENTRIES,
+        };
+        self.emit(Opcode::GetIterator, iter_reg, source_reg, mode);
         self.free_temp(source_reg);
 
         let iter_name = format!("$for_iterator_{}", self.loop_counter);
@@ -2782,9 +2874,13 @@ impl Compiler {
         let jump_to_end = self.emit_jump(Opcode::JumpIf, is_done_reg);
         self.free_temp(is_done_reg);
 
-        if names.len() == 1 {
-            self.insert_local(names[0].clone(), item_reg, true, None)?;
-        } else {
+        if let ForBinding::Pattern(pattern) = binding {
+            // Loop variables are reassignable, as in the plain form.
+            self.compile_binding_pattern(pattern, item_reg, true)?;
+            self.free_temp(item_reg);
+        } else if let ForBinding::Names([name]) = binding {
+            self.insert_local(name.clone(), item_reg, true, None)?;
+        } else if let ForBinding::Names(names) = binding {
             for (i, name) in names.iter().enumerate() {
                 let val_reg = self.registers.allocate()?;
                 let idx_reg = self.registers.allocate()?;
@@ -3240,6 +3336,8 @@ impl Compiler {
         let captures = self.analyze_captures(decl, is_method);
         // The function's instructions map back to lines of the same source.
         let mut compiler = Compiler::new(self.source.clone());
+        compiler.scope_names = Rc::clone(&self.scope_names);
+        compiler.scope_head = self.scope_head;
         compiler.is_top_level = false;
         compiler.is_async = decl.is_async;
         // Calls inside the function check ownership against enclosing
@@ -3337,9 +3435,18 @@ impl Compiler {
 
                 let skip_jump = compiler.emit_jump(Opcode::JumpIf, result_reg);
 
+                // A constrained type parameter names its constraint: `T: Named`.
+                let expected = match decl
+                    .generics
+                    .iter()
+                    .find(|g| g.name == *ty_name && !g.constraints.is_empty())
+                {
+                    Some(generic) => format!("{}: {}", ty_name, generic.constraints.join(" & ")),
+                    None => ty_name.to_string(),
+                };
                 let msg = format!(
                     "TypeError: parameter '{}' expected {}, got ",
-                    param.name, ty_name
+                    param.name, expected
                 );
                 let msg_reg = compiler.registers.allocate()?;
                 let msg_const = compiler.add_constant(Value::String(Rc::new(msg)));
@@ -3394,6 +3501,7 @@ impl Compiler {
         let return_reg = compiler.emit_return_check(return_reg)?;
         compiler.emit(Opcode::Return, return_reg, 0, 0);
         compiler.check_constants()?;
+        compiler.record_open_locals();
         compiler.chunk.max_registers = compiler.registers.max_used.max(params.len());
         compiler.chunk.module_name = self.module_name.clone();
         self.global_reads.append(&mut compiler.global_reads);
@@ -3663,6 +3771,8 @@ impl Compiler {
 
         let captures = self.analyze_captures(&decl, false);
         let mut compiler = Compiler::new(self.source.clone());
+        compiler.scope_names = Rc::clone(&self.scope_names);
+        compiler.scope_head = self.scope_head;
         compiler.is_top_level = false;
         compiler.fn_signatures = self.fn_signatures.clone();
         compiler.type_aliases = self.type_aliases.clone();
@@ -3714,6 +3824,7 @@ impl Compiler {
         let return_reg = compiler.emit_return_check(return_reg)?;
         compiler.emit(Opcode::Return, return_reg, 0, 0);
         compiler.check_constants()?;
+        compiler.record_open_locals();
         compiler.chunk.max_registers = compiler.registers.max_used.max(params.len());
         compiler.chunk.module_name = self.module_name.clone();
         self.global_reads.append(&mut compiler.global_reads);
@@ -5370,7 +5481,26 @@ impl Compiler {
         for stmt in stmts {
             pleno_ast::visitor::Visitor::visit_stmt(&mut collector, stmt);
         }
-        collector.names
+        let mut names = collector.names;
+        // An unused declaration close to a name the program reads but never
+        // declares (`totl()` next to `fn total`) is kept, so the runtime error
+        // can say "did you mean 'total'?" instead of the function being dropped.
+        let declared = declaration_kinds(stmts);
+        let unused: Vec<&str> = declared
+            .keys()
+            .filter(|name| !names.contains(*name))
+            .map(String::as_str)
+            .collect();
+        if !unused.is_empty() {
+            let kept: Vec<String> = names
+                .iter()
+                .filter(|name| !declared.contains_key(*name))
+                .filter_map(|name| pleno_value::suggest::best_match(name, unused.iter().copied()))
+                .map(str::to_string)
+                .collect();
+            names.extend(kept);
+        }
+        names
     }
 
     fn push_loop(&mut self, continue_target: Option<usize>) {
@@ -5890,6 +6020,9 @@ impl Compiler {
                     borrow_mut: false,
                 },
             );
+            let mut scope_names = self.scope_names.borrow_mut();
+            scope_names.push((name, self.scope_head));
+            self.scope_head = scope_names.len() - 1;
         }
         Ok(())
     }
@@ -5916,12 +6049,33 @@ impl Compiler {
     }
 
     fn push_scope(&mut self) {
+        self.scope_heads.push(self.scope_head);
         self.locals.push(HashMap::new());
         self.fn_signatures.push(HashMap::new());
         self.inline_functions.push(HashMap::new());
     }
 
+    /// Records the locals of the scopes still open when a chunk is finished
+    /// (a function's outermost scope, a program's top level), as `pop_scope`
+    /// does for the others: the VM reads them for debugging and hints.
+    fn record_open_locals(&mut self) {
+        let end_ip = self.chunk.code.len();
+        for scope in &self.locals {
+            for (name, local) in scope {
+                self.chunk.locals.push(pleno_bytecode::LocalVarInfo {
+                    name: name.clone(),
+                    register: local.reg,
+                    start_ip: local.start_ip,
+                    end_ip,
+                });
+            }
+        }
+    }
+
     fn pop_scope(&mut self) {
+        if let Some(head) = self.scope_heads.pop() {
+            self.scope_head = head;
+        }
         if let Some(scope) = self.locals.pop() {
             let end_ip = self.chunk.code.len();
             for (name, local) in scope {

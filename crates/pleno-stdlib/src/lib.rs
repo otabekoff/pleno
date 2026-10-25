@@ -40,6 +40,7 @@ pub fn register(vm: &mut dyn VMProvider) {
     // Register global built-ins
     builtins::register_builtins(vm);
     vm.set_builtin_resolver(builtins::resolve_builtin_method);
+    vm.set_builtin_method_names(builtins::BUILTIN_METHOD_NAMES);
 
     let gc = vm.get_gc();
     let mut modules = IndexMap::new();

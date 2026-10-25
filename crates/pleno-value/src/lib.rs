@@ -1,5 +1,7 @@
 pub mod gc;
 pub mod nan_value;
+pub mod suggest;
+pub mod text;
 
 pub use gc::{GcObject, GcRc, MarkAndSweepGC};
 use indexmap::{IndexMap, IndexSet};
@@ -53,6 +55,9 @@ pub trait VMProvider {
     fn register_module(&mut self, name: String, value: Value);
     fn register_global(&mut self, name: String, value: Value);
     fn set_builtin_resolver(&mut self, resolver: fn(&str, &str) -> Option<NativeFunction>);
+    /// Every method name `set_builtin_resolver`'s resolver knows, for any type:
+    /// the names "did you mean" suggestions choose from.
+    fn set_builtin_method_names(&mut self, _names: &'static [&'static str]) {}
     fn add_timer(&mut self, delay_ms: u64, callback: Value, args: Vec<Value>) -> u64;
     #[cfg(feature = "net")]
     fn register_io(
@@ -628,6 +633,30 @@ pub struct StackFrame {
     pub span: Option<pleno_common::Span>,
 }
 
+impl StackFrame {
+    /// The line that stands for the frames a deep backtrace leaves out.
+    pub fn omitted(count: usize) -> Self {
+        Self {
+            function_name: format!("... {count} more frames"),
+            span: None,
+        }
+    }
+
+    /// Whether this is an `omitted` line rather than a function.
+    pub fn is_omitted(&self) -> bool {
+        self.span.is_none() && self.function_name.starts_with("... ")
+    }
+
+    /// `at f`, or the `omitted` line as it is.
+    pub fn describe(&self) -> String {
+        if self.is_omitted() {
+            self.function_name.clone()
+        } else {
+            format!("at {}", self.function_name)
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct RuntimeError {
     pub message: String,
@@ -698,7 +727,7 @@ impl pleno_diagnostics::ToDiagnostic for RuntimeError {
                 // For now, let's just use the main span.
                 // We can format stack trace into the message or notes.
             }
-            diagnostic = diagnostic.with_note(format!("at {}", frame.function_name));
+            diagnostic = diagnostic.with_note(frame.describe());
         }
         diagnostic
     }
@@ -971,6 +1000,18 @@ pub enum MethodVisibility {
     Private,
     Protected,
     Internal,
+}
+
+/// The annotation that marks the built-in `Comparable` interface.
+pub const BUILTIN_COMPARABLE: &str = "__builtin_comparable";
+
+impl Interface {
+    /// Whether this is the built-in `Comparable`, not one a program declared.
+    pub fn is_builtin_comparable(&self) -> bool {
+        self.annotations
+            .iter()
+            .any(|a| a.name == BUILTIN_COMPARABLE)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1815,6 +1856,18 @@ impl std::hash::Hash for ValueKey {
                 value.hash(state);
             }
         }
+    }
+}
+
+/// The map key a value stands for. Map keys are strings; a number or Bool
+/// key is the string it prints as, so `m[1]`, `m["1"]` and `{1: x}` agree.
+pub fn map_key(value: &Value) -> Option<std::borrow::Cow<'_, str>> {
+    match value {
+        Value::String(s) => Some(std::borrow::Cow::Borrowed(s.as_str())),
+        Value::Int(_) | Value::Float(_) | Value::Bool(_) => {
+            Some(std::borrow::Cow::Owned(value.to_string()))
+        }
+        _ => None,
     }
 }
 

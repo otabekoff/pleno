@@ -1,0 +1,5 @@
+# The browser playground (crates/pleno-wasm) runs the compiler and VM on the
+# WebAssembly stack, which is 1 MB by default; recursive parts (compiling a
+# long expression, callbacks calling back into Pleno) need more.
+[target.wasm32-unknown-unknown]
+rustflags = ["-C", "link-arg=-zstack-size=8388608"]
