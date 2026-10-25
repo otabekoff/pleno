@@ -305,3 +305,31 @@ fn calling_a_non_function_names_its_type() {
     let err = eval_result("let x = 5; x();").unwrap_err();
     assert!(err.contains("Int is not callable"), "{err}");
 }
+
+#[test]
+fn let_copies_a_variable_instead_of_sharing_it() {
+    // `let mut y = x;` used to reuse x's register, so assigning y changed x.
+    assert_eq!(
+        eval_string(r#"let mut x = 1; let mut y = x; y = 5; `${x} ${y}`;"#),
+        "1 5"
+    );
+    assert_eq!(
+        eval_string(
+            r#"fn f() { let mut a = 1; let mut b = a; b += 10; return `${a} ${b}`; } f();"#
+        ),
+        "1 11"
+    );
+    assert_eq!(
+        eval_string(r#"fn g(p) { let mut q = p; q = 99; return `${p}`; } g(7);"#),
+        "7"
+    );
+    assert_eq!(
+        eval_string(r#"let mut s = "x"; let mut t = s; t = t + "y"; `${s} ${t}`;"#),
+        "x xy"
+    );
+    // Collections are still shared values, as in JavaScript and Python.
+    assert_eq!(
+        eval_string(r#"let list = [1]; let same = list; same.push(2); `${list}`;"#),
+        "[1, 2]"
+    );
+}

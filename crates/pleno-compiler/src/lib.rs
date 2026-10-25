@@ -328,7 +328,14 @@ impl Compiler {
                         }
                         thunk_reg
                     } else {
-                        let reg = self.compile_expr(expr)?;
+                        let mut reg = self.compile_expr(expr)?;
+                        // `let y = x;` gets x's own register back; the new
+                        // variable needs a copy, or assigning one changes both.
+                        if self.is_local_reg(reg) {
+                            let copy = self.registers.allocate()?;
+                            self.emit(Opcode::Move, copy, reg, 0);
+                            reg = copy;
+                        }
                         if let Some(ty_name) = ty {
                             self.emit_type_check(reg, ty_name)?;
                         }

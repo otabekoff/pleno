@@ -31,6 +31,10 @@ Notable changes to Pleno. The format follows [Keep a Changelog](https://keepacha
 - Creating a class that does not implement an abstract method of its parent throws `cannot create B: it does not implement abstract method area`, also when constructed with named arguments; constructing an abstract class with named arguments is rejected too.
 - `static const` fields cannot be reassigned (`cannot assign to constant MathUtils.PI`), and instance `const` fields can be assigned only by a constructor.
 
+### Fixed
+
+- `let mut y = x;` made `y` share `x`'s storage, so assigning either changed both (in every scope, for numbers and strings alike).
+
 ## 0.2.0 - 2026-10-24
 
 ### Changed
