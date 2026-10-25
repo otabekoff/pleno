@@ -39,7 +39,23 @@ borrowMutable(label);    // Ada!
 // borrowMutable(name); // compile error: cannot take mutable reference to immutable binding
 ```
 
-Assigning to a `&mut` parameter does not change the caller's variable.
+A parameter holds its own copy of the value (for an array, map or object, its own copy of the reference), so a function cannot rebind the caller's variable. `&mut` says the function may change the value **in place**: `items.push(4)` on a `&mut Int[]` parameter is visible to the caller. Reassigning a `&mut` parameter (`value = ...`, `value += ...`, `value++`) would only change the copy, so it is a compile error for every type:
+
+```pleno
+fn addItem(items: &mut Int[]) {
+    items.push(4);          // changes the caller's array
+}
+
+let mut numbers = [1, 2, 3];
+addItem(numbers);
+print(numbers.length);      // 4
+
+// fn shout(text: &mut String) { text = text + "!"; }
+// compile error: cannot assign to '&mut' parameter 'text': the caller's variable
+// would not change; mutate the value in place or return the new value
+```
+
+Strings, numbers, booleans and tuples cannot change in place, so for them return the new value instead: `fn shout(text: String): String { return text + "!"; }` and `label = shout(label);`.
 
 ## Lazy Evaluation
 

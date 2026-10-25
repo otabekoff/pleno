@@ -87,6 +87,29 @@ fn calculate(x: Int, y: Float): Float {
 }
 ```
 
+Annotations are checked when the program runs: on parameters, `let` bindings, assignments to annotated variables, class fields and return values. A value of the wrong type throws a `TypeError`:
+
+```pleno
+fn label(count: Int): String {
+    return count;   // TypeError: label returned Int, expected String
+}
+```
+
+A return annotation is checked at every `return`, and also when a function ends without one: it then returns `null`, which an `Int` annotation rejects (`TypeError: f returned Null, expected Int`) and `Int?` accepts. For an `async fn` the annotation describes the value the promise resolves to, so `async fn f(): Int` and `async fn f(): Promise<Int>` both check for an `Int`. Not checked: `Void` and `Any` returns, returns whose annotation mentions a type parameter (`T`, `T[]`), the type arguments of a user generic class (`Box<Int>` checks for a `Box`), setters, constructors and functions marked `@inline`. The check runs at the `return` statement, so a `try`/`catch` around that `return` in the same function catches its `TypeError`.
+
+**Int and Float.** An `Int` is accepted where a `Float` is expected, and it becomes a `Float` there: in `fn half(x: Float)`, `half(7)` binds `x` to `7.0`, so `x / 2` is `3.5`. The same applies to `let`, assignments, fields and return values, and to `Float?` and unions such as `Float | String`. In a union that also allows `Int` (`Int | Float`, `Number`, `Any`), an `Int` stays an `Int`. Collections are checked but not copied: a `Float[]` (or `Map<String, Float>`) accepts `[1, 2.5]` and keeps the `1` an `Int`. A `Float` prints without a trailing `.0` when it is whole (`print(3.0)` prints `3`), so the conversion shows in `typeof` and in division.
+
+```pleno
+fn half(x: Float): Float {
+    return x / 2;
+}
+print(half(7));             // 3.5
+let ratio: Float = 1;
+print(typeof(ratio));       // Float
+let either: Int | Float = 1;
+print(typeof(either));      // Int
+```
+
 #### Type Inference
 ```pleno
 let count = 42;              // Inferred as Int

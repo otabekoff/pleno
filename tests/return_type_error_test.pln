@@ -1,0 +1,12 @@
+// expect-error: TypeError: label returned Int, expected String
+// A value that does not match the return annotation stops the program.
+
+fn label(count: Int): String {
+    if (count == 1) {
+        return "one";
+    }
+    return count;
+}
+
+print(label(1));
+print(label(2));

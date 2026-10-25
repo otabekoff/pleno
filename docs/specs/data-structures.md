@@ -137,7 +137,7 @@ try {
 }
 ```
 
-A function's return type annotation, `(Int, Int)` above, documents the result but is not checked yet, as with every return annotation.
+A function's return type annotation, `(Int, Int)` above, is checked when the function returns, like a parameter annotation.
 
 ## Destructuring
 
