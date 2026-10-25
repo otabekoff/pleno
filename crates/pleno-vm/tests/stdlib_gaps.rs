@@ -118,6 +118,45 @@ fn csv_errors_have_one_prefix() {
     assert!(message.contains("unknown option 'headers'"), "{message}");
 }
 
+#[test]
+fn json_stringify_writes_instances_and_sets() {
+    let source = r#"
+        import { JSON } from "std:json";
+        class Base {
+            id: Int;
+            protected secret: String;
+            constructor() { this.id = 1; this.secret = "s"; }
+        }
+        class Point extends Base {
+            x: Int;
+            private y: Int;
+            internal z: Int;
+            public tags: Any;
+            constructor(x: Int, y: Int) {
+                super();
+                this.x = x;
+                this.y = y;
+                this.z = 3;
+                this.tags = Set(["a", "b"]);
+            }
+            fn sum(): Int { return this.x + this.y; }
+        }
+        JSON.stringify([Point(1, 2), {"s": Set([3, 3, 4])}, Set([])]);
+    "#;
+    assert_eq!(
+        eval_string(source),
+        r#"[{"id":1,"x":1,"tags":["a","b"]},{"s":[3,4]},[]]"#
+    );
+}
+
+#[test]
+fn json_stringify_rejects_a_map_that_contains_itself() {
+    let message = eval_error(
+        r#"import { JSON } from "std:json"; let m = {"a": 1}; m["self"] = m; JSON.stringify(m);"#,
+    );
+    assert!(message.contains("nested too deeply"), "{message}");
+}
+
 fn unix_now() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)

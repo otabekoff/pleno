@@ -6,7 +6,7 @@ Pleno's standard library provides essential utilities for building applications.
 
 A **stable** API keeps its name, parameters and documented behavior in every 1.x release, as described in the [1.x compatibility promise](../specs/compatibility.md). An **experimental** API may change or disappear in any release. Each module page starts with a stability line, and experimental functions inside a stable module are marked **Experimental.** in their description.
 
-Behavior a page calls unspecified (for example the order of `Directory.list`, or what `JSON.stringify` writes for a class instance) is not covered, and neither is the exact wording of error messages or of lines printed for people (`Log`, `Benchmark.run`).
+Behavior a page calls unspecified (for example the order of `Directory.list`) is not covered, and neither is the exact wording of error messages or of lines printed for people (`Log`, `Benchmark.run`).
 
 | Module                                  | Stability    | Notes                                                                                                                                        |
 | --------------------------------------- | ------------ | -------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -22,7 +22,7 @@ Behavior a page calls unspecified (for example the order of `Directory.list`, or
 | [`std:http`](http.md)                   | stable       | The client (`get`, `post`, `request`, ...) is stable. `Router` and `Server` are experimental: no automated tests serve requests yet, and middleware, static files and cookies are still to come. |
 | [`std:net`](net.md)                     | experimental | `listen` and `connect` close the socket at once; there is no `accept`, `read` or `write` yet.                                               |
 | [`std:url`](url.md)                     | stable       |                                                                                                                                              |
-| [`std:json`](json.md)                   | stable       | Class instances and sets become `null` in `stringify`; that output is unspecified and may change.                                           |
+| [`std:json`](json.md)                   | stable       |                                                                                                                                             |
 | [`std:yaml`](yaml.md)                   | stable       |                                                                                                                                              |
 | [`std:toml`](toml.md)                   | stable       |                                                                                                                                              |
 | [`std:xml`](xml.md)                     | stable       | Input without a complete root element returns `null` instead of throwing; that case is unspecified.                                         |

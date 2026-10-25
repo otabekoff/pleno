@@ -38,6 +38,7 @@ Notable changes to Pleno. The format follows [Keep a Changelog](https://keepacha
 - Faster still: Pleno now beats CPython 3.14 on every benchmark in `bench/cases` and on `bench/src/array` (`fib(30)` 0.09 s against 0.10 s, the array benchmark 0.16 s against 0.17 s). Method calls such as `items.push(x)` no longer allocate a bound method, `s = s + x` appends in place when nothing else holds the old string (building a string is linear instead of quadratic), values take 16 bytes instead of 40, simple instructions run in a smaller interpreter loop, and calls and `map`/`filter`/`reduce` callbacks set up their frames with less work.
 - The bytecode format version is 4 (new `ToFloat`, `CallRegs`, `GetMethod` and `CallMethod` instructions); recompile `.plc` files.
 - `Crypto.jwtVerify` checks the `exp` and `nbf` claims against the current time and throws `JWT expired` or `JWT not valid yet`, the way it throws `Invalid JWT signature`; it also rejects tokens whose header `alg` is not `HS256`. Signatures are compared in constant time (`hmac`'s `verify_slice`). `jwtSign` and `jwtVerify` are now stable.
+- `JSON.stringify` and `stringifyPretty` write a class instance as an object of its public fields (private, protected and internal fields are left out) and a set as an array of its elements, a `Char` as a one-character string; before, all three became `null`. A value nested more than 512 levels deep (such as a map that contains itself) throws instead of overflowing the stack.
 
 ### Fixed
 
