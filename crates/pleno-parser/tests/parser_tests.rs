@@ -107,6 +107,28 @@ fn test_parse_class() {
 }
 
 #[test]
+fn slice_without_start_keeps_inclusive_end() {
+    let inclusive = |source: &str| {
+        let program = parse_program(source);
+        match &program.statements[0].kind {
+            StmtKind::Expr(expr) => match &expr.kind {
+                ExprKind::Slice {
+                    start, inclusive, ..
+                } => {
+                    assert!(start.is_none());
+                    *inclusive
+                }
+                other => panic!("expected a slice, got {other:?}"),
+            },
+            other => panic!("expected an expression, got {other:?}"),
+        }
+    };
+    assert!(inclusive("a[..=1];"));
+    assert!(!inclusive("a[..1];"));
+    assert!(!inclusive("a[:1];"));
+}
+
+#[test]
 fn test_parse_pipeline() {
     let program = parse_program("a |> b");
     // ExprKind::Binary with Pipeline operator? Or dedicated pipeline expr?

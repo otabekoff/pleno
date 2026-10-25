@@ -908,6 +908,7 @@ impl<'a> LintVisitor<'a> {
                 collection,
                 start,
                 end,
+                ..
             } => {
                 self.visit_expr(collection);
                 if let Some(s) = start {

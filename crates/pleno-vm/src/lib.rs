@@ -5359,8 +5359,17 @@ impl VM {
                         _ => return Err(RuntimeError::new("Slice expects map of ranges")),
                     };
                     let start = wrapper.get("start").cloned();
-                    let end = wrapper.get("end").cloned();
+                    let mut end = wrapper.get("end").cloned();
                     let step = wrapper.get("step").cloned();
+                    // `[..=end]`: an exclusive end one further, so `..=-1`
+                    // reaches the last element.
+                    if matches!(wrapper.get("inclusive"), Some(Value::Bool(true))) {
+                        end = match end {
+                            Some(Value::Int(-1)) => None,
+                            Some(Value::Int(e)) => Some(Value::Int(e.saturating_add(1))),
+                            other => other,
+                        };
+                    }
 
                     match collection {
                         Value::Array(array) => {
