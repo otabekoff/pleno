@@ -371,7 +371,7 @@ fn native_range_iterator(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Valu
     match &args[0] {
         Value::Range(range) => {
             let state = IteratorState::Range {
-                range: range.clone(),
+                range: (**range).clone(),
                 current: range.start.unwrap_or(0),
             };
             Ok(Value::Iterator(vm.get_gc().allocate(state)?))

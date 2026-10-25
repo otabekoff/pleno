@@ -14,7 +14,7 @@ use std::rc::Rc;
 ///
 /// - integers outside the inline 46-bit range,
 /// - strings (the table owns one `Rc`, so encoding a string never leaks it),
-/// - ranges (stored by value; they have no heap allocation of their own).
+/// - ranges (shared with the `Value`s they came from).
 ///
 /// NaN-boxed values are `Copy` and only stored in VM registers, which every
 /// collection marks. A sweep after the collection frees the unmarked slots.
@@ -127,7 +127,7 @@ struct BoxedValues {
     strings: Slots<Rc<String>>,
     /// The same string reuses its slot instead of growing the table.
     string_slots: SlotMap<*const String>,
-    ranges: Slots<Range>,
+    ranges: Slots<Rc<Range>>,
 }
 
 thread_local! {
@@ -181,9 +181,9 @@ fn box_string(value: &Rc<String>) -> usize {
     })
 }
 
-fn box_range(value: &Range) -> usize {
+fn box_range(value: &Rc<Range>) -> usize {
     note_added_slot(1);
-    BOXED.with(|boxed| boxed.borrow_mut().ranges.insert(value.clone()))
+    BOXED.with(|boxed| boxed.borrow_mut().ranges.insert(Rc::clone(value)))
 }
 
 /// Live slots in the big-integer, string and range tables (for diagnostics

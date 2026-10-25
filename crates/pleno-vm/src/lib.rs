@@ -2003,20 +2003,22 @@ impl VM {
                 Opcode::BuildRange => {
                     let start = expect_int_or_null(&self.registers[base + b].to_value())?;
                     let end = expect_int_or_null(&self.registers[base + c].to_value())?;
-                    self.registers[base + a] = NanValue::from_value(&Value::Range(Range {
-                        start,
-                        end,
-                        inclusive: false,
-                    }));
+                    self.registers[base + a] =
+                        NanValue::from_value(&Value::Range(Rc::new(Range {
+                            start,
+                            end,
+                            inclusive: false,
+                        })));
                 }
                 Opcode::BuildRangeInclusive => {
                     let start = expect_int_or_null(&self.registers[base + b].to_value())?;
                     let end = expect_int_or_null(&self.registers[base + c].to_value())?;
-                    self.registers[base + a] = NanValue::from_value(&Value::Range(Range {
-                        start,
-                        end,
-                        inclusive: true,
-                    }));
+                    self.registers[base + a] =
+                        NanValue::from_value(&Value::Range(Rc::new(Range {
+                            start,
+                            end,
+                            inclusive: true,
+                        })));
                 }
                 Opcode::NewMap => {
                     self.registers[base + a] = NanValue::from_value(&Value::Map(
