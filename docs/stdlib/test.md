@@ -1,5 +1,7 @@
 # std:test
 
+> **Stability:** stable in 1.0.
+
 Built-in testing framework for unit and integration tests.
 
 ## Import

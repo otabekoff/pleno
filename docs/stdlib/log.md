@@ -1,5 +1,7 @@
 # std:log
 
+> **Stability:** stable in 1.0. The format of the printed lines may change.
+
 ## Contents
 
 - [Log](#log)

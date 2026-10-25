@@ -1,5 +1,7 @@
 # std:regex
 
+> **Stability:** stable in 1.0.
+
 The Regex module provides regular expression matching and manipulation.
 
 ## Import
@@ -22,7 +24,7 @@ print(digits.pattern);  // \d+
 
 ### Flags
 
-Set flags inside the pattern:
+`Regex` takes one argument. A second argument is accepted but ignored: `Regex("abc", "i")` is case-sensitive. Do not pass one; its meaning is unspecified and a later release may use it for flags. Set flags inside the pattern instead:
 
 - `(?i)` - Case-insensitive matching
 - `(?m)` - Multiline mode: `^` and `$` match at line breaks

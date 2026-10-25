@@ -37,6 +37,8 @@ print(numbers[..3]);    // [5, 4, 3]
 
 ## Maps (Dictionaries)
 
+Map keys are strings. In a literal, a key is a string or a bare name (`{host: "x"}` is `{"host": "x"}`); other keys, such as `{1: "a"}`, are a syntax error.
+
 ```pleno
 // Map literal
 let ages: Map<String, Int> = {
@@ -212,7 +214,42 @@ try {
 }
 ```
 
-A tuple pattern with one element needs a trailing comma, `let (a,) = single;`, and a rest element is only allowed in array patterns. A destructuring `let` always has a value, and cannot be `lazy`, `deep` or exported. `for` loops do not take patterns yet: `for (key, value in map)` iterates a map's entries, and `for (pair in pairs) { let (a, b) = pair; ... }` destructures each element.
+A tuple pattern with one element needs a trailing comma, `let (a,) = single;`, and a rest element is only allowed in array patterns. A destructuring `let` always has a value, and cannot be `lazy`, `deep` or exported. `for` loops do not take patterns: `for (key, value in map)` iterates a map's entries, and `for (pair in pairs) { let (a, b) = pair; ... }` destructures each element.
+
+## Method reference
+
+The methods of arrays, maps and sets not shown above:
+
+```pleno
+let arr = [1, 2, 3, 4, 5];
+print(arr.pop());                    // 5: removes and returns the last element
+print(arr.shift());                  // 1: removes and returns the first element
+print(arr.remove(0));                // 2: removes and returns the element at an index
+print(arr.slice(0, 1));              // [3]: elements from start to end (exclusive)
+print(arr.join(", "));               // 3, 4
+print(arr.find(|x| => x > 3));       // 4: the first match, or null
+print(arr.with(0, 99));              // [99, 4]: a copy with one element replaced
+print(arr.indexOf(42));              // -1 when missing
+arr.clear();                         // removes every element
+
+let map = {"a": 1, "b": 2};
+print(map.remove("a"));              // true (false if the key was missing)
+print(map.map(|k, v| => v * 2));     // {"b": 4}: a new map with new values
+print(map.filter(|k, v| => v > 1));  // {"b": 2}
+map.forEach(|k, v| => print(k));     // b
+print(map.with("d", 4));             // {"b": 2, "d": 4}: a copy with an entry added
+map.clear();
+
+let set = Set([1, 2, 3]);
+print(set.remove(2));                // true
+print(set.toArray());                // [1, 3]
+print(set.map(|x| => x * 2));        // [2, 6]: an array
+print(set.filter(|x| => x > 1));     // {3}: a set
+print(set.with(5));                  // {1, 3, 5}: a copy with an element added
+set.clear();
+```
+
+`entries()` and `iterator()` on arrays and maps, and `iterator()` on sets, return iterator objects used by `for` loops.
 
 ## Ranges
 

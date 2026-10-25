@@ -4,6 +4,8 @@ Pleno manages memory automatically. Optional annotations let the compiler check 
 
 ## Memory Model
 
+This section describes the current implementation, not a guarantee; it can change in any release.
+
 - **Reference counting**: Heap values (arrays, maps, objects, closures) are reference counted.
 - **Garbage collection**: A mark-based collector frees reference cycles. `std:gc` exposes it.
 - **Value semantics**: Primitives are copied by value.
@@ -86,29 +88,6 @@ for (x in 0..) {
 print(squares);  // [0, 4, 16, 36, 64]
 ```
 
-## Memory Pooling
-
-Reuse object allocations for performance:
-
-::: warning Planned
-`@pooled` is accepted and recorded on the class, but allocation does not use a pool yet, and the annotation takes no arguments.
-:::
-
-```pleno
-@pooled
-class GameObject {
-    public x: Float;
-    public y: Float;
-
-    fn reset() {
-        this.x = 0;
-        this.y = 0;
-    }
-}
-
-// Allocated as usual for now
-let obj = GameObject();
-```
 
 ## Const & Immutability
 
@@ -134,6 +113,8 @@ try {
 ```
 
 ## Performance Tips
+
+These are suggestions for the current implementation:
 
 1. **Use `const`** for data that won't change
 2. **Use `let lazy`** for expensive values that may not be needed

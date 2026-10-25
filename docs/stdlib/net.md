@@ -1,5 +1,7 @@
 # std:net
 
+> **Stability:** experimental. Not covered by the [1.x compatibility promise](../specs/compatibility.md).
+
 Low-level TCP networking primitives.
 
 ## Import
@@ -10,8 +12,8 @@ import { Net } from "std:net";
 
 `listen` and `connect` can also be imported directly.
 
-::: warning Limited
-`listen` binds the address and `connect` opens a connection, but both close the socket right away: there is no `accept`, `read` or `write` yet. Use them to check that an address can be bound or reached.
+::: warning Experimental
+`listen` binds the address and `connect` opens a connection, but both close the socket right away: there is no `accept`, `read` or `write` yet. Use them to check that an address can be bound or reached. A later release will return a socket object instead of a plain map, so code written against this module may need changes in any 1.x release.
 :::
 
 ## Functions

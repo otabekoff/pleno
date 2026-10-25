@@ -1,6 +1,6 @@
 # Decorators & Attributes
 
-Decorators are functions that modify classes, methods, or functions at runtime.
+A decorator is written `@name` or `@name(args)` before a function or class. When `name` is a function in scope at that point, it is called with the function or class and its result replaces it; a decorator that returns `null` leaves the target unchanged. When `name` is not defined, the decorator does nothing at runtime and is kept as an annotation that [`Reflect.getAnnotations`](#attribute-access-via-reflection) can read. A misspelled decorator name is therefore not an error.
 
 ## Function Decorators
 
@@ -29,7 +29,7 @@ calculate(2, 3);
 
 ## Multiple Decorators
 
-Decorators are applied bottom-up:
+Decorators are applied bottom-up. In this example none of the three names is defined, so they are only annotations:
 
 ```pleno
 @authenticated   // Applied third
@@ -73,14 +73,18 @@ fn apiEndpoint() {
 }
 ```
 
-## Built-in Decorators
+## Built-in Annotations
 
-| Decorator     | Description                    |
-| ------------- | ------------------------------ |
-| `@deprecated` | Mark as deprecated             |
-| `@override`   | Ensure method overrides parent |
-| `@abstract`   | Mark class/method as abstract  |
-| `@sealed`     | Prevent inheritance            |
+These names are handled by the compiler instead of being called:
+
+| Annotation     | Effect                                                                                                 |
+| -------------- | ------------------------------------------------------------------------------------------------------ |
+| `@pure`        | Checks some side effects at runtime; experimental, see [Pure functions](./functional-programming.md) |
+| `@inline`      | Lets the optimizer inline calls to the function; its return annotation is not checked                  |
+| `@no_optimize` | Keeps the optimizer (constant folding, dead code removal) away from the function                      |
+| `@hot`         | Recorded on the function; no effect                                                                   |
+
+Other names, such as `@deprecated`, `@override` and `@sealed`, are ordinary annotations: they do nothing unless you define a function by that name. In particular `@override` does not check that a parent method exists, and `@sealed` does not prevent subclasses. Abstract classes and methods use the `abstract` keyword (`abstract class`, `abstract fn`), not an annotation; see [Abstract classes](./OOP.md#abstract-classes).
 
 ## Attribute Access via Reflection
 
@@ -95,5 +99,7 @@ class User {
 }
 
 let annotations = Reflect.getAnnotations(User);
-// [{ name: "Entity", args: [] }, { name: "Table", args: ["users"] }]
+print(annotations);   // [{"name": Entity, "args": []}, {"name": Table, "args": [users]}]
 ```
+
+`Reflect.getAnnotations` returns the annotations of a class or enum (or of an instance's class). Annotations on fields, such as `@Column("id")` here, and on functions are accepted but not returned.

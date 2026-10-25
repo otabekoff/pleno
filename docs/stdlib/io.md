@@ -1,5 +1,7 @@
 # std:io
 
+> **Stability:** stable in 1.0.
+
 File and directory operations for reading, writing, and managing the filesystem.
 
 ## Import
@@ -226,6 +228,8 @@ Lists only the files in a directory.
 ### `listDirectories(path: String): String[]`
 
 Lists only the subdirectories of a directory.
+
+`Directory.list_files` and `Directory.list_directories` are older spellings of the same two functions. They are not covered by the [1.x compatibility promise](../specs/compatibility.md) and may be removed in 2.0; use `listFiles` and `listDirectories`.
 
 ```pleno
 import { File, Directory } from "std:io";

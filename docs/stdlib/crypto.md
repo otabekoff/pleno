@@ -1,5 +1,7 @@
 # std:crypto
 
+> **Stability:** stable in 1.0. Except `jwtSign` and `jwtVerify`, which are experimental: they are not covered by the [1.x compatibility promise](../specs/compatibility.md).
+
 Cryptographic functions for hashing, encryption, and JWT handling.
 
 ## Import
@@ -20,6 +22,8 @@ Computes a cryptographic hash of the data and returns it as lowercase hex.
 | ---------- | ------------- |
 | `"sha256"` | 64 hex chars  |
 | `"sha512"` | 128 hex chars |
+
+Any other algorithm name throws an error (`Unsupported hash algorithm: md5`).
 
 ```pleno
 import { Crypto } from "std:crypto";
@@ -80,9 +84,13 @@ print(decrypted);  // secret message
 
 ## JWT (JSON Web Tokens)
 
+::: warning Experimental
+`jwtSign` and `jwtVerify` are not covered by the [1.x compatibility promise](../specs/compatibility.md). `jwtVerify` checks only the signature, not claims such as `exp` or `nbf`, and compares signatures in non-constant time, so it can leak timing information. Its behavior will change when these are fixed. Do not rely on it alone to protect anything that matters.
+:::
+
 ### `jwtSign(payload: Map, secret: String): String`
 
-Creates a JWT signed with HS256.
+**Experimental.** Creates a JWT signed with HS256.
 
 ```pleno
 import { Crypto } from "std:crypto";
@@ -96,7 +104,7 @@ print(token);  // eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 
 ### `jwtVerify(token: String, secret: String): Map`
 
-Verifies the signature of a JWT and returns its payload. Throws on an invalid signature or format. It does not check claims such as `exp`; check them yourself.
+**Experimental.** Verifies the signature of a JWT and returns its payload. Throws on an invalid signature or format. It does not check claims such as `exp`; check them yourself.
 
 ```pleno
 import { Crypto } from "std:crypto";

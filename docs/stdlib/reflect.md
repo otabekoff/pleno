@@ -1,5 +1,7 @@
 # std:reflect
 
+> **Stability:** stable in 1.0. Except `vmStats`, which is experimental: it is not covered by the [1.x compatibility promise](../specs/compatibility.md).
+
 Runtime reflection utilities for type inspection and dynamic access.
 
 ## Import
@@ -180,6 +182,8 @@ print(annotations[1].args);  // [users]
 ## VM Statistics
 
 ### `vmStats(): Map`
+
+**Experimental.** The numbers depend on how the VM works inside and change between releases; the field names may change too.
 
 Returns what the running program has used so far: `instructions` (the number of VM instructions executed), `memory` (bytes allocated now) and `peakMemory` (the most bytes allocated at once). Useful after a sandbox limit stops a computation, since the error itself carries only its `name` and `message`.
 

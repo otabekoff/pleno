@@ -1,5 +1,7 @@
 # std:path
 
+> **Stability:** stable in 1.0.
+
 Cross-platform path manipulation utilities.
 
 ## Import

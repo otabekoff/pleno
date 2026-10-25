@@ -1,5 +1,8 @@
+# Release Plan
 
-**Excellent question!** Distribution strategy is crucial for adoption. Here's a comprehensive plan for packaging and distributing Pleno:
+::: info Planning notes
+This page is an early brainstorm of ways to package and distribute Pleno. Most of it is not available: the repository has packaging templates (`packaging/` for Homebrew, Scoop, winget, Chocolatey, AUR, Snap, Flatpak and asdf; `scripts/plenovm.sh`; `Dockerfile.release`), but none of these packages is published, and names such as `pleno-lang.org` are placeholders. It is not part of the language reference or the [compatibility promise](./compatibility.md). For what you can install today, see [Installation](/guide/installation); for what 1.0 still needs, see the [1.0 plan](https://github.com/otabekoff/pleno/blob/main/tasks/v1.md).
+:::
 
 ## Distribution Strategy for Pleno
 
@@ -635,10 +638,3 @@ git push origin main --tags
 1. All major package managers
 2. Cloud platform integrations
 3. Enterprise support options
-
-**Want me to create:**
-1. Complete install script (install.sh)?
-2. GitHub Actions workflow for releases?
-3. Homebrew formula template?
-4. Docker multi-stage build configuration?
-5. PLM registry backend design?

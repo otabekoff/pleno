@@ -1,5 +1,7 @@
 # std:process
 
+> **Stability:** stable in 1.0.
+
 Process-level operations and environment access.
 
 ## Import
