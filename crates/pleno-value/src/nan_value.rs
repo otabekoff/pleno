@@ -59,6 +59,12 @@ impl<T> Slots<T> {
             .expect("NaN-boxed value refers to a freed slot")
     }
 
+    fn get_mut(&mut self, slot: usize) -> &mut T {
+        self.values[slot]
+            .as_mut()
+            .expect("NaN-boxed value refers to a freed slot")
+    }
+
     fn mark(&mut self, slot: usize) {
         if let Some(mark) = self.marked.get_mut(slot) {
             *mark = true;
@@ -435,6 +441,50 @@ impl NanValue {
     #[inline]
     pub fn is_closure(self) -> bool {
         self.tag() == TAG_CLOSURE
+    }
+
+    #[inline]
+    pub fn is_string(self) -> bool {
+        self.tag() == TAG_STRING
+    }
+
+    /// The length of this string if no `Value` shares it: the string table
+    /// holds the only reference. Other NaN-boxed copies of the value (in VM
+    /// registers) are not counted; see `append_to_unshared_string`.
+    pub fn unshared_string_len(self) -> Option<usize> {
+        if !self.is_string() {
+            return None;
+        }
+        let slot = (self.0 & PAYLOAD_MASK) as usize;
+        BOXED.with(|boxed| {
+            let boxed = boxed.borrow();
+            let string = boxed.strings.get(slot);
+            (Rc::strong_count(string) == 1 && Rc::weak_count(string) == 0).then(|| string.len())
+        })
+    }
+
+    /// Appends `text` to this string where it is, for `s = s + text` when the
+    /// old value of `s` is no longer reachable: the caller must know that no
+    /// other NaN-boxed copy of this value exists (no other register holds
+    /// it), and this checks that no `Value` shares the string. Returns whether
+    /// it appended; the value then reads as the longer string.
+    pub fn append_to_unshared_string(self, text: &str) -> bool {
+        if !self.is_string() {
+            return false;
+        }
+        let slot = (self.0 & PAYLOAD_MASK) as usize;
+        BOXED.with(|boxed| {
+            let mut boxed = boxed.borrow_mut();
+            // `get_mut` fails while any `Value` holds the string. The table is
+            // keyed by the `String`'s address, which appending does not move.
+            match Rc::get_mut(boxed.strings.get_mut(slot)) {
+                Some(string) => {
+                    string.push_str(text);
+                    true
+                }
+                None => false,
+            }
+        })
     }
 
     #[inline]

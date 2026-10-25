@@ -3450,6 +3450,10 @@ impl VM {
                 }
                 Opcode::Add => {
                     let (left, right) = (self.registers[base + b], self.registers[base + c]);
+                    // `s = s + x`: the old string goes away, so append to it.
+                    if a == b && left.is_string() && self.append_in_place(base + a, left, right)? {
+                        continue;
+                    }
                     self.add_registers(base + a, left, right)?;
                 }
                 Opcode::Sub => {
@@ -5797,6 +5801,57 @@ impl VM {
         Ok(false)
     }
 
+    /// `register = register + right` for a string in `register` that nothing
+    /// else refers to: appends to the string where it is instead of copying it
+    /// into a new one, so building a string piece by piece takes linear time.
+    /// Returns `false` (and changes nothing) when the string may be visible
+    /// elsewhere or `right` is not a primitive, for the general `+`.
+    fn append_in_place(
+        &mut self,
+        register: usize,
+        left: NanValue,
+        right: NanValue,
+    ) -> Result<bool, RuntimeError> {
+        // Strings are shared with other VMs on this thread (a sandbox) through
+        // the string table; only the VM that owns the table may change one.
+        // Past a few thousand registers the scan below costs more than a copy.
+        if !self.gc.sweeps_boxed_values || self.registers.len() > MAX_APPEND_SCAN || right == left {
+            return Ok(false);
+        }
+        // The text `+` appends: what `add_values` converts the operand to.
+        let right = right.to_value();
+        let owned;
+        let text = match &right {
+            Value::String(text) => text.as_str(),
+            Value::Int(_)
+            | Value::Float(_)
+            | Value::Bool(_)
+            | Value::Char(_)
+            | Value::Null
+            | Value::Missing => {
+                owned = right.to_string();
+                owned.as_str()
+            }
+            _ => return Ok(false),
+        };
+        // No `Value` may share the string, and no other register may hold it
+        // (an alias such as `let a = s`, an argument, a caller's variable).
+        let Some(len) = left.unshared_string_len() else {
+            return Ok(false);
+        };
+        if self
+            .registers
+            .iter()
+            .enumerate()
+            .any(|(index, value)| index != register && *value == left)
+        {
+            return Ok(false);
+        }
+        // Counted as the copy that `+` would have made.
+        self.gc.track_allocation(len + text.len())?;
+        Ok(left.append_to_unshared_string(text))
+    }
+
     /// `left + right` into register `dest`, with operator overloading.
     #[inline]
     fn add_registers(
@@ -6998,6 +7053,9 @@ fn owner_from_nan(value: NanValue) -> Option<MethodOwner> {
         _ => None,
     }
 }
+
+/// Registers that `append_in_place` scans at most for copies of a string.
+const MAX_APPEND_SCAN: usize = 4096;
 
 fn lookup_global_in(
     globals: &IndexMap<String, Value>,
