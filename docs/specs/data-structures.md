@@ -37,7 +37,17 @@ print(numbers[..3]);    // [5, 4, 3]
 
 ## Maps (Dictionaries)
 
-Map keys are strings. In a literal, a key is a string or a bare name (`{host: "x"}` is `{"host": "x"}`); other keys, such as `{1: "a"}`, are a syntax error.
+Map keys are strings. In a literal, a key is a string, a bare name (`{host: "x"}` is `{"host": "x"}`), or a number or Bool literal, which is converted to the string it prints as: `{1: "a", -2.5: "b", true: "c"}` is `{"1": "a", "-2.5": "b", "true": "c"}`. Other keys, such as `{null: 1}` or an expression, are a syntax error; use a string key built at runtime instead (`m[key.toString()] = v`).
+
+Indexing follows the same rule: `m[1]`, `m[1.0]` and `m["1"]` all read the key `"1"`, `m[true] = x` writes the key `"true"`, and so do `get`, `put`, `with`, `remove` and `containsKey`. `m.keys()` returns strings.
+
+```pleno
+let codes = {200: "OK", 404: "Not Found"};
+print(codes[404]);            // Not Found
+print(codes["200"]);          // OK
+print(codes.containsKey(200)); // true
+print(codes.keys());          // [200, 404]: the strings "200" and "404"
+```
 
 ```pleno
 // Map literal
@@ -214,7 +224,9 @@ try {
 }
 ```
 
-A tuple pattern with one element needs a trailing comma, `let (a,) = single;`, and a rest element is only allowed in array patterns. A destructuring `let` always has a value, and cannot be `lazy`, `deep` or exported. `for` loops do not take patterns: `for (key, value in map)` iterates a map's entries, and `for (pair in pairs) { let (a, b) = pair; ... }` destructures each element.
+A tuple pattern with one element needs a trailing comma, `let (a,) = single;`, and a rest element is only allowed in array patterns. A destructuring `let` always has a value, and cannot be `lazy`, `deep` or exported.
+
+`for` loops take the same patterns, which destructure each item: `for ((name, score) in pairs) { ... }`, `for ([first, ...rest] in rows) { ... }`. Over a map, a pattern matches each `(key, value)` entry. See [Control flow](control-flow.md#destructuring-each-item).
 
 ## Method reference
 
@@ -249,7 +261,7 @@ print(set.with(5));                  // {1, 3, 5}: a copy with an element added
 set.clear();
 ```
 
-`entries()` and `iterator()` on arrays and maps, and `iterator()` on sets, return iterator objects used by `for` loops.
+`entries()` and `iterator()` on arrays and maps, and `iterator()` on sets, return iterator objects used by `for` loops. A `for` loop also takes an iterator directly: `for ((key, value) in map.entries())`. An array's `entries()` gives `(index, item)` tuples, a map's `(key, value)` tuples.
 
 ## Ranges
 

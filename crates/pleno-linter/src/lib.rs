@@ -231,21 +231,26 @@ impl Linter {
     /// standard library. The compiler resolves scopes, so this is the same
     /// answer `pleno check` and running the program give.
     fn check_undefined(&self, source: &str, program: &Program) -> Vec<LintDiagnostic> {
-        // Compiling optimizes the program in place.
+        // Compiling may change the program in place. Unused code is kept, as
+        // `pleno check` keeps it: reads there are checked too, and a local
+        // nothing reads (often the one a misspelled name meant) stays in scope.
         let mut program = program.clone();
-        let mut compiler = pleno_compiler::Compiler::new(source.to_string());
+        let mut compiler = pleno_compiler::Compiler::new(source.to_string()).keeping_unused_code();
         if compiler.compile(&mut program).is_err() {
             return Vec::new();
         }
         let builtins = builtin_globals();
         compiler
-            .undefined_globals(|name| builtins.contains(name))
+            .undefined_globals_with_hints(
+                |name| builtins.contains(name),
+                builtins.iter().map(String::as_str),
+            )
             .into_iter()
-            .map(|(name, span)| {
+            .map(|(name, span, hint)| {
                 diagnostic_at(
                     source,
                     "no-undef",
-                    format!("Usage of undefined variable '{}'", name),
+                    format!("Usage of undefined variable '{name}'{hint}"),
                     Severity::Error,
                     span,
                 )
@@ -706,15 +711,22 @@ impl<'a> LintVisitor<'a> {
             }
             StmtKind::For {
                 names,
+                pattern,
                 iterable,
                 body,
                 ..
             } => {
                 self.visit_expr(iterable);
                 self.scope_tracker.enter_scope();
-                for name in names {
-                    let span = self.find_word(stmt.span, name);
-                    self.declare(name, span);
+                if let Some(pattern) = pattern {
+                    for (name, span) in pattern.bindings() {
+                        self.declare(name, span);
+                    }
+                } else {
+                    for name in names {
+                        let span = self.find_word(stmt.span, name);
+                        self.declare(name, span);
+                    }
                 }
                 self.visit_stmt(body);
                 self.check_unused_in_current_scope();

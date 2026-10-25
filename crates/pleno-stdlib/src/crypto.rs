@@ -291,22 +291,21 @@ pub fn jwt_verify(
     let payload_b64 = parts[1];
     let sig_b64 = parts[2];
 
-    let signing_input = format!("{}.{}", header_b64, payload_b64);
-
-    let mut mac = Hmac::<Sha256>::new_from_slice(secret.as_bytes())
-        .map_err(|_| RuntimeError::new("Invalid secret"))?;
-    mac.update(signing_input.as_bytes());
-    let expected_sig = mac.finalize().into_bytes();
-
     let provided_sig = URL_SAFE_NO_PAD
         .decode(sig_b64)
         .map_err(|_| RuntimeError::new("Invalid signature encoding"))?;
 
-    if provided_sig != expected_sig.as_slice() {
-        return Err(RuntimeError::new("Invalid JWT signature"));
-    }
+    let mut mac = Hmac::<Sha256>::new_from_slice(secret.as_bytes())
+        .map_err(|_| RuntimeError::new("Invalid secret"))?;
+    mac.update(header_b64.as_bytes());
+    mac.update(b".");
+    mac.update(payload_b64.as_bytes());
+    // `verify_slice` compares in constant time.
+    mac.verify_slice(&provided_sig)
+        .map_err(|_| RuntimeError::new("Invalid JWT signature"))?;
 
-    // Decode payload
+    check_header(header_b64)?;
+
     let payload_bytes = URL_SAFE_NO_PAD
         .decode(payload_b64)
         .map_err(|_| RuntimeError::new("Invalid payload encoding"))?;
@@ -314,10 +313,92 @@ pub fn jwt_verify(
     let payload_json: serde_json::Value = serde_json::from_slice(&payload_bytes)
         .map_err(|e| RuntimeError::new(format!("Payload JSON error: {}", e)))?;
 
-    // Convert serde_json::Value to pleno_value::Value
-    // We reuse logic from crates/pleno-stdlib/src/json.rs if accessible, or re-implement simple conversion
-    // For this task, re-implementing basic conversion or making json::convert public would be good.
-    // Let's assume we can use our own helper or similar. Copied from json.rs or yaml.rs briefly.
+    check_time_claims(&payload_json, unix_now())?;
 
     super::json::convert_serde_to_value(vm, &payload_json)
+}
+
+/// Seconds since the Unix epoch, the unit of `exp` and `nbf`.
+fn unix_now() -> f64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs_f64())
+        .unwrap_or(0.0)
+}
+
+/// Checks the `exp` (expires at) and `nbf` (not before) claims, when present,
+/// against `now`: the token is valid while `nbf <= now < exp`.
+fn check_time_claims(payload: &serde_json::Value, now: f64) -> Result<(), RuntimeError> {
+    let claim = |name: &str| -> Result<Option<f64>, RuntimeError> {
+        match payload.get(name) {
+            None | Some(serde_json::Value::Null) => Ok(None),
+            Some(value) => value.as_f64().map(Some).ok_or_else(|| {
+                RuntimeError::new(format!("Invalid JWT {name} claim: expected a number"))
+            }),
+        }
+    };
+    if let Some(exp) = claim("exp")?
+        && now >= exp
+    {
+        return Err(RuntimeError::new("JWT expired"));
+    }
+    if let Some(nbf) = claim("nbf")?
+        && now < nbf
+    {
+        return Err(RuntimeError::new("JWT not valid yet"));
+    }
+    Ok(())
+}
+
+/// Accepts only a header whose `alg` is `HS256`, the algorithm `jwtSign`
+/// uses and `jwtVerify` checks.
+fn check_header(header_b64: &str) -> Result<(), RuntimeError> {
+    let header_bytes = URL_SAFE_NO_PAD
+        .decode(header_b64)
+        .map_err(|_| RuntimeError::new("Invalid header encoding"))?;
+    let header: serde_json::Value = serde_json::from_slice(&header_bytes)
+        .map_err(|e| RuntimeError::new(format!("Header JSON error: {}", e)))?;
+    match header.get("alg").and_then(|alg| alg.as_str()) {
+        Some("HS256") => {}
+        Some(other) => {
+            return Err(RuntimeError::new(format!(
+                "Unsupported JWT algorithm: {other}"
+            )));
+        }
+        None => return Err(RuntimeError::new("JWT header has no alg")),
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn b64(text: &str) -> String {
+        URL_SAFE_NO_PAD.encode(text.as_bytes())
+    }
+
+    #[test]
+    fn time_claims() {
+        let claims = |json: &str| serde_json::from_str::<serde_json::Value>(json).unwrap();
+        assert!(check_time_claims(&claims("{}"), 100.0).is_ok());
+        assert!(check_time_claims(&claims(r#"{"exp": 101}"#), 100.0).is_ok());
+        let expired = check_time_claims(&claims(r#"{"exp": 100}"#), 100.0);
+        assert_eq!(expired.unwrap_err().message, "JWT expired");
+        assert!(check_time_claims(&claims(r#"{"nbf": 100}"#), 100.0).is_ok());
+        let early = check_time_claims(&claims(r#"{"nbf": 100.5}"#), 100.0);
+        assert_eq!(early.unwrap_err().message, "JWT not valid yet");
+        let bad = check_time_claims(&claims(r#"{"exp": "soon"}"#), 100.0);
+        assert!(bad.unwrap_err().message.contains("Invalid JWT exp claim"));
+        assert!(check_time_claims(&claims(r#"{"exp": null}"#), 100.0).is_ok());
+    }
+
+    #[test]
+    fn header_must_be_hs256() {
+        assert!(check_header(&b64(r#"{"alg":"HS256","typ":"JWT"}"#)).is_ok());
+        let none = check_header(&b64(r#"{"alg":"none"}"#)).unwrap_err();
+        assert_eq!(none.message, "Unsupported JWT algorithm: none");
+        assert!(check_header(&b64(r#"{"typ":"JWT"}"#)).is_err());
+        assert!(check_header("%%%").is_err());
+    }
 }

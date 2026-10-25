@@ -492,3 +492,56 @@ fn test_no_undef() {
             .any(|msg| msg.rule_name == "no-undef")
     );
 }
+
+#[test]
+fn no_undef_suggests_the_closest_name_in_scope() {
+    let message = |input: &str| {
+        lint(input)
+            .into_iter()
+            .find(|msg| msg.rule_name == "no-undef")
+            .map(|msg| msg.message)
+    };
+    // The local a typo meant is often otherwise unused.
+    assert_eq!(
+        message("let length = 3;\nprint(lenght);").as_deref(),
+        Some("Usage of undefined variable 'lenght'; did you mean 'length'?")
+    );
+    assert_eq!(
+        message("pirnt(1);").as_deref(),
+        Some("Usage of undefined variable 'pirnt'; did you mean 'print'?")
+    );
+    assert_eq!(
+        message("print(zzqx);").as_deref(),
+        Some("Usage of undefined variable 'zzqx'")
+    );
+    // Reads in functions nothing calls are checked too, as `pleno check` does.
+    assert_eq!(
+        message("fn unused() { return mising; }").as_deref(),
+        Some("Usage of undefined variable 'mising'")
+    );
+}
+
+#[test]
+fn for_loop_patterns_declare_their_names() {
+    let input = "let pairs = [(1, 2)];\nfor ((key, value) in pairs) {\n    print(key);\n}\n";
+    let messages = lint(input);
+    let unused: Vec<_> = messages
+        .iter()
+        .filter(|msg| msg.rule_name == "no-unused-vars")
+        .collect();
+    assert_eq!(unused.len(), 1, "{messages:?}");
+    assert!(unused[0].message.contains("'value'"));
+    // The warning points at the name inside the pattern.
+    assert_eq!((unused[0].line, unused[0].column), (2, 12));
+    assert!(!messages.iter().any(|msg| msg.rule_name == "no-undef"));
+
+    // `_` and nested patterns bind nothing unused.
+    let input = "let rows = [(1, (2, 3))];\nfor ((i, (x, _)) in rows) {\n    print(i + x);\n}\n";
+    let messages = lint(input);
+    assert!(
+        !messages
+            .iter()
+            .any(|msg| msg.rule_name == "no-unused-vars" || msg.rule_name == "no-undef"),
+        "{messages:?}"
+    );
+}

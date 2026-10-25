@@ -1,0 +1,55 @@
+// String positions and lengths count Unicode characters, not UTF-8 bytes.
+import { Regex } from "std:regex";
+
+fn check(got, want, what: String) {
+    if (got != want) {
+        throw Error(what + ": got " + got.toString() + ", want " + want.toString());
+    }
+}
+
+let s = "héllo";
+check(s.length, 5, "length");
+check(s[1], "é", "index");
+check(s[1..3], "él", "range slice");
+check(s[2..], "llo", "open range slice");
+check(s.indexOf("l"), 2, "indexOf");
+check(s.indexOf("x"), -1, "indexOf missing");
+check(s.substring(0, 2), "hé", "substring");
+check(s.substring(3, 1), "él", "substring swaps");
+check(s.substring(-4, 99), "héllo", "substring clamps");
+check(s.charAt(1), "é", "charAt");
+check(s.charAt(5), null, "charAt past the end");
+check(s.charAt(-1), null, "charAt negative");
+
+let wide = "a€😀b";
+check(wide.length, 4, "3- and 4-byte characters");
+check(wide[2], "😀", "emoji index");
+check(wide.indexOf("b"), 3, "indexOf after emoji");
+check(wide.substring(1, 3), "€😀", "substring of wide characters");
+check(wide.split("").length, 4, "split into characters");
+check("abc".split("").length, 3, "split ascii into characters");
+check("".split("").length, 0, "split empty text");
+
+// `e` followed by U+0301 COMBINING ACUTE ACCENT counts as two characters.
+let combining = "é";
+check(combining.length, 2, "combining mark");
+check(combining.charAt(1), "́", "combining mark alone");
+check(combining[0], "e", "base letter before the mark");
+
+check(Regex("l+").match(s).index, 2, "regex match index");
+
+// Walking a string by position visits every character once.
+let mut out = "";
+for (i in 0..wide.length) {
+    out = out + wide[i];
+}
+check(out, wide, "loop over positions");
+
+try {
+    s[5];
+    check(true, false, "index past the end must throw");
+} catch (e) {
+    check(e.toString().contains("out of bounds"), true, "index error");
+}
+
+print("unicode strings ok");

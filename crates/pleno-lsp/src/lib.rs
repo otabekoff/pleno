@@ -1685,6 +1685,20 @@ fn collect_from_stmt(stmt: &pleno_ast::Stmt, source: &str, tokens: &mut Vec<Sema
             collect_from_expr(condition, source, tokens);
             collect_from_stmt(body, source, tokens);
         }
+        StmtKind::For {
+            pattern,
+            iterable,
+            body,
+            ..
+        } => {
+            if let Some(pattern) = pattern {
+                for (_, span) in pattern.bindings() {
+                    add_token_from_span(span, source, 4, 1, tokens); // variable, declaration
+                }
+            }
+            collect_from_expr(iterable, source, tokens);
+            collect_from_stmt(body, source, tokens);
+        }
         StmtKind::Expr(expr) => {
             collect_from_expr(expr, source, tokens);
         }

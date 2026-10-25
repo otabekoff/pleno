@@ -176,3 +176,57 @@ fn function_types_and_grouping_still_parse() {
         other => panic!("expected let, got {other:?}"),
     }
 }
+
+/// The pattern and bound names of the first statement, which must be a `for ... in`.
+fn for_pattern(source: &str) -> (Option<BindingPattern>, Vec<String>) {
+    let program = parse_program(source);
+    match program.statements.into_iter().next().map(|s| s.kind) {
+        Some(StmtKind::For { pattern, names, .. }) => (pattern, names),
+        other => panic!("expected For, got {other:?}"),
+    }
+}
+
+#[test]
+fn for_loop_takes_tuple_and_array_patterns() {
+    let (pattern, bound) = for_pattern("for ((k, v) in pairs) { }");
+    let pattern = pattern.expect("a pattern");
+    assert!(matches!(pattern.kind, BindingPatternKind::Tuple(ref items) if items.len() == 2));
+    assert_eq!(bound, ["k", "v"]);
+
+    let (pattern, bound) = for_pattern("for ([first, ...rest] in rows) { }");
+    assert!(matches!(
+        pattern.expect("a pattern").kind,
+        BindingPatternKind::Array { rest: Some(_), .. }
+    ));
+    assert_eq!(bound, ["first", "rest"]);
+
+    // Without the outer parentheses, and with `let`.
+    let (pattern, bound) = for_pattern("for let [a, b] in rows { }");
+    assert!(pattern.is_some());
+    assert_eq!(bound, ["a", "b"]);
+}
+
+#[test]
+fn for_loop_patterns_nest_and_skip() {
+    let (pattern, bound) = for_pattern("for ((i, (x, _)) in nested) { }");
+    assert_eq!(names(&pattern.expect("a pattern")), ["i", "x"]);
+    assert_eq!(bound, ["i", "x"]);
+}
+
+#[test]
+fn plain_for_loops_have_no_pattern() {
+    assert_eq!(
+        for_pattern("for (x in xs) { }"),
+        (None, vec!["x".to_string()])
+    );
+    assert_eq!(
+        for_pattern("for (k, v in m) { }"),
+        (None, vec!["k".to_string(), "v".to_string()])
+    );
+}
+
+#[test]
+fn for_loop_pattern_errors_match_let() {
+    assert!(parse_error("for ((a) in xs) { }").contains("trailing comma"));
+    assert!(parse_error("for ([...rest, a] in xs) { }").contains("must be the last element"));
+}

@@ -48,7 +48,7 @@ import { File } from "std:io";
 import { JSON } from "std:json";
 import { Process } from "std:process";
 
-// Todos are maps, because JSON.stringify writes class instances as null.
+// Todos are maps, because JSON.parse gives back maps, not class instances.
 class TodoManager {
     private todos: Array = [];
     private file: String = "todos.json";

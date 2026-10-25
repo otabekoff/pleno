@@ -390,10 +390,14 @@ impl Formatter {
             StmtKind::For {
                 label,
                 names,
+                pattern,
                 iterable,
                 body,
             } => {
-                let names_str = names.join(", ");
+                let names_str = match pattern {
+                    Some(pattern) => Self::format_binding_pattern(pattern),
+                    None => names.join(", "),
+                };
                 let mut prefix = current_indent.clone();
                 if let Some(l) = label {
                     prefix.push_str(&format!("{}: ", l));

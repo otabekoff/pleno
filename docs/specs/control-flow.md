@@ -88,6 +88,36 @@ for (i in 0..=3) {    // 0, 1, 2, 3
 
 A string cannot be iterated directly (`type 'String' is not iterable`); index it in a loop instead. `for (key, value in map)` gives a map's keys and values.
 
+#### Destructuring each item
+
+In place of a name, a `for` loop takes a destructuring pattern, the same as `let` (see [Destructuring](data-structures.md#destructuring)): a tuple pattern `(a, b)`, an array pattern `[a, b]` or `[first, ...rest]`, `_` to skip a value, nested freely. Each item is taken apart before the body runs.
+
+```pleno
+let pairs = [("ann", 3), ("bob", 5)];
+for ((name, score) in pairs) {
+    print(name + ": " + score);    // ann: 3, then bob: 5
+}
+
+for ([first, ...rest] in [[1, 2, 3], [4]]) {
+    print(first, rest);            // 1 [2, 3], then 4 []
+}
+
+for ((i, (x, _)) in [(0, (1, "a")), (1, (2, "b"))]) {
+    print(i, x);                   // 0 1, then 1 2
+}
+
+// Over a map, a pattern matches each (key, value) entry
+let ages = {"ann": 31, "bob": 27};
+for ((name, age) in ages) {
+    print(name, age);
+}
+for ((name, _) in ages.entries()) {
+    print(name);
+}
+```
+
+The names are new in each iteration (a closure keeps the values of its own iteration) and can be reassigned, like a plain loop variable. An item that does not fit the pattern stops the loop with the same runtime error as a destructuring `let`, such as `tuple has 2 elements, pattern expects 3`. A range yields numbers, so `for ((a, b) in 0..3)` is a compile error. The two-name form `for (key, value in map)` is not a pattern and still works as before; `for ((key, value) in map)` does the same for a map, but over an array of pairs it takes each pair apart, where `for (index, item in array)` gives indexes.
+
 ### While and do-while
 
 ```pleno

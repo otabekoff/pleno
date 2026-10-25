@@ -83,8 +83,20 @@ These names are handled by the compiler instead of being called:
 | `@inline`      | Lets the optimizer inline calls to the function; its return annotation is not checked                  |
 | `@no_optimize` | Keeps the optimizer (constant folding, dead code removal) away from the function                      |
 | `@hot`         | Recorded on the function; no effect                                                                   |
+| `@deprecated`  | Warns when the function or method is used; see below                                                   |
 
-Other names, such as `@deprecated`, `@override` and `@sealed`, are ordinary annotations: they do nothing unless you define a function by that name. In particular `@override` does not check that a parent method exists, and `@sealed` does not prevent subclasses. Abstract classes and methods use the `abstract` keyword (`abstract class`, `abstract fn`), not an annotation; see [Abstract classes](./OOP.md#abstract-classes).
+`@deprecated` or `@deprecated("use add instead")` marks a function or method that is going away. The first call to it prints `warning: plus is deprecated: use add instead` to standard error (once per name), and `pleno check` and the editor report each call to a deprecated top-level function as a warning. The function keeps working.
+
+```pleno
+@deprecated("use add instead")
+fn plus(a, b) { return a + b; }
+
+fn add(a, b) { return a + b; }
+
+print(plus(1, 2));   // 3, after "warning: plus is deprecated: use add instead"
+```
+
+Other names, such as `@override` and `@sealed`, are ordinary annotations: they do nothing unless you define a function by that name. In particular `@override` does not check that a parent method exists, and `@sealed` does not prevent subclasses. Abstract classes and methods use the `abstract` keyword (`abstract class`, `abstract fn`), not an annotation; see [Abstract classes](./OOP.md#abstract-classes).
 
 ## Attribute Access via Reflection
 
