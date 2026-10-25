@@ -21,7 +21,7 @@ let p = simpleAsync();
 
 // Test 2: Promise resolution
 print("Test 2: Promise resolution");
-let resolvedValue = 0;
+let mut resolvedValue = 0;
 p.then(|val| => {
     resolvedValue = val;
     print("Promise resolved with: " + val);

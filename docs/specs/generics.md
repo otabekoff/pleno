@@ -42,7 +42,7 @@ let strBox = Box<String>("hello");
 fn findMax<T: Comparable>(items: T[]): T? {
     if (items.isEmpty()) return None;
 
-    let max = items[0];
+    let mut max = items[0];
     for (item in items) {
         if (item > max) {
             max = item;

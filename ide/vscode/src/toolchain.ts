@@ -129,7 +129,7 @@ export async function installToolchain(
     const target = releaseTarget();
     if (!target) {
         vscode.window.showErrorMessage(
-            `There is no prebuilt Pleno toolchain for ${process.platform}-${process.arch}. Build it from source: https://github.com/${REPOSITORY}#building-from-source`,
+            `There is no prebuilt Pleno toolchain for ${process.platform}-${process.arch}. Build it from source: https://pleno.mohirlab.uz/guide/installation#from-source`,
         );
         return undefined;
     }

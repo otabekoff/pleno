@@ -7,8 +7,7 @@ use pleno_ast::{
     Program, Span, Stmt, StmtKind, Visibility,
 };
 use pleno_bytecode::{Chunk, FunctionProto, Instruction, Opcode, ParamSpec};
-use pleno_value::gc::GcRc;
-use pleno_value::{ArrayState, MapState, RuntimeAnnotation, Value};
+use pleno_value::{RuntimeAnnotation, Value};
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
@@ -68,6 +67,10 @@ struct CaptureInfo {
     name: String,
     is_boxed: bool,
     ty: Option<String>,
+    /// Whether the captured variable was declared `mut`.
+    mutable: bool,
+    /// A captured `&mut` parameter: reassigning it would not reach the caller.
+    borrow_mut: bool,
 }
 
 #[derive(Clone)]
@@ -124,6 +127,13 @@ pub struct Compiler {
     inline_functions: Vec<HashMap<String, FunctionDecl>>,
     inline_return_stack: Vec<Vec<usize>>,
     referenced_entities: HashSet<String>,
+    /// Compile every declaration and statement as written: no optimizer pass
+    /// and no skipping of unused functions and classes. Used to find the
+    /// errors in code that the optimized build would leave out.
+    keep_unused_code: bool,
+    /// Top-level functions, classes, enums and interfaces by name, with what
+    /// each is, for the error when code assigns to one.
+    declaration_kinds: HashMap<String, &'static str>,
     loop_counter: u32,
     loop_stack: Vec<LoopContext>,
     captures: HashMap<String, (usize, CaptureInfo)>,
@@ -189,6 +199,8 @@ impl Compiler {
             inline_functions: vec![HashMap::new()],
             inline_return_stack: Vec::new(),
             referenced_entities: HashSet::new(),
+            keep_unused_code: false,
+            declaration_kinds: HashMap::new(),
             loop_counter: 0,
             loop_stack: Vec::new(),
             captures: HashMap::new(),
@@ -222,9 +234,41 @@ impl Compiler {
         self
     }
 
+    /// Compiles all code as written, including unused functions and classes
+    /// and code after a `return`, so every compile error and every global
+    /// read is found. The result runs, without the optimizer's changes.
+    pub fn keeping_unused_code(mut self) -> Self {
+        self.keep_unused_code = true;
+        self
+    }
+
+    /// Before an optimized compile drops unused code, compiles a copy of the
+    /// whole program to report the errors in that code too.
+    fn check_unused_code(&self, program: &Program, module: bool) -> Result<(), CompileError> {
+        let mut checker = Compiler::new(self.source.clone())
+            .with_profile(self.profile)
+            .keeping_unused_code();
+        let mut copy = program.clone();
+        if module {
+            checker.compile_module(&mut copy)?;
+        } else {
+            checker.compile(&mut copy)?;
+        }
+        Ok(())
+    }
+
+    /// Optimizes `program` unless all code is kept.
+    fn prepare(&self, program: &mut Program, module: bool) -> Result<(), CompileError> {
+        if !self.keep_unused_code {
+            self.check_unused_code(program, module)?;
+            pleno_optimizer::optimize(program);
+        }
+        Ok(())
+    }
+
     /// Globals the program reads but never defines, other than those
     /// `is_builtin` accepts, with where each is read. Code removed as unused
-    /// is not checked.
+    /// is not checked unless the compiler keeps it (`keeping_unused_code`).
     pub fn undefined_globals(&self, is_builtin: impl Fn(&str) -> bool) -> Vec<(String, Span)> {
         self.global_reads
             .iter()
@@ -240,12 +284,13 @@ impl Compiler {
     }
 
     pub fn compile(&mut self, program: &mut Program) -> Result<Chunk, CompileError> {
-        pleno_optimizer::optimize(program);
+        self.prepare(program, false)?;
         self.module_mode = false;
         self.module_exports.clear();
         self.module_name = None;
 
         self.referenced_entities = self.collect_references(&program.statements);
+        self.declaration_kinds = declaration_kinds(&program.statements);
 
         let boxed = self.find_boxed_vars(&program.statements);
         self.boxed_vars.push(boxed);
@@ -272,12 +317,13 @@ impl Compiler {
     }
 
     pub fn compile_module(&mut self, program: &mut Program) -> Result<Chunk, CompileError> {
-        pleno_optimizer::optimize(program);
+        self.prepare(program, true)?;
         self.module_mode = true;
         self.module_exports.clear();
         self.module_name = None;
 
         self.referenced_entities = self.collect_references(&program.statements);
+        self.declaration_kinds = declaration_kinds(&program.statements);
         let boxed = self.find_boxed_vars(&program.statements);
         self.boxed_vars.push(boxed);
 
@@ -457,6 +503,12 @@ impl Compiler {
                         .insert(local.reg, OwnershipState::Available);
                 } else if let Some((index, info)) = self.captures.get(name).cloned() {
                     // Update capture
+                    if info.borrow_mut {
+                        return Err(self.error(&mut_param_assign_message(name), stmt.span));
+                    }
+                    if !info.mutable {
+                        return Err(self.error("cannot assign to immutable binding", stmt.span));
+                    }
                     let is_boxed = info.is_boxed;
 
                     if let Some(ty) = &info.ty {
@@ -471,6 +523,11 @@ impl Compiler {
                     } else {
                         self.emit(Opcode::SetCapture, value_reg, index as u8, 0);
                     }
+                } else if let Some(kind) = self.declaration_kinds.get(name) {
+                    return Err(self.error(
+                        &format!("cannot assign to {kind} '{name}': declare a variable with `let mut` instead"),
+                        stmt.span,
+                    ));
                 } else {
                     return Err(
                         self.error(&format!("unknown local or global: {}", name), stmt.span)
@@ -707,7 +764,8 @@ impl Compiler {
             } => {
                 // Dead Code Elimination: skip unreferenced classes, unless defining the
                 // class has effects (decorators, interface conformance checks).
-                if !self.referenced_entities.contains(name)
+                if !self.keep_unused_code
+                    && !self.referenced_entities.contains(name)
                     && self.is_top_level
                     && annotations.is_empty()
                     && implements.is_empty()
@@ -754,7 +812,8 @@ impl Compiler {
                     .collect::<Vec<_>>();
                 // Dead Code Elimination: skip unreferenced functions, unless they are
                 // annotated (a decorator may register them or have other effects).
-                if !self.referenced_entities.contains(name)
+                if !self.keep_unused_code
+                    && !self.referenced_entities.contains(name)
                     && self.is_top_level
                     && annotations.is_empty()
                 {
@@ -1123,32 +1182,9 @@ impl Compiler {
                 Literal::String(s) => Value::String(s.clone().into()),
                 Literal::Char(c) => Value::Char(*c),
             }),
-            ExprKind::ArrayLiteral(items) => {
-                let mut values = Vec::new();
-                for item in items {
-                    values.push(self.try_fold_expr(item)?);
-                }
-                Some(Value::Array(GcRc::new(ArrayState {
-                    elements: values,
-                    is_immutable: false,
-                })))
-            }
-            ExprKind::MapLiteral(entries) => {
-                let mut map = IndexMap::new();
-                for item in entries {
-                    match item {
-                        MapItem::Entry(key, value_expr) => {
-                            let value = self.try_fold_expr(value_expr)?;
-                            map.insert(key.clone(), value);
-                        }
-                        MapItem::Spread(_) => return None,
-                    }
-                }
-                Some(Value::Map(GcRc::new(MapState {
-                    entries: map,
-                    is_immutable: false,
-                })))
-            }
+            // Arrays and maps are mutable, so each evaluation of a literal must
+            // create a new one: a folded constant would be shared by every call.
+            ExprKind::ArrayLiteral(_) | ExprKind::MapLiteral(_) => None,
             ExprKind::Binary { left, op, right } => {
                 let l_val = self.try_fold_expr(left)?;
                 let r_val = self.try_fold_expr(right)?;
@@ -2105,6 +2141,12 @@ impl Compiler {
                         self.emit(Opcode::Move, return_reg, current_val, 0);
                     }
                 } else if let Some((index, info)) = self.captures.get(name).cloned() {
+                    if info.borrow_mut {
+                        return Err(self.error(&mut_param_assign_message(name), expr.span));
+                    }
+                    if !info.mutable {
+                        return Err(self.error("cannot increment immutable variable", expr.span));
+                    }
                     let is_boxed = info.is_boxed;
                     let temp = self.registers.allocate()?;
                     self.emit(Opcode::LoadCapture, temp, index as u8, 0);
@@ -3204,6 +3246,7 @@ impl Compiler {
         // signatures, and annotations use the enclosing type aliases.
         compiler.fn_signatures = self.fn_signatures.clone();
         compiler.type_aliases = self.type_aliases.clone();
+        compiler.declaration_kinds = self.declaration_kinds.clone();
         compiler.push_scope();
         compiler.module_name = self.module_name.clone();
         compiler.captures = captures
@@ -3623,6 +3666,7 @@ impl Compiler {
         compiler.is_top_level = false;
         compiler.fn_signatures = self.fn_signatures.clone();
         compiler.type_aliases = self.type_aliases.clone();
+        compiler.declaration_kinds = self.declaration_kinds.clone();
         compiler.push_scope();
         compiler.module_name = self.module_name.clone();
         compiler.captures = captures
@@ -3796,12 +3840,16 @@ impl Compiler {
                         name: name.clone(),
                         is_boxed: local.is_boxed,
                         ty: local.ty.clone(),
+                        mutable: local.mutable,
+                        borrow_mut: local.borrow_mut,
                     });
                 } else if let Some((_, info)) = self.captures.get(name) {
                     captures.push(CaptureInfo {
                         name: name.clone(),
                         is_boxed: info.is_boxed,
                         ty: info.ty.clone(),
+                        mutable: info.mutable,
+                        borrow_mut: info.borrow_mut,
                     });
                 }
             }
@@ -6545,4 +6593,25 @@ fn visibility_code(visibility: Option<&pleno_ast::Visibility>) -> u8 {
         Some(pleno_ast::Visibility::Internal) => 3,
         _ => 0,
     }
+}
+
+/// What each top-level declaration in `stmts` is: `function`, `class`,
+/// `enum` or `interface`.
+fn declaration_kinds(stmts: &[Stmt]) -> HashMap<String, &'static str> {
+    let mut kinds = HashMap::new();
+    for stmt in stmts {
+        let mut stmt = stmt;
+        while let StmtKind::Export(inner) = &stmt.kind {
+            stmt = inner;
+        }
+        let (name, kind) = match &stmt.kind {
+            StmtKind::Fn { name, .. } => (name, "function"),
+            StmtKind::Class { name, .. } => (name, "class"),
+            StmtKind::Enum(decl) => (&decl.name, "enum"),
+            StmtKind::Interface { name, .. } => (name, "interface"),
+            _ => continue,
+        };
+        kinds.insert(name.clone(), kind);
+    }
+    kinds
 }

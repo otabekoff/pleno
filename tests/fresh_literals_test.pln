@@ -1,0 +1,45 @@
+// Every evaluation of an array or map literal creates a new value, and
+// callbacks may change the collection they are called from.
+import { assert } from "std:test";
+
+fn fresh() {
+    let items = [];
+    items.push(1);
+    return items;
+}
+assert.equal(fresh(), [1]);
+assert.equal(fresh(), [1]);
+
+fn counter() {
+    let state = {"n": 0};
+    state["n"] = state["n"] + 1;
+    return state;
+}
+assert.equal(counter()["n"], 1);
+assert.equal(counter()["n"], 1);
+
+let made = [];
+for (i in 0..5) {
+    let row = [0, 0];
+    row[0] = i;
+    made.push(row);
+}
+assert.equal(made[0], [0, 0]);
+assert.equal(made[4], [4, 0]);
+
+let xs = [1, 2, 3];
+let total = xs.reduce(fn(acc, x) {
+    if (x == 1) {
+        xs.push(9);
+    }
+    return acc + x;
+}, 0);
+assert.equal(total, 6);
+assert.equal(xs, [1, 2, 3, 9]);
+
+let s = Set([1, 2]);
+s.forEach(fn(v) { s.add(5); });
+let big = s.filter(fn(v) { s.add(7); return v > 1; });
+assert.equal(big.size(), 2);
+
+print("fresh literals ok");

@@ -15,6 +15,8 @@ Notable changes to Pleno. The format follows [Keep a Changelog](https://keepacha
 
 ### Changed
 
+- A variable declared without `mut` (or with `const`) can no longer be reassigned from inside a function or closure; before, `let x = 1; fn f() { x = 2; } f();` changed `x`. Assigning to a name declared with `fn`, `class`, `enum` or `interface` says so (`cannot assign to function 'g'`) instead of `unknown local or global`.
+- Compile errors in unused functions and classes and in code after a `return` are reported by `pleno run` and `pleno check`; before, the optimizer dropped that code first and its errors went unnoticed until it was used.
 - Every caught error is an `Error` instance with `name` and `message`: runtime errors, failed type annotations (`TypeError`), denied operations (`SecurityError`) and sandbox limits (`SandboxError`) included, so `catch (e: Error)` catches them and `e.message` always works.
 - Printing an error or putting it in a string gives `name: message`, such as `TypeError: parameter 'x' expected Int, got String`, instead of a map.
 - Caught errors no longer carry `peakMemory` and `instructions`; `vmStats()` from `std:reflect` returns them.
@@ -29,6 +31,8 @@ Notable changes to Pleno. The format follows [Keep a Changelog](https://keepacha
 ### Fixed
 
 - A callback given to `map`, `filter` and the other natives that call back returned its first argument instead of `null` when that argument was a map with a `variant` key: `[Ok(1)].map(|r| => null)` was `[Ok(1)]`.
+- An array or map literal made only of constants (`[]`, `[0, 0]`, `{"n": 0}`) was created once and shared: a function returning `let a = []; a.push(1); return a;` gave the same array on every call, so it grew. Each evaluation now creates a new one.
+- Changing an array inside its `reduce` callback, or a set inside its `forEach` or `filter` callback, crashed the VM (`RefCell already borrowed`). These now iterate over the elements as they were when called, like `map` and `forEach` on arrays.
 - The linter (and so the editor) no longer reports lambdas (`=>`) and generic types (`Promise<Int>`) as operators missing spaces, type aliases and other names used only in type annotations as unused, or standard library globals such as `Ok`, `Some`, `Set` and `Error` as undefined. Functions can be used before their declaration, the line limit is 100 and skips comments, and every warning points at the whole name or operator.
 - Intersection types (`type Person = Nameable & Ageable;`) accept a value that matches every part; before, a class implementing both interfaces was rejected with `expected Person, got Employee`.
 - Type aliases inside a larger annotation (`Money?`, `Money | String`, `Money[]`) and as class field types are expanded before checking.

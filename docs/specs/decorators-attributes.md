@@ -56,7 +56,7 @@ class User {
 ```pleno
 fn rateLimit(maxCalls: Int, windowMs: Int) {
     return fn(target: Function): Function {
-        let calls = 0;
+        let mut calls = 0;
         return fn(...args) {
             if (calls >= maxCalls) {
                 throw Error("Rate limit exceeded");

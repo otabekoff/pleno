@@ -1,9 +1,7 @@
-# Change Log
+# Changelog
 
-All notable changes to the "pleno" extension will be documented in this file.
-
-Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how to structure this file.
-
+All notable changes to the Pleno extension for VS Code. The format follows
+[Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
@@ -15,10 +13,55 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 - Rename refuses keywords, built-ins and non-names before asking for the new name.
 - Settings `pleno.lint.enabled`, `pleno.lint.maxLineLength` and `pleno.lint.rules`, applied without a restart.
 - The status bar item shows when the language server is starting or has stopped.
+- **Pleno: Debug File** in the editor title bar's run menu and the context menus, and
+  **Pleno: Run Script...** to pick a script from `pleno.toml`.
+- Snippets `lambda`, `catcht` (catch by type), `describe` and `test`.
+- `plm run <script>` tasks for every script in `pleno.toml`.
+- `pleno.toml` completion and validation with the Even Better TOML extension.
+- The toolchain is also found in `~/.pleno/bin`, where the install scripts put it.
+- Without `pleno-dap`, debugging uses `pleno dap` instead of a simulated session.
+
+### Changed
+
+- The Testing view finds `describe(...)` and `test(...)` from `std:test`, nested as in the source,
+  and shows each test's result and failure message from `pleno test`. It used to guess tests from
+  function names and pass flags (`--filter`, `--coverage`) that `pleno test` does not have.
+- The project view moved into the Explorer as **Pleno Project**, shown when the workspace has a
+  `pleno.toml`. It reads the manifest with a TOML parser and lists the entry file, scripts and
+  dependencies, and it updates when `pleno.toml` changes.
+- **Pleno: Show Status** (also the status bar item) is a menu with each tool's version, location
+  and the language server state, and the common actions. It replaces **Show Control Panel**,
+  **Show Output Channel** and the status report in the output.
+- **Pleno: New Project...** asks for a folder when the workspace has none without a project,
+  and opens the new project.
+- Commands are named for what they act on: **Run File**, **Check File**, **Open REPL**,
+  **Open pleno.toml**. Commands that need a Pleno file or project are hidden elsewhere.
+- Launch configurations take `program`, `cwd` and `env`, which is what `pleno-dap` supports; a
+  relative `program` is resolved against the workspace folder.
+- The walkthrough has one step per task (toolchain, project, run, tests, docs), and steps are
+  checked off when done.
+- Highlighting follows the lexer: template and raw strings, `${...}` in strings, character
+  literals, hex, binary and octal numbers, `_` separators, exponents, `@annotations`, and function,
+  class and constant names. Words that are not Pleno keywords are no longer highlighted.
 
 ### Fixed
 
 - Find references, rename and highlights from a function name or parameter found only the declaration.
+- Run and Check from the Explorer context menu ran the active editor's file instead of the clicked one.
+- ` ```pleno norun ` and other fences with an info string were not highlighted in Markdown.
+
+### Removed
+
+- The dashboard webview, which showed a hard-coded version and links to pages that do not exist.
+- The custom **Outline** view; VS Code's **Outline** shows the language server's symbols.
+- **Reload Workspace**, **Refresh Project View**, **Show Control Panel**, **Show Output Channel**
+  and **Start Debugging** (now **Debug File**).
+- The **Pleno** file icon theme, which replaced every other file's icon and claimed `.pl` files.
+  `.pln` files keep their icon in any theme.
+- The `attach` debug configuration and `stopOnEntry` and `args`, which `pleno-dap` does not support.
+- The `pleno.inlayHints.enabled` and `pleno.semanticHighlighting.enabled` settings, which had no
+  effect; use `editor.inlayHints.enabled` and `editor.semanticHighlighting.enabled` for `[pleno]`.
+- JSON validation for `pleno.toml`, which never applied to a TOML file.
 
 ## [0.2.0] - 2026-10-24
 

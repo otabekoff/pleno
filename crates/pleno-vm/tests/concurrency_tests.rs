@@ -27,7 +27,7 @@ fn test_mutex_concurrency() {
         import { Mutex } from "std:concurrency";
         import { sleep } from "std:time";
 
-        let counter = 0;
+        let mut counter = 0;
         let m = Mutex();
 
         async fn increment(by, delay) {

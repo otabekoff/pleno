@@ -1,22 +1,19 @@
-# Create your first Pleno Project
+# Create a project
 
-Pleno projects use a `pleno.toml` file to manage dependencies and scripts.
+**Pleno: New Project...** runs `plm init` in a folder you pick. The same in a terminal:
 
-### Initialize a new project
+```sh
+mkdir my-app
+cd my-app
+plm init my-app
+```
 
-1. Create a new directory for your project.
-2. Open it in VS Code.
-3. Run **Pleno: Create New Project**, or in the terminal:
-   ```bash
-   plm init my-awesome-project
-   ```
+It creates:
 
-### Project Structure
+- `pleno.toml`: the package name, version, entry file, scripts and dependencies.
+- `src/main.pln`: the entry file.
+- `tests/integration_test.pln`: a first test.
 
-- `pleno.toml`: Project manifest (TOML format) with dependencies and scripts.
-- `src/main.pln`: The entry point.
-- `tests/`: Tests, run with `plm test` or the Test Explorer.
-
-Once created, you should see the **Pleno Project Explorer** appearing in the sidebar!
-
-[Open Project Explorer](command:workbench.view.extension.pleno-explorer)
+When the folder has a `pleno.toml`, the **Pleno Project** view in the Explorer lists its scripts
+and dependencies. Click the play button next to a script to run it with `plm run`. The scripts,
+`plm build`, `plm test`, `plm install` and `plm update` are also in **Tasks: Run Task**.

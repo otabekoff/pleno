@@ -1,23 +1,18 @@
-# Run and Test your Code
+# Run and debug
 
-Pleno makes it easy to run and test your applications.
+Open a `.pln` file, for example:
 
-### Running a File
+```pleno
+fn greet(name: String): String {
+    return `Hello, ${name}!`;
+}
 
-Open any `.pln` file and use the Play button in the top right, or press `Ctrl+Shift+B` to select a run task.
-
-### Using the REPL
-
-Want to experiment? Open the **Pleno REPL** from the Command Palette to enter code interactively.
-
-### Running Tests
-
-Pleno has built-in testing support. Run your tests using:
-
-```bash
-plm test
+print(greet("Pleno"));
 ```
 
-Or use the **Test Explorer** tab in the sidebar to run them with a single click.
-
-[Open REPL](command:pleno.openRepl)
+- **Run File**, the play button in the editor title bar, saves the file and runs `pleno run` in
+  the terminal.
+- **Debug File**, or `F5`, starts the debugger. Click left of a line number to set a breakpoint,
+  then step through the code and look at the variables.
+- Errors and lint warnings show up in the **Problems** panel as you type.
+- **Pleno: Open REPL** starts an interactive session to try code out.

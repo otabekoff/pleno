@@ -58,6 +58,15 @@ The installers put the binaries in `~/.pleno/bin`, add it to your `PATH`, and ve
 
 Prebuilt archives for Linux, macOS and Windows are on the [Releases page](https://github.com/otabekoff/pleno/releases). See the [Code signing policy](https://pleno.mohirlab.uz/code-signing-policy) for how releases are signed and verified.
 
+To install the current state of a checkout instead of a release (the binaries in `~/.pleno/bin` and the VS Code extension from `ide/vscode`), run this from the repository; run it again after pulling to update:
+
+```bash
+scripts/dev-install.sh        # Linux and macOS
+scripts\dev-install.ps1       # Windows (PowerShell)
+```
+
+It needs Rust, plus Node.js and VS Code's `code` command for the extension (skip that part with `--skip-extension` / `-SkipExtension`).
+
 ### Your First Script
 
 Create a file named `hello.pln`:
