@@ -13,6 +13,7 @@ use std::rc::Rc;
 mod access;
 pub mod debug;
 pub mod event_loop;
+mod fast;
 mod method_cache;
 mod models;
 mod utils;
@@ -81,6 +82,12 @@ pub struct VM {
     /// name at that index is checked before use, so a stale entry only costs
     /// a normal lookup.
     global_slots: Vec<Vec<u32>>,
+    /// Values of globals that `run_fast` read, with the `globals_epoch` they
+    /// were read in (by function and name operand).
+    global_values: Vec<Vec<(u64, NanValue)>>,
+    /// Changes whenever a global may have changed, which forgets every value
+    /// in `global_values`.
+    globals_epoch: u64,
 }
 
 #[derive(Debug, Clone)]
@@ -96,6 +103,9 @@ pub struct Function {
     pub type_params: Vec<pleno_value::GenericParamMetadata>,
     pub type_constraints: IndexMap<String, Vec<String>>,
     pub annotations: Vec<pleno_value::RuntimeAnnotation>,
+    /// The argument counts a call can pass straight into the parameters
+    /// (see `plain_params`), worked out once from `params` and `arity`.
+    plain_args: (usize, usize),
 }
 
 impl VMProvider for VM {
@@ -133,8 +143,6 @@ impl VMProvider for VM {
         }
         let param_count = function.params.len();
         let register_count = function.chunk.max_registers.max(function.arity);
-        let current_module = function.module.clone();
-        let current_module_path = function.module_path.clone();
         let depth = self.frames.len();
         // As in `call_ext_with`, the result register is the callee's first one;
         // the frame at `depth` returns its value instead of storing it.
@@ -146,8 +154,11 @@ impl VMProvider for VM {
         for _ in args.len()..param_count.min(register_count) {
             self.registers.push(NanValue::missing());
         }
-        self.registers
-            .resize(base + register_count, NanValue::null());
+        // A loop over the reserved space: `resize` calls `memset`, which costs
+        // more than the few registers a call usually has.
+        while self.registers.len() < base + register_count {
+            self.registers.push(NanValue::null());
+        }
         self.frames.push(CallFrame {
             function_index,
             ip: 0,
@@ -156,11 +167,17 @@ impl VMProvider for VM {
             return_override: None,
             closure_state,
             current_owner: None,
-            current_module,
-            current_module_path,
             type_args: Vec::new(),
             exception_handlers: Vec::new(),
         });
+        // Short callbacks (`|x| => x * 2`) often run entirely in `run_fast`;
+        // their return then needs no general run.
+        if !self.debug_context.is_active() && self.sandbox_config.is_none() {
+            self.run_fast(depth)?;
+            if let Some(result) = self.finish_plain_return(depth) {
+                return Ok(result);
+            }
+        }
         match self.run_until(depth)? {
             ExecutionStatus::Finished(value) => Ok(value),
             ExecutionStatus::Paused => Err(RuntimeError::new("Paused during call_function")),
@@ -463,6 +480,7 @@ impl VMProvider for VM {
     }
 
     fn register_global(&mut self, name: String, value: Value) {
+        self.globals_epoch += 1;
         self.globals.insert(name, value);
     }
 
@@ -655,7 +673,7 @@ impl VM {
         let module_path = self
             .frames
             .last()
-            .and_then(|frame| frame.current_module_path.as_deref());
+            .and_then(|frame| self.functions[frame.function_index].module_path.as_deref());
         lookup_global_in(&self.globals, &self.module_globals, module_path, name)
     }
 
@@ -846,6 +864,8 @@ impl VM {
             output: None,
             error_class,
             global_slots: Vec::new(),
+            global_values: Vec::new(),
+            globals_epoch: 1,
         }
     }
 
@@ -861,6 +881,8 @@ impl VM {
     /// Loads the main script, recording its file path so breakpoints set on
     /// that file match and relative imports resolve from its directory.
     pub fn load_script_with_path(&mut self, chunk: Chunk, path: Option<String>) {
+        // Code outside a run may have changed `globals` directly.
+        self.globals_epoch += 1;
         let path = path.map(Rc::new);
         let max_regs = chunk.max_registers;
         let function = Function {
@@ -875,6 +897,7 @@ impl VM {
             type_params: Vec::new(),
             type_constraints: IndexMap::new(),
             annotations: Vec::new(),
+            plain_args: (0, 0),
         };
 
         self.functions.push(function);
@@ -897,8 +920,6 @@ impl VM {
             return_override: None,
             closure_state: Some(closure_gc),
             current_owner: None,
-            current_module: None,
-            current_module_path: path,
             type_args: Vec::new(),
             exception_handlers: Vec::new(),
         };
@@ -1001,6 +1022,7 @@ impl VM {
     /// Runs until the next breakpoint or the end of the program. Called again
     /// after a pause, it resumes from where execution stopped.
     pub fn run_debug(&mut self) -> Result<ExecutionStatus, RuntimeError> {
+        self.globals_epoch += 1;
         self.debug_context.resume();
         self.run_until(0)
     }
@@ -1038,6 +1060,7 @@ impl VM {
         &mut self,
         arrived: impl Fn((usize, u32), (usize, u32)) -> bool,
     ) -> Result<ExecutionStatus, RuntimeError> {
+        self.globals_epoch += 1;
         let Some(start) = self.current_location() else {
             return Ok(ExecutionStatus::Finished(Value::Null));
         };
@@ -1597,6 +1620,8 @@ impl VM {
         // between runs (a pause inside the run returns from it), so it is read
         // once; it stays true while stepping even after the flags clear.
         let debugging = self.debug_context.is_active();
+        // The instruction `run_fast` last stopped at without running anything.
+        let mut fast_skip: Option<(usize, usize)> = None;
         // The instruction after the one at `ip`, for instructions that also run
         // the following one they produce the input of (fused, saving a round
         // through this loop). Not while a debugger may stop at it.
@@ -1697,13 +1722,29 @@ impl VM {
             let instruction = unsafe { *code.add(ip) };
             let opcode = instruction.opcode();
 
+            // Simple instructions run in the smaller loop of `run_fast`. When it
+            // stops at once (an addition of strings, say), this instruction runs
+            // here instead.
+            if !debugging && self.sandbox_config.is_none() && fast::handles(opcode) {
+                let at = (code_function, ip);
+                if fast_skip != Some(at) {
+                    let before = self.instruction_count;
+                    self.run_fast(depth)?;
+                    if self.instruction_count == before {
+                        fast_skip = Some(at);
+                    }
+                    continue;
+                }
+                fast_skip = None;
+            }
+
             #[cfg(debug_assertions)]
             log::trace!("VM::run_step: ip={:04} {:?}", ip, opcode);
             frame.ip += 1;
 
             self.instruction_count += 1;
-            if self.instruction_count.is_multiple_of(100)
-                && let Some(config) = &self.sandbox_config
+            if let Some(config) = &self.sandbox_config
+                && self.instruction_count.is_multiple_of(100)
             {
                 if config.max_instructions > 0 && self.instruction_count > config.max_instructions {
                     return Err(
@@ -1921,13 +1962,14 @@ impl VM {
                         arity: proto.arity as usize,
                         params: proto.params.clone(),
                         // A function belongs to the module it is defined in.
-                        module: frame.current_module.clone(),
-                        module_path: frame.current_module_path.as_ref().cloned(),
+                        module: function.module.clone(),
+                        module_path: function.module_path.as_ref().cloned(),
                         is_async: proto.is_async,
                         is_pure: proto.is_pure,
                         type_params: proto.type_params.clone(),
                         type_constraints: proto.type_constraints.clone(),
                         annotations: proto.annotations.clone(),
+                        plain_args: plain_arg_range(&proto.params, proto.arity as usize),
                     });
                     let captures = vec![Value::Null; c];
                     let state = self.gc.allocate(ClosureState::new(func_index, captures))?;
@@ -1946,13 +1988,14 @@ impl VM {
                         arity: proto.arity as usize,
                         params: proto.params.clone(),
                         // A function belongs to the module it is defined in.
-                        module: frame.current_module.clone(),
-                        module_path: frame.current_module_path.as_ref().cloned(),
+                        module: function.module.clone(),
+                        module_path: function.module_path.as_ref().cloned(),
                         is_async: true,
                         is_pure: proto.is_pure,
                         type_params: proto.type_params.clone(),
                         type_constraints: proto.type_constraints.clone(),
                         annotations: proto.annotations.clone(),
+                        plain_args: plain_arg_range(&proto.params, proto.arity as usize),
                     });
                     self.registers[base + a] = NanValue::from_value(&Value::Function(func_index));
                 }
@@ -1969,13 +2012,14 @@ impl VM {
                         arity: proto.arity as usize,
                         params: proto.params.clone(),
                         // A function belongs to the module it is defined in.
-                        module: frame.current_module.clone(),
-                        module_path: frame.current_module_path.as_ref().cloned(),
+                        module: function.module.clone(),
+                        module_path: function.module_path.as_ref().cloned(),
                         is_async: proto.is_async,
                         is_pure: proto.is_pure,
                         type_params: proto.type_params.clone(),
                         type_constraints: proto.type_constraints.clone(),
                         annotations: proto.annotations.clone(),
+                        plain_args: plain_arg_range(&proto.params, proto.arity as usize),
                     });
                     self.registers[base + a] = NanValue::from_value(&Value::Function(func_index));
                 }
@@ -2615,7 +2659,7 @@ impl VM {
                         Some(MethodOwner::Class(c)) => Some(c.clone()),
                         _ => None,
                     };
-                    let current_module = frame.current_module.as_ref().cloned();
+                    let current_module = function.module.as_ref().cloned();
                     let target = self.registers[base + b].to_value();
                     match target {
                         Value::Map(map) => {
@@ -2916,7 +2960,7 @@ impl VM {
                                 if !can_access_method(
                                     &info,
                                     current_class.as_ref(),
-                                    frame.current_module.as_ref(),
+                                    function.module.as_ref(),
                                 ) {
                                     return Err(
                                         self.throw_runtime_error("static method access denied")
@@ -2945,7 +2989,7 @@ impl VM {
                                     if !can_access_method(
                                         &info,
                                         current_class.as_ref(),
-                                        frame.current_module.as_ref(),
+                                        function.module.as_ref(),
                                     ) {
                                         return Err(
                                             self.throw_runtime_error("property access denied")
@@ -2969,7 +3013,7 @@ impl VM {
                                         &visibility,
                                         &owner,
                                         current_class.as_ref(),
-                                        frame.current_module.as_ref(),
+                                        function.module.as_ref(),
                                     ) {
                                         let msg = field_access_error(
                                             "read",
@@ -2987,7 +3031,7 @@ impl VM {
                                     if !can_access_method(
                                         &info,
                                         current_class.as_ref(),
-                                        frame.current_module.as_ref(),
+                                        function.module.as_ref(),
                                     ) {
                                         return Err(
                                             self.throw_runtime_error("method access denied")
@@ -3013,7 +3057,7 @@ impl VM {
                                 if !can_access_method(
                                     &info,
                                     current_class.as_ref(),
-                                    frame.current_module.as_ref(),
+                                    function.module.as_ref(),
                                 ) {
                                     return Err(
                                         self.throw_runtime_error("static property access denied")
@@ -3039,7 +3083,7 @@ impl VM {
                                     &visibility,
                                     &class,
                                     current_class.as_ref(),
-                                    frame.current_module.as_ref(),
+                                    function.module.as_ref(),
                                 ) {
                                     let msg = field_access_error(
                                         "read",
@@ -3063,7 +3107,7 @@ impl VM {
                                 if !can_access_method(
                                     &info,
                                     current_class.as_ref(),
-                                    frame.current_module.as_ref(),
+                                    function.module.as_ref(),
                                 ) {
                                     return Err(
                                         self.throw_runtime_error("static method access denied")
@@ -3103,7 +3147,7 @@ impl VM {
                             if !can_access_method(
                                 &info,
                                 current_class.as_ref(),
-                                frame.current_module.as_ref(),
+                                function.module.as_ref(),
                             ) {
                                 return Err(self.throw_runtime_error("method access denied"));
                             }
@@ -3755,7 +3799,7 @@ impl VM {
                     };
                     // The cache indexes the shared globals, so it serves only code
                     // outside modules: a module's own top-level names come first.
-                    if frame.current_module_path.is_none() {
+                    if function.module_path.is_none() {
                         let func_index = frame.function_index;
                         let cached = self
                             .global_slots
@@ -3799,7 +3843,7 @@ impl VM {
                     let mut value = lookup_global_in(
                         &self.globals,
                         &self.module_globals,
-                        frame.current_module_path.as_deref(),
+                        function.module_path.as_deref(),
                         &name,
                     );
 
@@ -3878,8 +3922,8 @@ impl VM {
                     let val_obj = value.to_value();
 
                     // A module's top-level names stay in the module.
-                    let table = match frame
-                        .current_module_path
+                    let table = match function
+                        .module_path
                         .as_deref()
                         .and_then(|path| self.module_globals.get_mut(path.as_str()))
                     {
@@ -3887,6 +3931,7 @@ impl VM {
                         None => &mut self.globals,
                     };
                     table.insert(name.clone(), val_obj);
+                    self.globals_epoch += 1;
 
                     // Data Breakpoint Check
                     if self.debug_context.data_breakpoints.contains_key(&name) {
@@ -3899,7 +3944,7 @@ impl VM {
                         Value::String(value) => value.as_str().to_string(),
                         _ => return Err(RuntimeError::new("class name must be string")),
                     };
-                    let module = frame.current_module.as_ref().map(Rc::clone);
+                    let module = function.module.as_ref().map(Rc::clone);
                     let methods_map = match &self.registers[base + c].to_value() {
                         Value::Map(map) => map.borrow().entries.clone(),
                         _ => return Err(RuntimeError::new("class methods must be map")),
@@ -4011,7 +4056,7 @@ impl VM {
                         _ => return Err(RuntimeError::new("DefineInterface expects methods map")),
                     };
 
-                    let module = frame.current_module.as_ref().map(Rc::clone);
+                    let module = function.module.as_ref().map(Rc::clone);
                     self.registers[base + a] = NanValue::from_value(&Value::Interface(
                         self.gc.allocate(pleno_value::Interface {
                             name,
@@ -4707,7 +4752,7 @@ impl VM {
                         Value::String(s) => s.as_str().to_string(),
                         _ => return Err(RuntimeError::new("enum name must be string")),
                     };
-                    let module = frame.current_module.as_ref().map(Rc::clone);
+                    let module = function.module.as_ref().map(Rc::clone);
                     let enum_type = self.gc.allocate(EnumType {
                         name: Rc::new(name),
                         variants: IndexMap::new(),
@@ -5917,6 +5962,32 @@ impl VM {
     /// converting them to `Value`s. Returns `false` (doing nothing) for calls
     /// that need `call_any_value`: other callees, async functions, variadic or
     /// keyword-only parameters, and argument counts that are errors.
+    /// When the only frame above `depth` is at a plain `Return` (not async, no
+    /// return override), runs it as `run_step` would, ending the run for that
+    /// frame, and gives the returned value.
+    fn finish_plain_return(&mut self, depth: usize) -> Option<Value> {
+        if self.frames.len() != depth + 1 {
+            return None;
+        }
+        let frame = self.frames.last()?;
+        let function = &self.functions[frame.function_index];
+        let instruction = *function.chunk.code.get(frame.ip)?;
+        if instruction.opcode() != Opcode::Return
+            || function.is_async
+            || frame.return_override.is_some()
+        {
+            return None;
+        }
+        let frame_base = frame.base;
+        let result = self.registers[frame_base + instruction.a() as usize].to_value();
+        self.instruction_count += 1;
+        self.frames.truncate(depth);
+        if self.suspended_frames.is_empty() && self.pending_tasks.is_empty() {
+            self.release_registers(frame_base);
+        }
+        Some(result)
+    }
+
     /// Calls `callee` with the `argc` arguments from register `args_start` on,
     /// storing the result in `return_reg`.
     fn call_value_with_registers(
@@ -5998,26 +6069,42 @@ impl VM {
         }
         let param_count = function.params.len();
         let register_count = function.chunk.max_registers.max(function.arity);
-        let current_module = function.module.clone();
-        let current_module_path = function.module_path.clone();
 
         let base = self.registers.len();
+        // The arguments are below the new frame's registers.
+        if args_start + argc > base {
+            return Ok(false);
+        }
+        // `plain_params` holds, so `given <= function.arity <= register_count`.
+        let defaults_end = param_count.min(register_count).max(given);
         self.registers.reserve(register_count);
-        if let Some(receiver) = receiver
-            && register_count > 0
-        {
-            self.registers.push(receiver);
+        // SAFETY: `reserve` made room for `register_count` registers from
+        // `base` on. Each of them is written exactly once below (the receiver
+        // and arguments, then `missing` for parameters left out, then `null`)
+        // before `set_len` covers them, and the arguments read lie below `base`
+        // (checked above), in initialized registers.
+        unsafe {
+            let registers = self.registers.as_mut_ptr();
+            let mut at = base;
+            if let Some(receiver) = receiver {
+                registers.add(at).write(receiver);
+                at += 1;
+            }
+            for index in 0..argc {
+                registers.add(at).write(*registers.add(args_start + index));
+                at += 1;
+            }
+            // Parameters left out take their default values.
+            while at < base + defaults_end {
+                registers.add(at).write(NanValue::missing());
+                at += 1;
+            }
+            while at < base + register_count {
+                registers.add(at).write(NanValue::null());
+                at += 1;
+            }
+            self.registers.set_len(base + register_count);
         }
-        for index in 0..argc.min(register_count.saturating_sub(given - argc)) {
-            let arg = self.registers[args_start + index];
-            self.registers.push(arg);
-        }
-        // Parameters left out take their default values.
-        for _ in given..param_count.min(register_count) {
-            self.registers.push(NanValue::missing());
-        }
-        self.registers
-            .resize(base + register_count, NanValue::null());
 
         // Written in place: `push` built the frame and then copied it (a
         // `memcpy` call that showed up in profiles of calls).
@@ -6034,8 +6121,6 @@ impl VM {
                 return_override: None,
                 closure_state,
                 current_owner,
-                current_module,
-                current_module_path,
                 type_args: Vec::new(),
                 exception_handlers: Vec::new(),
             });
@@ -6077,8 +6162,6 @@ impl VM {
             .functions
             .get(function_index)
             .ok_or_else(|| RuntimeError::new("unknown function handle"))?;
-        let current_module = function.module.clone();
-        let current_module_path = function.module_path.clone();
         let function_arity = function.arity;
         let function_is_async = function.is_async;
         let max_registers = function.chunk.max_registers;
@@ -6219,8 +6302,6 @@ impl VM {
             return_override,
             closure_state,
             current_owner,
-            current_module,
-            current_module_path,
             type_args,
             exception_handlers: Vec::new(),
         });
@@ -6934,7 +7015,7 @@ impl VM {
         let base_dir = self
             .frames
             .last()
-            .and_then(|frame| frame.current_module_path.as_ref())
+            .and_then(|frame| self.functions[frame.function_index].module_path.as_ref())
             .map(|path| std::path::Path::new(path.as_ref()))
             .and_then(|path| path.parent())
             .map(|path| path.to_path_buf())
@@ -6978,6 +7059,7 @@ impl VM {
             type_params: Vec::new(),
             type_constraints: IndexMap::new(),
             annotations: Vec::new(),
+            plain_args: (0, 0),
         };
         let func_index = self.functions.len();
         self.functions.push(function);
@@ -6995,8 +7077,6 @@ impl VM {
             return_override: None,
             closure_state: None,
             current_owner: None,
-            current_module: Some(Rc::clone(&module_rc)),
-            current_module_path: Some(Rc::new(resolved_key.clone())),
             type_args: Vec::new(),
             exception_handlers: Vec::new(),
         });
@@ -7199,11 +7279,26 @@ const BOXED_VALUES_PER_COLLECTION: usize = 1 << 14;
 /// one to one: no variadic or keyword-only parameters, not too many
 /// arguments, and defaults for the parameters left out.
 fn plain_params(function: &Function, given: usize) -> bool {
-    given <= function.arity
-        && given <= function.params.len()
-        && function.params.iter().enumerate().all(|(index, param)| {
-            !param.is_variadic && !param.is_keyword_only && (index < given || param.has_default)
-        })
+    let (min, max) = function.plain_args;
+    min <= given && given <= max
+}
+
+/// The range of argument counts for which `plain_params` holds: at least one
+/// for each parameter up to the last without a default, at most one for each
+/// parameter (and no more than the arity); empty with a variadic or
+/// keyword-only parameter.
+fn plain_arg_range(params: &[ParamSpec], arity: usize) -> (usize, usize) {
+    if params
+        .iter()
+        .any(|param| param.is_variadic || param.is_keyword_only)
+    {
+        return (1, 0);
+    }
+    let required = params
+        .iter()
+        .rposition(|param| !param.has_default)
+        .map_or(0, |index| index + 1);
+    (required, arity.min(params.len()))
 }
 
 fn value_to_key(value: &Value) -> Result<ValueKey, RuntimeError> {

@@ -1,11 +1,13 @@
 use pleno_value::{RuntimeError, Value};
 
+#[inline]
 pub fn decode_offset(b: u8, c: u8) -> i16 {
     let hi = (b as i16) << 8;
     let lo = c as i16;
     hi | lo
 }
 
+#[inline]
 pub fn apply_offset(ip: usize, offset: i16) -> Result<usize, RuntimeError> {
     let next = ip as isize + offset as isize;
     if next < 0 {
