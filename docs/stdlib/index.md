@@ -25,7 +25,7 @@ Behavior a page calls unspecified (for example the order of `Directory.list`) is
 | [`std:json`](json.md)                   | stable       |                                                                                                                                             |
 | [`std:yaml`](yaml.md)                   | stable       |                                                                                                                                              |
 | [`std:toml`](toml.md)                   | stable       |                                                                                                                                              |
-| [`std:xml`](xml.md)                     | stable       | Input without a complete root element returns `null` instead of throwing; that case is unspecified.                                         |
+| [`std:xml`](xml.md)                     | stable       |                                                                                                                                             |
 | [`std:csv`](csv.md)                     | stable       |                                                                                                                                              |
 | [`std:base64`](base64.md)               | stable       |                                                                                                                                              |
 | [`std:promise`](promise.md)             | stable       | `Promise` and `spawn` are also globals.                                                                                                      |

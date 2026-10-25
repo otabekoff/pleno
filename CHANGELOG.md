@@ -59,6 +59,7 @@ Notable changes to Pleno. The format follows [Keep a Changelog](https://keepacha
 - `static const` fields cannot be reassigned (`cannot assign to constant MathUtils.PI`), and instance `const` fields can be assigned only by a constructor.
 - `let mut y = x;` made `y` share `x`'s storage, so assigning either changed both (in every scope, for numbers and strings alike).
 - `CSV.parse` errors no longer repeat their prefix (`CSV error: CSV error: ...`).
+- `XML.parse` throws on input without a complete root element: `XML parse error: no root element` for an empty string (or only comments or text) and `XML parse error: element <a> is not closed` for `<a>`. Before, it returned `null`.
 
 ### Documentation
 

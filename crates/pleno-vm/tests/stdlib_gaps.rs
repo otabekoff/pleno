@@ -157,6 +157,27 @@ fn json_stringify_rejects_a_map_that_contains_itself() {
     assert!(message.contains("nested too deeply"), "{message}");
 }
 
+#[test]
+fn xml_parse_throws_without_a_complete_root() {
+    for (input, expected) in [
+        ("", "no root element"),
+        ("   ", "no root element"),
+        ("<!-- only a comment -->", "no root element"),
+        ("<a>", "element <a> is not closed"),
+        ("<a><b></b>", "element <a> is not closed"),
+        ("<a></b>", "XML parse error"),
+    ] {
+        let message = eval_error(&format!(
+            r#"import {{ XML }} from "std:xml"; XML.parse("{input}");"#
+        ));
+        assert!(message.contains(expected), "{input:?}: {message}");
+    }
+    assert_eq!(
+        eval_string(r#"import { XML } from "std:xml"; XML.parse("<a><b/></a>").children[0].name;"#),
+        "b"
+    );
+}
+
 fn unix_now() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
