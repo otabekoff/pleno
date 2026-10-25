@@ -43,6 +43,7 @@ pub fn check_program(program: &Program) -> Vec<StaticDiagnostic> {
         tables: &tables,
         class: None,
         in_try: 0,
+        returns: Vec::new(),
         diagnostics: Vec::new(),
     };
     checker.visit_program(program);
@@ -385,7 +386,25 @@ struct Checker<'a, 'ast> {
     /// Inside the body of a `try` with a `catch`, where a failing call may be
     /// the point (tests do that), so nothing is reported.
     in_try: usize,
+    /// For each enclosing function, its name and the return annotation its
+    /// `return` literals are checked against (`None` when not checked).
+    returns: Vec<Option<(String, String)>>,
     diagnostics: Vec<StaticDiagnostic>,
+}
+
+/// The annotation a function's returned values are checked against at
+/// runtime, as the compiler reads it: `async` functions describe the resolved
+/// value (`Promise<Int>` is `Int`), and `Void` is not checked.
+fn checked_return_type(return_ty: Option<&String>, is_async: bool) -> Option<String> {
+    let ty = return_ty?.trim();
+    let ty = match ty
+        .strip_prefix("Promise<")
+        .and_then(|t| t.strip_suffix('>'))
+    {
+        Some(inner) if is_async => inner.trim(),
+        _ => ty,
+    };
+    (ty != "Void").then(|| ty.to_string())
 }
 
 /// One argument of a call, after a pipeline has supplied its left side.
@@ -406,12 +425,13 @@ fn describe_range(min: usize, max: Option<usize>) -> String {
 }
 
 /// The type a literal has at runtime, and its family: a literal of one family
-/// is never reported against an annotation of the same family, so `Float`
-/// accepting an `Int` literal is not second-guessed.
+/// is never reported against an annotation that accepts the family. `Float`
+/// and `Number` accept `Int` literals (an `Int` widens to a `Float`); `Int`
+/// does not accept `Float` literals. `String` and `Char` share a family.
 fn literal_type(expr: &Expr) -> Option<(&'static str, &'static str)> {
     match &expr.kind {
-        ExprKind::Literal(Literal::Int(_)) => Some(("Int", "number")),
-        ExprKind::Literal(Literal::Float(_)) => Some(("Float", "number")),
+        ExprKind::Literal(Literal::Int(_)) => Some(("Int", "int")),
+        ExprKind::Literal(Literal::Float(_)) => Some(("Float", "float")),
         ExprKind::Literal(Literal::String(_)) | ExprKind::InterpolatedString(_) => {
             Some(("String", "text"))
         }
@@ -422,8 +442,8 @@ fn literal_type(expr: &Expr) -> Option<(&'static str, &'static str)> {
             op: UnaryOp::Negate,
             expr,
         } => match &expr.kind {
-            ExprKind::Literal(Literal::Int(_)) => Some(("Int", "number")),
-            ExprKind::Literal(Literal::Float(_)) => Some(("Float", "number")),
+            ExprKind::Literal(Literal::Int(_)) => Some(("Int", "int")),
+            ExprKind::Literal(Literal::Float(_)) => Some(("Float", "float")),
             _ => None,
         },
         ExprKind::Paren(inner) => literal_type(inner),
@@ -447,15 +467,15 @@ fn literal_matches(ty: &str, family: &str, facts: &Facts) -> Option<bool> {
         if facts.type_names.contains(part) {
             return None;
         }
-        let part_family = match part {
-            "Int" | "Float" | "Number" => "number",
-            "String" | "Char" => "text",
-            "Bool" => "bool",
-            "Null" | "Void" => "null",
+        matches |= match part {
+            "Int" => family == "int",
+            "Float" | "Number" => matches!(family, "int" | "float"),
+            "String" | "Char" => family == "text",
+            "Bool" => family == "bool",
+            "Null" | "Void" => family == "null",
             "Any" => return Some(true),
             _ => return None,
         };
-        matches |= part_family == family;
     }
     Some(matches)
 }
@@ -693,6 +713,24 @@ fn describe_literal(type_name: &str) -> String {
 }
 
 impl<'a, 'ast> Visitor<'ast> for Checker<'a, 'ast> {
+    fn visit_function_decl(&mut self, decl: &'ast FunctionDecl) {
+        let checked = if decl.kind == FunctionKind::Setter
+            || decl.name == "constructor"
+            || decl.is_abstract
+        {
+            None
+        } else {
+            checked_return_type(decl.return_ty.as_ref(), decl.is_async)
+        };
+        let name = match decl.kind {
+            FunctionKind::Getter => decl.name.strip_prefix("get_").unwrap_or(&decl.name),
+            _ => decl.name.as_str(),
+        };
+        self.returns.push(checked.map(|ty| (name.to_string(), ty)));
+        visitor::walk_function_decl(self, decl);
+        self.returns.pop();
+    }
+
     fn visit_stmt(&mut self, stmt: &'ast Stmt) {
         match &stmt.kind {
             StmtKind::Let {
@@ -748,14 +786,36 @@ impl<'a, 'ast> Visitor<'ast> for Checker<'a, 'ast> {
                 }
                 self.class = saved;
             }
-            StmtKind::Fn { .. }
-            | StmtKind::Enum(_)
-            | StmtKind::Extend { .. }
-            | StmtKind::Interface { .. } => {
+            StmtKind::Fn {
+                name,
+                return_ty,
+                is_async,
+                ..
+            } => {
+                // `this` is not the enclosing class's instance in a function.
+                let saved = self.class.take();
+                let checked = checked_return_type(return_ty.as_ref(), *is_async);
+                self.returns.push(checked.map(|ty| (name.clone(), ty)));
+                visitor::walk_stmt(self, stmt);
+                self.returns.pop();
+                self.class = saved;
+            }
+            StmtKind::Enum(_) | StmtKind::Extend { .. } | StmtKind::Interface { .. } => {
                 // `this` is not the enclosing class's instance in these.
                 let saved = self.class.take();
                 visitor::walk_stmt(self, stmt);
                 self.class = saved;
+            }
+            StmtKind::Return(Some(value)) => {
+                if let Some(Some((name, ty))) = self.returns.last().cloned() {
+                    self.check_literal(&ty, value, |literal| {
+                        format!(
+                            "{name} is declared to return {ty} but returns {}",
+                            describe_literal(literal)
+                        )
+                    });
+                }
+                visitor::walk_stmt(self, stmt);
             }
             StmtKind::Try {
                 try_branch,
@@ -804,9 +864,29 @@ impl<'a, 'ast> Visitor<'ast> for Checker<'a, 'ast> {
                     visitor::walk_expr(self, expr);
                 }
             },
-            ExprKind::Lambda { .. } => {
+            ExprKind::Lambda {
+                return_ty,
+                is_async,
+                body,
+                ..
+            } => {
                 let saved = self.class.take();
+                let checked = checked_return_type(return_ty.as_ref(), *is_async);
+                // `fn(): Int => "s"` returns its body.
+                if let Some(ty) = &checked
+                    && !matches!(body.kind, ExprKind::Block(_))
+                {
+                    self.check_literal(ty, body, |literal| {
+                        format!(
+                            "lambda is declared to return {ty} but returns {}",
+                            describe_literal(literal)
+                        )
+                    });
+                }
+                self.returns
+                    .push(checked.map(|ty| ("lambda".to_string(), ty)));
                 visitor::walk_expr(self, expr);
+                self.returns.pop();
                 self.class = saved;
             }
             _ => visitor::walk_expr(self, expr),

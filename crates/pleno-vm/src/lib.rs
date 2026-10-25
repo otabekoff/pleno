@@ -1047,6 +1047,10 @@ impl VM {
         if let Some(parts) = split_top_level(ty, '|') {
             return parts.iter().any(|part| self.matches_type_name(value, part));
         }
+        // `A & B`: the value must satisfy every part.
+        if let Some(parts) = split_top_level(ty, '&') {
+            return parts.iter().all(|part| self.matches_type_name(value, part));
+        }
         if let Some(inner) = ty.strip_suffix('?') {
             return matches!(value, Value::Null) || self.matches_type_name(value, inner);
         }
@@ -1996,7 +2000,7 @@ impl VM {
                         Value::String(value) => value.as_str().to_string(),
                         _ => return Err(RuntimeError::new("field name must be string")),
                     };
-                    let value = self.registers[base + a].to_value();
+                    let mut value = self.registers[base + a].to_value();
                     match self.registers[base + b].to_value() {
                         Value::Object(object) => {
                             if object.borrow().is_immutable {
@@ -2020,6 +2024,7 @@ impl VM {
                                         );
                                         return Err(self.throw_runtime_error(&msg));
                                     }
+                                    value = widen_to_annotation(value, &ty_val);
                                 }
                             }
 
@@ -2384,6 +2389,9 @@ impl VM {
                                         );
                                         return Err(self.throw_runtime_error(&msg));
                                     }
+                                    let widened = widen_to_annotation(value.to_value(), &ty_val);
+                                    object.borrow_mut().fields.insert(name, widened);
+                                    continue;
                                 }
                             }
                             object.borrow_mut().fields.insert(name, value.to_value());
@@ -2429,10 +2437,11 @@ impl VM {
                                 }
                             }
 
+                            let mut stored = value.to_value();
                             let ty_name = class.borrow().static_field_types.get(&name).cloned();
                             if let Some(Some(ty_name)) = ty_name {
                                 let ty_val = Value::String(Rc::new(ty_name));
-                                if !self.is_instance(&value.to_value(), &ty_val) {
+                                if !self.is_instance(&stored, &ty_val) {
                                     let actual_type_name = value.type_name();
                                     let msg = format!(
                                         "TypeError: static field '{}' expected {}, got {}",
@@ -2442,12 +2451,10 @@ impl VM {
                                     );
                                     return Err(self.throw_runtime_error(&msg));
                                 }
+                                stored = widen_to_annotation(stored, &ty_val);
                             }
 
-                            class
-                                .borrow_mut()
-                                .static_fields
-                                .insert(name, value.to_value());
+                            class.borrow_mut().static_fields.insert(name, stored);
                         }
                         _ => return Err(RuntimeError::new("field set on non-object")),
                     }
@@ -4329,6 +4336,13 @@ impl VM {
                 Opcode::Destructure => {
                     check_destructure(&self.registers[base + a].to_value(), b as u8, c)?;
                 }
+                Opcode::ToFloat => {
+                    let value = self.registers[base + b];
+                    self.registers[base + a] = match value.as_int() {
+                        Some(int) => NanValue::from_f64(int as f64),
+                        None => value,
+                    };
+                }
                 Opcode::SetVariantValue => {
                     let variant_name = match &function.chunk.constants[b] {
                         Value::String(s) => s.to_string(),
@@ -4859,9 +4873,10 @@ impl VM {
             Value::Map(m) => {
                 if let Some(Value::String(s)) = m.borrow().entries.get("__native_type") {
                     let type_name = s.as_str();
+                    // An `Int` is accepted where a `Float` is expected.
                     matches!(
                         (type_name, value),
-                        ("Int", Value::Int(_)) | ("Float", Value::Float(_))
+                        ("Int", Value::Int(_)) | ("Float", Value::Float(_) | Value::Int(_))
                     )
                 } else {
                     false
@@ -6476,7 +6491,22 @@ fn tuple_type_elements(ty: &str) -> Option<Vec<String>> {
     None
 }
 
+/// `value` as stored under the annotation `ty` (a string) after passing its
+/// check: an `Int` becomes a `Float` where the annotation calls for one.
+fn widen_to_annotation(value: Value, ty: &Value) -> Value {
+    match (&value, ty) {
+        (Value::Int(int), Value::String(ty)) if pleno_bytecode::annotation_widens_int(ty) => {
+            Value::Float(*int as f64)
+        }
+        _ => value,
+    }
+}
+
 fn split_top_level(text: &str, sep: char) -> Option<Vec<String>> {
+    // Most annotations have no separator: answer without allocating.
+    if !text.contains(sep) {
+        return None;
+    }
     let mut parts = Vec::new();
     let mut depth = 0i32;
     let mut current = String::new();

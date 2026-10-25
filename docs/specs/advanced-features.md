@@ -282,8 +282,12 @@ class Employee implements Nameable, Ageable {
     fn getAge(): Int { return 40; }
 }
 
-let ann = Employee();
-print(ann.getName() + " is " + ann.getAge() + " years old");  // Ann is 40 years old
+displayPerson(Employee());  // Ann is 40 years old
+
+class Pet implements Nameable {
+    fn getName(): String { return "Rex"; }
+}
+// displayPerson(Pet()) throws: parameter 'p' expected Person, got Pet
 ```
 
-> **Note**: The runtime check for an intersection type currently rejects class instances that implement all of its interfaces. `displayPerson(Employee())` throws `TypeError: parameter 'p' expected Person, got Employee`.
+A value matches an intersection type when it matches every part: here, an instance of a class that implements both interfaces (or has all of their methods).

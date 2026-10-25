@@ -1,0 +1,11 @@
+// expect-error: cannot assign to '&mut' parameter 'text'
+// Reassigning a `&mut` parameter would not change the caller's variable, so
+// it is a compile error. Return the new value instead.
+
+fn shout(text: &mut String) {
+    text = text + "!";
+}
+
+let mut greeting = "hi";
+shout(greeting);
+print(greeting);

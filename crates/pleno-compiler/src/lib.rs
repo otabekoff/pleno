@@ -32,6 +32,35 @@ struct Local {
     ty: Option<String>,
     is_boxed: bool,
     start_ip: usize,
+    /// A `&mut` parameter: reassigning it would not reach the caller.
+    borrow_mut: bool,
+}
+
+/// The class, enum or extension whose methods are being compiled.
+#[derive(Debug, Clone)]
+struct OwnerContext {
+    name: String,
+    generics: Vec<String>,
+}
+
+impl OwnerContext {
+    fn new(name: &str, generics: &[pleno_ast::GenericParam]) -> Self {
+        Self {
+            name: name.to_string(),
+            generics: generics.iter().map(|g| g.name.clone()).collect(),
+        }
+    }
+}
+
+/// A function's return annotation as checked at each `return`.
+#[derive(Debug, Clone)]
+struct ReturnCheck {
+    /// The annotation the value must match (for `async`, the resolved value).
+    ty: String,
+    /// "TypeError: <name> returned ".
+    prefix: String,
+    /// ", expected <annotation>".
+    suffix: String,
 }
 
 #[derive(Debug, Clone)]
@@ -108,6 +137,12 @@ pub struct Compiler {
     /// so a `?.` inside that object continues the same chain.
     in_postfix_chain: bool,
     expr_depth: usize,
+    /// Set while compiling the methods of a class, enum or extension.
+    owner_context: Option<OwnerContext>,
+    /// Type parameters in scope (of enclosing functions and classes).
+    generic_names: Vec<String>,
+    /// The return annotation checked at each `return` of this function.
+    return_check: Option<ReturnCheck>,
     pub is_async: bool,
     pub profile: BuildProfile,
     _source_map: pleno_diagnostics::SourceMap,
@@ -159,6 +194,9 @@ impl Compiler {
             optional_chain_jumps: Vec::new(),
             in_postfix_chain: false,
             expr_depth: 0,
+            owner_context: None,
+            generic_names: Vec::new(),
+            return_check: None,
             is_async: false,
             profile: BuildProfile::Debug,
         }
@@ -311,15 +349,15 @@ impl Compiler {
                     if *is_lazy {
                         let thunk_reg = self.compile_lazy_thunk(expr)?;
                         if let Some(ty_name) = ty {
-                            self.emit_type_check(thunk_reg, ty_name)?;
+                            self.emit_type_check_only(thunk_reg, ty_name)?;
                         }
                         thunk_reg
                     } else {
                         let reg = self.compile_expr(expr)?;
-                        if let Some(ty_name) = ty {
-                            self.emit_type_check(reg, ty_name)?;
+                        match ty {
+                            Some(ty_name) => self.emit_type_check(reg, ty_name)?,
+                            None => reg,
                         }
-                        reg
                     }
                 } else {
                     let reg = self.registers.allocate()?;
@@ -328,7 +366,7 @@ impl Compiler {
                     // but many primitives don't allow Null.
                     // Keeping it simple: if typed, Null must match the type (it won't for Int etc)
                     if let Some(ty_name) = ty {
-                        self.emit_type_check(reg, ty_name)?;
+                        self.emit_type_check_only(reg, ty_name)?;
                     }
                     reg
                 };
@@ -365,20 +403,23 @@ impl Compiler {
             } => {
                 let reg = self.compile_expr(value)?;
                 if let Some(ty_name) = ty {
-                    self.emit_type_check(reg, ty_name)?;
+                    self.emit_type_check_only(reg, ty_name)?;
                 }
                 self.compile_binding_pattern(pattern, reg, *mutable)?;
                 self.free_temp(reg);
                 Ok(())
             }
             StmtKind::Assign { name, value } => {
-                let value_reg = self.compile_expr(value)?;
+                let mut value_reg = self.compile_expr(value)?;
                 if let Some(local) = self.resolve_local(name) {
+                    if local.borrow_mut {
+                        return Err(self.error(&mut_param_assign_message(name), stmt.span));
+                    }
                     if !local.mutable {
                         return Err(self.error("cannot assign to immutable binding", stmt.span));
                     }
                     if let Some(ty_name) = &local.ty {
-                        self.emit_type_check(value_reg, ty_name)?;
+                        value_reg = self.emit_type_check(value_reg, ty_name)?;
                     }
                     if local.is_boxed {
                         self.emit(Opcode::SetCell, local.reg, value_reg, 0);
@@ -392,7 +433,7 @@ impl Compiler {
                     let is_boxed = info.is_boxed;
 
                     if let Some(ty) = &info.ty {
-                        self.emit_type_check(value_reg, ty)?;
+                        value_reg = self.emit_type_check(value_reg, ty)?;
                     }
 
                     if is_boxed {
@@ -670,6 +711,7 @@ impl Compiler {
                 name,
                 generics,
                 params,
+                return_ty,
                 body,
                 annotations,
                 is_async,
@@ -702,7 +744,7 @@ impl Compiler {
                     name_span: *name_span,
                     generics: generics.clone(),
                     params: params.clone(),
-                    return_ty: None,
+                    return_ty: return_ty.clone(),
                     body: body.clone(),
                     is_static: false,
                     is_abstract: false,
@@ -755,6 +797,7 @@ impl Compiler {
                     let jump = self.emit_jump(Opcode::Jump, 0);
                     self.inline_return_stack.last_mut().unwrap().push(jump);
                 } else {
+                    let reg = self.emit_return_check(reg)?;
                     // Execute valid finally blocks in reverse order
                     let pending_finally = self.finally_stack.to_vec();
                     for finally_stmt in pending_finally.iter().rev().flatten() {
@@ -1811,6 +1854,9 @@ impl Compiler {
                 let return_reg = self.registers.allocate()?;
 
                 if let Some(local) = self.resolve_local(name) {
+                    if local.borrow_mut {
+                        return Err(self.error(&mut_param_assign_message(name), expr.span));
+                    }
                     if !local.mutable {
                         return Err(self.error("cannot increment immutable variable", expr.span));
                     }
@@ -2908,6 +2954,7 @@ impl Compiler {
             .map(|(idx, info)| (info.name.clone(), (idx, info.clone())))
             .collect();
         compiler.current_super = current_super;
+        self.setup_return_check(&mut compiler, decl);
         let mut params = Vec::new();
         if is_method {
             params.push("this".to_string());
@@ -2932,6 +2979,16 @@ impl Compiler {
                 .iter()
                 .any(|p| p.name == *param && p.ownership == pleno_ast::Ownership::Borrow);
             compiler.insert_local(param.clone(), reg, !borrowed, ty)?;
+            // A `&mut` parameter cannot be reassigned either: the new value
+            // would not reach the caller's variable.
+            if decl
+                .params
+                .iter()
+                .any(|p| p.name == *param && p.ownership == pleno_ast::Ownership::BorrowMut)
+                && let Some(local) = compiler.locals.last_mut().and_then(|s| s.get_mut(param))
+            {
+                local.borrow_mut = true;
+            }
         }
         for param in decl.params.iter() {
             if let Some(default) = &param.default {
@@ -2996,6 +3053,9 @@ impl Compiler {
                 compiler.emit(Opcode::Throw, msg_reg, 0, 1);
 
                 compiler.patch_jump(skip_jump)?;
+                if compiler.widens_int(ty_name) {
+                    compiler.emit(Opcode::ToFloat, param_reg, param_reg, 0);
+                }
 
                 compiler.free_temp(type_reg);
                 compiler.free_temp(result_reg);
@@ -3030,6 +3090,7 @@ impl Compiler {
                 reg
             }
         };
+        let return_reg = compiler.emit_return_check(return_reg)?;
         compiler.emit(Opcode::Return, return_reg, 0, 0);
         compiler.chunk.max_registers = compiler.registers.max_used.max(params.len());
         compiler.chunk.module_name = self.module_name.clone();
@@ -3337,6 +3398,7 @@ impl Compiler {
             }
         }
 
+        self.setup_return_check(&mut compiler, &decl);
         compiler.compile_stmt(&decl.body)?;
         let return_reg = match compiler.last_expr_register {
             Some(reg) => reg,
@@ -3346,6 +3408,7 @@ impl Compiler {
                 reg
             }
         };
+        let return_reg = compiler.emit_return_check(return_reg)?;
         compiler.emit(Opcode::Return, return_reg, 0, 0);
         compiler.chunk.max_registers = compiler.registers.max_used.max(params.len());
         compiler.chunk.module_name = self.module_name.clone();
@@ -3489,9 +3552,12 @@ impl Compiler {
     fn compile_extend_stmt(
         &mut self,
         target: &str,
-        _generics: &[pleno_ast::GenericParam],
+        generics: &[pleno_ast::GenericParam],
         methods: &[pleno_ast::FunctionDecl],
     ) -> Result<(), CompileError> {
+        let saved_owner = self
+            .owner_context
+            .replace(OwnerContext::new(target, generics));
         let class_reg = self.registers.allocate()?;
 
         // Resolve target class; built-in types are passed by name.
@@ -3529,6 +3595,7 @@ impl Compiler {
         }
 
         self.free_temp(class_reg);
+        self.owner_context = saved_owner;
         Ok(())
     }
 
@@ -3571,6 +3638,9 @@ impl Compiler {
             ),
             _ => return Err(self.error("expected class statement", self.current_span)),
         };
+        let saved_owner = self
+            .owner_context
+            .replace(OwnerContext::new(name, generics));
 
         let methods_reg = self.registers.allocate()?;
         self.emit(Opcode::NewMap, methods_reg, 0, 0);
@@ -3869,7 +3939,17 @@ impl Compiler {
             let vis_code = visibility_code(field.visibility.as_ref());
             if field.is_static {
                 let value_reg = if let Some(default) = &field.default {
-                    self.compile_expr(default)?
+                    let reg = self.compile_expr(default)?;
+                    // `static rate: Float = 1;` stores a Float, as an assignment would.
+                    match &field.ty {
+                        Some(ty) if self.widens_int(ty) => {
+                            let dest = self.registers.allocate()?;
+                            self.emit(Opcode::ToFloat, dest, reg, 0);
+                            self.free_temp(reg);
+                            dest
+                        }
+                        _ => reg,
+                    }
                 } else {
                     let r = self.registers.allocate()?;
                     self.emit(Opcode::LoadNull, r, 0, 0);
@@ -3888,7 +3968,9 @@ impl Compiler {
             }
 
             if let Some(ty_name) = &field.ty {
-                let ty_idx = self.add_constant(Value::String(Rc::new(ty_name.clone())));
+                // The VM checks fields from this text, so aliases are expanded.
+                let ty_name = self.expand_type_aliases_deep(ty_name);
+                let ty_idx = self.add_constant(Value::String(Rc::new(ty_name)));
                 if field.is_static {
                     self.emit(Opcode::SetStaticFieldType, class_reg, field_idx, ty_idx);
                 } else {
@@ -3993,6 +4075,7 @@ impl Compiler {
 
         self.free_temp(methods_reg);
         self.free_temp(static_reg);
+        self.owner_context = saved_owner;
         Ok(class_reg)
     }
 
@@ -4034,6 +4117,9 @@ impl Compiler {
             }
         }
 
+        let saved_owner = self
+            .owner_context
+            .replace(OwnerContext::new(&decl.name, &[]));
         for method in &decl.methods {
             let method_reg = self.compile_function(method, !method.is_static, true, None, None)?;
             let name_idx = self.add_constant(Value::String(method.name.clone().into()));
@@ -4045,6 +4131,7 @@ impl Compiler {
             }
             self.free_temp(method_reg);
         }
+        self.owner_context = saved_owner;
 
         Ok(enum_reg)
     }
@@ -4978,7 +5065,161 @@ impl Compiler {
         Ok(())
     }
 
-    fn emit_type_check(&mut self, reg: u8, ty_name: &str) -> Result<(), CompileError> {
+    /// Checks the value in `reg` against `ty_name` and returns the register
+    /// holding the value to store: a new one holding a `Float` when the
+    /// annotation widens an `Int` (`reg` itself is left unchanged, since it may
+    /// be another variable's register).
+    fn emit_type_check(&mut self, reg: u8, ty_name: &str) -> Result<u8, CompileError> {
+        self.emit_type_check_only(reg, ty_name)?;
+        if self.widens_int(ty_name) {
+            let dest = self.registers.allocate()?;
+            self.emit(Opcode::ToFloat, dest, reg, 0);
+            self.free_temp(reg);
+            return Ok(dest);
+        }
+        Ok(reg)
+    }
+
+    /// Whether a value checked against `ty_name` is stored as a `Float` when
+    /// it is an `Int` (see `pleno_bytecode::annotation_widens_int`).
+    fn widens_int(&self, ty_name: &str) -> bool {
+        let ty = ty_name.trim();
+        let core = ty.strip_suffix('?').unwrap_or(ty).trim();
+        let expanded = self.expand_type_aliases_deep(core);
+        // `T | Float` with `T = Int` must keep an `Int`.
+        !mentions_any(&expanded, &self.generic_names)
+            && pleno_bytecode::annotation_widens_int(&expanded)
+    }
+
+    /// Sets up `child`, the compiler of `decl`'s body: the type parameters in
+    /// scope and the check of its return annotation.
+    fn setup_return_check(&self, child: &mut Compiler, decl: &FunctionDecl) {
+        let mut generic_names = self.generic_names.clone();
+        if let Some(owner) = &self.owner_context {
+            generic_names.extend(owner.generics.iter().cloned());
+        }
+        generic_names.extend(decl.generics.iter().map(|g| g.name.clone()));
+        child.return_check = self.return_check_for(decl, &generic_names);
+        child.generic_names = generic_names;
+    }
+
+    /// The check of `decl`'s return annotation, or `None` when there is
+    /// nothing this can check reliably: no annotation, `Any`, `Void`, a type
+    /// that mentions a type parameter, setters, constructors and abstract
+    /// methods. For an `async` function the annotation describes the resolved
+    /// value, so `Promise<Int>` checks for an `Int`.
+    fn return_check_for(
+        &self,
+        decl: &FunctionDecl,
+        generic_names: &[String],
+    ) -> Option<ReturnCheck> {
+        let declared = decl.return_ty.as_deref()?.trim();
+        if decl.is_abstract || decl.name == "constructor" || decl.kind == FunctionKind::Setter {
+            return None;
+        }
+        let mut ty = declared;
+        if decl.is_async {
+            if let Some(inner) = ty
+                .strip_prefix("Promise<")
+                .and_then(|t| t.strip_suffix('>'))
+            {
+                ty = inner.trim();
+            } else if ty == "Promise" {
+                return None;
+            }
+        }
+        let core = ty.strip_suffix('?').unwrap_or(ty).trim();
+        let expanded = self.expand_type_aliases_deep(core);
+        if ty.is_empty()
+            || matches!(expanded.trim(), "Any" | "Void")
+            || mentions_any(&expanded, generic_names)
+            || mentions_any(&expanded, &["Self".to_string(), "This".to_string()])
+        {
+            return None;
+        }
+        // A user generic such as `Box<Int>` is checked by its class alone, which
+        // needs no allocation; anything else with type arguments that the VM does
+        // not read from text is skipped.
+        let mut checked = ty.to_string();
+        if !expanded.starts_with('(')
+            && let Some((base, _)) = expanded.split_once('<')
+            && !matches!(base.trim(), "Array" | "Map" | "Set" | "Result" | "Option")
+        {
+            let simple = expanded.ends_with('>')
+                && base.trim().chars().all(|c| c.is_alphanumeric() || c == '_');
+            if !simple || ty.ends_with('?') {
+                return None;
+            }
+            checked = base.trim().to_string();
+        }
+        let name = if decl.name == "anonymous" {
+            "lambda".to_string()
+        } else {
+            let base = match decl.kind {
+                FunctionKind::Getter => decl.name.strip_prefix("get_").unwrap_or(&decl.name),
+                _ => decl.name.as_str(),
+            };
+            match &self.owner_context {
+                Some(owner) => format!("{}.{base}", owner.name),
+                None => base.to_string(),
+            }
+        };
+        Some(ReturnCheck {
+            ty: checked,
+            prefix: format!("TypeError: {name} returned "),
+            suffix: format!(", expected {ty}"),
+        })
+    }
+
+    /// Checks a value about to be returned against the function's return
+    /// annotation and returns the register holding the value to return. On
+    /// success this costs a type lookup, an `Is` and a jump, and allocates
+    /// nothing; without an annotation it emits nothing.
+    fn emit_return_check(&mut self, reg: u8) -> Result<u8, CompileError> {
+        let Some(check) = self.return_check.clone() else {
+            return Ok(reg);
+        };
+        let type_reg = self.registers.allocate()?;
+        if let Some(local) = self.resolve_local(&check.ty) {
+            self.emit(Opcode::Move, type_reg, local.reg, 0);
+        } else if let Some((idx, _)) = self.captures.get(&check.ty) {
+            self.emit(Opcode::LoadCapture, type_reg, *idx as u8, 0);
+        } else {
+            let reified = self.emit_reified_type(&check.ty)?;
+            self.emit(Opcode::Move, type_reg, reified, 0);
+            self.free_temp(reified);
+        }
+        let ok_reg = self.registers.allocate()?;
+        self.emit(Opcode::Is, ok_reg, reg, type_reg);
+        let skip_jump = self.emit_jump(Opcode::JumpIf, ok_reg);
+
+        let msg_reg = self.registers.allocate()?;
+        let prefix = self.add_constant(Value::String(Rc::new(check.prefix.clone())));
+        self.emit(Opcode::LoadConst, msg_reg, prefix, 0);
+        let part_reg = self.registers.allocate()?;
+        self.emit(Opcode::TypeOf, part_reg, reg, 0);
+        self.emit(Opcode::Add, msg_reg, msg_reg, part_reg);
+        let suffix = self.add_constant(Value::String(Rc::new(check.suffix.clone())));
+        self.emit(Opcode::LoadConst, part_reg, suffix, 0);
+        self.emit(Opcode::Add, msg_reg, msg_reg, part_reg);
+        // `c = 1`: thrown as an `Error`, like the VM's own errors.
+        self.emit(Opcode::Throw, msg_reg, 0, 1);
+        self.patch_jump(skip_jump)?;
+
+        self.free_temp(part_reg);
+        self.free_temp(msg_reg);
+        self.free_temp(ok_reg);
+        self.free_temp(type_reg);
+
+        if self.widens_int(&check.ty) {
+            let dest = self.registers.allocate()?;
+            self.emit(Opcode::ToFloat, dest, reg, 0);
+            return Ok(dest);
+        }
+        Ok(reg)
+    }
+
+    fn emit_type_check_only(&mut self, reg: u8, ty_name: &str) -> Result<(), CompileError> {
         // Parse the type string to handle optional and union types
         let (base_types, is_optional) = self.parse_type_string(ty_name);
 
@@ -5090,8 +5331,57 @@ impl Compiler {
         expanded
     }
 
+    /// Expands type aliases anywhere in an annotation: the whole annotation as
+    /// [`Self::expand_type_alias`] does, and aliases without type parameters
+    /// used inside a larger type (`Money?`, `Money | String`, `Money[]`).
+    fn expand_type_aliases_deep(&self, ty: &str) -> String {
+        let mut current = ty.trim().to_string();
+        // Aliases may name other aliases; the bound stops alias cycles.
+        for _ in 0..8 {
+            let mut next = self.expand_type_alias(&current);
+            if next == current && !self.type_aliases.is_empty() {
+                let mut out = String::with_capacity(next.len());
+                let mut word = String::new();
+                let mut in_string = false;
+                for ch in next.chars().map(Some).chain(std::iter::once(None)) {
+                    if let Some(ch) = ch
+                        && (ch.is_alphanumeric() || ch == '_')
+                    {
+                        word.push(ch);
+                        continue;
+                    }
+                    match self.type_aliases.get(&word) {
+                        // A union or optional cannot be pasted into a larger
+                        // type without changing its meaning (`U[]`).
+                        Some((params, aliased))
+                            if params.is_empty()
+                                && !in_string
+                                && !aliased.contains(['|', '&', '?']) =>
+                        {
+                            out.push_str(aliased.trim())
+                        }
+                        _ => out.push_str(&word),
+                    }
+                    word.clear();
+                    if let Some(ch) = ch {
+                        if ch == '"' {
+                            in_string = !in_string;
+                        }
+                        out.push(ch);
+                    }
+                }
+                next = out;
+            }
+            if next == current {
+                break;
+            }
+            current = next;
+        }
+        current
+    }
+
     fn emit_reified_type(&mut self, ty_name: &str) -> Result<u8, CompileError> {
-        let expanded = self.expand_type_alias(ty_name.trim());
+        let expanded = self.expand_type_aliases_deep(ty_name);
         let ty_name = expanded.as_str();
         // Built-in generic collections, `Result` and `Option` are checked from
         // the annotation text by the VM.
@@ -5260,6 +5550,7 @@ impl Compiler {
                     ty,
                     is_boxed,
                     start_ip: self.chunk.code.len(),
+                    borrow_mut: false,
                 },
             );
         }
@@ -5901,6 +6192,24 @@ impl RegisterAllocator {
             self.free.push(reg);
         }
     }
+}
+
+/// `&mut` marks a parameter whose value the function may change in place; a
+/// parameter holds its own copy of the reference, so reassigning it (for any
+/// type) would never reach the caller's variable and is rejected.
+fn mut_param_assign_message(name: &str) -> String {
+    format!(
+        "cannot assign to '&mut' parameter '{name}': the caller's variable would not change; \
+         mutate the value in place or return the new value"
+    )
+}
+
+/// Whether the annotation `ty` mentions one of `names` as a whole word.
+fn mentions_any(ty: &str, names: &[String]) -> bool {
+    !names.is_empty()
+        && ty
+            .split(|c: char| !(c.is_alphanumeric() || c == '_'))
+            .any(|word| names.iter().any(|name| name == word))
 }
 
 fn encode_offset(offset: i16) -> (u8, u8) {
