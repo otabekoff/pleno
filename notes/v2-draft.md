@@ -20,15 +20,6 @@ with (file = File.open("data.txt", "r")) {
 
 Until then, close handles in `finally`.
 
-### Patterns in `for` loops
-
-Status: not started. `let` destructuring works; `for` does not take patterns.
-
-```text
-for ((name, score) in pairs) { ... }
-for ([first, ...rest] in rows) { ... }
-```
-
 ### Iterating strings
 
 Status: not started. `for (c in "abc")` is a compile error (`for loop expects array, set, or range`) and a string variable throws `type 'String' is not iterable`. Planned: iterate Unicode characters.

@@ -1,0 +1,7 @@
+// expect-error: tuple has 2 elements, pattern expects 3
+// A `for` pattern that does not fit an item is a runtime error, as in `let`.
+
+let pairs = [(1, 2), (3, 4)];
+for ((a, b, c) in pairs) {
+    print(a, b, c);
+}
