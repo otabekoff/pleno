@@ -118,7 +118,7 @@ Status: `Router` and `Server` are experimental in 1.0. Missing: middleware (`app
 
 ### Sandboxing
 
-Status: `std:security` is experimental. Planned: path rules that normalize paths (today `--allow-read data/` is a string prefix test that `data/../x` passes), keeping the original error `name` for errors from `Sandbox.run`, a time limit, and restricting `File.exists`.
+Status: `std:security` is experimental. Planned: keeping the original error `name` for errors from `Sandbox.run`, and a time limit. (Path rules normalize paths, and `Path.exists` and friends are checked, since 2026-10-26.)
 
 ## Tooling
 
