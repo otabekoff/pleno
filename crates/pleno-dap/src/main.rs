@@ -8,6 +8,26 @@ use std::io::{BufReader, stdout};
 const STACK_SIZE: usize = 64 * 1024 * 1024;
 
 fn main() -> Result<()> {
+    // Editors start this program without arguments; other arguments are ignored.
+    match std::env::args().nth(1).as_deref() {
+        Some("-v" | "--version") => {
+            println!("pleno-dap {}", env!("CARGO_PKG_VERSION"));
+            return Ok(());
+        }
+        Some("-h" | "--help") => {
+            println!(
+                "Pleno debug adapter (pleno-dap)
+
+Speaks the Debug Adapter Protocol on stdin and stdout; editors start it.
+
+Options:
+  -h, --help     Show this help message
+  -v, --version  Show version information"
+            );
+            return Ok(());
+        }
+        _ => {}
+    }
     std::thread::Builder::new()
         .name("pleno-dap".to_string())
         .stack_size(STACK_SIZE)

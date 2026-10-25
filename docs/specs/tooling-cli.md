@@ -21,17 +21,15 @@ pleno watch main.pln
 ## Building
 
 ```bash
-# Compile to bytecode (writes main.plc next to main.pln)
+# Compile to bytecode (writes main.plc next to main.pln, or where -o says)
 pleno compile main.pln
+pleno compile main.pln -o build/app.plc
 
 # Run the compiled bytecode
 pleno run main.plc
 
-# Build optimized binary
-pleno build --release --output app
-
-# Cross-compile (future)
-pleno build --target wasm32
+# Compile the package's main file (from pleno.toml) with the release profile
+pleno build --release -o build/app.plc
 ```
 
 ### The `.plc` format
