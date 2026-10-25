@@ -35,7 +35,7 @@ Status: not started. `for (c in "abc")` is a compile error (`for loop expects ar
 
 ### Byte-level string access
 
-Status: not started. There are no byte APIs (`bytes()`, `byteLength`). Positions are meant to count Unicode characters; see "Bugs that block the freeze" below.
+Status: not started. There are no byte APIs (`bytes()`, `byteLength`). Every string position and length counts Unicode characters.
 
 ### Map literals with non-string keys
 
@@ -142,7 +142,6 @@ Status: `std:security` is experimental. Planned: path rules that normalize paths
 
 These are not features but differences between the reference and the implementation; the reference describes the intended behavior.
 
-- String positions: `length`, `indexOf`, `substring`, `charAt` and `s[a..b]` count UTF-8 bytes while `s[i]` counts characters; `substring` and `charAt` inside a multi-byte character panic the VM. `"abc".split("")` returns `["", "a", "b", "c", ""]`.
 - `a != b` does not use `operator ==`.
 - `@pure` rejects non-empty array and map literals.
 - Generic constraints report `Type 'Unknown'` for a class's explicit type argument (`Box<Int>(5)`), and `T: Comparable` rejects `Int` although `Int` is marked as implementing `Comparable` internally.
