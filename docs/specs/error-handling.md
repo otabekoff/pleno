@@ -35,7 +35,7 @@ for (kind in ["network", "input", "other"]) {
 }
 ```
 
-An error that nothing catches stops the program with exit status 1. It prints the message, the line that threw, and a backtrace of the calls that led there.
+An error that nothing catches stops the program with exit status 1. It prints the message, the line that threw, and a backtrace of the calls that led there. A backtrace deeper than 60 calls shows the innermost 50 and the outermost 10, with a `... N more frames` line between them.
 
 ## What an error looks like
 

@@ -39,6 +39,7 @@ Notable changes to Pleno. The format follows [Keep a Changelog](https://keepacha
 
 ### Fixed
 
+- An error raised deep in the call stack no longer copies the whole stack into its backtrace. A `catch` that throws again at each of 16,000 nested levels took 5 seconds, and the time grew with the square of the depth; it now takes about 0.1 seconds. A backtrace deeper than 60 calls keeps the innermost 50 and outermost 10 frames, with a `... N more frames` line between them.
 - A sandbox limit (`--max-instructions`, `--max-memory`, `Sandbox` options) could be caught by `try`/`catch`, so a program could catch it and run on past its limit. Reaching a limit now ends the sandboxed program; the program that started a `Sandbox` still catches it as a `SandboxError` (before, that error arrived named `Error`).
 - `a != b` ignored a class's `operator ==`: with `==` overloaded, `V(1) != V(1)` was `true`. It is now `!(a == b)` unless the class defines its own `operator !=`.
 - An error thrown inside a callback (`map`, `filter`, ...) and caught outside read `uncaught exception: uncaught exception: ...`; it now has its own message.

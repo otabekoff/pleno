@@ -861,7 +861,7 @@ fn execute_main_chunk(
                             eprintln!("  at {} (unknown location)", frame.function_name);
                         }
                     } else {
-                        eprintln!("  at {}", frame.function_name);
+                        eprintln!("  {}", frame.describe());
                     }
                 }
             }

@@ -1167,18 +1167,38 @@ impl VM {
         }
     }
 
+    /// The call stack, innermost frame first. A deep stack keeps its innermost
+    /// `BACKTRACE_INNER` and outermost `BACKTRACE_OUTER` frames with a
+    /// `... N more frames` line between them, so an error costs the same at
+    /// any depth: a `catch` that throws again at each of 100,000 levels would
+    /// otherwise copy billions of frames.
     fn generate_backtrace(&self) -> Vec<pleno_value::StackFrame> {
-        let mut trace = Vec::new();
-        for frame in self.frames.iter().rev() {
-            if let Some(func) = self.functions.get(frame.function_index) {
-                let ip = if frame.ip > 0 { frame.ip - 1 } else { 0 };
-                let span = func.chunk.spans.get(ip).copied();
-                trace.push(pleno_value::StackFrame {
-                    function_name: (*func.name).clone(),
-                    span,
-                });
-            }
+        let stack_frame = |frame: &CallFrame| {
+            let func = self.functions.get(frame.function_index)?;
+            let ip = if frame.ip > 0 { frame.ip - 1 } else { 0 };
+            Some(pleno_value::StackFrame {
+                function_name: (*func.name).clone(),
+                span: func.chunk.spans.get(ip).copied(),
+            })
+        };
+        let count = self.frames.len();
+        if count <= BACKTRACE_INNER + BACKTRACE_OUTER {
+            return self.frames.iter().rev().filter_map(stack_frame).collect();
         }
+        let mut trace: Vec<_> = self.frames[count - BACKTRACE_INNER..]
+            .iter()
+            .rev()
+            .filter_map(stack_frame)
+            .collect();
+        trace.push(pleno_value::StackFrame::omitted(
+            count - BACKTRACE_INNER - BACKTRACE_OUTER,
+        ));
+        trace.extend(
+            self.frames[..BACKTRACE_OUTER]
+                .iter()
+                .rev()
+                .filter_map(stack_frame),
+        );
         trace
     }
 
@@ -7254,6 +7274,11 @@ fn owner_from_nan(value: NanValue) -> Option<MethodOwner> {
         _ => None,
     }
 }
+
+/// The innermost and outermost frames a deep backtrace keeps (see
+/// `generate_backtrace`).
+const BACKTRACE_INNER: usize = 50;
+const BACKTRACE_OUTER: usize = 10;
 
 /// Registers that `append_in_place` scans at most for copies of a string.
 const MAX_APPEND_SCAN: usize = 4096;
