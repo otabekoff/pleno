@@ -1,7 +1,7 @@
+use lint::LintSettings;
 use pleno_ast::{Program, Span, StmtKind};
 use pleno_formatter::{FormatOptions, format_code};
 use pleno_lexer::lex;
-use pleno_linter::Linter;
 use pleno_parser::Parser;
 use serde_json::{Value, json};
 use std::collections::HashMap;
@@ -10,6 +10,8 @@ use std::io::{self, BufRead, Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
+mod lint;
+mod navigation;
 mod semantic;
 
 // --- Data Structures ---
@@ -51,8 +53,8 @@ struct ServerState {
     programs: HashMap<String, Program>,
     // Map URI -> Parsed Symbols
     index: HashMap<String, Vec<Symbol>>,
-    #[allow(dead_code)]
     root_uri: Option<String>,
+    lint: LintSettings,
 }
 
 impl ServerState {
@@ -62,6 +64,7 @@ impl ServerState {
             programs: HashMap::new(),
             index: HashMap::new(),
             root_uri: None,
+            lint: LintSettings::default(),
         }
     }
 
@@ -77,6 +80,8 @@ impl ServerState {
                 diagnostics.push(json!({
                     "range": { "start": start, "end": end },
                     "severity": 1,
+                    "source": "pleno",
+                    "code": "syntax-error",
                     "message": e.message
                 }));
                 return diagnostics;
@@ -84,44 +89,7 @@ impl ServerState {
         };
 
         // Linting
-        let linter = Linter::default();
-        let lint_diags = linter.lint(&text);
-        for ld in lint_diags {
-            let mut related = Vec::new();
-            for ri in ld.related_information {
-                related.push(json!({
-                    "location": {
-                        "uri": ri.file.unwrap_or_else(|| uri.clone()),
-                        "range": {
-                            "start": { "line": ri.line.saturating_sub(1), "character": ri.column.saturating_sub(1) },
-                            "end": { "line": ri.line.saturating_sub(1), "character": ri.column }
-                        }
-                    },
-                    "message": ri.message
-                }));
-            }
-
-            let mut diag = json!({
-                "range": {
-                    "start": { "line": ld.line.saturating_sub(1), "character": ld.column.saturating_sub(1) },
-                    "end": { "line": ld.line.saturating_sub(1), "character": ld.column }
-                },
-                "severity": match ld.severity {
-                    pleno_linter::Severity::Error => 1,
-                    pleno_linter::Severity::Warning => 2,
-                    pleno_linter::Severity::Info => 3,
-                },
-                "message": ld.message
-            });
-
-            if !related.is_empty() {
-                diag.as_object_mut()
-                    .unwrap()
-                    .insert("relatedInformation".to_string(), json!(related));
-            }
-
-            diagnostics.push(diag);
-        }
+        diagnostics.extend(lint::lint_diagnostics(&text, &uri, &self.lint));
 
         // Parsing
         let mut parser = pleno_parser::Parser::new(tokens, &text);
@@ -138,7 +106,8 @@ impl ServerState {
                     diagnostics.push(json!({
                         "range": { "start": start, "end": end },
                         "severity": severity,
-                        "source": "pleno check",
+                        "source": "pleno",
+                        "code": "check",
                         "message": found.message
                     }));
                 }
@@ -158,6 +127,8 @@ impl ServerState {
                             diagnostics.push(json!({
                                 "range": { "start": start, "end": end },
                                 "severity": 1,
+                                "source": "pleno",
+                                "code": "duplicate-definition",
                                 "message": format!("Symbol '{}' is already defined", sym.name),
                                 "relatedInformation": [
                                     {
@@ -183,6 +154,8 @@ impl ServerState {
                 diagnostics.push(json!({
                     "range": { "start": start, "end": end },
                     "severity": 1,
+                    "source": "pleno",
+                    "code": "parse-error",
                     "message": e.message
                 }));
             }
@@ -239,10 +212,25 @@ pub fn start() -> io::Result<()> {
                 let id = value.get("id").cloned().unwrap_or(Value::Null);
                 // Extract rootUri
                 let mut state = state_clone.lock().unwrap();
-                if let Some(params) = value.get("params")
-                    && let Some(root) = params.get("rootUri").and_then(|v| v.as_str())
-                {
-                    state.root_uri = Some(root.to_string());
+                if let Some(params) = value.get("params") {
+                    let first_folder = params
+                        .get("workspaceFolders")
+                        .and_then(|f| f.get(0))
+                        .and_then(|f| f.get("uri"));
+                    if let Some(root) = params
+                        .get("rootUri")
+                        .filter(|v| !v.is_null())
+                        .or(first_folder)
+                        .and_then(|v| v.as_str())
+                    {
+                        state.root_uri = Some(root.to_string());
+                    }
+                    if let Some(lint) = params
+                        .get("initializationOptions")
+                        .and_then(|o| o.get("lint"))
+                    {
+                        state.lint = LintSettings::from_json(lint);
+                    }
                 }
 
                 let response = json!({
@@ -277,7 +265,11 @@ pub fn start() -> io::Result<()> {
                             },
                             "callHierarchyProvider": true,
                             "referencesProvider": true,
-                            "renameProvider": true,
+                            "renameProvider": { "prepareProvider": true },
+                            "documentHighlightProvider": true,
+                            "workspaceSymbolProvider": true,
+                            "selectionRangeProvider": true,
+                            "documentRangeFormattingProvider": true,
                             "signatureHelpProvider": {
                                 "triggerCharacters": ["(", ","]
                             }
@@ -439,6 +431,9 @@ pub fn start() -> io::Result<()> {
                             .unwrap_or(0) as u32;
 
                         if let Some(offset) = position_to_offset(&text, line, char) {
+                            // Also when the cursor is just after the name.
+                            let offset =
+                                navigation::word_span(&text, offset).map_or(offset, |w| w.start);
                             let spans = semantic::usage_finder::find_usages(program, offset);
                             for span in spans {
                                 let (start, end) = span_to_range(&text, span.start, span.end);
@@ -489,6 +484,9 @@ pub fn start() -> io::Result<()> {
                             .unwrap_or(0) as u32;
 
                         if let Some(offset) = position_to_offset(&text, line, char) {
+                            // Also when the cursor is just after the name.
+                            let offset =
+                                navigation::word_span(&text, offset).map_or(offset, |w| w.start);
                             let spans = semantic::usage_finder::find_usages(program, offset);
                             let mut edits = Vec::new();
                             for span in spans {
@@ -793,18 +791,6 @@ pub fn start() -> io::Result<()> {
                                     "async",
                                     "await",
                                     "spawn",
-                                    "print",
-                                    "println",
-                                    "id",
-                                    "typeof",
-                                    "Int",
-                                    "Float",
-                                    "String",
-                                    "Array",
-                                    "Map",
-                                    "JSON",
-                                    "Math",
-                                    "OS",
                                 ];
 
                                 for kw in keywords {
@@ -812,6 +798,19 @@ pub fn start() -> io::Result<()> {
                                         "label": kw,
                                         "kind": 14,
                                         "detail": "Keyword"
+                                    }));
+                                }
+
+                                // The globals the standard library defines.
+                                let mut builtins: Vec<&String> =
+                                    pleno_linter::builtin_globals().iter().collect();
+                                builtins.sort();
+                                for name in builtins {
+                                    let is_type = name.starts_with(char::is_uppercase);
+                                    items.push(json!({
+                                        "label": name,
+                                        "kind": if is_type { 7 } else { 3 },
+                                        "detail": "Built-in"
                                     }));
                                 }
 
@@ -1000,13 +999,21 @@ pub fn start() -> io::Result<()> {
 
                     let mut actions = Vec::new();
 
+                    // Fixes edit the current text, so they work from a fresh parse
+                    // rather than the last one that succeeded.
+                    let state = state_clone.lock().unwrap();
+                    let text = state.documents.get(uri_str).cloned().unwrap_or_default();
+                    drop(state);
+                    let program = lex(&text)
+                        .ok()
+                        .and_then(|tokens| Parser::new(tokens, &text).parse_program().ok());
+
                     if let Some(diags) = diagnostics {
                         for diag in diags {
                             let message =
                                 diag.get("message").and_then(|m| m.as_str()).unwrap_or("");
                             let range = diag.get("range").cloned().unwrap_or(Value::Null);
 
-                            // Example 1: Missing semicolon
                             if message.contains("expected ';'") {
                                 actions.push(json!({
                                     "title": "Add missing ';'",
@@ -1026,24 +1033,12 @@ pub fn start() -> io::Result<()> {
                                 }));
                             }
 
-                            // Unused variable: prefix it with `_`, which the linter
-                            // treats as intentionally unused.
-                            if message.contains("is declared but never used") {
-                                let start = range.get("start").cloned().unwrap_or(Value::Null);
-                                actions.push(json!({
-                                    "title": "Prefix with `_` to mark as unused",
-                                    "kind": "quickfix",
-                                    "diagnostics": [diag],
-                                    "edit": {
-                                        "changes": {
-                                            uri_str: [{
-                                                "range": { "start": start, "end": start },
-                                                "newText": "_"
-                                            }]
-                                        }
-                                    }
-                                }));
-                            }
+                            actions.extend(lint::quick_fixes(
+                                diag,
+                                &text,
+                                program.as_ref(),
+                                uri_str,
+                            ));
                         }
                     }
 
@@ -1209,6 +1204,162 @@ pub fn start() -> io::Result<()> {
                     write_message(&mut stdout, &resp)?;
                 }
             }
+            "textDocument/documentHighlight" => {
+                let id = value.get("id").cloned().unwrap_or(Value::Null);
+                let (uri_str, line, char) = request_position(&value);
+                let mut highlights = Vec::new();
+
+                let state = state_clone.lock().unwrap();
+                if let Some(text) = state.documents.get(uri_str)
+                    && let Some(program) = state.programs.get(uri_str)
+                    && let Some(offset) = position_to_offset(text, line, char)
+                {
+                    highlights = navigation::document_highlights(program, text, offset);
+                }
+
+                let resp = json!({
+                    "jsonrpc": "2.0",
+                    "id": id,
+                    "result": highlights
+                });
+                write_message(&mut stdout, &resp)?;
+            }
+            "textDocument/prepareRename" => {
+                let id = value.get("id").cloned().unwrap_or(Value::Null);
+                let (uri_str, line, char) = request_position(&value);
+
+                let state = state_clone.lock().unwrap();
+                let result = match (state.documents.get(uri_str), state.programs.get(uri_str)) {
+                    (Some(text), Some(program)) => position_to_offset(text, line, char)
+                        .ok_or_else(|| "Only names can be renamed.".to_string())
+                        .and_then(|offset| navigation::prepare_rename(program, text, offset)),
+                    _ => Err("The file has not been parsed yet.".to_string()),
+                };
+
+                // An error carries the reason the editor shows to the user.
+                let resp = match result {
+                    Ok(range) => json!({ "jsonrpc": "2.0", "id": id, "result": range }),
+                    Err(message) => json!({
+                        "jsonrpc": "2.0",
+                        "id": id,
+                        "error": { "code": -32803, "message": message }
+                    }),
+                };
+                write_message(&mut stdout, &resp)?;
+            }
+            "textDocument/selectionRange" => {
+                let id = value.get("id").cloned().unwrap_or(Value::Null);
+                let (uri_str, _, _) = request_position(&value);
+                let positions = value
+                    .get("params")
+                    .and_then(|p| p.get("positions"))
+                    .and_then(|p| p.as_array())
+                    .cloned()
+                    .unwrap_or_default();
+                let mut ranges = Vec::new();
+
+                let state = state_clone.lock().unwrap();
+                if let Some(text) = state.documents.get(uri_str)
+                    && let Some(program) = state.programs.get(uri_str)
+                {
+                    for pos in &positions {
+                        let line = pos.get("line").and_then(|l| l.as_u64()).unwrap_or(0) as u32;
+                        let char =
+                            pos.get("character").and_then(|c| c.as_u64()).unwrap_or(0) as u32;
+                        let offset = position_to_offset(text, line, char).unwrap_or(text.len());
+                        ranges.push(navigation::selection_range(program, text, offset));
+                    }
+                }
+
+                let resp = json!({
+                    "jsonrpc": "2.0",
+                    "id": id,
+                    "result": ranges
+                });
+                write_message(&mut stdout, &resp)?;
+            }
+            "workspace/symbol" => {
+                let id = value.get("id").cloned().unwrap_or(Value::Null);
+                let query = value
+                    .get("params")
+                    .and_then(|p| p.get("query"))
+                    .and_then(|q| q.as_str())
+                    .unwrap_or_default();
+
+                let state = state_clone.lock().unwrap();
+                let symbols = navigation::workspace_symbols(&state, query);
+
+                let resp = json!({
+                    "jsonrpc": "2.0",
+                    "id": id,
+                    "result": symbols
+                });
+                write_message(&mut stdout, &resp)?;
+            }
+            "textDocument/rangeFormatting" => {
+                let id = value.get("id").cloned().unwrap_or(Value::Null);
+                let (uri_str, _, _) = request_position(&value);
+                let range = value.get("params").and_then(|p| p.get("range"));
+                let position = |key: &str| {
+                    let pos = range?.get(key)?;
+                    let line = pos.get("line")?.as_u64()? as u32;
+                    let char = pos.get("character")?.as_u64()? as u32;
+                    Some((line, char))
+                };
+                let mut edits = Vec::new();
+
+                let state = state_clone.lock().unwrap();
+                if let Some(text) = state.documents.get(uri_str)
+                    && let (Some(start), Some(end)) = (position("start"), position("end"))
+                    && let Some(start) = position_to_offset(text, start.0, start.1)
+                    && let Some(end) = position_to_offset(text, end.0, end.1)
+                    && let Ok(tokens) = lex(text)
+                    && let Ok(program) = Parser::new(tokens, text).parse_program()
+                {
+                    edits = navigation::format_range(&program, text, start, end);
+                }
+
+                let resp = json!({
+                    "jsonrpc": "2.0",
+                    "id": id,
+                    "result": edits
+                });
+                write_message(&mut stdout, &resp)?;
+            }
+            "workspace/didChangeConfiguration" => {
+                // VS Code sends `{ settings: { pleno: { lint: ... } } }`.
+                let settings = value.get("params").and_then(|p| p.get("settings"));
+                let lint = settings
+                    .and_then(|s| s.get("pleno"))
+                    .or(settings)
+                    .and_then(|s| s.get("lint"));
+                if let Some(lint) = lint {
+                    let mut state = state_clone.lock().unwrap();
+                    let lint = LintSettings::from_json(lint);
+                    if state.lint != lint {
+                        state.lint = lint;
+                        // Re-check the open documents with the new rules.
+                        let mut documents: Vec<(String, String)> = state
+                            .documents
+                            .iter()
+                            .map(|(uri, text)| (uri.clone(), text.clone()))
+                            .collect();
+                        documents.sort();
+                        for (uri, text) in documents {
+                            let diags = state.update_document(uri.clone(), text);
+                            let notif = json!({
+                                "jsonrpc": "2.0",
+                                "method": "textDocument/publishDiagnostics",
+                                "params": {
+                                    "uri": uri,
+                                    "diagnostics": diags
+                                }
+                            });
+                            write_message(&mut stdout, &notif)?;
+                        }
+                    }
+                }
+            }
             _ => {
                 // Ignore other methods or respond null if id present
                 if value.get("id").is_some() {
@@ -1232,6 +1383,11 @@ fn extract_symbols(program: &Program, file_path: &Path) -> Vec<Symbol> {
     let mut symbols = Vec::new();
 
     for stmt in &program.statements {
+        // `export fn f` declares `f` like `fn f` does.
+        let stmt = match &stmt.kind {
+            StmtKind::Export(inner) => inner,
+            _ => stmt,
+        };
         match &stmt.kind {
             StmtKind::Fn {
                 name,
@@ -1347,6 +1503,24 @@ fn extract_symbols(program: &Program, file_path: &Path) -> Vec<Symbol> {
         }
     }
     symbols
+}
+
+/// The document URI and the (line, character) position of a request.
+fn request_position(value: &Value) -> (&str, u32, u32) {
+    let params = value.get("params");
+    let uri = params
+        .and_then(|p| p.get("textDocument"))
+        .and_then(|t| t.get("uri"))
+        .and_then(|u| u.as_str())
+        .unwrap_or_default();
+    let position = params.and_then(|p| p.get("position"));
+    let get = |key: &str| {
+        position
+            .and_then(|p| p.get(key))
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0) as u32
+    };
+    (uri, get("line"), get("character"))
 }
 
 fn read_message<R: BufRead + Read>(reader: &mut R) -> io::Result<Option<String>> {
@@ -1944,7 +2118,7 @@ mod position_tests {
         let diagnostics = state.update_document("untitled:Untitled-1".to_string(), text);
         let messages: Vec<&str> = diagnostics
             .iter()
-            .filter(|d| d["source"] == "pleno check")
+            .filter(|d| d["code"] == "check")
             .filter_map(|d| d["message"].as_str())
             .collect();
         assert_eq!(
@@ -1954,10 +2128,7 @@ mod position_tests {
                 "'x' is declared Int but given a String literal"
             ]
         );
-        let first = diagnostics
-            .iter()
-            .find(|d| d["source"] == "pleno check")
-            .unwrap();
+        let first = diagnostics.iter().find(|d| d["code"] == "check").unwrap();
         assert_eq!(first["severity"], 1);
         assert_eq!(first["range"]["start"]["line"], 1);
         assert_eq!(first["range"]["start"]["character"], 0);

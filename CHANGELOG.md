@@ -29,6 +29,7 @@ Notable changes to Pleno. The format follows [Keep a Changelog](https://keepacha
 ### Fixed
 
 - A callback given to `map`, `filter` and the other natives that call back returned its first argument instead of `null` when that argument was a map with a `variant` key: `[Ok(1)].map(|r| => null)` was `[Ok(1)]`.
+- The linter (and so the editor) no longer reports lambdas (`=>`) and generic types (`Promise<Int>`) as operators missing spaces, type aliases and other names used only in type annotations as unused, or standard library globals such as `Ok`, `Some`, `Set` and `Error` as undefined. Functions can be used before their declaration, the line limit is 100 and skips comments, and every warning points at the whole name or operator.
 - Intersection types (`type Person = Nameable & Ageable;`) accept a value that matches every part; before, a class implementing both interfaces was rejected with `expected Person, got Employee`.
 - Type aliases inside a larger annotation (`Money?`, `Money | String`, `Money[]`) and as class field types are expanded before checking.
 - An import makes visible only the names it binds. Other exports and the private names of an imported module no longer leak into the importing file (`import { PI } from "./m.pln"; square(2);` is now `undefined variable 'square'`), and names a module imports stay in that module.

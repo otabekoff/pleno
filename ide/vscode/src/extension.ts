@@ -5,6 +5,7 @@ import {
     LanguageClient,
     LanguageClientOptions,
     ServerOptions,
+    State,
     TransportKind,
 } from "vscode-languageclient/node";
 import { restorePatchedIconThemes } from "./iconInjector";
@@ -166,6 +167,8 @@ let outputChannel: vscode.OutputChannel;
 let diagnosticsProvider: PlenoDiagnosticsProvider | undefined;
 let formatterRegistration: vscode.Disposable | undefined;
 let testController: PlenoTestController;
+let serverState: State | undefined;
+let statusContext: vscode.ExtensionContext | undefined;
 
 export function activate(context: vscode.ExtensionContext) {
     try {
@@ -301,12 +304,23 @@ async function startTooling(context: vscode.ExtensionContext): Promise<void> {
 }
 
 function updateStatus(context: vscode.ExtensionContext): void {
+    statusContext = context;
     const lsp = findTool(context, "pleno-lsp");
     const cli = findTool(context, "pleno");
     const version = installedVersion(context);
-    if (client && cli.found) {
+    if (client && serverState === State.Starting) {
+        statusBarItem.text = "$(sync~spin) Pleno";
+        statusBarItem.tooltip = "The Pleno language server is starting...";
+        statusBarItem.backgroundColor = undefined;
+    } else if (client && serverState === State.Stopped) {
+        statusBarItem.text = "$(debug-disconnect) Pleno";
+        statusBarItem.tooltip = "The Pleno language server stopped. Click for options, including restarting it.";
+        statusBarItem.backgroundColor = new vscode.ThemeColor(
+            "statusBarItem.warningBackground",
+        );
+    } else if (client && cli.found) {
         statusBarItem.text = "$(check) Pleno";
-        statusBarItem.tooltip = `Pleno is ready${version ? ` (${version})` : ""}. Click for options.`;
+        statusBarItem.tooltip = `Pleno is ready${version ? ` (${version})` : ""}: the language server is running. Click for options.`;
         statusBarItem.backgroundColor = undefined;
     } else if (cli.found) {
         statusBarItem.text = "$(warning) Pleno";
@@ -591,8 +605,15 @@ async function startLanguageServer(serverPath: string): Promise<void> {
         documentSelector: [{ scheme: "file", language: "pleno" }],
         synchronize: {
             fileEvents: vscode.workspace.createFileSystemWatcher("**/*.pln"),
+            // Sends `pleno.*` settings changes to the server, which re-lints.
+            configurationSection: "pleno",
         },
         initializationOptions: {
+            lint: {
+                enabled: config.get("lint.enabled", true),
+                maxLineLength: config.get("lint.maxLineLength", 100),
+                rules: config.get("lint.rules", {}),
+            },
             inlayHints: {
                 enabled: config.get("inlayHints.enabled", true),
             },
@@ -604,11 +625,19 @@ async function startLanguageServer(serverPath: string): Promise<void> {
     };
 
     const languageClient = new LanguageClient(
-        "plenoLanguageServer",
+        // The id is the settings prefix the client reads: `pleno.trace.server`.
+        "pleno",
         "Pleno Language Server",
         serverOptions,
         clientOptions,
     );
+    // Keep the status bar in step when the server stops or restarts later.
+    languageClient.onDidChangeState((event) => {
+        serverState = event.newState;
+        if (statusContext) {
+            updateStatus(statusContext);
+        }
+    });
     try {
         await languageClient.start();
         client = languageClient;

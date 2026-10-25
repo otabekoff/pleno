@@ -513,7 +513,7 @@ impl Formatter {
                     result = result.trim_end().to_string();
                     result.push_str(" catch ");
                     if let Some(ty) = &catch.ty {
-                        result.push_str(&format!("({} {}) ", ty, catch.name));
+                        result.push_str(&format!("({}: {}) ", catch.name, ty));
                     } else {
                         result.push_str(&format!("({}) ", catch.name));
                     }
@@ -584,7 +584,7 @@ impl Formatter {
                         })
                         .collect();
                     format!(
-                        "{}import {{{}}} from \"{}\";\n",
+                        "{}import {{ {} }} from \"{}\";\n",
                         current_indent,
                         names.join(", "),
                         path
@@ -613,7 +613,7 @@ impl Formatter {
                         }
                     })
                     .collect();
-                format!("{}export {{{}}};\n", current_indent, names.join(", "))
+                format!("{}export {{ {} }};\n", current_indent, names.join(", "))
             }
             StmtKind::Class {
                 name,

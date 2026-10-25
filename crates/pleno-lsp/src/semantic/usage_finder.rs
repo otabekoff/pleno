@@ -111,6 +111,24 @@ impl<'a> Visitor<'a> for ScopeBuilder<'a> {
                     self.define(name, span);
                 }
             }
+            // `fn` statements are not `FunctionDecl`s: define the name and
+            // give the parameters a scope the same way.
+            StmtKind::Fn {
+                name,
+                name_span,
+                params,
+                body,
+                ..
+            } => {
+                self.define(name, *name_span);
+                self.enter_scope(stmt.span);
+                for param in params {
+                    self.define(&param.name, param.name_span);
+                    self.visit_param(param);
+                }
+                self.visit_stmt(body);
+                self.exit_scope();
+            }
             StmtKind::Class {
                 name, name_span, ..
             }
@@ -331,6 +349,19 @@ mod tests {
         pleno_parser::Parser::new(tokens, source)
             .parse_program()
             .unwrap()
+    }
+
+    #[test]
+    fn fn_statement_names_and_params_have_usages() {
+        let source = "fn area(r) {\n    return r * r;\n}\nprint(area(2));";
+        let program = parse(source);
+        let r_decl = source.find("(r)").unwrap() + 1;
+        assert_eq!(find_usages(&program, r_decl).len(), 3);
+        let area_use = source.rfind("area").unwrap();
+        assert_eq!(
+            find_usages(&program, area_use),
+            vec![Span::new(3, 7), Span::new(area_use, area_use + 4)]
+        );
     }
 
     #[test]
