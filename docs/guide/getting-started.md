@@ -25,14 +25,13 @@ pleno run hello.pln
 ## A project
 
 ```sh
-mkdir my-app
+pleno new my-app
 cd my-app
-plm init my-app
 plm run dev    # runs src/main.pln
 plm test       # runs the tests in tests/
 ```
 
-`plm init` creates `pleno.toml` (the name, scripts and dependencies), `src/main.pln`, a test in `tests/`, and editor settings. See [Packages](./packages) for dependencies.
+`pleno new my-app` creates the folder `my-app` with the package in it; `pleno init` (or `plm init`) does the same in the current folder. Both create `pleno.toml` (the name, scripts and dependencies), `src/main.pln`, a test in `tests/`, and editor settings. See [Packages](./packages) for dependencies.
 
 ## The language in a few minutes
 

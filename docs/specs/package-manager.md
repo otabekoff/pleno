@@ -7,7 +7,8 @@ There is no public package registry yet. Dependencies come from a local path or 
 ## Quick Start
 
 ```bash
-# Initialize new project
+# Create a new project in a new folder, or in the current one
+plm new my-app
 plm init
 
 # Install a package from Git
@@ -71,7 +72,8 @@ Version requirements apply to registry dependencies and follow Cargo's rules:
 
 ```bash
 # Project management
-plm init              # Create new project
+plm new <folder>      # Create a folder with a new project
+plm init              # Create a project in the current folder
 plm info              # Show project info
 
 # Dependency management

@@ -148,8 +148,9 @@ pleno dap
 ## Package Manager
 
 ```bash
-# Initialize project
-plm init
+# Create a project in a new folder, or in the current one
+pleno new my-app
+pleno init
 
 # Install dependencies
 plm install
