@@ -118,7 +118,7 @@ Status: `Router` and `Server` are experimental in 1.0. Missing: middleware (`app
 
 ### Sandboxing
 
-Status: `std:security` is experimental. Planned: keeping the original error `name` for errors from `Sandbox.run`, and a time limit. (Path rules normalize paths, and `Path.exists` and friends are checked, since 2026-10-26.)
+Status: `std:security` is experimental. Planned: a time limit. (Path rules normalize paths, `Path.exists` and the other path probes are checked, and `Sandbox.run` errors keep their name, since 2026-10-26.)
 
 ## Tooling
 
@@ -143,8 +143,5 @@ Status: `std:security` is experimental. Planned: keeping the original error `nam
 These are not features but differences between the reference and the implementation; the reference describes the intended behavior.
 
 - String positions: `length`, `indexOf`, `substring`, `charAt` and `s[a..b]` count UTF-8 bytes while `s[i]` counts characters; `substring` and `charAt` inside a multi-byte character panic the VM. `"abc".split("")` returns `["", "a", "b", "c", ""]`.
-- `a != b` does not use `operator ==`.
 - `@pure` rejects non-empty array and map literals.
 - Generic constraints report `Type 'Unknown'` for a class's explicit type argument (`Box<Int>(5)`), and `T: Comparable` rejects `Int` although `Int` is marked as implementing `Comparable` internally.
-- Under `--max-instructions`, a limit hit inside `try` ends the program silently with exit status 0.
-- Errors from `Sandbox.run` arrive as `Error` with the message `uncaught exception: SandboxError: ...`.

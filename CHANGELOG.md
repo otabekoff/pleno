@@ -35,11 +35,15 @@ Notable changes to Pleno. The format follows [Keep a Changelog](https://keepacha
 - Reassigning a `&mut` parameter (`value = ...`, `value++`) is a compile error, `cannot assign to '&mut' parameter 'value'`: the new value never reached the caller's variable. Changing a value in place (`items.push(x)`) is unchanged.
 - Faster still: Pleno now beats CPython 3.14 on every benchmark in `bench/cases` and on `bench/src/array` (`fib(30)` 0.09 s against 0.10 s, the array benchmark 0.16 s against 0.17 s). Method calls such as `items.push(x)` no longer allocate a bound method, `s = s + x` appends in place when nothing else holds the old string (building a string is linear instead of quadratic), values take 16 bytes instead of 40, simple instructions run in a smaller interpreter loop, and calls and `map`/`filter`/`reduce` callbacks set up their frames with less work.
 - The bytecode format version is 4 (new `ToFloat`, `CallRegs`, `GetMethod` and `CallMethod` instructions); recompile `.plc` files.
+- `pleno format` (and format on save in the editor) keeps lines within 100 characters, the linter's limit. A statement that does not fit is broken at its outermost construct: call arguments, array, map, set and tuple literals, parameter lists and import and export lists go one element per line with a trailing comma, chains of two or more method calls one call per line, and binary operator chains before each operator. A statement that fits is printed on one line, also when it was written over several; before, every statement was joined into one line however long. Strings and comments are never split.
 
 ### Fixed
 
 - Sandbox path rules (`--allow-read`, `--allow-write`, `allowedReadPaths`, `allowedWritePaths`) compared text prefixes, so `data/../secret.txt` passed a rule for `data/` and `data2/` passed a rule for `data`. They now compare normalized absolute paths, folder by folder. `Path.exists`, `isFile`, `isDir`, `resolve` and `dotenv.config` count as reading, and `process.cwd()` needs I/O.
 - A sandbox option with a value that does not parse (`--allow-io maybe`, `--max-memory 10MB`) meant "allowed" or "no limit"; it is now an error.
+- A sandbox limit (`--max-instructions`, `--max-memory`, `Sandbox` options) could be caught by `try`/`catch`, so a program could catch it and run on past its limit. Reaching a limit now ends the sandboxed program; the program that started a `Sandbox` still catches it as a `SandboxError` (before, that error arrived named `Error`).
+- `a != b` ignored a class's `operator ==`: with `==` overloaded, `V(1) != V(1)` was `true`. It is now `!(a == b)` unless the class defines its own `operator !=`.
+- An error thrown inside a callback (`map`, `filter`, ...) and caught outside read `uncaught exception: uncaught exception: ...`; it now has its own message.
 - Code in a module could call the top-level functions and classes of the program that imported it (`helper()` in a module found the main program's `helper`). A module now sees its own names, its imports and the built-in globals only, and still gets the built-in `print` or `typeof` when the main program defines its own.
 - A callback given to `map`, `filter` and the other natives that call back returned its first argument instead of `null` when that argument was a map with a `variant` key: `[Ok(1)].map(|r| => null)` was `[Ok(1)]`.
 - An array or map literal made only of constants (`[]`, `[0, 0]`, `{"n": 0}`) was created once and shared: a function returning `let a = []; a.push(1); return a;` gave the same array on every call, so it grew. Each evaluation now creates a new one.
@@ -56,6 +60,7 @@ Notable changes to Pleno. The format follows [Keep a Changelog](https://keepacha
 - Creating a class that does not implement an abstract method of its parent throws `cannot create B: it does not implement abstract method area`, also when constructed with named arguments; constructing an abstract class with named arguments is rejected too.
 - `static const` fields cannot be reassigned (`cannot assign to constant MathUtils.PI`), and instance `const` fields can be assigned only by a constructor.
 - `let mut y = x;` made `y` share `x`'s storage, so assigning either changed both (in every scope, for numbers and strings alike).
+- The formatter changed programs and moved comments: `else if` became `else { if ... }`, annotations on methods (`@override`) and the `out`/`in` of generic parameters were dropped, and comments inside a multi-line call, list, method chain, `match` or `enum` moved below the statement (a doc comment on an enum variant ended up on the next declaration). Comments now stay next to the element they belong to.
 
 ### Documentation
 
