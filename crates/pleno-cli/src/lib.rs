@@ -55,6 +55,9 @@ pub fn run_pleno() {
         "init" => {
             handle_init(&mut args);
         }
+        "new" => {
+            handle_new(&mut args);
+        }
         "install" => {
             handle_install(&mut args);
         }
@@ -271,11 +274,12 @@ pub fn run_plm() {
 
 fn run_plm_core(args: &mut std::iter::Peekable<std::iter::Skip<std::env::Args>>) {
     let sub_command = args.next().unwrap_or_else(|| {
-        eprintln!("Pleno Module Manager (plm)\n\nUsage: plm <command> [args]\n\nCommands: init, install, update, remove, run, publish, build");
+        eprintln!("Pleno Module Manager (plm)\n\nUsage: plm <command> [args]\n\nCommands: new, init, install, update, remove, run, info, build, test, publish, search (plm --help for details)");
         process::exit(1)
     });
     match sub_command.as_str() {
         "init" => handle_init(args),
+        "new" => handle_new(args),
         "install" => handle_install(args),
         "update" => handle_update(args),
         "remove" => handle_remove(args),
@@ -302,7 +306,8 @@ fn run_plm_core(args: &mut std::iter::Peekable<std::iter::Skip<std::env::Args>>)
             println!("Usage: plm <command> [args]");
             println!();
             println!("Commands:");
-            println!("  init [name]      Initialize a new Pleno package");
+            println!("  new <folder>     Create a folder with a new Pleno package in it");
+            println!("  init [name]      Create a Pleno package in the current folder");
             println!("  install [url]    Install dependencies or a specific package");
             println!("  update           Update all dependencies");
             println!("  remove <name>    Remove a dependency");
@@ -372,6 +377,10 @@ pub fn print_help() {
         (
             "Package commands (pleno plm <command>, or plm <command>)",
             &[
+                (
+                    "new <folder>",
+                    "Create a folder with a new Pleno package in it",
+                ),
                 ("init [name]", "Create a Pleno package in this folder"),
                 ("info", "Show the package from pleno.toml"),
                 (
@@ -1290,12 +1299,68 @@ fn run_bytecode_file(path: &str, config: Option<pleno_value::SandboxConfig>) {
 }
 
 fn handle_init(args: &mut std::iter::Peekable<std::iter::Skip<std::env::Args>>) {
-    let name = args.next().unwrap_or_else(|| {
+    let parsed = SubcommandArgs::parse(
+        "init [name]",
+        "Creates a Pleno package in the current folder, named after the folder unless a name is given.",
+        args.by_ref(),
+        &[],
+        &[],
+        1,
+    );
+    let name = parsed.paths.first().cloned().unwrap_or_else(|| {
         env::current_dir()
             .ok()
             .and_then(|p| p.file_name().map(|n| n.to_string_lossy().to_string()))
             .unwrap_or_else(|| "my-app".to_string())
     });
+    init_package(&name, None);
+}
+
+/// Creates a Pleno package in a new folder, as `plm init` would inside it.
+fn handle_new(args: &mut std::iter::Peekable<std::iter::Skip<std::env::Args>>) {
+    let parsed = SubcommandArgs::parse(
+        "new <folder> [--name <name>]",
+        "Creates the folder and a Pleno package in it, named after the folder unless --name is given.",
+        args.by_ref(),
+        &[],
+        &["--name"],
+        1,
+    );
+    let folder = parsed.required_path("new", "the folder to create");
+    let dir = PathBuf::from(&folder);
+    if dir.exists() {
+        let empty =
+            dir.is_dir() && fs::read_dir(&dir).is_ok_and(|mut entries| entries.next().is_none());
+        if !empty {
+            eprintln!(
+                "{} '{folder}' already exists and is not an empty folder; use `pleno init` inside a folder to set it up",
+                style::red(Stream::Stderr, "Error:")
+            );
+            process::exit(1);
+        }
+    }
+    let name = match parsed.value("--name") {
+        Some(name) => name.to_string(),
+        None => dir
+            .file_name()
+            .map(|n| n.to_string_lossy().to_string())
+            .filter(|n| !n.is_empty() && n != "." && n != "..")
+            .unwrap_or_else(|| "my-app".to_string()),
+    };
+    if let Err(err) = fs::create_dir_all(&dir).and_then(|()| env::set_current_dir(&dir)) {
+        eprintln!(
+            "{} cannot create '{folder}': {err}",
+            style::red(Stream::Stderr, "Error:")
+        );
+        process::exit(1);
+    }
+    init_package(&name, Some(&folder));
+}
+
+/// Writes a new package named `name` into the current folder. `folder` is how
+/// the user named that folder, when `pleno new` created it.
+fn init_package(name: &str, folder: Option<&str>) {
+    let name = name.to_string();
 
     if Path::new("pleno.toml").exists() {
         eprintln!(
@@ -1309,7 +1374,8 @@ fn handle_init(args: &mut std::iter::Peekable<std::iter::Skip<std::env::Args>>) 
         .map(|path| Path::new(path).exists())
         .collect();
 
-    let mut manifest = Manifest::new(&name, env!("CARGO_PKG_VERSION"));
+    // A new package starts at 0.1.0, whatever version of Pleno creates it.
+    let mut manifest = Manifest::new(&name, "0.1.0");
 
     // Add standard scripts
     manifest
@@ -1726,6 +1792,9 @@ obligated to maintain confidentiality with regard to the reporter of an incident
     println!();
     println!("  {}", style::bold(out, "Done. Now run:"));
     println!();
+    if let Some(folder) = folder {
+        println!("    {}", style::cyan(out, &format!("cd {folder}")));
+    }
     println!("    {}", style::cyan(out, "plm run dev"));
     println!("    {}", style::cyan(out, "plm test"));
     println!();

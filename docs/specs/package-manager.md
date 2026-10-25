@@ -5,7 +5,8 @@ PLM is Pleno's package manager for managing dependencies and project configurati
 ## Quick Start
 
 ```bash
-# Initialize new project
+# Create a new project in a new folder, or in the current one
+plm new my-app
 plm init
 
 # Install a package
@@ -67,7 +68,8 @@ mock = "^1.2.0"
 
 ```bash
 # Project management
-plm init              # Create new project
+plm new <folder>      # Create a folder with a new project
+plm init              # Create a project in the current folder
 plm info              # Show project info
 
 # Dependency management
