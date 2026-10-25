@@ -55,7 +55,7 @@ pleno-value = { workspace = true }
 serde_json = { workspace = true }
 log = { workspace = true }
 env_logger = { workspace = true }
-notify = "6"
+notify = "8"
 pleno-bytecode = { workspace = true }
 chrono = { workspace = true }
 reqwest = { workspace = true }
