@@ -1,5 +1,6 @@
 pub mod gc;
 pub mod nan_value;
+pub mod suggest;
 
 pub use gc::{GcObject, GcRc, MarkAndSweepGC};
 use indexmap::{IndexMap, IndexSet};
