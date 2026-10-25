@@ -42,6 +42,9 @@ pub struct VM {
     /// (on by default). Turning it off runs everything in the general loop,
     /// which must give the same results: tests and the fuzzer compare both.
     pub fast_loop: bool,
+    /// How deeply calls from native code back into Pleno can nest before a
+    /// `RecursionError`; lower it where the stack is small (WebAssembly).
+    pub max_nested_runs: usize,
     pub gc: pleno_value::gc::GCManager,
     pub registers: Vec<NanValue>,
     pub frames: Vec<CallFrame>,
@@ -140,6 +143,7 @@ impl VMProvider for VM {
     /// plain call of a bytecode function or closure gets its frame directly;
     /// anything else goes through `call_ext_with`.
     fn call_with(&mut self, callee: &Value, args: &[Value]) -> Result<Value, RuntimeError> {
+        self.check_call_depth()?;
         let (function_index, closure_state) = match callee {
             Value::Function(index) => (*index, None),
             Value::Closure(state) => (state.borrow().function, Some(state.clone())),
@@ -859,6 +863,7 @@ impl VM {
         Self {
             sandbox_config: None,
             fast_loop: true,
+            max_nested_runs: DEFAULT_MAX_NESTED_RUNS,
             gc,
             registers: vec![NanValue::null(); 256],
             frames: Vec::new(),
@@ -1529,6 +1534,15 @@ impl VM {
     }
 
     fn run_until(&mut self, depth: usize) -> Result<ExecutionStatus, RuntimeError> {
+        // Each nested run (a callback from `map`, an operator, a test body) uses
+        // stack space in the Rust code that runs it, so unbounded recursion
+        // through callbacks would overflow that stack instead of failing.
+        if self.run_depths.len() >= self.max_nested_runs {
+            return Err(RuntimeError::new(format!(
+                "RecursionError: maximum call depth exceeded ({} nested callbacks)",
+                self.max_nested_runs
+            )));
+        }
         self.run_depths.push(depth);
         let res = self.run_until_internal(depth);
         self.run_depths.pop();
@@ -6143,6 +6157,7 @@ impl VM {
         return_reg: usize,
         current_owner: Option<MethodOwner>,
     ) -> Result<bool, RuntimeError> {
+        self.check_call_depth()?;
         let (function_index, closure_state) = if let Some(index) = callee.as_function_index() {
             (index, None)
         } else if callee.is_closure() {
@@ -6233,6 +6248,7 @@ impl VM {
         args_already_processed: bool,
         opts: CallOptions,
     ) -> Result<(), RuntimeError> {
+        self.check_call_depth()?;
         let CallOptions {
             return_override,
             mut closure_state,
@@ -6801,6 +6817,18 @@ impl VM {
         self.new_error(&message)
     }
 
+    /// Fails a call that would go deeper than `MAX_CALL_DEPTH` frames, so
+    /// runaway recursion raises a catchable `RecursionError` instead of
+    /// growing memory without bound.
+    fn check_call_depth(&self) -> Result<(), RuntimeError> {
+        if self.frames.len() >= MAX_CALL_DEPTH {
+            return Err(RuntimeError::new(format!(
+                "RecursionError: maximum call depth exceeded ({MAX_CALL_DEPTH} calls)"
+            )));
+        }
+        Ok(())
+    }
+
     /// Ends the program at a sandbox limit. Unlike other errors it does not
     /// unwind to a `catch`: a program that caught it could run on forever.
     fn sandbox_limit_error(&mut self, limit: &str) -> RuntimeError {
@@ -7250,6 +7278,16 @@ fn owner_from_nan(value: NanValue) -> Option<MethodOwner> {
         _ => None,
     }
 }
+
+/// The deepest a chain of calls can go. Frames live on the heap, so this only
+/// bounds memory: about 200 bytes and a few registers per call.
+const MAX_CALL_DEPTH: usize = 100_000;
+
+/// How many runs can be nested inside each other by default: calls from
+/// native code back into Pleno (`map` callbacks, operators, test bodies). Each
+/// uses about 8 KB of Rust stack in a release build, more in a debug build or
+/// under a sanitizer; see `VM::max_nested_runs`.
+pub const DEFAULT_MAX_NESTED_RUNS: usize = 200;
 
 /// Whether `path` is inside one of the `allowed` folders (or is one of the
 /// allowed files). Both sides are compared as normalized absolute paths, one
