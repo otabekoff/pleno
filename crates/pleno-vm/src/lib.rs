@@ -1460,6 +1460,23 @@ impl VM {
                 }
             };
         }
+        // After a comparison at index `$at` that wrote `$result` to register
+        // `$dest`: runs a conditional jump on that register that follows it.
+        macro_rules! fused_jump {
+            ($frame:ident, $at:expr, $dest:expr, $result:expr) => {
+                if let Some(jump) = next_instruction!($at)
+                    && matches!(jump.opcode(), Opcode::JumpIfNot | Opcode::JumpIf)
+                    && jump.a() as usize == $dest
+                {
+                    self.instruction_count += 1;
+                    $frame.ip = $at + 2;
+                    if $result == (jump.opcode() == Opcode::JumpIf) {
+                        let offset = decode_offset(jump.b(), jump.c());
+                        $frame.ip = apply_offset($frame.ip, offset)?;
+                    }
+                }
+            };
+        }
         loop {
             // Between instructions every live value is in a register, a frame or
             // another root, so this is where the collector may run: after
@@ -1712,6 +1729,29 @@ impl VM {
                 Opcode::LoadInt => {
                     let value = (b as i8) as i64;
                     self.registers[base + a] = NanValue::from_int(value);
+                    // `x < 2`: the comparison of an integer with this constant
+                    // (and a jump on its result) runs here too.
+                    if let Some(compare) = next_instruction!(ip)
+                        && matches!(
+                            compare.opcode(),
+                            Opcode::Lt | Opcode::Le | Opcode::Gt | Opcode::Ge
+                        )
+                        && compare.c() as usize == a
+                        && let Some(left) =
+                            self.registers[base + compare.b() as usize].as_inline_int()
+                    {
+                        let result = match compare.opcode() {
+                            Opcode::Lt => left < value,
+                            Opcode::Le => left <= value,
+                            Opcode::Gt => left > value,
+                            _ => left >= value,
+                        };
+                        let dest = compare.a() as usize;
+                        self.registers[base + dest] = NanValue::from_bool(result);
+                        self.instruction_count += 1;
+                        frame.ip = ip + 2;
+                        fused_jump!(frame, ip + 1, dest, result);
+                    }
                 }
                 Opcode::Closure => {
                     let proto = function
@@ -3364,31 +3404,24 @@ impl VM {
                 Opcode::Lt | Opcode::Le | Opcode::Gt | Opcode::Ge => {
                     let left_nan = self.registers[base + b];
                     let right_nan = self.registers[base + c];
-                    if (left_nan.is_f64() || left_nan.as_int().is_some())
-                        && (right_nan.is_f64() || right_nan.as_int().is_some())
-                    {
-                        let res = match (left_nan.as_inline_int(), right_nan.as_inline_int()) {
-                            (Some(left), Some(right)) => match opcode {
-                                Opcode::Lt => left < right,
-                                Opcode::Le => left <= right,
-                                Opcode::Gt => left > right,
-                                _ => left >= right,
-                            },
-                            _ => crate::value_ops::compare_nan(opcode, left_nan, right_nan)?,
-                        };
+                    let numeric = match (left_nan.as_inline_int(), right_nan.as_inline_int()) {
+                        (Some(left), Some(right)) => Some(match opcode {
+                            Opcode::Lt => left < right,
+                            Opcode::Le => left <= right,
+                            Opcode::Gt => left > right,
+                            _ => left >= right,
+                        }),
+                        _ if (left_nan.is_f64() || left_nan.as_int().is_some())
+                            && (right_nan.is_f64() || right_nan.as_int().is_some()) =>
+                        {
+                            Some(crate::value_ops::compare_nan(opcode, left_nan, right_nan)?)
+                        }
+                        _ => None,
+                    };
+                    if let Some(res) = numeric {
                         self.registers[base + a] = NanValue::from_bool(res);
                         // A conditional jump on the result runs here too.
-                        if let Some(jump) = next_instruction!(ip)
-                            && matches!(jump.opcode(), Opcode::JumpIfNot | Opcode::JumpIf)
-                            && jump.a() as usize == a
-                        {
-                            self.instruction_count += 1;
-                            frame.ip = ip + 2;
-                            if res == (jump.opcode() == Opcode::JumpIf) {
-                                let offset = decode_offset(jump.b(), jump.c());
-                                frame.ip = apply_offset(frame.ip, offset)?;
-                            }
-                        }
+                        fused_jump!(frame, ip, a, res);
                         continue;
                     }
                     let left = left_nan.to_value();

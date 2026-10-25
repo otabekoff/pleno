@@ -153,6 +153,19 @@ fn fused_instructions_behave_like_separate_ones() {
         n + (1.5 < 2 ? 1 : 0) + (2 >= 2.5 ? 100 : 0);
     ";
     assert_eq!(eval(source), Value::Int(120 + 12 + 1));
+    // A small constant on the right: inline, boxed and float left operands.
+    let source = "
+        let mut hits = 0;
+        for (x in [1, 2, 3, 70368744177664, -70368744177664]) {
+            if x < 2 { hits = hits + 1; }
+            if x >= 3 { hits = hits + 10; }
+        }
+        let f = 1.5;
+        if f <= 1 { hits = hits + 100; }
+        if f > 1 { hits = hits + 1000; }
+        hits;
+    ";
+    assert_eq!(eval(source), Value::Int(2 + 20 + 1000));
     let err = run("let x = \"a\"; if x < 1 { 1; }").unwrap_err();
     assert!(err.contains("invalid operands for comparison"), "{err}");
 }
