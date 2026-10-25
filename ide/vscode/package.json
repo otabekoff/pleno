@@ -1,7 +1,7 @@
 {
   "name": "pleno-language",
-  "displayName": "Pleno Language Support",
-  "description": "Pleno language support: highlighting, language server, debugger, test explorer, and one-click toolchain install.",
+  "displayName": "Pleno",
+  "description": "Pleno language support: highlighting, language server, debugger, test explorer and a toolchain installer.",
   "version": "0.2.0",
   "publisher": "pleno",
   "icon": "resources/icon.png",
@@ -9,14 +9,17 @@
     "vscode": "^1.75.0"
   },
   "categories": [
-    "Programming Languages"
+    "Programming Languages",
+    "Debuggers",
+    "Snippets",
+    "Testing"
   ],
   "repository": {
     "url": "https://github.com/otabekoff/pleno",
     "type": "git",
     "directory": "ide/vscode"
   },
-  "homepage": "https://github.com/otabekoff/pleno#readme",
+  "homepage": "https://pleno.mohirlab.uz/guide/editor",
   "bugs": {
     "url": "https://github.com/otabekoff/pleno/issues"
   },
@@ -31,9 +34,9 @@
     "pretest": "npm run compile:tsc && npm run lint",
     "lint": "eslint src --ext ts",
     "test": "node ./out/test/runTest.js",
-    "pack": "npm run package && vsce package",
+    "pack": "npx --yes @vscode/vsce@3.2.1 package",
     "all": "npm run pretest && npm run pack",
-    "install-local": "npm run pack && code --install-extension pleno-language-0.2.0.vsix --force"
+    "install-local": "npm run pack -- --out pleno-language.vsix && code --install-extension pleno-language.vsix --force"
   },
   "devDependencies": {
     "@types/glob": "^9.0.0",
@@ -50,15 +53,10 @@
     "typescript": "^5.9.3"
   },
   "activationEvents": [
-    "workspaceContains:**/pleno.toml"
+    "workspaceContains:**/pleno.toml",
+    "onDebugResolve:pleno"
   ],
   "contributes": {
-    "jsonValidation": [
-      {
-        "fileMatch": "pleno.toml",
-        "url": "./schemas/pleno.toml.schema.json"
-      }
-    ],
     "taskDefinitions": [
       {
         "type": "pleno",
@@ -68,11 +66,15 @@
         "properties": {
           "command": {
             "type": "string",
-            "description": "The Pleno command to run (e.g., run, check)"
+            "enum": [
+              "run",
+              "check"
+            ],
+            "description": "The pleno command to run on the file."
           },
           "file": {
             "type": "string",
-            "description": "The file to run or check"
+            "description": "The .pln file. Defaults to the active file."
           }
         }
       },
@@ -84,7 +86,7 @@
         "properties": {
           "command": {
             "type": "string",
-            "description": "The plm command to run (e.g., build, test, install)"
+            "description": "The plm command and its arguments, for example `build --release` or `run dev`."
           }
         }
       }
@@ -101,16 +103,9 @@
         ],
         "configuration": "./language-configuration.json",
         "icon": {
-          "light": "./resources/icon.svg",
-          "dark": "./resources/icon.svg"
+          "light": "./resources/file-icon.svg",
+          "dark": "./resources/file-icon.svg"
         }
-      }
-    ],
-    "iconThemes": [
-      {
-        "id": "pleno",
-        "label": "Pleno",
-        "path": "./resources/file-icons.json"
       }
     ],
     "snippets": [
@@ -123,30 +118,23 @@
       "type": "object",
       "title": "Pleno",
       "properties": {
+        "pleno.cli.path": {
+          "type": "string",
+          "default": "",
+          "scope": "machine-overridable",
+          "markdownDescription": "Path to the `pleno` command line tool. When empty, the extension uses the toolchain it installed, then `pleno` on PATH, then `~/.pleno/bin`."
+        },
         "pleno.lsp.path": {
           "type": "string",
-          "default": "pleno-lsp",
-          "description": "Path to the Pleno language server (pleno-lsp). Leave as `pleno-lsp` to use the installed toolchain or PATH."
+          "default": "",
+          "scope": "machine-overridable",
+          "markdownDescription": "Path to the language server, `pleno-lsp`. Found like `pleno.cli.path` when empty."
         },
         "pleno.dap.path": {
           "type": "string",
           "default": "",
-          "description": "Path to the Pleno debug adapter (pleno-dap). Found on PATH when empty."
-        },
-        "pleno.cli.path": {
-          "type": "string",
-          "default": "",
-          "description": "Path to the pleno command line tool. Found automatically when empty."
-        },
-        "pleno.inlayHints.enabled": {
-          "type": "boolean",
-          "default": true,
-          "description": "Enable/disable inlay hints."
-        },
-        "pleno.semanticHighlighting.enabled": {
-          "type": "boolean",
-          "default": true,
-          "description": "Enable/disable semantic highlighting."
+          "scope": "machine-overridable",
+          "markdownDescription": "Path to the debug adapter, `pleno-dap`. Found like `pleno.cli.path` when empty; without it, debugging uses `pleno dap`."
         },
         "pleno.lint.enabled": {
           "type": "boolean",
@@ -212,28 +200,58 @@
             "verbose"
           ],
           "default": "off",
-          "description": "Traces the communication between VS Code and the Pleno Language Server."
+          "description": "Logs the messages between VS Code and the language server to the Pleno output."
         }
       }
     },
     "commands": [
       {
         "command": "pleno.runFile",
-        "title": "Run Current File",
+        "title": "Run File",
         "category": "Pleno",
         "icon": "$(play)"
       },
       {
+        "command": "pleno.debugFile",
+        "title": "Debug File",
+        "category": "Pleno",
+        "icon": "$(debug-alt)"
+      },
+      {
         "command": "pleno.checkFile",
-        "title": "Check Current File",
+        "title": "Check File",
         "category": "Pleno",
         "icon": "$(check)"
+      },
+      {
+        "command": "pleno.runScript",
+        "title": "Run Script...",
+        "category": "Pleno",
+        "icon": "$(play)"
+      },
+      {
+        "command": "pleno.openRepl",
+        "title": "Open REPL",
+        "category": "Pleno",
+        "icon": "$(terminal)"
+      },
+      {
+        "command": "pleno.createProject",
+        "title": "New Project...",
+        "category": "Pleno",
+        "icon": "$(new-folder)"
+      },
+      {
+        "command": "pleno.openManifest",
+        "title": "Open pleno.toml",
+        "category": "Pleno",
+        "icon": "$(go-to-file)"
       },
       {
         "command": "pleno.restartServer",
         "title": "Restart Language Server",
         "category": "Pleno",
-        "icon": "$(refresh)"
+        "icon": "$(debug-restart)"
       },
       {
         "command": "pleno.installToolchain",
@@ -248,110 +266,33 @@
         "icon": "$(trash)"
       },
       {
+        "command": "pleno.showStatus",
+        "title": "Show Status",
+        "category": "Pleno",
+        "icon": "$(info)"
+      },
+      {
         "command": "pleno.openDocs",
         "title": "Open Documentation",
         "category": "Pleno",
         "icon": "$(book)"
       },
       {
-        "command": "pleno.openRepl",
-        "title": "Open Interactive REPL",
-        "category": "Pleno",
-        "icon": "$(terminal)"
-      },
-      {
-        "command": "pleno.showDashboard",
-        "title": "Show Dashboard",
-        "category": "Pleno",
-        "icon": "$(dashboard)"
-      },
-      {
         "command": "pleno.openWalkthrough",
-        "title": "Open Getting Started Walkthrough",
+        "title": "Open Walkthrough",
         "category": "Pleno",
-        "icon": "$(question)"
-      },
-      {
-        "command": "pleno.openManifest",
-        "title": "Open Project Manifest (pleno.toml)",
-        "category": "Pleno",
-        "icon": "$(file-code)"
-      },
-      {
-        "command": "pleno.reloadWorkspace",
-        "title": "Reload Pleno Workspace",
-        "category": "Pleno",
-        "icon": "$(refresh)"
-      },
-      {
-        "command": "pleno.showStatus",
-        "title": "Show Pleno Status",
-        "category": "Pleno",
-        "icon": "$(info)"
-      },
-      {
-        "command": "pleno.showControlPanel",
-        "title": "Show Control Panel",
-        "category": "Pleno",
-        "icon": "$(gear)"
-      },
-      {
-        "command": "pleno.showOutput",
-        "title": "Show Output Channel",
-        "category": "Pleno",
-        "icon": "$(output)"
-      },
-      {
-        "command": "pleno.refreshProject",
-        "title": "Refresh Project View",
-        "category": "Pleno",
-        "icon": "$(refresh)"
-      },
-      {
-        "command": "pleno.runScript",
-        "title": "Run Script",
-        "category": "Pleno",
-        "icon": "$(play)"
-      },
-      {
-        "command": "pleno.startDebugging",
-        "title": "Start Debugging",
-        "category": "Pleno",
-        "icon": "$(debug-alt)"
-      },
-      {
-        "command": "pleno.createProject",
-        "title": "Create New Project",
-        "category": "Pleno",
-        "icon": "$(new-folder)"
+        "icon": "$(compass)"
       }
     ],
     "menus": {
-      "explorer/context": [
-        {
-          "command": "pleno.openManifest",
-          "when": "resourceExtname == .pln",
-          "group": "navigation@10"
-        },
-        {
-          "command": "pleno.runFile",
-          "when": "resourceExtname == .pln",
-          "group": "navigation@1"
-        },
-        {
-          "command": "pleno.checkFile",
-          "when": "resourceExtname == .pln",
-          "group": "navigation@2"
-        }
-      ],
-      "editor/title": [
+      "editor/title/run": [
         {
           "command": "pleno.runFile",
           "when": "resourceLangId == pleno",
           "group": "navigation@1"
         },
         {
-          "command": "pleno.checkFile",
+          "command": "pleno.debugFile",
           "when": "resourceLangId == pleno",
           "group": "navigation@2"
         }
@@ -363,19 +304,31 @@
           "group": "pleno@1"
         },
         {
+          "command": "pleno.debugFile",
+          "when": "resourceLangId == pleno",
+          "group": "pleno@2"
+        },
+        {
           "command": "pleno.checkFile",
           "when": "resourceLangId == pleno",
+          "group": "pleno@3"
+        }
+      ],
+      "explorer/context": [
+        {
+          "command": "pleno.runFile",
+          "when": "resourceExtname == .pln",
+          "group": "pleno@1"
+        },
+        {
+          "command": "pleno.checkFile",
+          "when": "resourceExtname == .pln",
           "group": "pleno@2"
         }
       ],
       "view/title": [
         {
-          "command": "pleno.refreshProject",
-          "when": "view == plenoProject",
-          "group": "navigation"
-        },
-        {
-          "command": "pleno.showDashboard",
+          "command": "pleno.openManifest",
           "when": "view == plenoProject",
           "group": "navigation"
         }
@@ -390,63 +343,91 @@
       "commandPalette": [
         {
           "command": "pleno.runFile",
-          "when": "resourceLangId == pleno"
+          "when": "editorLangId == pleno"
+        },
+        {
+          "command": "pleno.debugFile",
+          "when": "editorLangId == pleno"
         },
         {
           "command": "pleno.checkFile",
-          "when": "resourceLangId == pleno"
+          "when": "editorLangId == pleno"
         },
         {
           "command": "pleno.runScript",
-          "when": "false"
+          "when": "pleno.hasProject"
+        },
+        {
+          "command": "pleno.openManifest",
+          "when": "pleno.hasProject"
+        },
+        {
+          "command": "pleno.uninstallToolchain",
+          "when": "pleno.toolchainInstalled"
         }
       ]
     },
     "walkthroughs": [
       {
         "id": "pleno-welcome",
-        "title": "Experience Pleno",
-        "description": "Get started with the Pleno programming language",
+        "title": "Get Started with Pleno",
+        "description": "Install the toolchain, create a project, and run, debug and test Pleno code.",
         "steps": [
           {
-            "id": "setup",
-            "title": "Setup Pleno",
-            "description": "Getting your Pleno environment ready",
-            "media": {
-              "markdown": "resources/walkthrough/setup.md"
-            }
-          },
-          {
-            "id": "intro",
-            "title": "Welcome to Pleno",
-            "description": "Learn about the core features of the Pleno language and extension.",
-            "media": {
-              "markdown": "resources/walkthrough/intro.md"
-            }
-          },
-          {
             "id": "toolchain",
-            "title": "Setup Toolchain",
-            "description": "Install and verify the Pleno toolchain on your system.",
+            "title": "Install the toolchain",
+            "description": "The extension needs the Pleno tools: `pleno`, `plm`, the language server and the debugger. This step is done when they are found.\n[Install Toolchain](command:pleno.installToolchain)",
             "media": {
               "markdown": "resources/walkthrough/toolchain.md"
-            }
+            },
+            "completionEvents": [
+              "onContext:pleno.toolchainFound"
+            ]
           },
           {
             "id": "project",
-            "title": "Create a Project",
-            "description": "Initialize your first Pleno project with `plm init`.",
+            "title": "Create a project",
+            "description": "`plm init` writes `pleno.toml`, `src/main.pln` and a test. Run it in an empty folder.\n[New Project](command:pleno.createProject)",
             "media": {
               "markdown": "resources/walkthrough/project.md"
-            }
+            },
+            "completionEvents": [
+              "onContext:pleno.hasProject"
+            ]
           },
           {
             "id": "run",
-            "title": "Run & Test",
-            "description": "Run your code, use the REPL, and explore the Test Explorer.",
+            "title": "Run and debug",
+            "description": "Run the open file, or set a breakpoint and debug it with F5.\n[Run File](command:pleno.runFile)",
             "media": {
               "markdown": "resources/walkthrough/run.md"
-            }
+            },
+            "completionEvents": [
+              "onCommand:pleno.runFile",
+              "onCommand:pleno.debugFile"
+            ]
+          },
+          {
+            "id": "test",
+            "title": "Write tests",
+            "description": "Tests written with `std:test` show up in the Testing view.\n[Open Testing View](command:workbench.view.testing.focus)",
+            "media": {
+              "markdown": "resources/walkthrough/test.md"
+            },
+            "completionEvents": [
+              "onCommand:workbench.view.testing.focus"
+            ]
+          },
+          {
+            "id": "learn",
+            "title": "Learn the language",
+            "description": "The tutorial and guide cover the syntax, the standard library and packages.\n[Open Documentation](command:pleno.openDocs)",
+            "media": {
+              "markdown": "resources/walkthrough/learn.md"
+            },
+            "completionEvents": [
+              "onCommand:pleno.openDocs"
+            ]
           }
         ]
       }
@@ -462,45 +443,23 @@
         "path": "./syntaxes/pleno.markdown-injection.tmLanguage.json",
         "injectTo": [
           "text.html.markdown"
-        ]
+        ],
+        "embeddedLanguages": {
+          "meta.embedded.block.pleno": "pleno"
+        }
       }
     ],
-    "viewsContainers": {
-      "activitybar": [
-        {
-          "id": "pleno-explorer",
-          "title": "Pleno",
-          "icon": "resources/icon.svg"
-        }
-      ]
-    },
     "views": {
-      "pleno-explorer": [
+      "explorer": [
         {
           "id": "plenoProject",
-          "name": "Project Overview",
-          "icon": "resources/icon.svg",
-          "contextualTitle": "Pleno Project"
-        },
-        {
-          "id": "plenoOutline",
-          "name": "Outline",
-          "icon": "$(list-tree)"
+          "name": "Pleno Project",
+          "when": "pleno.hasProject",
+          "icon": "resources/file-icon.svg",
+          "contextualTitle": "Pleno"
         }
       ]
     },
-    "viewsWelcome": [
-      {
-        "view": "plenoProject",
-        "contents": "Welcome to Pleno!\n\nNo Pleno project detected in this workspace.\n\n[Create New Project](command:pleno.createProject)\n\n[Install Pleno Toolchain](command:pleno.installToolchain)\n\n[Open Getting Started](command:pleno.openWalkthrough)\n\n[Open Documentation](command:pleno.openDocs)",
-        "when": "workspaceFolderCount == 0 || !pleno.hasProject"
-      },
-      {
-        "view": "plenoProject",
-        "contents": "Loading project information...\n\n[Refresh](command:pleno.refreshProject)",
-        "when": "pleno.isLoading"
-      }
-    ],
     "breakpoints": [
       {
         "language": "pleno"
@@ -509,7 +468,7 @@
     "debuggers": [
       {
         "type": "pleno",
-        "label": "Pleno Debug",
+        "label": "Pleno",
         "languages": [
           "pleno"
         ],
@@ -521,48 +480,21 @@
             "properties": {
               "program": {
                 "type": "string",
-                "description": "Absolute path to the Pleno file to debug.",
+                "description": "The .pln file to debug.",
                 "default": "${file}"
-              },
-              "args": {
-                "type": "array",
-                "description": "Command line arguments passed to the program.",
-                "default": [],
-                "items": {
-                  "type": "string"
-                }
               },
               "cwd": {
                 "type": "string",
-                "description": "Working directory for the program.",
+                "description": "Working directory of the program. Defaults to the workspace folder.",
                 "default": "${workspaceFolder}"
-              },
-              "stopOnEntry": {
-                "type": "boolean",
-                "description": "Automatically stop after launch.",
-                "default": true
               },
               "env": {
                 "type": "object",
-                "description": "Environment variables.",
+                "description": "Environment variables for the program.",
+                "additionalProperties": {
+                  "type": "string"
+                },
                 "default": {}
-              }
-            }
-          },
-          "attach": {
-            "required": [
-              "port"
-            ],
-            "properties": {
-              "port": {
-                "type": "number",
-                "description": "Debug port to attach to.",
-                "default": 9229
-              },
-              "host": {
-                "type": "string",
-                "description": "Host address.",
-                "default": "localhost"
               }
             }
           }
@@ -571,39 +503,41 @@
           {
             "type": "pleno",
             "request": "launch",
-            "name": "Launch Pleno Program",
-            "program": "${file}",
-            "stopOnEntry": true
+            "name": "Debug current file",
+            "program": "${file}"
           }
         ],
         "configurationSnippets": [
           {
-            "label": "Pleno: Launch Program",
-            "description": "Launch a Pleno program in debug mode",
+            "label": "Pleno: Launch",
+            "description": "Debug a Pleno file",
             "body": {
               "type": "pleno",
               "request": "launch",
-              "name": "Launch ${1:Program}",
-              "program": "^\"${workspaceFolder}/${2:main.pln}\"",
-              "stopOnEntry": true
-            }
-          },
-          {
-            "label": "Pleno: Attach to Process",
-            "description": "Attach to a running Pleno process",
-            "body": {
-              "type": "pleno",
-              "request": "attach",
-              "name": "Attach to Pleno",
-              "port": 9229
+              "name": "Debug ${1:src/main.pln}",
+              "program": "^\"\\${workspaceFolder}/${1:src/main.pln}\""
             }
           }
         ]
+      }
+    ],
+    "tomlValidation": [
+      {
+        "fileMatch": "pleno.toml",
+        "url": "./schemas/pleno.toml.schema.json"
       }
     ]
   },
   "dependencies": {
     "smol-toml": "^1.6.0",
     "vscode-languageclient": "^9.0.1"
-  }
+  },
+  "license": "MIT",
+  "keywords": [
+    "pleno",
+    "pln",
+    "plm",
+    "language server",
+    "debugger"
+  ]
 }

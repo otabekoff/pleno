@@ -1,819 +1,237 @@
 import * as vscode from "vscode";
 import * as fs from "fs";
-import * as path from "path";
-import { execSync } from "child_process";
-import { getPlenoPath } from "./utils";
+import { parse } from "smol-toml";
+
+/** A dependency as written in `pleno.toml`: a version or a table. */
+type Dependency = string | {
+    version?: string;
+    git?: string;
+    path?: string;
+    branch?: string;
+    tag?: string;
+    rev?: string;
+};
+
+/** The parts of `pleno.toml` the view shows (see `crates/pleno-package`). */
+export interface Project {
+    folder: vscode.WorkspaceFolder;
+    manifest: vscode.Uri;
+    name?: string;
+    version?: string;
+    description?: string;
+    main?: string;
+    scripts: Record<string, string>;
+    dependencies: Record<string, Dependency>;
+    devDependencies: Record<string, Dependency>;
+    /** Why the manifest could not be read, if it could not. */
+    error?: string;
+    /** The manifest text, to find the line a script is on. */
+    text: string;
+}
+
+function table<T>(value: unknown): Record<string, T> {
+    return value && typeof value === "object" && !Array.isArray(value)
+        ? value as Record<string, T>
+        : {};
+}
+
+function readProject(folder: vscode.WorkspaceFolder): Project | undefined {
+    const manifest = vscode.Uri.joinPath(folder.uri, "pleno.toml");
+    let text: string;
+    try {
+        text = fs.readFileSync(manifest.fsPath, "utf-8");
+    } catch {
+        return undefined;
+    }
+    const project: Project = {
+        folder,
+        manifest,
+        scripts: {},
+        dependencies: {},
+        devDependencies: {},
+        text,
+    };
+    try {
+        const data = parse(text) as Record<string, unknown>;
+        const pkg = table<unknown>(data.package);
+        project.name = typeof pkg.name === "string" ? pkg.name : undefined;
+        project.version = typeof pkg.version === "string" ? pkg.version : undefined;
+        project.description = typeof pkg.description === "string" ? pkg.description : undefined;
+        // `plm` uses src/main.pln when `main` is not set.
+        project.main = typeof pkg.main === "string" ? pkg.main : "src/main.pln";
+        project.scripts = table<string>(data.scripts);
+        project.dependencies = table<Dependency>(data.dependencies);
+        project.devDependencies = table<Dependency>(data["dev-dependencies"]);
+    } catch (error) {
+        project.error = error instanceof Error ? error.message.split("\n")[0] : String(error);
+    }
+    return project;
+}
+
+function describeDependency(dependency: Dependency): string {
+    if (typeof dependency === "string") {
+        return dependency;
+    }
+    if (dependency.git) {
+        const at = dependency.tag ?? dependency.branch ?? dependency.rev;
+        return at ? `${dependency.git} @ ${at}` : dependency.git;
+    }
+    return dependency.path ?? dependency.version ?? "";
+}
+
+/** Opens `pleno.toml` with the cursor on `line` (0-based). */
+function openManifestAt(project: Project, line = 0): vscode.Command {
+    return {
+        command: "vscode.open",
+        title: "Open pleno.toml",
+        arguments: [project.manifest, { selection: new vscode.Range(line, 0, line, 0) }],
+    };
+}
+
+export class ProjectItem extends vscode.TreeItem {
+    children?: ProjectItem[];
+    project?: Project;
+    script?: string;
+}
+
+function item(
+    label: string,
+    icon: string,
+    options: Partial<ProjectItem> = {},
+): ProjectItem {
+    const node = new ProjectItem(label, options.children
+        ? vscode.TreeItemCollapsibleState.Expanded
+        : vscode.TreeItemCollapsibleState.None);
+    node.iconPath = new vscode.ThemeIcon(icon);
+    Object.assign(node, options);
+    return node;
+}
 
 /**
- * Pleno Project Provider
- * Provides tree view data for the Pleno Project Overview sidebar
+ * The "Pleno Project" view in the Explorer: the package, entry file, scripts
+ * and dependencies from each workspace folder's `pleno.toml`. It updates when
+ * a manifest changes.
  */
-export class PlenoProjectProvider
-    implements vscode.TreeDataProvider<ProjectItem> {
-    private _onDidChangeTreeData: vscode.EventEmitter<
-        ProjectItem | undefined | void
-    > = new vscode.EventEmitter<ProjectItem | undefined | void>();
-    readonly onDidChangeTreeData: vscode.Event<ProjectItem | undefined | void> =
-        this._onDidChangeTreeData.event;
+export class PlenoProjectProvider implements vscode.TreeDataProvider<ProjectItem>, vscode.Disposable {
+    private readonly changed = new vscode.EventEmitter<void>();
+    readonly onDidChangeTreeData = this.changed.event;
+    private projects: Project[] = [];
+    private readonly disposables: vscode.Disposable[] = [];
 
-    private projectInfo: any = null;
-    private hasProject: boolean = false;
-
-    constructor(
-        private readonly context: vscode.ExtensionContext,
-        private workspaceRoot: string | undefined,
-    ) {
-        this.detectProject();
-    }
-
-    /**
-     * Detect if a Pleno project exists in the workspace
-     */
-    private detectProject(): void {
-        if (!this.workspaceRoot) {
-            this.hasProject = false;
-            return;
-        }
-
-        const manifestPath = path.join(this.workspaceRoot, "pleno.toml");
-        this.hasProject = fs.existsSync(manifestPath);
-
-        // Set context for welcome view conditions
-        vscode.commands.executeCommand(
-            "setContext",
-            "pleno.hasProject",
-            this.hasProject,
+    constructor() {
+        const watcher = vscode.workspace.createFileSystemWatcher("**/pleno.toml");
+        this.disposables.push(
+            watcher,
+            watcher.onDidCreate(() => this.refresh()),
+            watcher.onDidChange(() => this.refresh()),
+            watcher.onDidDelete(() => this.refresh()),
+            vscode.workspace.onDidChangeWorkspaceFolders(() => this.refresh()),
+            this.changed,
         );
+        this.refresh();
     }
 
-    /**
-     * Refresh the tree view
-     */
+    /** The workspace folders that have a `pleno.toml`. */
+    getProjects(): Project[] {
+        return this.projects;
+    }
+
     refresh(): void {
-        this.projectInfo = null; // Clear cache
-        this.detectProject();
-        this._onDidChangeTreeData.fire();
+        this.projects = (vscode.workspace.workspaceFolders ?? [])
+            .map(readProject)
+            .filter((project): project is Project => project !== undefined);
+        void vscode.commands.executeCommand("setContext", "pleno.hasProject", this.projects.length > 0);
+        this.changed.fire();
     }
 
     getTreeItem(element: ProjectItem): vscode.TreeItem {
         return element;
     }
 
-    getChildren(element?: ProjectItem): vscode.ProviderResult<ProjectItem[]> {
-        if (!this.workspaceRoot) {
-            return [];
+    getChildren(element?: ProjectItem): ProjectItem[] {
+        if (element) {
+            return element.children ?? [];
         }
-
-        if (!element) {
-            return this.getRootItems();
+        if (this.projects.length === 1) {
+            return this.projectItems(this.projects[0]);
         }
-
-        return this.getChildItems(element);
+        return this.projects.map((project) => item(project.folder.name, "root-folder", {
+            children: this.projectItems(project),
+            description: project.name,
+        }));
     }
 
-    /**
-     * Get root level items
-     */
-    private getRootItems(): ProjectItem[] {
-        const items: ProjectItem[] = [];
-
-        // Project Info section
-        const projectInfo = this.getProjectInfo();
-        if (projectInfo) {
-            // Project name and version
-            const nameItem = new ProjectItem(
-                projectInfo.name || "Pleno Project",
-                vscode.TreeItemCollapsibleState.None,
-                "projectName",
-            );
-            nameItem.description = projectInfo.version || "";
-            nameItem.iconPath = new vscode.ThemeIcon("project");
-            nameItem.tooltip = `${projectInfo.name || "Project"} v${
-                projectInfo.version || "0.0.0"
-            }`;
-            items.push(nameItem);
+    private projectItems(project: Project): ProjectItem[] {
+        if (project.error) {
+            return [item("pleno.toml has an error", "error", {
+                description: project.error,
+                tooltip: project.error,
+                command: openManifestAt(project),
+            })];
         }
 
-        // Quick Actions section
-        const actionsItem = new ProjectItem(
-            "Quick Actions",
-            vscode.TreeItemCollapsibleState.Expanded,
-            "quickActions",
-        );
-        actionsItem.iconPath = new vscode.ThemeIcon("zap");
-        items.push(actionsItem);
+        const items: ProjectItem[] = [item(project.name ?? project.folder.name, "package", {
+            description: project.version,
+            tooltip: project.description ?? project.manifest.fsPath,
+            command: openManifestAt(project),
+            contextValue: "package",
+        })];
 
-        // Source Files section
-        const sourceItem = new ProjectItem(
-            "Source Files",
-            vscode.TreeItemCollapsibleState.Collapsed,
-            "sourceFiles",
-        );
-        sourceItem.iconPath = new vscode.ThemeIcon("file-code");
-        items.push(sourceItem);
-
-        // Dependencies section
-        const depsItem = new ProjectItem(
-            "Dependencies",
-            vscode.TreeItemCollapsibleState.Collapsed,
-            "dependencies",
-        );
-        depsItem.iconPath = new vscode.ThemeIcon("package");
-        items.push(depsItem);
-
-        // Scripts section
-        const scriptsItem = new ProjectItem(
-            "Scripts",
-            vscode.TreeItemCollapsibleState.Collapsed,
-            "scripts",
-        );
-        scriptsItem.iconPath = new vscode.ThemeIcon("terminal");
-        items.push(scriptsItem);
-
-        // Build Targets section
-        const targetsItem = new ProjectItem(
-            "Build Targets",
-            vscode.TreeItemCollapsibleState.Collapsed,
-            "buildTargets",
-        );
-        targetsItem.iconPath = new vscode.ThemeIcon("tools");
-        items.push(targetsItem);
-
-        return items;
-    }
-
-    /**
-     * Get children for a specific parent item
-     */
-    private getChildItems(element: ProjectItem): ProjectItem[] {
-        const projectInfo = this.getProjectInfo();
-
-        switch (element.contextValue) {
-            case "quickActions":
-                return this.getQuickActionItems();
-            case "sourceFiles":
-                return this.getSourceFileItems();
-            case "dependencies":
-                return this.getDependencyItems(projectInfo);
-            case "scripts":
-                return this.getScriptItems(projectInfo);
-            case "buildTargets":
-                return this.getBuildTargetItems(projectInfo);
-            default:
-                return [];
-        }
-    }
-
-    /**
-     * Get quick action items
-     */
-    private getQuickActionItems(): ProjectItem[] {
-        const items: ProjectItem[] = [];
-
-        // Run
-        const runItem = new ProjectItem(
-            "Run Project",
-            vscode.TreeItemCollapsibleState.None,
-            "action",
-        );
-        runItem.iconPath = new vscode.ThemeIcon("play");
-        runItem.command = { command: "pleno.runFile", title: "Run" };
-        runItem.tooltip = "Run the current file or project";
-        items.push(runItem);
-
-        // Build
-        const buildItem = new ProjectItem(
-            "Build Project",
-            vscode.TreeItemCollapsibleState.None,
-            "action",
-        );
-        buildItem.iconPath = new vscode.ThemeIcon("tools");
-        buildItem.command = {
-            command: "workbench.action.tasks.runTask",
-            title: "Build",
-            arguments: ["plm: plm build"],
-        };
-        buildItem.tooltip = "Build the project";
-        items.push(buildItem);
-
-        // Test
-        const testItem = new ProjectItem(
-            "Run Tests",
-            vscode.TreeItemCollapsibleState.None,
-            "action",
-        );
-        testItem.iconPath = new vscode.ThemeIcon("beaker");
-        testItem.command = {
-            command: "workbench.action.tasks.runTask",
-            title: "Test",
-            arguments: ["plm: plm run test"],
-        };
-        testItem.tooltip =
-            "Run test script (requires 'test' script in pleno.toml)";
-        items.push(testItem);
-
-        // Check
-        const checkItem = new ProjectItem(
-            "Check Code",
-            vscode.TreeItemCollapsibleState.None,
-            "action",
-        );
-        checkItem.iconPath = new vscode.ThemeIcon("check");
-        checkItem.command = { command: "pleno.checkFile", title: "Check" };
-        checkItem.tooltip = "Check the current file for errors";
-        items.push(checkItem);
-
-        // Open REPL
-        const replItem = new ProjectItem(
-            "Open REPL",
-            vscode.TreeItemCollapsibleState.None,
-            "action",
-        );
-        replItem.iconPath = new vscode.ThemeIcon("terminal");
-        replItem.command = { command: "pleno.openRepl", title: "REPL" };
-        replItem.tooltip = "Open the Pleno REPL";
-        items.push(replItem);
-
-        // Dashboard
-        const dashboardItem = new ProjectItem(
-            "Open Dashboard",
-            vscode.TreeItemCollapsibleState.None,
-            "action",
-        );
-        dashboardItem.iconPath = new vscode.ThemeIcon("dashboard");
-        dashboardItem.command = {
-            command: "pleno.showDashboard",
-            title: "Dashboard",
-        };
-        dashboardItem.tooltip = "Open the Pleno Dashboard";
-        items.push(dashboardItem);
-
-        return items;
-    }
-
-    /**
-     * Get source file items
-     */
-    private getSourceFileItems(): ProjectItem[] {
-        if (!this.workspaceRoot) {
-            return [];
+        if (project.main) {
+            const main = vscode.Uri.joinPath(project.folder.uri, project.main);
+            items.push(item(project.main, "file-code", {
+                description: "entry",
+                resourceUri: main,
+                command: { command: "vscode.open", title: "Open", arguments: [main] },
+                contextValue: "main",
+            }));
         }
 
-        const items: ProjectItem[] = [];
-        const srcDir = path.join(this.workspaceRoot, "src");
-
-        // Check for main.pln or src directory
-        const mainFile = path.join(this.workspaceRoot, "main.pln");
-        if (fs.existsSync(mainFile)) {
-            const item = new ProjectItem(
-                "main.pln",
-                vscode.TreeItemCollapsibleState.None,
-                "sourceFile",
-            );
-            item.iconPath = new vscode.ThemeIcon("file");
-            item.resourceUri = vscode.Uri.file(mainFile);
-            item.command = {
-                command: "vscode.open",
-                title: "Open",
-                arguments: [vscode.Uri.file(mainFile)],
-            };
-            items.push(item);
-        }
-
-        // List .pln files in workspace root
-        try {
-            const files = fs.readdirSync(this.workspaceRoot);
-            for (const file of files) {
-                if (file.endsWith(".pln") && file !== "main.pln") {
-                    const filePath = path.join(this.workspaceRoot, file);
-                    const item = new ProjectItem(
-                        file,
-                        vscode.TreeItemCollapsibleState.None,
-                        "sourceFile",
-                    );
-                    item.iconPath = new vscode.ThemeIcon("file");
-                    item.resourceUri = vscode.Uri.file(filePath);
-                    item.command = {
-                        command: "vscode.open",
-                        title: "Open",
-                        arguments: [vscode.Uri.file(filePath)],
-                    };
-                    items.push(item);
-                }
-            }
-        } catch {
-            // Ignore errors
-        }
-
-        // List files in src directory if it exists
-        if (fs.existsSync(srcDir)) {
-            try {
-                const srcFiles = this.findPlenoFiles(srcDir, "src");
-                items.push(...srcFiles);
-            } catch {
-                // Ignore errors
-            }
-        }
-
-        if (items.length === 0) {
-            const noFilesItem = new ProjectItem(
-                "No source files found",
-                vscode.TreeItemCollapsibleState.None,
-                "info",
-            );
-            noFilesItem.iconPath = new vscode.ThemeIcon("info");
-            items.push(noFilesItem);
-        }
-
-        return items;
-    }
-
-    /**
-     * Find all .pln files in a directory
-     */
-    private findPlenoFiles(dir: string, prefix: string): ProjectItem[] {
-        const items: ProjectItem[] = [];
-
-        try {
-            const entries = fs.readdirSync(dir, { withFileTypes: true });
-
-            for (const entry of entries) {
-                const fullPath = path.join(dir, entry.name);
-                const displayName = `${prefix}/${entry.name}`;
-
-                if (entry.isFile() && entry.name.endsWith(".pln")) {
-                    const item = new ProjectItem(
-                        displayName,
-                        vscode.TreeItemCollapsibleState.None,
-                        "sourceFile",
-                    );
-                    item.iconPath = new vscode.ThemeIcon("file");
-                    item.resourceUri = vscode.Uri.file(fullPath);
-                    item.command = {
-                        command: "vscode.open",
-                        title: "Open",
-                        arguments: [vscode.Uri.file(fullPath)],
-                    };
-                    items.push(item);
-                } else if (entry.isDirectory() && !entry.name.startsWith(".")) {
-                    items.push(...this.findPlenoFiles(fullPath, displayName));
-                }
-            }
-        } catch {
-            // Ignore errors
-        }
-
-        return items;
-    }
-
-    /**
-     * Get dependency items
-     */
-    private getDependencyItems(projectInfo: any): ProjectItem[] {
-        const items: ProjectItem[] = [];
-
-        if (!projectInfo) {
-            const noInfoItem = new ProjectItem(
-                "No project manifest found",
-                vscode.TreeItemCollapsibleState.None,
-                "info",
-            );
-            noInfoItem.iconPath = new vscode.ThemeIcon("info");
-            return [noInfoItem];
-        }
-
-        const deps = projectInfo.dependencies || {};
-        const devDeps = projectInfo["dev-dependencies"] || {};
-
-        // Regular dependencies
-        for (const [name, version] of Object.entries(deps)) {
-            const item = new ProjectItem(
-                name,
-                vscode.TreeItemCollapsibleState.None,
-                "dependency",
-            );
-            item.description = typeof version === "string"
-                ? version
-                : JSON.stringify(version);
-            item.iconPath = new vscode.ThemeIcon("package");
-            item.tooltip = `${name}: ${item.description}`;
-            items.push(item);
-        }
-
-        // Dev dependencies
-        for (const [name, version] of Object.entries(devDeps)) {
-            const item = new ProjectItem(
-                `${name} (dev)`,
-                vscode.TreeItemCollapsibleState.None,
-                "dependency",
-            );
-            item.description = typeof version === "string"
-                ? version
-                : JSON.stringify(version);
-            item.iconPath = new vscode.ThemeIcon("package");
-            item.tooltip = `${name}: ${item.description} (dev dependency)`;
-            items.push(item);
-        }
-
-        if (items.length === 0) {
-            const noDepItem = new ProjectItem(
-                "No dependencies",
-                vscode.TreeItemCollapsibleState.None,
-                "info",
-            );
-            noDepItem.iconPath = new vscode.ThemeIcon("info");
-            items.push(noDepItem);
-        }
-
-        return items;
-    }
-
-    /**
-     * Get script items
-     */
-    private getScriptItems(projectInfo: any): ProjectItem[] {
-        const items: ProjectItem[] = [];
-
-        if (!projectInfo) {
-            return items;
-        }
-
-        const scripts = projectInfo.scripts || {};
-
-        for (const [name, command] of Object.entries(scripts)) {
-            const item = new ProjectItem(
-                name,
-                vscode.TreeItemCollapsibleState.None,
-                "script",
-            );
-            item.description = typeof command === "string" ? command : "";
-            item.iconPath = new vscode.ThemeIcon("play");
-            item.tooltip = `Run: ${command}`;
-            item.command = {
-                command: "pleno.runScript",
-                title: "Run Script",
-                arguments: [name],
-            };
-            items.push(item);
-        }
-
-        if (items.length === 0) {
-            const noScriptsItem = new ProjectItem(
-                "No scripts defined",
-                vscode.TreeItemCollapsibleState.None,
-                "info",
-            );
-            noScriptsItem.iconPath = new vscode.ThemeIcon("info");
-            items.push(noScriptsItem);
-        }
-
-        return items;
-    }
-
-    /**
-     * Get build target items
-     */
-    private getBuildTargetItems(_projectInfo: any): ProjectItem[] {
-        const items: ProjectItem[] = [];
-
-        // Default targets with their task names
-        const targets = [
-            { name: "debug", task: "plm: plm build --debug", icon: "bug" },
-            {
-                name: "release",
-                task: "plm: plm build --release",
-                icon: "package",
-            },
-            { name: "test", task: "plm: plm build --test", icon: "beaker" },
-        ];
-
-        for (const target of targets) {
-            const item = new ProjectItem(
-                target.name,
-                vscode.TreeItemCollapsibleState.None,
-                "buildTarget",
-            );
-            item.iconPath = new vscode.ThemeIcon(target.icon);
-            item.tooltip = `Build with --${target.name} flag`;
-            item.command = {
-                command: "workbench.action.tasks.runTask",
-                title: "Build",
-                arguments: [target.task],
-            };
-            items.push(item);
-        }
-
-        return items;
-    }
-
-    /**
-     * Get project info from pleno.toml or plm info command
-     */
-    private getProjectInfo(): any {
-        if (this.projectInfo) {
-            return this.projectInfo;
-        }
-
-        if (!this.workspaceRoot) {
-            return null;
-        }
-
-        // Try to read pleno.toml directly first
-        try {
-            const manifestPath = path.join(this.workspaceRoot, "pleno.toml");
-            if (fs.existsSync(manifestPath)) {
-                const content = fs.readFileSync(manifestPath, "utf-8");
-                // Simple TOML parsing for common fields
-                const projectInfo: any = {};
-
-                // Parse [package] section
-                const packageMatch = content.match(
-                    /\[package\]([\s\S]*?)(?=\[|$)/,
-                );
-                if (packageMatch) {
-                    const packageSection = packageMatch[1];
-                    const nameMatch = packageSection.match(
-                        /name\s*=\s*"([^"]+)"/,
-                    );
-                    const versionMatch = packageSection.match(
-                        /version\s*=\s*"([^"]+)"/,
-                    );
-                    if (nameMatch) projectInfo.name = nameMatch[1];
-                    if (versionMatch) projectInfo.version = versionMatch[1];
-                }
-
-                // Parse [dependencies] section
-                const depsMatch = content.match(
-                    /\[dependencies\]([\s\S]*?)(?=\[|$)/,
-                );
-                if (depsMatch) {
-                    projectInfo.dependencies = this.parseTOMLSection(
-                        depsMatch[1],
-                    );
-                }
-
-                // Parse [dev-dependencies] section
-                const devDepsMatch = content.match(
-                    /\[dev-dependencies\]([\s\S]*?)(?=\[|$)/,
-                );
-                if (devDepsMatch) {
-                    projectInfo["dev-dependencies"] = this.parseTOMLSection(
-                        devDepsMatch[1],
-                    );
-                }
-
-                // Parse [scripts] section
-                const scriptsMatch = content.match(
-                    /\[scripts\]([\s\S]*?)(?=\[|$)/,
-                );
-                if (scriptsMatch) {
-                    projectInfo.scripts = this.parseTOMLSection(
-                        scriptsMatch[1],
-                    );
-                }
-
-                this.projectInfo = projectInfo;
-                return projectInfo;
-            }
-        } catch {
-            // Fall through to try plm info
-        }
-
-        // Try to get info from plm command
-        try {
-            const pleno = getPlenoPath(this.context);
-            const output = execSync(`"${pleno}" plm info --json`, {
-                cwd: this.workspaceRoot,
-                timeout: 5000,
-                encoding: "utf-8",
+        // The line of `name = ...` in the `[section]` table, for "go to".
+        const lines = project.text.split(/\r?\n/);
+        const lineOf = (section: string, name: string) => {
+            const start = lines.findIndex((line) => line.trim() === `[${section}]`);
+            const found = lines.findIndex((line, index) => {
+                const key = /^\s*"?([^"=\s]+)"?\s*=/.exec(line);
+                return index > start && key?.[1] === name;
             });
-            this.projectInfo = JSON.parse(output);
-            return this.projectInfo;
-        } catch {
-            return null;
+            return Math.max(found, start, 0);
+        };
+
+        const scripts = Object.entries(project.scripts).map(([name, command]) =>
+            item(name, "terminal", {
+                description: command,
+                tooltip: `plm run ${name}: ${command}`,
+                command: openManifestAt(project, lineOf("scripts", name)),
+                contextValue: "script",
+                project,
+                script: name,
+            }));
+        items.push(item("Scripts", "list-unordered", {
+            children: scripts.length ? scripts : [item("No scripts in pleno.toml", "info")],
+        }));
+
+        const dependencies = (section: string, entries: Record<string, Dependency>) =>
+            Object.entries(entries).map(([name, dependency]) => item(name, "library", {
+                description: describeDependency(dependency),
+                command: openManifestAt(project, lineOf(section, name)),
+                contextValue: "dependency",
+            }));
+        const deps = dependencies("dependencies", project.dependencies);
+        items.push(item("Dependencies", "references", {
+            children: deps.length ? deps : [item("No dependencies", "info")],
+            collapsibleState: deps.length
+                ? vscode.TreeItemCollapsibleState.Expanded
+                : vscode.TreeItemCollapsibleState.Collapsed,
+        }));
+        const devDeps = dependencies("dev-dependencies", project.devDependencies);
+        if (devDeps.length) {
+            items.push(item("Dev dependencies", "references", { children: devDeps }));
         }
-    }
-
-    /**
-     * Parse a simple TOML section (key = "value" pairs)
-     */
-    private parseTOMLSection(section: string): Record<string, string> {
-        const result: Record<string, string> = {};
-        const lines = section.split("\n");
-
-        for (const line of lines) {
-            const match = line.match(/^\s*(\w+)\s*=\s*"([^"]+)"/);
-            if (match) {
-                result[match[1]] = match[2];
-            }
-        }
-
-        return result;
-    }
-}
-
-/**
- * Project Item for tree view
- */
-class ProjectItem extends vscode.TreeItem {
-    constructor(
-        public readonly label: string,
-        public readonly collapsibleState: vscode.TreeItemCollapsibleState,
-        public readonly contextValue: string,
-    ) {
-        super(label, collapsibleState);
-    }
-}
-
-/**
- * Pleno Outline Provider
- * Provides document symbols/outline for Pleno files
- */
-export class PlenoOutlineProvider
-    implements vscode.TreeDataProvider<OutlineItem> {
-    private _onDidChangeTreeData: vscode.EventEmitter<
-        OutlineItem | undefined | void
-    > = new vscode.EventEmitter<OutlineItem | undefined | void>();
-    readonly onDidChangeTreeData: vscode.Event<OutlineItem | undefined | void> =
-        this._onDidChangeTreeData.event;
-
-    private document: vscode.TextDocument | undefined;
-
-    constructor() {
-        // Update outline when active editor changes
-        vscode.window.onDidChangeActiveTextEditor((editor) => {
-            if (editor && editor.document.languageId === "pleno") {
-                this.document = editor.document;
-                this._onDidChangeTreeData.fire();
-            }
-        });
-
-        // Update outline when document changes
-        vscode.workspace.onDidChangeTextDocument((event) => {
-            if (event.document === this.document) {
-                this._onDidChangeTreeData.fire();
-            }
-        });
-
-        // Initialize with current editor
-        if (vscode.window.activeTextEditor?.document.languageId === "pleno") {
-            this.document = vscode.window.activeTextEditor.document;
-        }
-    }
-
-    refresh(): void {
-        this._onDidChangeTreeData.fire();
-    }
-
-    getTreeItem(element: OutlineItem): vscode.TreeItem {
-        return element;
-    }
-
-    getChildren(_element?: OutlineItem): vscode.ProviderResult<OutlineItem[]> {
-        if (!this.document) {
-            return [];
-        }
-
-        return this.parseDocument(this.document);
-    }
-
-    /**
-     * Parse document for symbols
-     */
-    private parseDocument(document: vscode.TextDocument): OutlineItem[] {
-        const items: OutlineItem[] = [];
-        const text = document.getText();
-        const lines = text.split("\n");
-
-        for (let i = 0; i < lines.length; i++) {
-            const line = lines[i];
-
-            // Function declarations: fn name(...) or func name(...)
-            let match = line.match(/^\s*(pub\s+)?(fn|func)\s+(\w+)\s*\(/);
-            if (match) {
-                const item = new OutlineItem(
-                    match[3],
-                    vscode.TreeItemCollapsibleState.None,
-                    "function",
-                );
-                item.iconPath = new vscode.ThemeIcon("symbol-function");
-                item.description = match[1] ? "pub" : "";
-                item.command = {
-                    command: "revealLine",
-                    title: "Go to",
-                    arguments: [{ lineNumber: i, at: "center" }],
-                };
-                items.push(item);
-                continue;
-            }
-
-            // Struct declarations: struct Name { or type Name struct {
-            match = line.match(/^\s*(pub\s+)?(struct|type)\s+(\w+)/);
-            if (match) {
-                const item = new OutlineItem(
-                    match[3],
-                    vscode.TreeItemCollapsibleState.None,
-                    "struct",
-                );
-                item.iconPath = new vscode.ThemeIcon("symbol-struct");
-                item.description = match[1] ? "pub" : "";
-                item.command = {
-                    command: "revealLine",
-                    title: "Go to",
-                    arguments: [{ lineNumber: i, at: "center" }],
-                };
-                items.push(item);
-                continue;
-            }
-
-            // Enum declarations: enum Name {
-            match = line.match(/^\s*(pub\s+)?enum\s+(\w+)/);
-            if (match) {
-                const item = new OutlineItem(
-                    match[2],
-                    vscode.TreeItemCollapsibleState.None,
-                    "enum",
-                );
-                item.iconPath = new vscode.ThemeIcon("symbol-enum");
-                item.description = match[1] ? "pub" : "";
-                item.command = {
-                    command: "revealLine",
-                    title: "Go to",
-                    arguments: [{ lineNumber: i, at: "center" }],
-                };
-                items.push(item);
-                continue;
-            }
-
-            // Trait/Interface declarations: trait Name { or interface Name {
-            match = line.match(/^\s*(pub\s+)?(trait|interface)\s+(\w+)/);
-            if (match) {
-                const item = new OutlineItem(
-                    match[3],
-                    vscode.TreeItemCollapsibleState.None,
-                    "trait",
-                );
-                item.iconPath = new vscode.ThemeIcon("symbol-interface");
-                item.description = match[1] ? "pub" : "";
-                item.command = {
-                    command: "revealLine",
-                    title: "Go to",
-                    arguments: [{ lineNumber: i, at: "center" }],
-                };
-                items.push(item);
-                continue;
-            }
-
-            // Constant declarations: const NAME = or let NAME =
-            match = line.match(/^\s*(pub\s+)?(const|let)\s+(\w+)\s*[:=]/);
-            if (match && match[3] === match[3].toUpperCase()) {
-                const item = new OutlineItem(
-                    match[3],
-                    vscode.TreeItemCollapsibleState.None,
-                    "constant",
-                );
-                item.iconPath = new vscode.ThemeIcon("symbol-constant");
-                item.description = match[1] ? "pub" : "";
-                item.command = {
-                    command: "revealLine",
-                    title: "Go to",
-                    arguments: [{ lineNumber: i, at: "center" }],
-                };
-                items.push(item);
-                continue;
-            }
-
-            // Import statements: import "module" or use module
-            match = line.match(/^\s*(import|use)\s+["']?([^"'\s]+)/);
-            if (match) {
-                const item = new OutlineItem(
-                    match[2],
-                    vscode.TreeItemCollapsibleState.None,
-                    "import",
-                );
-                item.iconPath = new vscode.ThemeIcon("symbol-namespace");
-                item.command = {
-                    command: "revealLine",
-                    title: "Go to",
-                    arguments: [{ lineNumber: i, at: "center" }],
-                };
-                items.push(item);
-            }
-        }
-
         return items;
     }
-}
 
-/**
- * Outline Item for tree view
- */
-class OutlineItem extends vscode.TreeItem {
-    constructor(
-        public readonly label: string,
-        public readonly collapsibleState: vscode.TreeItemCollapsibleState,
-        public readonly contextValue: string,
-    ) {
-        super(label, collapsibleState);
+    dispose(): void {
+        this.disposables.forEach((disposable) => disposable.dispose());
     }
 }

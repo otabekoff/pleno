@@ -1,12 +1,14 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
+import * as os from 'os';
+import { execFile } from 'child_process';
 
 /** The executables of the Pleno toolchain. */
 export type Tool = 'pleno' | 'pleno-lsp' | 'pleno-dap' | 'pleno-repl' | 'plm';
 
 /** Where a tool was found, or `missing`. */
-export type ToolSource = 'setting' | 'toolchain' | 'path' | 'repository' | 'missing';
+export type ToolSource = 'setting' | 'toolchain' | 'path' | 'home' | 'repository' | 'missing';
 
 export interface ToolLocation {
     /** The executable to run; the bare tool name when it was not found. */
@@ -65,8 +67,9 @@ function findOnPath(name: string): string | undefined {
 
 /**
  * Finds a Pleno tool: its setting, then the toolchain installed by this
- * extension, then PATH, then a build in the Pleno repository (when the
- * extension runs from `ide/vscode`).
+ * extension, then PATH, then `~/.pleno/bin` (where the install scripts put
+ * it, for when VS Code was started before PATH was updated), then a build in
+ * the Pleno repository (when the extension runs from `ide/vscode`).
  */
 export function findTool(context: vscode.ExtensionContext, tool: Tool): ToolLocation {
     const cached = cache.get(tool);
@@ -102,6 +105,11 @@ function locate(context: vscode.ExtensionContext, tool: Tool): ToolLocation {
         return { path: onPath, found: true, source: 'path' };
     }
 
+    const home = path.join(os.homedir(), '.pleno', 'bin', executableName(tool));
+    if (isFile(home)) {
+        return { path: home, found: true, source: 'home' };
+    }
+
     for (const profile of ['release', 'debug']) {
         const built = context.asAbsolutePath(
             path.join('..', '..', 'target', profile, executableName(tool)),
@@ -118,12 +126,25 @@ export function getPlenoPath(context: vscode.ExtensionContext): string {
     return findTool(context, 'pleno').path;
 }
 
-export function getPlenoLspPath(context: vscode.ExtensionContext): string {
-    return findTool(context, 'pleno-lsp').path;
-}
-
 /** The `pleno-dap` debug adapter, or undefined when it is not installed. */
 export function getPlenoDapPath(context: vscode.ExtensionContext): string | undefined {
     const location = findTool(context, 'pleno-dap');
     return location.found ? location.path : undefined;
+}
+
+/**
+ * The version a tool reports with `--version`, such as `0.2.0`, or undefined
+ * when it cannot be run. `pleno-dap` and `pleno-repl` have no such flag.
+ */
+export function toolVersion(location: ToolLocation): Promise<string | undefined> {
+    if (!location.found) {
+        return Promise.resolve(undefined);
+    }
+    return new Promise((resolve) => {
+        execFile(location.path, ['--version'], { timeout: 5000, env: { ...process.env, NO_COLOR: '1' } }, (error, stdout) => {
+            // `pleno 0.2.0` -> `0.2.0`; color codes, if any, have no dotted numbers.
+            const match = /\d+\.\d+\.\d+[\w.+-]*/.exec(stdout);
+            resolve(error || !match ? undefined : match[0]);
+        });
+    });
 }
