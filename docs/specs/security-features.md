@@ -54,4 +54,4 @@ try {
 
 ### 20.3 Encapsulation
 
-Pleno enforces `private` and `protected` access modifiers at runtime. Attempting to access private members from outside the class scope results in a `field access denied` runtime error.
+Pleno enforces `private` and `protected` access modifiers at runtime. Reading a private field from outside its class throws an `Error` such as `cannot read private field 'name' of Person outside its class`; calling a private method throws `method access denied`. See [Access Modifiers](/specs/OOP#access-modifiers).

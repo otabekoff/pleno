@@ -1,0 +1,32 @@
+// skip: module imported by the other tests in this folder
+export const PI = 3.14;
+
+export fn square(x: Int): Int {
+    return x * x;
+}
+
+// Not exported: only this module's code can call it.
+fn helper(): Int {
+    return 7;
+}
+
+export fn useHelper(): Int {
+    return helper() + square(2);
+}
+
+export class Circle {
+    internal r: Int;
+
+    constructor(r: Int) {
+        this.r = r;
+    }
+
+    fn radius(): Int {
+        return this.r;
+    }
+}
+
+// Code anywhere in this module may use the internal field.
+export fn readRadius(c: Circle): Int {
+    return c.r;
+}

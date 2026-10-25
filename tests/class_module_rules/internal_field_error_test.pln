@@ -1,0 +1,7 @@
+// expect-error: cannot assign to internal field 'r' of Circle outside its module
+// Another module can construct a class with an internal field but not touch the field.
+import { Circle } from "./shapes.pln";
+
+let c = Circle(2);
+print(c.radius());
+c.r = 5;

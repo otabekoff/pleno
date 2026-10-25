@@ -189,13 +189,19 @@ fn method_access_denied_error() {
 #[test]
 fn field_access_denied_error() {
     let err = eval_result("class A { private field; } let a = A(); a.field;").unwrap_err();
-    assert!(err.contains("field access denied"));
+    assert!(
+        err.contains("cannot read private field 'field' of A outside its class"),
+        "{err}"
+    );
 }
 
 #[test]
 fn static_field_access_denied_error() {
     let err = eval_result("class A { private static field; } A.field;").unwrap_err();
-    assert!(err.contains("static field access denied"));
+    assert!(
+        err.contains("cannot read private static field 'field' of A outside its class"),
+        "{err}"
+    );
 }
 
 #[test]

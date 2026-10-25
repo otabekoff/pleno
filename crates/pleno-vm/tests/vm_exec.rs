@@ -202,7 +202,11 @@ fn denies_private_field_access() {
     let result = eval_result(
         "class A { private secret; fn set(v) { this.secret = v; } } let a = A(); a.set(3); a.secret;",
     );
-    assert!(result.unwrap_err().contains("field access denied"));
+    assert!(
+        result
+            .unwrap_err()
+            .contains("cannot read private field 'secret' of A outside its class")
+    );
 }
 
 #[test]
@@ -218,7 +222,11 @@ fn denies_private_static_field_access() {
     let result = eval_result(
         "class A { private static secret; static fn set(v) { A.secret = v; } } A.set(3); A.secret;",
     );
-    assert!(result.unwrap_err().contains("static field access denied"));
+    assert!(
+        result
+            .unwrap_err()
+            .contains("cannot read private static field 'secret' of A outside its class")
+    );
 }
 
 #[test]
@@ -285,7 +293,11 @@ fn denies_internal_field_outside_module() {
     .replace("\\", "\\\\");
     let source = format!("import Mod from \"{}\"; let b = Mod.Box(); b.secret;", path);
     let result = eval_result(&source);
-    assert!(result.unwrap_err().contains("field access denied"));
+    assert!(
+        result
+            .unwrap_err()
+            .contains("cannot read internal field 'secret' of Box outside its module")
+    );
 }
 
 #[test]

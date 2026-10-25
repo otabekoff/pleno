@@ -41,6 +41,10 @@ pub struct VM {
     pub frames: Vec<CallFrame>,
     pub globals: IndexMap<String, Value>,
     pub modules: IndexMap<String, Value>,
+    /// The top-level names of each imported module, keyed by the module's
+    /// resolved path. Code in a module reads its own names first and then
+    /// `globals`; only the names an `import` lists reach the importer.
+    pub module_globals: IndexMap<String, IndexMap<String, Value>>,
     /// Methods added to built-in types with `extend`, keyed by type name.
     pub builtin_extensions: IndexMap<String, IndexMap<String, pleno_value::MethodInfo>>,
     /// Rejected promises nothing has handled yet, reported when the program ends.
@@ -343,6 +347,13 @@ impl VMProvider for VM {
             for val in self.modules.values() {
                 val.mark(gc);
             }
+            for val in self
+                .module_globals
+                .values()
+                .flat_map(|names| names.values())
+            {
+                val.mark(gc);
+            }
             for task in &self.pending_tasks {
                 task.mark(gc);
             }
@@ -460,6 +471,7 @@ impl VMProvider for VM {
         // Copy functionality to allow sandbox to actually run code
         new_vm.functions = self.functions.clone();
         new_vm.modules = self.modules.clone();
+        new_vm.module_globals = self.module_globals.clone();
 
         // Globals: We might want access to "Object", "String", etc.
         // Assuming they are in globals or we re-register them?
@@ -556,6 +568,35 @@ impl VM {
         Ok(val)
     }
 
+    /// Global `name` as the running code sees it: its module's own top-level
+    /// name, or the shared global.
+    fn visible_global(&self, name: &str) -> Option<Value> {
+        let module_path = self
+            .frames
+            .last()
+            .and_then(|frame| frame.current_module_path.as_deref());
+        lookup_global_in(&self.globals, &self.module_globals, module_path, name)
+    }
+
+    /// The class, interface or enum a type annotation names. Besides the
+    /// names the running code sees, this finds types that stay inside the
+    /// module that declares them, so a value of such a type passed to other
+    /// code still matches its annotation.
+    fn lookup_type_name(&self, name: &str) -> Option<Value> {
+        self.visible_global(name).or_else(|| {
+            self.module_globals
+                .values()
+                .filter_map(|table| table.get(name))
+                .find(|value| {
+                    matches!(
+                        value,
+                        Value::Class(_) | Value::Interface(_) | Value::Enum(_)
+                    )
+                })
+                .cloned()
+        })
+    }
+
     fn resolve_base_value(&self, name: &str) -> Result<Value, RuntimeError> {
         let name = name.trim();
         if let Some(frame) = self.frames.last() {
@@ -578,8 +619,8 @@ impl VM {
         }
 
         // Check globals
-        if let Some(val) = self.globals.get(name) {
-            return Ok(val.clone());
+        if let Some(val) = self.visible_global(name) {
+            return Ok(val);
         }
 
         Err(RuntimeError::new(format!(
@@ -702,6 +743,7 @@ impl VM {
             frames: Vec::new(),
             globals,
             modules,
+            module_globals: IndexMap::new(),
             builtin_extensions: IndexMap::new(),
             unhandled_rejections: IndexMap::new(),
             functions: Vec::new(),
@@ -1118,7 +1160,7 @@ impl VM {
             return self.is_instance(value, &resolved);
         }
         // A user-defined class, interface or enum referenced by name.
-        match self.globals.get(ty).cloned() {
+        match self.lookup_type_name(ty) {
             Some(
                 target @ (Value::Class(_)
                 | Value::Interface(_)
@@ -1333,6 +1375,7 @@ impl VM {
             frames: &self.frames,
             globals: &self.globals,
             modules: &self.modules,
+            module_globals: &self.module_globals,
             builtin_extensions: &self.builtin_extensions,
             pending_tasks: &self.pending_tasks,
             suspended_frames: &self.suspended_frames,
@@ -1610,11 +1653,8 @@ impl VM {
                         chunk: proto.chunk.clone(),
                         arity: proto.arity as usize,
                         params: proto.params.clone(),
-                        module: proto
-                            .chunk
-                            .module_name
-                            .as_ref()
-                            .map(|name| Rc::new(name.clone())),
+                        // A function belongs to the module it is defined in.
+                        module: frame.current_module.clone(),
                         module_path: frame.current_module_path.as_ref().cloned(),
                         is_async: proto.is_async,
                         is_pure: proto.is_pure,
@@ -1638,11 +1678,8 @@ impl VM {
                         chunk: proto.chunk.clone(),
                         arity: proto.arity as usize,
                         params: proto.params.clone(),
-                        module: proto
-                            .chunk
-                            .module_name
-                            .as_ref()
-                            .map(|name| Rc::new(name.clone())),
+                        // A function belongs to the module it is defined in.
+                        module: frame.current_module.clone(),
                         module_path: frame.current_module_path.as_ref().cloned(),
                         is_async: true,
                         is_pure: proto.is_pure,
@@ -1664,11 +1701,8 @@ impl VM {
                         chunk: proto.chunk.clone(),
                         arity: proto.arity as usize,
                         params: proto.params.clone(),
-                        module: proto
-                            .chunk
-                            .module_name
-                            .as_ref()
-                            .map(|name| Rc::new(name.clone())),
+                        // A function belongs to the module it is defined in.
+                        module: frame.current_module.clone(),
                         module_path: frame.current_module_path.as_ref().cloned(),
                         is_async: proto.is_async,
                         is_pure: proto.is_pure,
@@ -2358,16 +2392,39 @@ impl VM {
                                     )?;
                                     continue;
                                 }
-                                if let Some(visibility) = class.borrow().fields.get(&name) {
-                                    let class_borrowed = class.borrow();
+                                if let Some((owner, visibility)) = find_field_owner(class, &name) {
                                     if !can_access_field(
-                                        visibility,
-                                        &class_borrowed.name,
-                                        class_borrowed.module.as_ref(),
+                                        &visibility,
+                                        &owner,
                                         current_class.as_ref(),
                                         current_module.as_ref(),
                                     ) {
-                                        return Err(self.throw_runtime_error("field access denied"));
+                                        let msg = field_access_error(
+                                            "assign to",
+                                            &visibility,
+                                            "field",
+                                            &name,
+                                            &class.borrow().name,
+                                        );
+                                        return Err(self.throw_runtime_error(&msg));
+                                    }
+                                    // A `const` field is set by a constructor of its class
+                                    // (or of a subclass) and never changes afterwards.
+                                    let in_constructor =
+                                        self.functions[frame.function_index].name.as_str()
+                                            == "constructor"
+                                            && current_class
+                                                .as_ref()
+                                                .is_some_and(|c| is_subclass_of(c, &owner));
+                                    if !in_constructor
+                                        && owner.borrow().const_fields.contains(&name)
+                                    {
+                                        let msg = format!(
+                                            "cannot assign to constant field '{}' of {} outside its constructor",
+                                            name,
+                                            class.borrow().name
+                                        );
+                                        return Err(self.throw_runtime_error(&msg));
                                     }
                                 }
 
@@ -2412,20 +2469,31 @@ impl VM {
                                 )?;
                                 continue;
                             }
-                            if let Some(visibility) =
-                                class.borrow().static_field_visibility.get(&name)
-                            {
-                                let class_borrowed = class.borrow();
+                            let visibility =
+                                class.borrow().static_field_visibility.get(&name).cloned();
+                            if let Some(visibility) = visibility {
                                 if !can_access_field(
-                                    visibility,
-                                    &class_borrowed.name,
-                                    class_borrowed.module.as_ref(),
+                                    &visibility,
+                                    &class,
                                     current_class.as_ref(),
                                     current_module.as_ref(),
                                 ) {
-                                    return Err(
-                                        self.throw_runtime_error("static field access denied")
+                                    let msg = field_access_error(
+                                        "assign to",
+                                        &visibility,
+                                        "static field",
+                                        &name,
+                                        &class.borrow().name,
                                     );
+                                    return Err(self.throw_runtime_error(&msg));
+                                }
+                                if class.borrow().const_static_fields.contains(&name) {
+                                    let msg = format!(
+                                        "cannot assign to constant {}.{}",
+                                        class.borrow().name,
+                                        name
+                                    );
+                                    return Err(self.throw_runtime_error(&msg));
                                 }
                             }
 
@@ -2623,15 +2691,21 @@ impl VM {
                                     )?;
                                     continue;
                                 }
-                                if let Some(v) = class.borrow().fields.get(&name) {
+                                if let Some((owner, visibility)) = find_field_owner(class, &name) {
                                     if !can_access_field(
-                                        v,
-                                        &class.borrow().name,
-                                        class.borrow().module.as_ref(),
+                                        &visibility,
+                                        &owner,
                                         current_class.as_ref(),
                                         frame.current_module.as_ref(),
                                     ) {
-                                        return Err(self.throw_runtime_error("field access denied"));
+                                        let msg = field_access_error(
+                                            "read",
+                                            &visibility,
+                                            "field",
+                                            &name,
+                                            &class.borrow().name,
+                                        );
+                                        return Err(self.throw_runtime_error(&msg));
                                     }
                                     field_value.unwrap_or(Value::Null)
                                 } else if let Some(v) = field_value {
@@ -2686,17 +2760,23 @@ impl VM {
                                 )?;
                                 continue;
                             }
-                            if let Some(v) = class.borrow().static_field_visibility.get(&name) {
+                            let visibility =
+                                class.borrow().static_field_visibility.get(&name).cloned();
+                            if let Some(visibility) = visibility {
                                 if !can_access_field(
-                                    v,
-                                    &class.borrow().name,
-                                    class.borrow().module.as_ref(),
+                                    &visibility,
+                                    &class,
                                     current_class.as_ref(),
                                     frame.current_module.as_ref(),
                                 ) {
-                                    return Err(
-                                        self.throw_runtime_error("static field access denied")
+                                    let msg = field_access_error(
+                                        "read",
+                                        &visibility,
+                                        "static field",
+                                        &name,
+                                        &class.borrow().name,
                                     );
+                                    return Err(self.throw_runtime_error(&msg));
                                 }
                                 class
                                     .borrow()
@@ -3400,7 +3480,12 @@ impl VM {
                         Value::String(value) => value.as_str().to_string(),
                         _ => return Err(RuntimeError::new("global name must be string")),
                     };
-                    let mut value = self.globals.get(&name).cloned();
+                    let mut value = lookup_global_in(
+                        &self.globals,
+                        &self.module_globals,
+                        frame.current_module_path.as_deref(),
+                        &name,
+                    );
 
                     // An unspecialized type parameter (e.g. `T` in `Box(3)`) accepts any type.
                     let mut is_type_param = false;
@@ -3476,14 +3561,22 @@ impl VM {
                     log::trace!("VM: SetGlobal '{}' => {:?}", name, value);
                     let val_obj = value.to_value();
 
+                    // A module's top-level names stay in the module.
+                    let table = match frame
+                        .current_module_path
+                        .as_deref()
+                        .and_then(|path| self.module_globals.get_mut(path.as_str()))
+                    {
+                        Some(table) => table,
+                        None => &mut self.globals,
+                    };
+                    table.insert(name.clone(), val_obj);
+
                     // Data Breakpoint Check
                     if self.debug_context.data_breakpoints.contains_key(&name) {
-                        self.globals.insert(name, val_obj);
                         self.debug_context.state = DebugState::Paused(PauseReason::Breakpoint);
                         return Ok(Some(ExecutionStatus::Paused));
                     }
-
-                    self.globals.insert(name, val_obj);
                 }
                 Opcode::DefineClass => {
                     let name = match &function.chunk.constants[b] {
@@ -3516,6 +3609,9 @@ impl VM {
                         static_setters: IndexMap::new(),
                         module: module.clone(),
                         is_abstract: false,
+                        abstract_methods: Vec::new(),
+                        const_fields: Vec::new(),
+                        const_static_fields: Vec::new(),
                         is_pooled: false,
                         implements: Vec::new(),
                         type_params: Vec::new(),
@@ -3939,7 +4035,7 @@ impl VM {
                                         for constraint_name in constraints {
                                             // Resolve constraint type (Class, Interface, or Primitive Name)
                                             let constraint_type = if let Some(val) =
-                                                self.globals.get(constraint_name)
+                                                self.lookup_type_name(constraint_name)
                                             {
                                                 val.clone()
                                             } else {
@@ -3997,7 +4093,7 @@ impl VM {
                                         for constraint_name in constraints {
                                             // Resolve constraint type (Class, Interface, or Primitive Name)
                                             let constraint_type = if let Some(val) =
-                                                self.globals.get(constraint_name)
+                                                self.lookup_type_name(constraint_name)
                                             {
                                                 val.clone()
                                             } else {
@@ -4060,12 +4156,13 @@ impl VM {
                                     func_proto.type_constraints.get(&param.name)
                                 {
                                     for constraint_name in constraints {
-                                        let constraint_type =
-                                            if let Some(val) = self.globals.get(constraint_name) {
-                                                val.clone()
-                                            } else {
-                                                Value::String(Rc::new(constraint_name.clone()))
-                                            };
+                                        let constraint_type = if let Some(val) =
+                                            self.lookup_type_name(constraint_name)
+                                        {
+                                            val.clone()
+                                        } else {
+                                            Value::String(Rc::new(constraint_name.clone()))
+                                        };
 
                                         if !self.check_type_compatible(&args[i], &constraint_type) {
                                             let arg_type_name =
@@ -4116,7 +4213,16 @@ impl VM {
                 }
                 Opcode::SetAbstract => {
                     if let Value::Class(class) = self.registers[base + a].to_value() {
-                        class.borrow_mut().is_abstract = true;
+                        // `c = 1`: constant `b` names one of the class's abstract methods.
+                        if c == 1 {
+                            let method = match &function.chunk.constants[b] {
+                                Value::String(value) => value.as_str().to_string(),
+                                _ => return Err(RuntimeError::new("method name must be string")),
+                            };
+                            class.borrow_mut().abstract_methods.push(method);
+                        } else {
+                            class.borrow_mut().is_abstract = true;
+                        }
                     } else {
                         return Err(RuntimeError::new("SetAbstract on non-class value"));
                     }
@@ -4540,9 +4646,14 @@ impl VM {
                         _ => return Err(RuntimeError::new("field name must be string")),
                     };
                     let visibility = visibility_from_code(instruction.c())?;
+                    let is_const = instruction.c() & pleno_compiler::CONST_FIELD_FLAG != 0;
                     match self.registers[base + a].to_value() {
                         Value::Class(class) => {
-                            class.borrow_mut().fields.insert(name, visibility);
+                            let mut class = class.borrow_mut();
+                            if is_const && !class.const_fields.contains(&name) {
+                                class.const_fields.push(name.clone());
+                            }
+                            class.fields.insert(name, visibility);
                         }
                         _ => {
                             return Err(RuntimeError::new(
@@ -4562,11 +4673,13 @@ impl VM {
                         _ => return Err(RuntimeError::new("field name must be string")),
                     };
                     let visibility = visibility_from_code(instruction.c())?;
+                    let is_const = instruction.c() & pleno_compiler::CONST_FIELD_FLAG != 0;
                     if let Value::Class(class) = self.registers[base + a].to_value() {
-                        class
-                            .borrow_mut()
-                            .static_field_visibility
-                            .insert(name, visibility);
+                        let mut class = class.borrow_mut();
+                        if is_const && !class.const_static_fields.contains(&name) {
+                            class.const_static_fields.push(name.clone());
+                        }
+                        class.static_field_visibility.insert(name, visibility);
                     } else {
                         return Err(RuntimeError::new(
                             "set static field visibility on non-class value",
@@ -5443,6 +5556,7 @@ impl VM {
                 Ok(())
             }
             Value::Class(class) => {
+                check_instantiable(&class)?;
                 let object = self.gc.allocate(Object::new(Some(class.clone()), None))?;
                 if let Some(handle) = resolve_constructor(&class) {
                     let handle_idx = match handle.function {
@@ -5487,6 +5601,7 @@ impl VM {
                 let state = state.borrow();
                 let class = &state.class;
                 let type_args = &state.type_args;
+                check_instantiable(class)?;
                 let object = self
                     .gc
                     .allocate(Object::new(Some(class.clone()), Some(type_args.clone())))?;
@@ -5965,12 +6080,7 @@ impl VM {
                 )?;
             }
             Value::Class(class) => {
-                if class.borrow().is_abstract {
-                    return Err(RuntimeError::new(format!(
-                        "cannot instantiate abstract class '{}'",
-                        class.borrow().name
-                    )));
-                }
+                check_instantiable(&class)?;
                 let object = self.gc.allocate(Object::new(Some(class.clone()), None))?;
                 let val = Value::Object(object.clone());
                 if let Some(handle) = resolve_constructor(&class) {
@@ -5995,12 +6105,7 @@ impl VM {
                 let state = state.borrow();
                 let class = &state.class;
                 let type_args = &state.type_args;
-                if class.borrow().is_abstract {
-                    return Err(RuntimeError::new(format!(
-                        "cannot instantiate abstract class '{}'",
-                        class.borrow().name
-                    )));
-                }
+                check_instantiable(class)?;
                 let object = self
                     .gc
                     .allocate(Object::new(Some(class.clone()), Some(type_args.clone())))?;
@@ -6172,6 +6277,7 @@ impl VM {
         };
         let func_index = self.functions.len();
         self.functions.push(function);
+        self.module_globals.entry(resolved_key.clone()).or_default();
         let base = self.registers.len();
         let register_count = self.functions[func_index].chunk.max_registers;
         self.registers
@@ -6219,6 +6325,48 @@ impl VM {
             _ => "Unknown".to_string(),
         }
     }
+}
+
+/// The value of global `name` as code in the module at `module_path` sees it:
+/// the module's own top-level name if it has one, otherwise the shared global.
+fn lookup_global_in(
+    globals: &IndexMap<String, Value>,
+    module_globals: &IndexMap<String, IndexMap<String, Value>>,
+    module_path: Option<&String>,
+    name: &str,
+) -> Option<Value> {
+    module_path
+        .and_then(|path| module_globals.get(path.as_str()))
+        .and_then(|table| table.get(name))
+        .or_else(|| globals.get(name))
+        .cloned()
+}
+
+/// Fails for an abstract class, and for a class that leaves an abstract
+/// method of an ancestor undefined.
+fn check_instantiable(class: &GcRc<Class>) -> Result<(), RuntimeError> {
+    let class_ref = class.borrow();
+    if class_ref.is_abstract {
+        return Err(RuntimeError::new(format!(
+            "cannot instantiate abstract class '{}'",
+            class_ref.name
+        )));
+    }
+    let missing = access::missing_abstract_methods(class);
+    if missing.is_empty() {
+        return Ok(());
+    }
+    let what = if missing.len() == 1 {
+        "abstract method"
+    } else {
+        "abstract methods"
+    };
+    Err(RuntimeError::new(format!(
+        "cannot create {}: it does not implement {} {}",
+        class_ref.name,
+        what,
+        missing.join(", ")
+    )))
 }
 
 fn resolve_module_path(

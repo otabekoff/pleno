@@ -1,0 +1,9 @@
+// expect-error: cannot create Circle: it does not implement abstract method area
+// A subclass of an abstract class must define the parent's abstract methods.
+abstract class Shape {
+    abstract fn area(): Float;
+}
+
+class Circle extends Shape {}
+
+print(Circle());
