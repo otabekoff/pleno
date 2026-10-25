@@ -1,42 +1,30 @@
-# Pleno Programming Language
+# Pleno Language Reference
 
-## Complete Language Specification v0.1.0 (Alpha)
+This is the reference for the Pleno language as it is implemented, and the basis of the 1.0 specification. It describes only features that exist; what 1.x will keep stable is in the [compatibility promise](compatibility.md). Designs for later versions are in the [version 2 draft](https://github.com/otabekoff/pleno/blob/main/notes/v2-draft.md) and are not part of this reference.
 
 **File Extension:** `.pln`  
-**Paradigms:** Object-Oriented, Functional, Procedural, Mixed  
-**Typing:** Dynamic with optional static typing and gradual typing support  
-**Design Philosophy:** Clarity, Safety, Expressiveness, Modern Best Practices
+**Paradigms:** object-oriented, functional and procedural  
+**Typing:** dynamic, with optional type annotations that are checked when the code runs; `pleno check` reports some mismatches before running
 
 ## Overview
 
-Pleno is a modern programming language designed for clarity, safety, and expressiveness. It combines the best features from multiple programming paradigms while maintaining simplicity and consistency.
+Pleno is a dynamically typed language with classes, interfaces, closures, pattern matching, generics, `async`/`await` and a standard library for files, processes, HTTP, data formats and testing. Programs run on a bytecode VM.
 
-### Key Features
+Every ```` ```pleno ```` example on these pages is run by the documentation tests, so it works as shown. The "Implementation notes" pages at the end of the sidebar describe the current implementation and plans; they are not part of the reference.
 
-- **Type Safety**: Optional static typing with gradual typing support
-- **Modern Syntax**: Clean, readable syntax inspired by modern languages
-- **First-class Functions**: Functions as values, closures, lambdas
-- **Pattern Matching**: Powerful pattern matching for control flow
-- **Async/Await**: Built-in asynchronous programming support
-- **Rich Standard Library**: Comprehensive stdlib for common tasks
+### Strings
 
-### String Encoding Decision
+Strings are UTF-8, in source files and at runtime. A position in a string counts Unicode characters (scalar values): `"héllo"[1]` is `"é"`.
 
-Pleno uses UTF-8 for all string literals and runtime strings.
-
-Key points:
-
-- UTF-8 is the 2026+ industry standard across tools, platforms, and APIs.
-- ASCII remains 1 byte per char, keeping source code compact.
-- Full Unicode support is preserved for international text and emoji.
-
-String indexing defaults to Unicode scalar values for safety. Byte-level access
-is provided via explicit APIs.
+::: warning Known bug
+`length`, `indexOf`, `substring`, `charAt` and slices such as `s[1..3]` currently count UTF-8 bytes instead of characters. For ASCII text the two agree; for other text they give wrong results, and `substring` or `charAt` at a position inside a multi-byte character stops the program. These will be fixed to follow the rule above.
+:::
 
 ## Quick Reference
 
 | Topic           | Link                                                       |
 | --------------- | ---------------------------------------------------------- |
+| Compatibility   | [What 1.x guarantees](compatibility.md)                    |
 | Core Syntax     | [Variables, Types, Operators](core-syntax-fundamentals.md) |
 | Control Flow    | [if/else, loops, match](control-flow.md)                   |
 | Functions       | [fn, closures, async](functions.md)                        |
