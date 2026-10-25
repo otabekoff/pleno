@@ -244,12 +244,13 @@ impl GCManager {
 
     pub fn track_allocation(&mut self, bytes: usize) -> Result<(), crate::RuntimeError> {
         if self.max_bytes > 0 && self.allocated_bytes + bytes > self.max_bytes + self.grace_bytes {
-            return Err(crate::RuntimeError::new(
+            // Fatal: `catch` must not let a program run on past its limit.
+            return Err(crate::RuntimeError::fatal(
                 "SandboxError: memory limit exceeded",
             ));
         }
         if self.max_allocation > 0 && self.current_allocation + 1 > self.max_allocation {
-            return Err(crate::RuntimeError::new(
+            return Err(crate::RuntimeError::fatal(
                 "SandboxError: object allocation limit exceeded",
             ));
         }
