@@ -1,6 +1,7 @@
 // args: --max-instructions 100000
-// test_instruction_limit.pln
-import { vmStats } from "std:reflect";
+// expect-error: SandboxError: instruction limit exceeded
+// The instruction limit ends the program: `catch` cannot stop it, or a
+// program could run on past its limit.
 fn main() {
     print("Starting infinite loop test...");
     try {
@@ -9,10 +10,7 @@ fn main() {
             i = i + 1;
         }
     } catch (e) {
-        print("Caught: " + e.name + ": " + e.message);
-        let stats = vmStats();
-        print("Peak Memory: " + stats.peakMemory.toString());
-        print("Instructions: " + stats.instructions.toString());
+        print("not reached: " + e.message);
     }
 }
 main();
