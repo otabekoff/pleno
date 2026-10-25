@@ -30,8 +30,10 @@ try {
 
 Limits can be set for the whole program with flags of `pleno run`, or for one function with `std:security`.
 
-::: warning Not a security boundary
-The limits are meant to stop runaway or careless code, not a determined attacker. In particular the path rules below compare strings: an allowed path is a prefix of the path exactly as the program writes it, with no normalization, so `data/../secret.txt` passes a rule for `data/`. Run untrusted code in an operating system sandbox as well.
+Path rules compare normalized absolute paths, one folder at a time: the path a program uses is resolved against the working directory, `.` and `..` are removed and symbolic links are followed, so `data/../secret.txt` is outside a rule for `data`, and `data2/x.txt` is outside it too. Checking whether a path exists (`Path.exists`, `isFile`, `isDir`, `resolve`) counts as reading it. A sandbox option with a value that does not parse (`--allow-io maybe`, `--max-memory 10MB`) is an error, never "no limit".
+
+::: warning Not an operating system sandbox
+The limits stop runaway or careless code and keep a script to the files it was given. Environment variables are not restricted. To run code you do not trust, use an operating system sandbox or container as well.
 :::
 
 #### CLI Flags
@@ -79,8 +81,8 @@ try {
 | `allowNetwork` | `Bool` | `true` | Allow network access |
 | `maxMemory` | `Int` | none | Heap limit in bytes |
 | `maxInstructions` | `Int` | none | Instruction limit |
-| `allowedReadPaths` | `String[]` | all | Path prefixes the function may read |
-| `allowedWritePaths` | `String[]` | all | Path prefixes the function may write |
+| `allowedReadPaths` | `String[]` | all | Folders (or files) the function may read |
+| `allowedWritePaths` | `String[]` | all | Folders (or files) the function may write |
 
 An error inside `run` reaches the caller with its original `name` (`SandboxError` for a limit, `SecurityError` for a denied operation) and message. A limit cannot be caught inside the sandboxed function itself: reaching it ends that function, and only the caller of `run` sees the error.
 

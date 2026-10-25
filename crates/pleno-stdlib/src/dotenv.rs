@@ -2,11 +2,14 @@ use pleno_value::{RuntimeError, VMProvider, Value};
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 
-pub fn dotenv_config(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+pub fn dotenv_config(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
     let path = match args.first() {
         Some(Value::String(s)) => s.as_str(),
         _ => ".env",
     };
+    if !vm.is_read_allowed(path) {
+        return Err(RuntimeError::new("SecurityError: Read access denied"));
+    }
 
     if let Ok(file) = File::open(path) {
         let reader = BufReader::new(file);
