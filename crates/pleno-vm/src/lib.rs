@@ -2430,7 +2430,7 @@ impl VM {
                         }
                         Value::String(s) => {
                             if name == "length" {
-                                Value::Int(s.len() as i64)
+                                Value::Int(pleno_value::text::char_len(&s) as i64)
                             } else {
                                 return Err(RuntimeError::new("unknown string field"));
                             }
@@ -3246,7 +3246,7 @@ impl VM {
                                         Value::Bool(r.inclusive)
                                     }
                                     Value::String(s) if name == "len" || name == "length" => {
-                                        Value::Int(s.len() as i64)
+                                        Value::Int(pleno_value::text::char_len(s) as i64)
                                     }
                                     Value::Array(a) if name == "len" || name == "length" => {
                                         Value::Int(a.borrow().len() as i64)
@@ -3409,25 +3409,27 @@ impl VM {
                             })?))
                         }
                         (Value::String(s), Value::Int(idx)) => {
-                            let idx = *idx as usize;
-                            if idx >= s.len() {
+                            let ch = usize::try_from(*idx)
+                                .ok()
+                                .and_then(|idx| pleno_value::text::char_at(s, idx));
+                            let Some(ch) = ch else {
                                 return Err(self.throw_runtime_error("string index out of bounds"));
-                            }
-                            let char = s.chars().nth(idx).unwrap_or('\0');
-                            Ok(Value::String(Rc::new(char.to_string())))
+                            };
+                            Ok(Value::String(Rc::new(ch.to_string())))
                         }
                         (Value::String(s), Value::Range(range)) => {
-                            let len = s.len();
-                            let start = range.start.unwrap_or(0).max(0) as usize;
-                            let end = range
-                                .end
-                                .map(|e| if range.inclusive { e + 1 } else { e })
-                                .unwrap_or(len as i64)
-                                .max(0) as usize;
-                            let start = start.min(len);
-                            let end = end.min(len).max(start);
-                            // Rough byte slicing for now, should ideally be char-based but strings in pleno might be bytes/utf8
-                            let sub_s = &s[start..end];
+                            // Character positions, clamped like array slices.
+                            let len = pleno_value::text::char_len(s);
+                            let start =
+                                pleno_value::text::clamp_position(range.start.unwrap_or(0), len);
+                            let end = match range.end {
+                                Some(e) if range.inclusive => {
+                                    pleno_value::text::clamp_position(e.saturating_add(1), len)
+                                }
+                                Some(e) => pleno_value::text::clamp_position(e, len),
+                                None => len,
+                            };
+                            let sub_s = pleno_value::text::char_slice(s, start, end);
                             Ok(Value::String(Rc::new(sub_s.to_string())))
                         }
                         (Value::Tuple(tuple), Value::Int(idx)) => {

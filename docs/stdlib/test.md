@@ -184,7 +184,7 @@ assert.contains({ "a": 1 }, "a");
 
 ### `assert.lengthOf(collection, length: Int)`
 
-Asserts that a string, array, or map has a specific length. For strings, the length is in bytes.
+Asserts that a string, array, or map has a specific length. For strings, the length counts characters, as `length` does.
 
 ```pleno
 import { assert } from "std:test";
