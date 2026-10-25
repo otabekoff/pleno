@@ -4,7 +4,7 @@ use crate::{
     ClosureState, EnumType, Interface, MapState, Object, PartialState, Range, SetState,
     StaticMethodState, ThunkState, TupleState, Value, gc::GcObject, gc::GcRc,
 };
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::mem::ManuallyDrop;
 use std::rc::Rc;
@@ -80,19 +80,75 @@ impl<T> Slots<T> {
     }
 }
 
+/// A fast hasher for the integer and pointer keys of the slot tables: one
+/// multiplication instead of SipHash, which showed up in profiles of loops
+/// over big integers. Colliding keys only cost time, never correctness.
+#[derive(Default)]
+struct SlotKeyHasher(u64);
+
+impl std::hash::Hasher for SlotKeyHasher {
+    #[inline]
+    fn finish(&self) -> u64 {
+        self.0
+    }
+
+    #[inline]
+    fn write(&mut self, bytes: &[u8]) {
+        for &byte in bytes {
+            self.write_u64(byte as u64);
+        }
+    }
+
+    #[inline]
+    fn write_u64(&mut self, value: u64) {
+        // Fibonacci hashing: the high bits, which the table uses, depend on
+        // every bit of the key.
+        self.0 = (self.0.rotate_left(5) ^ value).wrapping_mul(0x9E37_79B9_7F4A_7C15);
+    }
+
+    #[inline]
+    fn write_i64(&mut self, value: i64) {
+        self.write_u64(value as u64);
+    }
+
+    #[inline]
+    fn write_usize(&mut self, value: usize) {
+        self.write_u64(value as u64);
+    }
+}
+
+type SlotMap<K> = HashMap<K, usize, std::hash::BuildHasherDefault<SlotKeyHasher>>;
+
 #[derive(Default)]
 struct BoxedValues {
     ints: Slots<i64>,
     /// Equal integers share a slot, so integers still compare by their bits.
-    int_slots: HashMap<i64, usize>,
+    int_slots: SlotMap<i64>,
     strings: Slots<Rc<String>>,
     /// The same string reuses its slot instead of growing the table.
-    string_slots: HashMap<*const String, usize>,
+    string_slots: SlotMap<*const String>,
     ranges: Slots<Range>,
 }
 
 thread_local! {
     static BOXED: RefCell<BoxedValues> = RefCell::new(BoxedValues::default());
+    /// Slots taken since the last sweep (see `boxed_values_added`).
+    static ADDED_SINCE_SWEEP: Cell<usize> = const { Cell::new(0) };
+}
+
+/// Counts a new slot; `weight` is 1, plus 1 for every 64 bytes of a string.
+fn note_added_slot(weight: usize) {
+    ADDED_SINCE_SWEEP.with(|added| added.set(added.get() + weight));
+}
+
+/// How many big-integer, string and range slots were taken since the last
+/// sweep, with long strings counting as several (one per 64 bytes).
+/// Programs that make many strings or big integers but few objects would
+/// otherwise keep every one of them until an object collection, so the VM
+/// also collects when this grows large.
+#[inline]
+pub fn boxed_values_added() -> usize {
+    ADDED_SINCE_SWEEP.with(Cell::get)
 }
 
 /// Inline integers use 46 value bits plus a flag bit that marks boxed ones.
@@ -101,30 +157,32 @@ const INLINE_INT_MAX: i64 = (1 << 45) - 1;
 
 fn box_int(value: i64) -> usize {
     BOXED.with(|boxed| {
-        let mut boxed = boxed.borrow_mut();
-        if let Some(&slot) = boxed.int_slots.get(&value) {
-            return slot;
+        let boxed = &mut *boxed.borrow_mut();
+        match boxed.int_slots.entry(value) {
+            std::collections::hash_map::Entry::Occupied(entry) => *entry.get(),
+            std::collections::hash_map::Entry::Vacant(entry) => {
+                note_added_slot(1);
+                *entry.insert(boxed.ints.insert(value))
+            }
         }
-        let slot = boxed.ints.insert(value);
-        boxed.int_slots.insert(value, slot);
-        slot
     })
 }
 
 fn box_string(value: &Rc<String>) -> usize {
     BOXED.with(|boxed| {
-        let mut boxed = boxed.borrow_mut();
-        let key = Rc::as_ptr(value);
-        if let Some(&slot) = boxed.string_slots.get(&key) {
-            return slot;
+        let boxed = &mut *boxed.borrow_mut();
+        match boxed.string_slots.entry(Rc::as_ptr(value)) {
+            std::collections::hash_map::Entry::Occupied(entry) => *entry.get(),
+            std::collections::hash_map::Entry::Vacant(entry) => {
+                note_added_slot(1 + value.len() / 64);
+                *entry.insert(boxed.strings.insert(Rc::clone(value)))
+            }
         }
-        let slot = boxed.strings.insert(Rc::clone(value));
-        boxed.string_slots.insert(key, slot);
-        slot
     })
 }
 
 fn box_range(value: &Range) -> usize {
+    note_added_slot(1);
     BOXED.with(|boxed| boxed.borrow_mut().ranges.insert(value.clone()))
 }
 
@@ -140,6 +198,7 @@ pub fn boxed_value_counts() -> (usize, usize, usize) {
 /// Frees table slots not marked since the last sweep. Called after a
 /// collection that marked every register of the VM.
 pub fn sweep_boxed_values() {
+    ADDED_SINCE_SWEEP.with(|added| added.set(0));
     BOXED.with(|boxed| {
         let mut boxed = boxed.borrow_mut();
         let boxed = &mut *boxed;
@@ -300,6 +359,17 @@ impl NanValue {
         Some((((payload << 17) as i64) >> 17) >> 1)
     }
 
+    /// The value of an integer stored inline (not boxed), without touching
+    /// the boxed-integer table.
+    #[inline]
+    pub fn as_inline_int(self) -> Option<i64> {
+        let payload = self.0 & PAYLOAD_MASK;
+        if self.tag() != TAG_INT || payload & 1 == 1 {
+            return None;
+        }
+        Some((((payload << 17) as i64) >> 17) >> 1)
+    }
+
     #[inline]
     pub fn from_bool(b: bool) -> Self {
         Self::encode(TAG_BOOL, if b { 1 } else { 0 })
@@ -346,6 +416,30 @@ impl NanValue {
         } else {
             None
         }
+    }
+
+    /// The index of a bytecode function (not a native one).
+    #[inline]
+    pub fn as_function_index(self) -> Option<usize> {
+        if self.tag() != TAG_FUNC {
+            return None;
+        }
+        let payload = self.0 & PAYLOAD_MASK;
+        if payload & 0x1 != 0 {
+            None
+        } else {
+            Some((payload >> 1) as usize)
+        }
+    }
+
+    #[inline]
+    pub fn is_closure(self) -> bool {
+        self.tag() == TAG_CLOSURE
+    }
+
+    #[inline]
+    pub fn is_thunk(self) -> bool {
+        self.tag() == TAG_THUNK
     }
 
     #[inline]

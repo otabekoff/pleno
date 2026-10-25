@@ -10,6 +10,7 @@ pub use format::{
 };
 
 use num_derive::{FromPrimitive, ToPrimitive};
+#[cfg(test)]
 use num_traits::FromPrimitive;
 
 #[repr(u8)]
@@ -140,6 +141,10 @@ pub enum Opcode {
     /// passes a check against an annotation that widens `Int` (see
     /// [`annotation_widens_int`]).
     ToFloat,
+    /// Calls the value in register b with the c arguments in the registers
+    /// after it (b + 1 ..= b + c) and stores the result in a. Unlike `Call`,
+    /// it needs no argument array.
+    CallRegs,
 }
 
 /// Whether a value checked against the annotation `ty` is stored as a `Float`
@@ -181,6 +186,9 @@ pub fn annotation_widens_int(ty: &str) -> bool {
     check(&ty[start..]) && has_float
 }
 
+/// The opcode with the highest discriminant: keep it the last variant.
+const LAST_OPCODE: Opcode = Opcode::CallRegs;
+
 /// `Destructure` mode: a tuple with exactly `c` elements.
 pub const DESTRUCTURE_TUPLE: u8 = 0;
 /// `Destructure` mode: an array with exactly `c` elements.
@@ -197,8 +205,16 @@ impl Instruction {
         Self(bits)
     }
 
+    #[inline]
     pub fn opcode(self) -> Opcode {
-        Opcode::from_u8((self.0 & 0xFF) as u8).unwrap_or(Opcode::LoadNull)
+        let byte = (self.0 & 0xFF) as u8;
+        if byte <= LAST_OPCODE as u8 {
+            // SAFETY: `Opcode` is `repr(u8)` with the discriminants
+            // `0..=LAST_OPCODE` and no gaps (checked by a test).
+            unsafe { std::mem::transmute::<u8, Opcode>(byte) }
+        } else {
+            Opcode::LoadNull
+        }
     }
 
     pub fn a(self) -> u8 {
@@ -284,7 +300,17 @@ pub struct ParamSpec {
 
 #[cfg(test)]
 mod tests {
-    use super::annotation_widens_int;
+    use super::*;
+
+    #[test]
+    fn opcodes_decode_like_from_primitive() {
+        for byte in 0..=u8::MAX {
+            let decoded = Instruction(byte as u32).opcode();
+            let expected = Opcode::from_u8(byte).unwrap_or(Opcode::LoadNull);
+            assert_eq!(decoded, expected, "opcode byte {byte}");
+        }
+        assert!(Opcode::from_u8(LAST_OPCODE as u8 + 1).is_none());
+    }
 
     #[test]
     fn float_annotations_widen_int() {
