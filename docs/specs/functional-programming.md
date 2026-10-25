@@ -35,20 +35,30 @@ sum(b = 5, a = 2);     // 10
 ### 6.2 Pure Functions
 
 ```pleno
-// Pure function annotation (compiler enforces purity)
 @pure
 fn calculateArea(width: Float, height: Float): Float {
     return width * height;
-    // Cannot modify external state or have side effects
+}
+print(calculateArea(2, 3));   // 6
+
+@pure
+fn noisy(x: Int): Int {
+    print("side effect");     // throws: pure function cannot have side effects
+    return x;
 }
 ```
+
+**Experimental.** `@pure` is not covered by the [compatibility promise](./compatibility.md): its check will change. Today it is checked while the function runs, not by the compiler. Inside a `@pure` function, calling `print` or `input`, assigning to a field or an index, and changing a class throw `pure function cannot have side effects`. The check misses some side effects and rejects some code that has none:
+
+- Not detected: standard library calls such as `File.write`, methods that change their receiver (`items.push(x)` on an argument), and assigning to a variable of an enclosing function or of the main file.
+- Rejected although harmless: creating a non-empty array or map literal, such as `[1, 2]` or `{"a": 1}`, inside the function.
 
 ### 6.3 Immutable Data Structures
 
 ```pleno
 // Immutable list (`deep` also freezes nested values)
 const deep list = [1, 2, 3];
-let newList = list.with(4);  // Creates new list [1, 2, 3, 4]
+let newList = list.with(4);  // A new list [1, 2, 3, 4], frozen like the original
 
 // Immutable map
 const deep config = {

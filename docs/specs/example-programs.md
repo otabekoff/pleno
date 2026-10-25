@@ -12,7 +12,7 @@ main();
 
 ## Web Server
 
-The server keeps running until you stop it.
+The server keeps running until you stop it. `Router` and `Server` are experimental; see [std:http](/stdlib/http).
 
 ```pleno norun
 import { Server, Router } from "std:http";

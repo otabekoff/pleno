@@ -1,6 +1,8 @@
 # Package Manager (PLM)
 
-PLM is Pleno's package manager for managing dependencies and project configuration.
+PLM is Pleno's package manager for managing dependencies and project configuration. `plm <command>` and `pleno plm <command>` are the same.
+
+There is no public package registry yet. Dependencies come from a local path or a Git repository; installing by name and version works only with a registry server whose URL is in the `PLENO_REGISTRY` environment variable.
 
 ## Quick Start
 
@@ -8,10 +10,10 @@ PLM is Pleno's package manager for managing dependencies and project configurati
 # Initialize new project
 plm init
 
-# Install a package
-plm install json-parser
+# Install a package from Git
+plm install https://github.com/user/http-utils
 
-# Install specific version
+# Install by name and version (needs PLENO_REGISTRY)
 plm install http-client@2.1.0
 
 # Install dev dependency
@@ -21,7 +23,7 @@ plm install --dev test-framework
 plm update
 
 # Remove a package
-plm remove json-parser
+plm remove http-utils
 ```
 
 ## Project Configuration
@@ -34,34 +36,36 @@ name = "my-app"
 version = "1.0.0"
 description = "My Pleno application"
 main = "src/main.pln"
-authors = ["Your Name <you@example.com>"]
-license = "MIT"
 
 [scripts]
 start = "pleno run src/main.pln"
-build = "pleno build --release --output dist/"
+build = "pleno build --release -o dist/app.plc"
 test = "pleno test tests/"
 dev = "pleno watch src/main.pln"
 
 [dependencies]
-http-client = "^2.1.0"
-json-parser = "^1.5.0"
-crypto = "1.0.0"
+greet = { path = "../greet" }
+http-utils = { git = "https://github.com/user/http-utils", tag = "v1.2.0" }
+json-parser = "^1.5.0"          # from the registry
 
 [dev-dependencies]
-test-framework = "^3.0.0"
-mock = "^1.2.0"
+mock = { git = "https://github.com/user/mock", branch = "main" }
 ```
+
+`[package]` takes `name`, `version`, `description` and `main` (default `src/main.pln`); other keys, such as `authors` or `license`, are accepted and ignored. A Git dependency can name a `tag`, `branch` or `rev`.
 
 ## Version Specifiers
 
-| Syntax    | Meaning                  |
-| --------- | ------------------------ |
-| `1.5.0`   | Exact version            |
-| `^1.5.0`  | Compatible (1.x.x)       |
-| `~1.5.0`  | Minor-compatible (1.5.x) |
-| `>=1.5.0` | Minimum version          |
-| `*`       | Any version              |
+Version requirements apply to registry dependencies and follow Cargo's rules:
+
+| Syntax    | Meaning                                |
+| --------- | -------------------------------------- |
+| `=1.5.0`  | Exactly 1.5.0                          |
+| `1.5.0`   | Same as `^1.5.0`                       |
+| `^1.5.0`  | Compatible: at least 1.5.0, below 2.0.0 |
+| `~1.5.0`  | At least 1.5.0, below 1.6.0            |
+| `>=1.5.0` | Minimum version                        |
+| `*`       | Any version                            |
 
 ## CLI Commands
 
@@ -81,6 +85,10 @@ plm run <script>      # Run a script from pleno.toml
 plm run start         # Run 'start' script
 plm run test          # Run 'test' script
 
+# Building and testing the package
+plm build
+plm test
+
 # Publishing (the registry URL comes from PLENO_REGISTRY)
 plm publish           # Publish to registry
 plm search <term>     # Search the registry
@@ -88,34 +96,12 @@ plm search <term>     # Search the registry
 
 ## Lock File
 
-`pleno.lock` ensures reproducible builds by locking exact versions:
+`plm install` writes `pleno.lock`, which records what was installed so the next install gets the same code: the version, the source, the Git commit for Git dependencies and a checksum for downloaded ones. Do not edit it by hand.
 
 ```toml
-# pleno.lock (auto-generated, do not edit manually)
 [[package]]
-name = "http-client"
-version = "2.1.3"
-checksum = "sha256:abc123..."
-
-[[package]]
-name = "json-parser"
-version = "1.5.2"
-checksum = "sha256:def456..."
-```
-
-## Workspaces
-
-For monorepo projects with multiple packages:
-
-```toml
-# pleno.toml (workspace root)
-[workspace]
-members = [
-    "packages/core",
-    "packages/cli",
-    "packages/web"
-]
-
-[workspace.dependencies]
-shared-utils = { path = "../shared" }
+name = "http-utils"
+version = "1.2.0"
+source = "git+https://github.com/user/http-utils"
+commit = "3f2c9e1..."
 ```

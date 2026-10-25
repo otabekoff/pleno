@@ -1,5 +1,9 @@
 # Bytecode VM Design (Register-Based)
 
+::: info Implementation notes
+This page describes the design and internals of the VM for people working on Pleno. Instructions, encodings and data structures can change in any release, together with the `.plc` bytecode format version. It is not part of the language reference or the [compatibility promise](./compatibility.md).
+:::
+
 Pleno will use a register-based bytecode VM from the start. This choice is
 performance-oriented and aligns with the goal of being faster than Python while
 remaining dynamic. A register VM yields fewer instructions, fewer memory

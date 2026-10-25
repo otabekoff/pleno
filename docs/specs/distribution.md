@@ -1,5 +1,9 @@
 # Distribution Strategy
 
+::: info Planning notes
+This page is a plan, not a description of what exists or a guarantee. It is not part of the language reference or the [compatibility promise](./compatibility.md). For what you can install today, see [Installation](/guide/installation).
+:::
+
 Pleno will ship via a staged distribution plan that balances stability and
 adoption speed. Start with official binaries and an install script, then add
 platform package managers and ecosystem tooling.

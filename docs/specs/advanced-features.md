@@ -101,6 +101,8 @@ print(v1 == v2);           // false
 print(v1[0]);              // 1
 ```
 
+Each operator is overloaded on its own. In particular `!=` does not call `operator ==`: without an `operator !=`, `a != b` on two instances compares them by identity. Define both when you define one.
+
 ## Extension Methods
 
 ```pleno

@@ -8,7 +8,7 @@
    spans multiple lines */
 
 /// Documentation comment for functions, classes, modules
-/// Can be extracted by documentation generators
+/// `pleno doc` turns these into HTML
 ```
 
 ### 1.2 Variables & Constants
@@ -37,13 +37,16 @@ See [Destructuring](./data-structures#destructuring) for the rules.
 const PI = 3.14159;            // Compile-time constant
 const MAX_USERS: Int = 1000;   // Typed constant
 
-// Constants cannot be reassigned - enforced at runtime
 const list = [1, 2, 3];
-// list = [4, 5, 6];  // ERROR: Cannot reassign constant
-// list.push(4);      // ERROR: Cannot mutate constant value
+// list = [4, 5, 6];  // compile error: cannot assign to immutable binding
+// list.push(4);      // runtime error: cannot modify immutable array
 ```
 
+A `const` cannot be reassigned (a compile error), and the array, map or object it holds cannot be changed (a runtime error). Values nested inside it, such as an array stored in a `const` map, can still change; `const deep` freezes those too.
+
 #### Deep Immutability
+`const deep` freezes the value and everything reachable from it. Changing any part throws `cannot modify immutable map` (or `array`).
+
 ```pleno
 const deep obj = {
     name: "Alice",
@@ -117,7 +120,7 @@ print(typeof(either));      // Int
 let count = 42;              // Inferred as Int
 let ratio = 3.14;            // Inferred as Float
 let message = "Hello";       // Inferred as String
-let mixed = null;            // Inferred as Null (can be reassigned)
+let mut mixed = null;        // Null for now; `mut` allows another value later
 ```
 
 #### Union Types
