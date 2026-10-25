@@ -18,10 +18,11 @@ You get:
 
 - Errors as you type, hover information, completion, signature help and inlay hints.
 - Go to definition, find references, rename, and **Format Document** (`Shift+Alt+F`).
-- **Run** and **Debug** buttons for `.pln` files; press `F5` to debug with breakpoints.
-- Snippets such as `fn`, `class`, `match` and `tryf`.
+- **Run File** and **Debug File** in the editor title bar for `.pln` files; press `F5` to debug with breakpoints.
+- `std:test` tests in the **Testing** view, and a **Pleno Project** view in the Explorer with the scripts and dependencies from `pleno.toml`.
+- Snippets such as `fn`, `class`, `match`, `tryf` and `test`.
 
-**Pleno: Show Pleno Status** shows which `pleno`, `pleno-lsp` and `pleno-dap` the extension uses. To use specific builds, set `pleno.cli.path`, `pleno.lsp.path` and `pleno.dap.path`.
+**Pleno: Show Status**, or the **Pleno** item in the status bar, shows the version and location of each tool the extension uses. To use specific builds, set `pleno.cli.path`, `pleno.lsp.path` and `pleno.dap.path`.
 
 ## Other editors
 
