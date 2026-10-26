@@ -1,0 +1,22 @@
+// `[..=end]` includes the end, like `[start..=end]`, for arrays and strings.
+
+fn check(condition: Bool, message: String) {
+    if (!condition) {
+        throw "FAILED: " + message;
+    }
+}
+
+let items = [1, 2, 3];
+check(items[..=1].toString() == "[1, 2]", "array, no start, inclusive end");
+check(items[..1].toString() == "[1]", "array, no start, exclusive end");
+check(items[0..=1].toString() == "[1, 2]", "array, start and inclusive end");
+check(items[..=-1].toString() == "[1, 2, 3]", "array, negative inclusive end");
+check(items[..=-2].toString() == "[1, 2]", "array, negative inclusive end before the last");
+check(items[..=9].toString() == "[1, 2, 3]", "array, inclusive end past the last element");
+
+let word = "hello";
+check(word[..=1] == "he", "string, no start, inclusive end");
+check(word[..1] == "h", "string, no start, exclusive end");
+check(word[..=-1] == "hello", "string, negative inclusive end");
+
+print("inclusive slices: all checks passed");
