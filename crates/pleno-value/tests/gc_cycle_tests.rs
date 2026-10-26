@@ -109,3 +109,103 @@ fn test_complex_cycle() {
     assert_eq!(manager.gc.get_heap_size(), 0);
     assert!(weak_a.upgrade().is_none());
 }
+
+#[test]
+fn releasing_the_heap_frees_cycles_and_keeps_held_values() {
+    use pleno_value::{ClosureState, IteratorState};
+
+    let mut manager = GCManager::new(100);
+    let array = |manager: &mut GCManager| {
+        manager
+            .allocate(ArrayState {
+                elements: Vec::new(),
+                is_immutable: false,
+            })
+            .unwrap()
+    };
+
+    // A cycle through a closure that nothing outside the heap holds.
+    let garbage = array(&mut manager);
+    let closure = manager
+        .allocate(ClosureState::new(0, vec![Value::Array(garbage.clone())]))
+        .unwrap();
+    garbage
+        .borrow_mut()
+        .elements
+        .push(Value::Closure(closure.clone()));
+    let garbage_weak = garbage.downgrade();
+    drop((garbage, closure));
+
+    // A cycle the embedder still holds, with an unreachable iterator over it.
+    let kept = array(&mut manager);
+    kept.borrow_mut().elements.push(Value::Array(kept.clone()));
+    let iterator = manager
+        .allocate(IteratorState::Array {
+            array: kept.clone(),
+            index: 0,
+            is_entries: false,
+        })
+        .unwrap();
+    drop(iterator);
+
+    manager.release_all();
+
+    assert!(garbage_weak.upgrade().is_none(), "the cycle is freed");
+    assert_eq!(kept.borrow().elements, vec![Value::Array(kept.clone())]);
+    assert_eq!(manager.gc.get_heap_size(), 0);
+    kept.borrow_mut().elements.clear();
+}
+
+#[test]
+fn releasing_the_heap_frees_nothing_while_an_object_is_borrowed() {
+    let mut manager = GCManager::new(100);
+    let array = manager
+        .allocate(ArrayState {
+            elements: Vec::new(),
+            is_immutable: false,
+        })
+        .unwrap();
+    array
+        .borrow_mut()
+        .elements
+        .push(Value::Array(array.clone()));
+    let weak = array.downgrade();
+    {
+        let _guard = array.borrow_mut();
+        manager.release_all();
+    }
+    assert_eq!(array.borrow().elements.len(), 1, "left untouched");
+    array.borrow_mut().elements.clear();
+    drop(array);
+    assert!(weak.upgrade().is_none());
+}
+
+#[test]
+fn marking_a_long_chain_does_not_overflow_the_stack() {
+    let mut manager = GCManager::new(usize::MAX);
+    let new_array = |manager: &mut GCManager, elements: Vec<Value>| {
+        manager
+            .allocate(ArrayState {
+                elements,
+                is_immutable: false,
+            })
+            .unwrap()
+    };
+    let mut head = new_array(&mut manager, Vec::new());
+    for _ in 0..200_000 {
+        head = new_array(&mut manager, vec![Value::Array(head)]);
+    }
+    let root = Value::Array(head.clone());
+    manager.collect_garbage(&[&root]);
+    assert_eq!(manager.gc.get_heap_size(), 200_001);
+    drop(root);
+
+    // Take the chain apart link by link: dropping it whole would recurse.
+    let mut link = Some(head);
+    while let Some(array) = link {
+        link = match array.borrow_mut().elements.pop() {
+            Some(Value::Array(next)) => Some(next),
+            _ => None,
+        };
+    }
+}

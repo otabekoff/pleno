@@ -48,7 +48,6 @@ pub struct VM {
     /// How deeply calls from native code back into Pleno can nest before a
     /// `RecursionError`; lower it where the stack is small (WebAssembly).
     pub max_nested_runs: usize,
-    pub gc: pleno_value::gc::GCManager,
     pub registers: Vec<NanValue>,
     pub frames: Vec<CallFrame>,
     pub globals: IndexMap<String, Value>,
@@ -106,6 +105,12 @@ pub struct VM {
     /// Changes whenever a global may have changed, which forgets every value
     /// in `global_values`.
     globals_epoch: u64,
+    /// The heap. Fields drop in order, so it goes after every other field
+    /// has let go of its values: dropping it then frees everything the VM
+    /// allocated, cycles included, except values still held outside the VM
+    /// (see `GCManager`'s `Drop`).
+    pub gc: pleno_value::gc::GCManager,
+    _live: LiveVm,
 }
 
 #[derive(Debug, Clone)]
@@ -619,6 +624,38 @@ impl Default for VM {
     }
 }
 
+/// Counts the VMs alive on this thread. It is the last field of `VM`, so it
+/// is dropped after everything else, the heap included.
+struct LiveVm(());
+
+impl LiveVm {
+    fn new() -> Self {
+        LIVE_VMS.with(|live| live.set(live.get() + 1));
+        LiveVm(())
+    }
+}
+
+impl Drop for LiveVm {
+    fn drop(&mut self) {
+        // NaN-boxed values exist only inside VMs, so once the thread's last
+        // VM is gone no slot of the string, big-integer and range tables can
+        // be in use. Freeing them keeps hosts that run program after program
+        // from growing; while other VMs live, their collections free them.
+        let others = LIVE_VMS.with(|live| {
+            live.set(live.get() - 1);
+            live.get()
+        });
+        if others == 0 {
+            pleno_value::nan_value::sweep_boxed_values();
+        }
+    }
+}
+
+thread_local! {
+    /// VMs alive on this thread (see `LiveVm`).
+    static LIVE_VMS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
 impl VM {
     pub fn evaluate_condition(&mut self, condition: &str) -> Result<bool, RuntimeError> {
         let val = self.evaluate_expression(condition)?;
@@ -863,6 +900,7 @@ impl VM {
     }
 
     pub fn new() -> Self {
+        let live = LiveVm::new();
         let gc = pleno_value::gc::GCManager::new(4 * 1024 * 1024);
         let mut globals = IndexMap::new();
         let modules = IndexMap::new();
@@ -911,6 +949,7 @@ impl VM {
             method_sites_resolver: None,
             global_values: Vec::new(),
             globals_epoch: 1,
+            _live: live,
         }
     }
 
