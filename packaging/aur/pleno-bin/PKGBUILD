@@ -1,6 +1,6 @@
 # Maintainer: Otabek Ismoilov <sadiridinovotabek@gmail.com>
 pkgname=pleno-bin
-pkgver=0.2.0
+pkgver=0.3.0
 pkgrel=1
 pkgdesc="A readable programming language with optional checked types and async built in (prebuilt binaries)"
 arch=('x86_64' 'aarch64')
@@ -13,8 +13,8 @@ source=("LICENSE-$pkgver::https://raw.githubusercontent.com/otabekoff/pleno/v$pk
 source_x86_64=("pleno-v$pkgver-x86_64.tar.gz::https://github.com/otabekoff/pleno/releases/download/v$pkgver/pleno-v$pkgver-x86_64-unknown-linux-gnu.tar.gz")
 source_aarch64=("pleno-v$pkgver-aarch64.tar.gz::https://github.com/otabekoff/pleno/releases/download/v$pkgver/pleno-v$pkgver-aarch64-unknown-linux-gnu.tar.gz")
 sha256sums=('8c254b459213d3850ee5ef4a8a8701dcadb5b5e6e7fa39dc5a148397f534a0c9')
-sha256sums_x86_64=('a22dec76f1758063a6d7816926322d5fccb639c0a9ad840a244f9ac010678b21')
-sha256sums_aarch64=('1534f90b9cc844caa7bbdd2c7c2c6f05169e4b813fba5c0dfd53952283edd29a')
+sha256sums_x86_64=('12fee4bbf53905e5916b245ecf3905c5afdea9ff7c376a3424f6de4db5e0b28f')
+sha256sums_aarch64=('7711e241920d1b5c49c1f5717562881e9d0eb9d62de5173ca5011d7d101321cb')
 
 package() {
     for tool in pleno plm pleno-lsp pleno-dap pleno-repl; do

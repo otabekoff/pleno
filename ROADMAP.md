@@ -29,7 +29,8 @@ Status as of 2026-10-27.
 2. **Memory held after a run** ([#60](https://github.com/otabekoff/pleno/issues/60)). [ ] Values in reference cycles are not freed when a VM is dropped, so long-lived processes (language server, REPL, playground) grow. *(in progress)*
 3. **Freeze the reference.** [ ] A last review of `docs/specs` by the maintainer, then declare it frozen for 1.x.
 4. **A release people can install.**
-   - [ ] Release 0.3.0 (prepared; waiting for the tag), then 1.0.0-rc.1, then 1.0.0.
+   - [x] Release 0.3.0 (2026-10-27).
+   - [ ] Release 1.0.0-rc.1, then 1.0.0.
    - [ ] Signed Windows binaries (SignPath application ready in [`notes/SIGNPATH_APPLICATION.md`](notes/SIGNPATH_APPLICATION.md); waiting for approval).
    - [ ] Packages: winget (pull request waiting for moderators), Scoop, Homebrew (formula exists), a Linux package (apt), Chocolatey and AUR (need the maintainer's account keys).
    - [ ] The VS Code extension on the Marketplace and Open VSX.

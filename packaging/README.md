@@ -50,7 +50,7 @@ Then submit the three files as `manifests/p/Pleno/Pleno/<version>/` in a pull re
 ```powershell
 choco pack packaging/chocolatey/pleno.nuspec --outputdirectory packaging/chocolatey
 choco install pleno --source packaging/chocolatey   # test locally
-choco push packaging/chocolatey/pleno.0.2.0.nupkg --source https://push.chocolatey.org/ --api-key <key>
+choco push packaging/chocolatey/pleno.0.3.0.nupkg --source https://push.chocolatey.org/ --api-key <key>
 ```
 
 ### AUR
@@ -59,7 +59,7 @@ choco push packaging/chocolatey/pleno.0.2.0.nupkg --source https://push.chocolat
 git clone ssh://aur@aur.archlinux.org/pleno-bin.git
 cp packaging/aur/pleno-bin/PKGBUILD packaging/aur/pleno-bin/.SRCINFO pleno-bin/
 cd pleno-bin && makepkg -si   # test, then:
-git add PKGBUILD .SRCINFO && git commit -m "pleno-bin 0.2.0" && git push
+git add PKGBUILD .SRCINFO && git commit -m "pleno-bin 0.3.0" && git push
 ```
 
 `.SRCINFO` must match the PKGBUILD; regenerate it with `makepkg --printsrcinfo > .SRCINFO`.
