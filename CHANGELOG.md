@@ -53,6 +53,7 @@ Notable changes to Pleno. The format follows [Keep a Changelog](https://keepacha
 
 ### Fixed
 
+- A `@pure` function could not build an array, map or set: `@pure fn f(x) { return [x, 1]; }` threw `pure function cannot have side effects`. Literals (with spreads) are allowed now; assigning to a field or an index is still rejected. Map literals use a new `MapLiteralSet` instruction.
 - A method value printed as `<method of Class(GcRc { ptr: 0x7d75d7e83c90 })>`, a memory address that changed from run to run. It now prints `<method of Shape>` (and `<static method of Shape>`); a bound generic function prints its function instead of its debug form.
 - Parameter annotations on lambdas and anonymous functions were not checked: `fn(x: Int) => x` accepted a string. They are now checked when the lambda is called, like a named function's (`TypeError: parameter 'x' expected Int, got String`), with `Int` widening to `Float` and optional and union annotations. Arrow lambdas take annotations too: `(x: Int) => x * 2`. A failed parameter check now points at the parameter instead of the first line of the file. Unannotated lambdas cost the same as before.
 - An error raised deep in the call stack no longer copies the whole stack into its backtrace. A `catch` that throws again at each of 16,000 nested levels took 5 seconds, and the time grew with the square of the depth; it now takes about 0.1 seconds. A backtrace deeper than 60 calls keeps the innermost 50 and outermost 10 frames, with a `... N more frames` line between them.

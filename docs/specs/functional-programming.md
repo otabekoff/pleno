@@ -48,10 +48,7 @@ fn noisy(x: Int): Int {
 }
 ```
 
-**Experimental.** `@pure` is not covered by the [compatibility promise](./compatibility.md): its check will change. Today it is checked while the function runs, not by the compiler. Inside a `@pure` function, calling `print` or `input`, assigning to a field or an index, and changing a class throw `pure function cannot have side effects`. The check misses some side effects and rejects some code that has none:
-
-- Not detected: standard library calls such as `File.write`, methods that change their receiver (`items.push(x)` on an argument), and assigning to a variable of an enclosing function or of the main file.
-- Rejected although harmless: creating a non-empty array or map literal, such as `[1, 2]` or `{"a": 1}`, inside the function.
+**Experimental.** `@pure` is not covered by the [compatibility promise](./compatibility.md): its check will change. Today it is checked while the function runs, not by the compiler. Inside a `@pure` function, calling `print` or `input`, assigning to a field or an index, and changing a class throw `pure function cannot have side effects`. Building new values is allowed: array, map, set and tuple literals (with spreads), such as `[x, 1]` or `{"a": x}`. The check misses some side effects: standard library calls such as `File.write`, methods that change their receiver (`items.push(x)` on an argument), and assigning to a variable of an enclosing function or of the main file.
 
 ### 6.3 Immutable Data Structures
 

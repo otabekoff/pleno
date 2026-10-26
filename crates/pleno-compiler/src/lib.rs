@@ -6488,7 +6488,7 @@ impl Compiler {
                 MapItem::Entry(key, value_expr) => {
                     let value_reg = self.compile_expr(value_expr)?;
                     let key_idx = self.add_constant(Value::String(key.clone().into()));
-                    self.emit(Opcode::SetProperty, value_reg, dest, key_idx);
+                    self.emit(Opcode::MapLiteralSet, value_reg, dest, key_idx);
                     self.free_temp(value_reg);
                 }
                 MapItem::Spread(expr) => {
