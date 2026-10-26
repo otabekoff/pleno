@@ -1089,6 +1089,7 @@ impl Formatter {
                 collection,
                 start,
                 end,
+                inclusive,
             } => {
                 let start_str = match start {
                     Some(expr) => self.format_expression(expr, indent_level),
@@ -1098,10 +1099,12 @@ impl Formatter {
                     Some(expr) => self.format_expression(expr, indent_level),
                     None => "".to_string(),
                 };
+                // `[a:b]` has no inclusive form; `[a..=b]` keeps its meaning.
                 format!(
-                    "{}[{}:{}]",
+                    "{}[{}{}{}]",
                     self.format_expression(collection, indent_level),
                     start_str,
+                    if *inclusive { "..=" } else { ":" },
                     end_str
                 )
             }

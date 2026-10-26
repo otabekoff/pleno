@@ -340,6 +340,7 @@ pub fn walk_expr<'ast, V: Visitor<'ast, T> + ?Sized, T: Default>(
             collection,
             start,
             end,
+            ..
         } => {
             visitor.visit_expr(collection);
             if let Some(s) = start {

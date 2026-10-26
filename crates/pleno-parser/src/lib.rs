@@ -2638,13 +2638,19 @@ impl Parser {
                     ));
                 }
             };
+            // `(x: Int) => ...`: an annotation, checked when the lambda is called.
+            let ty = if self.matches(&TokenKind::Colon) {
+                Some(self.parse_type()?)
+            } else {
+                None
+            };
             let param_end = self.previous_span().end;
             let param_span = Span::new(name_start, param_end);
             params.push(pleno_ast::Param {
                 span: param_span,
                 name,
                 name_span: name_token.span,
-                ty: None,
+                ty,
                 default: None,
                 is_variadic: false,
                 is_keyword_only: false,
@@ -3490,7 +3496,7 @@ impl Parser {
                     || self.matches(&TokenKind::Colon)
                 {
                     // Slice: [:end], [..end] or [..=end]
-                    let _inclusive = self.previous().kind == TokenKind::DotDotEqual;
+                    let inclusive = self.previous().kind == TokenKind::DotDotEqual;
                     let end = if self.matches(&TokenKind::RBracket) || self.is_range_terminator() {
                         None
                     } else {
@@ -3503,6 +3509,7 @@ impl Parser {
                         ExprKind::Slice {
                             collection: Box::new(expr),
                             start: None,
+                            inclusive: inclusive && end.is_some(),
                             end,
                         },
                         start_span,
@@ -3517,7 +3524,7 @@ impl Parser {
                     || self.matches(&TokenKind::DotDotEqual)
                     || self.matches(&TokenKind::Colon)
                 {
-                    let _inclusive = self.previous().kind == TokenKind::DotDotEqual;
+                    let inclusive = self.previous().kind == TokenKind::DotDotEqual;
                     let end = if self.matches(&TokenKind::RBracket) || self.is_range_terminator() {
                         None
                     } else {
@@ -3530,6 +3537,7 @@ impl Parser {
                         ExprKind::Slice {
                             collection: Box::new(expr),
                             start: Some(Box::new(start_idx)),
+                            inclusive: inclusive && end.is_some(),
                             end,
                         },
                         start_span,
