@@ -3127,8 +3127,21 @@ impl Parser {
                     self.error(format!("Lex error in interpolation: {}", e.message), span)
                 })?;
                 let mut sub_parser = Parser::new(tokens, &expr_str);
+                // The interpolation is nested in this expression: it shares
+                // the depth limit, so `"${"${...}"}"` cannot overflow the stack.
+                sub_parser.depth = self.depth + 1;
+                sub_parser.max_depth = self.max_depth;
+                if sub_parser.depth > sub_parser.max_depth {
+                    return Err(self.error_at_current("Recursion limit exceeded".to_string()));
+                }
                 let expr = sub_parser.parse_expr().map_err(|e| {
-                    self.error(format!("Parse error in interpolation: {}", e.message), span)
+                    // An error from a nested interpolation already says so.
+                    let message = if e.message.contains("in interpolation: ") {
+                        e.message
+                    } else {
+                        format!("Parse error in interpolation: {}", e.message)
+                    };
+                    self.error(message, span)
                 })?;
                 segments.push(expr);
 
@@ -3571,6 +3584,7 @@ impl Parser {
                     TokenKind::Greater,
                     "Expected '>' after generic type arguments",
                 )?;
+                self.extend_chain()?;
                 expr = self.wrap_expr(
                     ExprKind::Specialize {
                         left: Box::new(expr),
@@ -3582,6 +3596,14 @@ impl Parser {
             }
             if allow_call && self.matches(&TokenKind::LParen) {
                 let args = self.parse_call_args()?;
+                // `f(x)` and `a.m(x)` are one link (the `.m` was counted);
+                // a call on a call, `f(1)(2)`, adds one.
+                if !matches!(
+                    expr.kind,
+                    ExprKind::Ident(_) | ExprKind::Property { .. } | ExprKind::SafeProperty { .. }
+                ) {
+                    self.extend_chain()?;
+                }
                 expr = self.wrap_expr(
                     ExprKind::Call {
                         callee: Box::new(expr),
@@ -3604,13 +3626,16 @@ impl Parser {
                     };
                     self.advance(); // consume '('
                     let args = self.parse_call_args()?;
+                    self.extend_chain()?;
                     expr = self.wrap_expr(ExprKind::MacroCall { name, args }, start_span);
                     continue;
                 }
+                self.extend_chain()?;
                 expr = self.wrap_expr(ExprKind::AssertNotNull(Box::new(expr)), start_span);
                 continue;
             }
             if self.matches(&TokenKind::PlusPlus) {
+                self.extend_chain()?;
                 expr = self.wrap_expr(
                     ExprKind::Unary {
                         op: pleno_ast::UnaryOp::PostIncrement,
@@ -3621,6 +3646,7 @@ impl Parser {
                 continue;
             }
             if self.matches(&TokenKind::MinusMinus) {
+                self.extend_chain()?;
                 expr = self.wrap_expr(
                     ExprKind::Unary {
                         op: pleno_ast::UnaryOp::PostDecrement,

@@ -65,3 +65,41 @@ fn each_statement_has_its_own_budget() {
         "800\n"
     );
 }
+
+#[test]
+fn every_postfix_form_counts_toward_the_limit() {
+    // Calls on a call, `f<T>`, `x!`, `x++` and macro calls each nest the
+    // expression one level deeper; 5,000 of them overflowed the stack of a
+    // release build on an 8 MB thread (found by a long fuzz_compile run).
+    let prelude = "fn f(a) { return f; }\nlet mut x = 1;\n";
+    for chain in [
+        format!("f{};", "(1)".repeat(5000)),
+        format!("let y = f{};", "<Int>".repeat(5000)),
+        format!("let y = x{};", "!".repeat(5000)),
+        format!("x{};", "++".repeat(5000)),
+    ] {
+        let err = run(&format!("{prelude}{chain}")).unwrap_err();
+        assert!(err.contains("expression too long"), "{err}");
+    }
+    // Short chains still work.
+    assert_eq!(
+        run("fn f(a) { return fn(b) { return a + b; }; }\nprint(f(1)(2));").as_deref(),
+        Ok("3\n")
+    );
+}
+
+#[test]
+fn nested_interpolations_share_the_depth_limit() {
+    // Each `${...}` was parsed by a new parser starting at depth 0, so
+    // `"${"${"${...}"}"}"` nested 2,000 deep overflowed the stack.
+    let nested = format!("let y = {}1{};", "\"${".repeat(2000), "}\"".repeat(2000));
+    let err = run(&nested).unwrap_err();
+    assert_eq!(
+        err,
+        "Parse error in interpolation: Recursion limit exceeded"
+    );
+    assert_eq!(
+        run("let n = 3;\nprint(\"a ${\"b ${n + 1} c\"} d\");").as_deref(),
+        Ok("a b 4 c d\n")
+    );
+}
