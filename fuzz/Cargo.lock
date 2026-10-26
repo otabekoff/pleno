@@ -989,7 +989,7 @@ checksum = "f6b464fbc74e149a392436b17d523f769e057cb6877f6a5c4618bc6f11800548"
 
 [[package]]
 name = "pleno-ast"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "pleno-common",
  "serde",
@@ -1011,7 +1011,7 @@ dependencies = [
 
 [[package]]
 name = "pleno-bytecode"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "bincode",
  "indexmap",
@@ -1025,7 +1025,7 @@ dependencies = [
 
 [[package]]
 name = "pleno-common"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "chrono",
  "env_logger",
@@ -1035,7 +1035,7 @@ dependencies = [
 
 [[package]]
 name = "pleno-compiler"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "indexmap",
  "log",
@@ -1048,14 +1048,14 @@ dependencies = [
 
 [[package]]
 name = "pleno-diagnostics"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "pleno-common",
 ]
 
 [[package]]
 name = "pleno-lexer"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "pleno-ast",
  "pleno-diagnostics",
@@ -1063,7 +1063,7 @@ dependencies = [
 
 [[package]]
 name = "pleno-optimizer"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "indexmap",
  "pleno-ast",
@@ -1074,7 +1074,7 @@ dependencies = [
 
 [[package]]
 name = "pleno-parser"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "pleno-ast",
  "pleno-diagnostics",
@@ -1083,7 +1083,7 @@ dependencies = [
 
 [[package]]
 name = "pleno-stdlib"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "aes",
  "base64 0.23.1",
@@ -1113,7 +1113,7 @@ dependencies = [
 
 [[package]]
 name = "pleno-value"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "indexmap",
  "mio",
@@ -1124,7 +1124,7 @@ dependencies = [
 
 [[package]]
 name = "pleno-vm"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "chrono",
  "hex",

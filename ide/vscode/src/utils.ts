@@ -133,7 +133,7 @@ export function getPlenoDapPath(context: vscode.ExtensionContext): string | unde
 }
 
 /**
- * The version a tool reports with `--version`, such as `0.2.0`, or undefined
+ * The version a tool reports with `--version`, such as `1.2.3`, or undefined
  * when it cannot be run. `pleno-dap` and `pleno-repl` have no such flag.
  */
 export function toolVersion(location: ToolLocation): Promise<string | undefined> {
@@ -142,7 +142,7 @@ export function toolVersion(location: ToolLocation): Promise<string | undefined>
     }
     return new Promise((resolve) => {
         execFile(location.path, ['--version'], { timeout: 5000, env: { ...process.env, NO_COLOR: '1' } }, (error, stdout) => {
-            // `pleno 0.2.0` -> `0.2.0`; color codes, if any, have no dotted numbers.
+            // `pleno 1.2.3` -> `1.2.3`; color codes, if any, have no dotted numbers.
             const match = /\d+\.\d+\.\d+[\w.+-]*/.exec(stdout);
             resolve(error || !match ? undefined : match[0]);
         });
