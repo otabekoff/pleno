@@ -18,7 +18,7 @@ reqwest = { version = "0.12", default-features = false, features = [
 sha2 = "0.11"
 hex = "0.4"
 dirs = "7.0"
-bincode = "3"
+bincode = "1"
 tar = "0.4"
 pleno-ast = { workspace = true }
 pleno-lexer = { workspace = true }

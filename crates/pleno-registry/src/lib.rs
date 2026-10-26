@@ -302,7 +302,7 @@ pub fn init_db(db: &Connection) {
 
 pub fn create_router(state: AppState) -> Router {
     let auth_router = Router::new()
-        .route("/packages/:name", post(publish_package))
+        .route("/packages/{name}", post(publish_package))
         .layer(middleware::from_fn_with_state(
             state.clone(),
             auth_middleware,
@@ -311,7 +311,7 @@ pub fn create_router(state: AppState) -> Router {
 
     Router::new()
         .route("/packages", get(list_packages))
-        .route("/packages/:name", get(get_package_info))
+        .route("/packages/{name}", get(get_package_info))
         .merge(auth_router)
         .with_state(state)
 }

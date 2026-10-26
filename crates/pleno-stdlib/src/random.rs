@@ -1,13 +1,13 @@
 use pleno_value::{RuntimeError, Value};
-use rand::Rng;
-use rand::seq::SliceRandom;
+use rand::RngExt;
+use rand::seq::{IndexedRandom, SliceRandom};
 
 pub fn random(
     _vm: &mut dyn pleno_value::VMProvider,
     _args: &[Value],
 ) -> Result<Value, RuntimeError> {
-    let mut rng = rand::thread_rng();
-    Ok(Value::Float(rng.r#gen()))
+    let mut rng = rand::rng();
+    Ok(Value::Float(rng.random::<f64>()))
 }
 
 pub fn randint(
@@ -30,8 +30,8 @@ pub fn randint(
         return Err(RuntimeError::new("min must be less than or equal to max"));
     }
 
-    let mut rng = rand::thread_rng();
-    Ok(Value::Int(rng.gen_range(min..=max)))
+    let mut rng = rand::rng();
+    Ok(Value::Int(rng.random_range(min..=max)))
 }
 
 pub fn choice(
@@ -47,7 +47,7 @@ pub fn choice(
             if elements.is_empty() {
                 return Ok(Value::Null);
             }
-            let mut rng = rand::thread_rng();
+            let mut rng = rand::rng();
             Ok(elements.choose(&mut rng).cloned().unwrap_or(Value::Null))
         }
         _ => Err(RuntimeError::new("choice expects an array")),
@@ -66,7 +66,7 @@ pub fn shuffle(
             if arr.borrow().is_immutable {
                 return Err(RuntimeError::new("Cannot shuffle immutable array"));
             }
-            let mut rng = rand::thread_rng();
+            let mut rng = rand::rng();
             arr.borrow_mut().elements.shuffle(&mut rng);
             Ok(Value::Null)
         }
