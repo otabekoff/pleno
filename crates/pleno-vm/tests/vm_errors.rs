@@ -506,3 +506,11 @@ fn failed_to_read_module_error() {
     let err = eval_result(&source).unwrap_err();
     assert!(err.contains("failed to read module"), "{err}");
 }
+
+#[test]
+fn method_values_print_their_owner_not_an_address() {
+    let source =
+        "class Shape { fn area() { return 4; } }\nlet s = Shape();\nlet m = s.area;\nm.toString();";
+    let printed = eval_result(source).unwrap().to_string();
+    assert_eq!(printed, "<method of Shape>");
+}
