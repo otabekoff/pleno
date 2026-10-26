@@ -37,6 +37,6 @@
   "dependencies": {
     "cosmiconfig-typescript-loader": "^6.3.0",
     "jiti": "2.7.0",
-    "shiki": "^3.21.0"
+    "shiki": "^4.5.0"
   }
 }
