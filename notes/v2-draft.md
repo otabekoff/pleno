@@ -127,6 +127,4 @@ Status: `std:security` is experimental. Planned: a time limit. (Path rules norma
 
 ## Bugs that block the freeze
 
-These are not features but differences between the reference and the implementation; the reference describes the intended behavior.
-
-- `@pure` rejects non-empty array and map literals.
+None known. These are differences between the reference and the implementation (the reference describes the intended behavior); list any that are found here.

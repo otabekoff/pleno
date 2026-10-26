@@ -2233,11 +2233,6 @@ impl VM {
                     ));
                 }
                 Opcode::SetAdd => {
-                    if self.functions[frame.function_index].is_pure {
-                        return Err(
-                            self.throw_runtime_error("pure function cannot have side effects")
-                        );
-                    }
                     let value = self.registers[base + b].to_value();
                     match self.registers[base + a].to_value() {
                         Value::Set(set) => {
@@ -2278,11 +2273,6 @@ impl VM {
                     _ => return Err(RuntimeError::new("set values on non-set value")),
                 },
                 Opcode::ArrayAppend => {
-                    if self.functions[frame.function_index].is_pure {
-                        return Err(
-                            self.throw_runtime_error("pure function cannot have side effects")
-                        );
-                    }
                     let value = self.registers[base + b].to_value();
                     match self.registers[base + a].to_value() {
                         Value::Array(array) => {
@@ -2331,11 +2321,6 @@ impl VM {
                     }
                 }
                 Opcode::ArraySpread => {
-                    if self.functions[frame.function_index].is_pure {
-                        return Err(
-                            self.throw_runtime_error("pure function cannot have side effects")
-                        );
-                    }
                     let value = self.registers[base + b].to_value();
                     match (self.registers[base + a].to_value(), value) {
                         (Value::Array(target), Value::Array(source)) => {
@@ -2353,11 +2338,6 @@ impl VM {
                     }
                 }
                 Opcode::MapSpread => {
-                    if self.functions[frame.function_index].is_pure {
-                        return Err(
-                            self.throw_runtime_error("pure function cannot have side effects")
-                        );
-                    }
                     let value = self.registers[base + b].to_value();
                     match (self.registers[base + a].to_value(), value) {
                         (Value::Map(target), Value::Map(source)) => {
@@ -2392,11 +2372,6 @@ impl VM {
                     }
                 }
                 Opcode::SetSpread => {
-                    if self.functions[frame.function_index].is_pure {
-                        return Err(
-                            self.throw_runtime_error("pure function cannot have side effects")
-                        );
-                    }
                     let value = self.registers[base + b].to_value();
                     match (self.registers[base + a].to_value(), value) {
                         (Value::Set(target), Value::Set(source)) => {
@@ -2408,11 +2383,6 @@ impl VM {
                     }
                 }
                 Opcode::ArrayExtend => {
-                    if self.functions[frame.function_index].is_pure {
-                        return Err(
-                            self.throw_runtime_error("pure function cannot have side effects")
-                        );
-                    }
                     let value = self.registers[base + b].to_value();
                     match (self.registers[base + a].to_value(), value) {
                         (Value::Array(target), Value::Array(source)) => {
@@ -2737,6 +2707,19 @@ impl VM {
                     self.registers[base + a] = NanValue::from_int(val % c as i64);
                 }
 
+                Opcode::MapLiteralSet => {
+                    let Value::String(name) = &function.chunk.constants[c] else {
+                        return Err(RuntimeError::new("property name must be string"));
+                    };
+                    let name = name.as_str().to_string();
+                    let value = self.registers[base + a].to_value();
+                    let Value::Map(map) = self.registers[base + b].to_value() else {
+                        return Err(RuntimeError::new("map literal target is not a map"));
+                    };
+                    self.gc
+                        .track_allocation(std::mem::size_of::<Value>() + name.len())?;
+                    map.borrow_mut().insert(name, value);
+                }
                 Opcode::SetProperty => {
                     if self.functions[frame.function_index].is_pure {
                         return Err(

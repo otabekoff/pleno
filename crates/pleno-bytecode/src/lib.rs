@@ -157,6 +157,10 @@ pub enum Opcode {
     /// the c arguments in the registers after them (b + 3 ..= b + 2 + c) and
     /// stores the result in a, without allocating a bound method.
     CallMethod,
+    /// Sets key c (a name constant) of the map a map literal is building, in
+    /// register b, to R[a]. Unlike `SetProperty` it is allowed in `@pure`
+    /// functions: the map was created by the same expression.
+    MapLiteralSet,
 }
 
 /// Whether a value checked against the annotation `ty` is stored as a `Float`
@@ -199,7 +203,7 @@ pub fn annotation_widens_int(ty: &str) -> bool {
 }
 
 /// The opcode with the highest discriminant: keep it the last variant.
-const LAST_OPCODE: Opcode = Opcode::CallMethod;
+const LAST_OPCODE: Opcode = Opcode::MapLiteralSet;
 
 /// `Destructure` mode: a tuple with exactly `c` elements.
 pub const DESTRUCTURE_TUPLE: u8 = 0;
