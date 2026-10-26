@@ -3409,67 +3409,7 @@ impl Compiler {
                 compiler.patch_jump(skip_jump)?;
             }
 
-            // Type Enforcement
-            if let Some(ty_name) = &param.ty
-                && ty_name != "Any"
-            {
-                let param_reg = compiler
-                    .resolve_local(&param.name)
-                    .ok_or_else(|| compiler.error("unknown parameter", decl.span))?
-                    .reg;
-                let type_reg = compiler.registers.allocate()?;
-
-                // Resolve type identifier (it could be a local, capture or global)
-                if let Some(local) = compiler.resolve_local(ty_name) {
-                    compiler.emit(Opcode::Move, type_reg, local.reg, 0);
-                } else if let Some((idx, _)) = compiler.captures.get(ty_name) {
-                    compiler.emit(Opcode::LoadCapture, type_reg, *idx as u8, 0);
-                } else {
-                    let reified = compiler.emit_reified_type(ty_name)?;
-                    compiler.emit(Opcode::Move, type_reg, reified, 0);
-                    compiler.free_temp(reified);
-                }
-
-                let result_reg = compiler.registers.allocate()?;
-                compiler.emit(Opcode::Is, result_reg, param_reg, type_reg);
-
-                let skip_jump = compiler.emit_jump(Opcode::JumpIf, result_reg);
-
-                // A constrained type parameter names its constraint: `T: Named`.
-                let expected = match decl
-                    .generics
-                    .iter()
-                    .find(|g| g.name == *ty_name && !g.constraints.is_empty())
-                {
-                    Some(generic) => format!("{}: {}", ty_name, generic.constraints.join(" & ")),
-                    None => ty_name.to_string(),
-                };
-                let msg = format!(
-                    "TypeError: parameter '{}' expected {}, got ",
-                    param.name, expected
-                );
-                let msg_reg = compiler.registers.allocate()?;
-                let msg_const = compiler.add_constant(Value::String(Rc::new(msg)));
-                compiler.emit(Opcode::LoadConst, msg_reg, msg_const, 0);
-
-                // Add current value's type to the message for better debugging
-                let type_name_reg = compiler.registers.allocate()?;
-                compiler.emit(Opcode::TypeOf, type_name_reg, param_reg, 0);
-                compiler.emit(Opcode::Add, msg_reg, msg_reg, type_name_reg);
-
-                // `c = 1`: thrown as an `Error`, like the VM's own errors.
-                compiler.emit(Opcode::Throw, msg_reg, 0, 1);
-
-                compiler.patch_jump(skip_jump)?;
-                if compiler.widens_int(ty_name) {
-                    compiler.emit(Opcode::ToFloat, param_reg, param_reg, 0);
-                }
-
-                compiler.free_temp(type_reg);
-                compiler.free_temp(result_reg);
-                compiler.free_temp(msg_reg);
-                compiler.free_temp(type_name_reg);
-            }
+            compiler.emit_param_type_check(param, &decl.generics, decl.span)?;
         }
 
         if let Some(fields) = instance_fields {
@@ -3724,6 +3664,82 @@ impl Compiler {
         Ok(())
     }
 
+    /// Checks a parameter's annotation at function entry, throwing
+    /// `TypeError: parameter 'x' expected Int, got String` on a mismatch; an
+    /// `Int` passed for a `Float` annotation becomes a `Float`. Emits nothing
+    /// for an unannotated or `Any` parameter. `generics` are the function's
+    /// type parameters, whose constraints the message names.
+    fn emit_param_type_check(
+        &mut self,
+        param: &pleno_ast::Param,
+        generics: &[pleno_ast::GenericParam],
+        span: Span,
+    ) -> Result<(), CompileError> {
+        let Some(ty_name) = param.ty.as_deref().filter(|ty| *ty != "Any") else {
+            return Ok(());
+        };
+        let param_reg = self
+            .resolve_local(&param.name)
+            .ok_or_else(|| self.error("unknown parameter", span))?
+            .reg;
+        let type_reg = self.registers.allocate()?;
+
+        // Resolve type identifier (it could be a local, capture or global)
+        if let Some(local) = self.resolve_local(ty_name) {
+            self.emit(Opcode::Move, type_reg, local.reg, 0);
+        } else if let Some((idx, _)) = self.captures.get(ty_name) {
+            self.emit(Opcode::LoadCapture, type_reg, *idx as u8, 0);
+        } else {
+            let reified = self.emit_reified_type(ty_name)?;
+            self.emit(Opcode::Move, type_reg, reified, 0);
+            self.free_temp(reified);
+        }
+
+        let result_reg = self.registers.allocate()?;
+        self.emit(Opcode::Is, result_reg, param_reg, type_reg);
+
+        let skip_jump = self.emit_jump(Opcode::JumpIf, result_reg);
+
+        // A constrained type parameter names its constraint: `T: Named`.
+        let expected = match generics
+            .iter()
+            .find(|g| g.name == ty_name && !g.constraints.is_empty())
+        {
+            Some(generic) => format!("{}: {}", ty_name, generic.constraints.join(" & ")),
+            None => ty_name.to_string(),
+        };
+        let msg = format!(
+            "TypeError: parameter '{}' expected {}, got ",
+            param.name, expected
+        );
+        let msg_reg = self.registers.allocate()?;
+        let msg_const = self.add_constant(Value::String(Rc::new(msg)));
+        self.emit(Opcode::LoadConst, msg_reg, msg_const, 0);
+
+        // Add current value's type to the message for better debugging
+        let type_name_reg = self.registers.allocate()?;
+        self.emit(Opcode::TypeOf, type_name_reg, param_reg, 0);
+        self.emit(Opcode::Add, msg_reg, msg_reg, type_name_reg);
+
+        // `c = 1`: thrown as an `Error`, like the VM's own errors. The error
+        // points at the parameter.
+        let previous_span = self.current_span;
+        self.current_span = param.span;
+        self.emit(Opcode::Throw, msg_reg, 0, 1);
+        self.current_span = previous_span;
+
+        self.patch_jump(skip_jump)?;
+        if self.widens_int(ty_name) {
+            self.emit(Opcode::ToFloat, param_reg, param_reg, 0);
+        }
+
+        self.free_temp(type_reg);
+        self.free_temp(result_reg);
+        self.free_temp(msg_reg);
+        self.free_temp(type_name_reg);
+        Ok(())
+    }
+
     fn compile_lambda(
         &mut self,
         params: &[pleno_ast::Param],
@@ -3784,6 +3800,8 @@ impl Compiler {
             .enumerate()
             .map(|(idx, info)| (info.name.clone(), (idx, info.clone())))
             .collect();
+        // Before the parameter checks: they need the type parameters in scope.
+        self.setup_return_check(&mut compiler, &decl);
 
         for param in params {
             let reg = compiler.registers.allocate()?;
@@ -3809,9 +3827,19 @@ impl Compiler {
                 compiler.free_temp(value_reg);
                 compiler.patch_jump(skip_jump)?;
             }
+            // A type parameter of an enclosing function is not known in the
+            // lambda's own frame, so such an annotation is left unchecked.
+            let mentions_generic = param.ty.as_deref().is_some_and(|ty| {
+                mentions_any(
+                    &compiler.expand_type_aliases_deep(ty),
+                    &compiler.generic_names,
+                )
+            });
+            if !mentions_generic {
+                compiler.emit_param_type_check(param, &[], param.span)?;
+            }
         }
 
-        self.setup_return_check(&mut compiler, &decl);
         compiler.compile_stmt(&decl.body)?;
         let return_reg = match compiler.last_expr_register {
             Some(reg) => reg,

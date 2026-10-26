@@ -107,6 +107,23 @@ fn test_parse_class() {
 }
 
 #[test]
+fn arrow_lambda_parameters_take_annotations() {
+    let program = parse_program("let f = (x: Int, y, z: Int | String?) => x;");
+    match &program.statements[0].kind {
+        StmtKind::Let {
+            value: Some(value), ..
+        } => match &value.kind {
+            ExprKind::Lambda { params, .. } => {
+                let types: Vec<_> = params.iter().map(|p| p.ty.as_deref()).collect();
+                assert_eq!(types, [Some("Int"), None, Some("Int | String?")]);
+            }
+            other => panic!("expected a lambda, got {other:?}"),
+        },
+        other => panic!("expected let, got {other:?}"),
+    }
+}
+
+#[test]
 fn test_parse_pipeline() {
     let program = parse_program("a |> b");
     // ExprKind::Binary with Pipeline operator? Or dedicated pipeline expr?
