@@ -13,7 +13,9 @@
         "strict": true,
         "noImplicitAny": true,
         "esModuleInterop": true,
-        "skipLibCheck": true
+        "skipLibCheck": true,
+        // TypeScript 6 no longer loads every @types package by default.
+        "types": ["node", "mocha", "vscode"]
     },
     "exclude": [
         "node_modules",
