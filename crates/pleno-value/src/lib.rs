@@ -1246,16 +1246,16 @@ impl std::fmt::Display for Value {
             }
             Value::BoundFunction(state) => {
                 let state = state.borrow();
-                write!(f, "<bound function {:?}>", state.function)
+                write!(f, "<bound function {}>", state.function)
             }
             Value::Function(_) => write!(f, "<fn>"),
             Value::BoundMethod(state) => {
                 let state = state.borrow();
-                write!(f, "<method of {:?}>", state.owner)
+                write!(f, "<method of {}>", state.owner.name())
             }
             Value::StaticMethod(state) => {
                 let state = state.borrow();
-                write!(f, "<static method of {:?}>", state.owner)
+                write!(f, "<static method of {}>", state.owner.name())
             }
             Value::Closure(c) => write!(f, "<closure {}>", c.borrow().function),
             Value::Thunk(_) => write!(f, "<thunk>"),
