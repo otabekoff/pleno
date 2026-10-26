@@ -33,7 +33,12 @@ numbers.forEach(fn(x) => print(x));
 print(numbers[1..4]);   // [4, 3, 99]
 print(numbers[2..]);    // [3, 99, 1]
 print(numbers[..3]);    // [5, 4, 3]
+print(numbers[1..=3]);  // [4, 3, 99]: `..=` includes the end
+print(numbers[..=1]);   // [5, 4]
+print(numbers[..=-1]);  // [5, 4, 3, 99, 1]: a negative end counts from the back
 ```
+
+Strings slice the same way, by character: `"hello"[..=1]` is `"he"`.
 
 ## Maps (Dictionaries)
 

@@ -429,10 +429,27 @@ fn parameters_keep_markers_types_and_ownership() {
 }
 
 #[test]
+fn inclusive_slices_stay_inclusive() {
+    assert_round_trip(
+        "let a = s[..=1]; let b = s[..1]; let c = s[0..=1];",
+        "let a = s[..=1];\nlet b = s[:1];\nlet c = s[0..=1];\n",
+    );
+}
+
+#[test]
 fn lambdas_keep_types_and_async() {
     assert_round_trip(
         "let f = fn(x: Int): Int => x + 1; let g = async fn() { return 1; };",
         "let f = fn(x: Int): Int => x + 1;\nlet g = async fn() {\n    return 1;\n};\n",
+    );
+}
+
+#[test]
+fn annotated_arrow_lambdas_keep_their_types() {
+    // An annotated `(x: T) => ...` is written as `fn(x: T) => ...`, which means the same.
+    assert_round_trip(
+        "let f = (x: Int, y: Float | String) => x;",
+        "let f = fn(x: Int, y: Float | String) => x;\n",
     );
 }
 

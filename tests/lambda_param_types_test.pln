@@ -1,0 +1,45 @@
+// Parameter annotations on lambdas and anonymous functions are checked when
+// they are called, like those of named functions.
+
+fn check(condition: Bool, message: String) {
+    if (!condition) {
+        throw "FAILED: " + message;
+    }
+}
+
+fn errorOf(f) {
+    try {
+        f();
+    } catch (e) {
+        return e.toString();
+    }
+    return "no error";
+}
+
+let addOne = fn(x: Int) => x + 1;
+check(addOne(1) == 2, "a matching argument");
+check(errorOf(() => addOne("s")) == "TypeError: parameter 'x' expected Int, got String",
+    "fn lambda");
+
+let double = (x: Int) => x * 2;
+check(errorOf(() => double("s")) == "TypeError: parameter 'x' expected Int, got String",
+    "arrow lambda");
+check([1, 2].map((x: Int) => x * 2)[1] == 4, "annotated lambda passed to map");
+
+let half = (x: Float) => x / 2;
+check(half(3) == 1.5, "Int widens to Float");
+
+let maybe = (x: Int?) => x;
+check(maybe(null) == null && maybe(2) == 2, "optional annotation");
+check(errorOf(() => maybe("s")) == "TypeError: parameter 'x' expected Int?, got String",
+    "optional annotation rejects");
+
+let either = (x: Int | String) => x;
+check(either("a") == "a", "union annotation");
+check(errorOf(() => either(true)) == "TypeError: parameter 'x' expected Int | String, got Bool",
+    "union annotation rejects");
+
+let untyped = (x) => x;
+check(untyped("anything") == "anything", "unannotated parameter");
+
+print("lambda parameter types: all checks passed");

@@ -48,7 +48,7 @@ Status: `@override` and `@sealed` are plain annotations with no effect. (`@depre
 
 Status: partial.
 
-- Lambda parameter annotations are not checked.
+- Lambda parameter annotations that name a type parameter of an enclosing function (`fn f<T>() { let g = (x: T) => x; }`) are not checked.
 - Return annotations are not checked for `Void`, for annotations that mention a type parameter, and for `@inline` functions.
 - With inferred type arguments, constraints are checked for parameters annotated `T`, not for the elements of a `T[]` parameter.
 
