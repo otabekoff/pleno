@@ -121,6 +121,8 @@ pub enum ExprKind {
         collection: Box<Expr>,
         start: Option<Box<Expr>>,
         end: Option<Box<Expr>>,
+        /// `[..=end]`: the end index is included.
+        inclusive: bool,
     },
     SetLiteral(Vec<Expr>),
     Call {

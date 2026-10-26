@@ -3496,7 +3496,7 @@ impl Parser {
                     || self.matches(&TokenKind::Colon)
                 {
                     // Slice: [:end], [..end] or [..=end]
-                    let _inclusive = self.previous().kind == TokenKind::DotDotEqual;
+                    let inclusive = self.previous().kind == TokenKind::DotDotEqual;
                     let end = if self.matches(&TokenKind::RBracket) || self.is_range_terminator() {
                         None
                     } else {
@@ -3509,6 +3509,7 @@ impl Parser {
                         ExprKind::Slice {
                             collection: Box::new(expr),
                             start: None,
+                            inclusive: inclusive && end.is_some(),
                             end,
                         },
                         start_span,
@@ -3523,7 +3524,7 @@ impl Parser {
                     || self.matches(&TokenKind::DotDotEqual)
                     || self.matches(&TokenKind::Colon)
                 {
-                    let _inclusive = self.previous().kind == TokenKind::DotDotEqual;
+                    let inclusive = self.previous().kind == TokenKind::DotDotEqual;
                     let end = if self.matches(&TokenKind::RBracket) || self.is_range_terminator() {
                         None
                     } else {
@@ -3536,6 +3537,7 @@ impl Parser {
                         ExprKind::Slice {
                             collection: Box::new(expr),
                             start: Some(Box::new(start_idx)),
+                            inclusive: inclusive && end.is_some(),
                             end,
                         },
                         start_span,

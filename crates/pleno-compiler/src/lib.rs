@@ -1710,7 +1710,8 @@ impl Compiler {
                 collection,
                 start,
                 end,
-            } => self.compile_slice_expr(collection, start.as_deref(), end.as_deref()),
+                inclusive,
+            } => self.compile_slice_expr(collection, start.as_deref(), end.as_deref(), *inclusive),
             ExprKind::Paren(inner) => self.compile_expr(inner),
             ExprKind::Spread(_) => Err(self.error(
                 "spread operator only allowed in collection literals",
@@ -4959,6 +4960,7 @@ impl Compiler {
                 collection,
                 start,
                 end,
+                ..
             } => {
                 self.collect_idents_expr(collection, used, scope);
                 if let Some(start_expr) = start {
@@ -6418,6 +6420,7 @@ impl Compiler {
         collection: &pleno_ast::Expr,
         start: Option<&pleno_ast::Expr>,
         end: Option<&pleno_ast::Expr>,
+        inclusive: bool,
     ) -> Result<u8, CompileError> {
         // Compile as: collection.slice(start, end)
         // This will use the builtin method
@@ -6456,6 +6459,19 @@ impl Compiler {
         self.emit(Opcode::SetIndex, end_val_reg, args_reg, end_key_reg);
         self.free_temp(end_key_reg);
         self.free_temp(end_val_reg);
+
+        // `[..=end]`: the VM moves the end past the element it names.
+        if inclusive {
+            let key_idx =
+                self.add_constant(Value::String(std::rc::Rc::new("inclusive".to_string())));
+            let key_reg = self.registers.allocate()?;
+            self.emit(Opcode::LoadConst, key_reg, key_idx, 0);
+            let flag_reg = self.registers.allocate()?;
+            self.emit(Opcode::LoadTrue, flag_reg, 0, 0);
+            self.emit(Opcode::SetIndex, flag_reg, args_reg, key_reg);
+            self.free_temp(key_reg);
+            self.free_temp(flag_reg);
+        }
 
         let dest = self.registers.allocate()?;
         self.emit(Opcode::Slice, dest, collection_reg, args_reg);

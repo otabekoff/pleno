@@ -267,6 +267,7 @@ impl ConstantFolder {
                 collection,
                 start,
                 end,
+                ..
             } => {
                 self.fold_expr(collection);
                 if let Some(s) = start {
