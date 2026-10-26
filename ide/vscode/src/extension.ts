@@ -139,7 +139,7 @@ class PlenoTaskProvider implements vscode.TaskProvider {
 
 let client: LanguageClient | undefined;
 let statusBarItem: vscode.StatusBarItem;
-let outputChannel: vscode.OutputChannel;
+let outputChannel: vscode.LogOutputChannel;
 let diagnosticsProvider: PlenoDiagnosticsProvider | undefined;
 let formatterRegistration: vscode.Disposable | undefined;
 let testController: PlenoTestController | undefined;
@@ -157,7 +157,7 @@ export function activate(context: vscode.ExtensionContext) {
 }
 
 function activateExtension(context: vscode.ExtensionContext) {
-    outputChannel = vscode.window.createOutputChannel("Pleno");
+    outputChannel = vscode.window.createOutputChannel("Pleno", { log: true });
     context.subscriptions.push(outputChannel);
 
     exposeToolchainToTerminals(context);

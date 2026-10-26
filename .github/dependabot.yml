@@ -1,5 +1,6 @@
-# Weekly dependency updates. Minor and patch updates are grouped into one pull
-# request per ecosystem; security updates still arrive as soon as they exist.
+# Weekly dependency updates. Each ecosystem gets at most two pull requests a week:
+# one for its minor and patch updates and one for its major updates, which more
+# often need code changes. Security updates still arrive as soon as they exist.
 version: 2
 updates:
   - package-ecosystem: cargo
@@ -9,6 +10,8 @@ updates:
     groups:
       cargo:
         update-types: [minor, patch]
+      cargo-major:
+        update-types: [major]
 
   - package-ecosystem: npm
     directory: /ide/vscode
@@ -17,6 +20,8 @@ updates:
     groups:
       vscode-extension:
         update-types: [minor, patch]
+      vscode-extension-major:
+        update-types: [major]
 
   - package-ecosystem: bun
     directory: /
@@ -25,6 +30,8 @@ updates:
     groups:
       docs-site:
         update-types: [minor, patch]
+      docs-site-major:
+        update-types: [major]
 
   - package-ecosystem: github-actions
     directory: /
@@ -33,3 +40,5 @@ updates:
     groups:
       actions:
         update-types: [minor, patch]
+      actions-major:
+        update-types: [major]
