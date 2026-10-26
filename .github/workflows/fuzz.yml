@@ -54,10 +54,9 @@ jobs:
       # grow with every input and ran out of memory after 74 minutes on
       # 2026-10-24 with only 35 MB of live heap, and a panic still fails the
       # run. fuzz_run keeps AddressSanitizer, because the VM has unsafe code,
-      # with a smaller quarantine. Its leak detection is off: values still held
-      # in reference cycles when a run ends are reported on every program
-      # (tracked in its own issue); the run looks for memory errors and for
-      # disagreements between the interpreter loops.
+      # with a smaller quarantine, and looks for memory errors, leaks (a
+      # dropped VM frees its reference cycles since #147) and disagreements
+      # between the interpreter loops.
       - name: Fuzz
         env:
           SECONDS_TO_RUN: ${{ inputs.seconds || '120' }}
@@ -68,7 +67,7 @@ jobs:
           if [ "$SECONDS_TO_RUN" -gt 600 ] && [ "$TARGET" != fuzz_run ]; then
             cargo fuzz run --sanitizer none "$TARGET" "fuzz/corpus/$TARGET" fuzz/seeds -- $flags
           else
-            export ASAN_OPTIONS="quarantine_size_mb=64:malloc_context_size=4:detect_leaks=0"
+            export ASAN_OPTIONS="quarantine_size_mb=64:malloc_context_size=4:detect_leaks=1"
             cargo fuzz run "$TARGET" "fuzz/corpus/$TARGET" fuzz/seeds -- $flags
           fi
 
