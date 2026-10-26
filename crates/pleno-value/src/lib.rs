@@ -141,6 +141,10 @@ impl GcObject for MultiWaiter {
             v.mark(gc);
         }
     }
+
+    fn release_refs(&mut self) {
+        self.results.clear();
+    }
 }
 
 pub type NativeFunction =
@@ -342,6 +346,11 @@ impl GcObject for ChannelState {
         for (_, v) in &self.send_waiters {
             v.mark(gc);
         }
+    }
+
+    fn release_refs(&mut self) {
+        self.buffer.clear();
+        self.send_waiters.clear();
     }
 }
 
@@ -767,7 +776,21 @@ pub struct Interface {
 }
 
 impl GcObject for Interface {
-    fn mark(&self, _gc: &mut MarkAndSweepGC) {}
+    fn mark(&self, gc: &mut MarkAndSweepGC) {
+        mark_annotations(&self.annotations, gc);
+    }
+
+    fn release_refs(&mut self) {
+        self.annotations.clear();
+    }
+}
+
+fn mark_annotations(annotations: &[RuntimeAnnotation], gc: &mut MarkAndSweepGC) {
+    for annotation in annotations {
+        for arg in &annotation.args {
+            arg.mark(gc);
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -782,6 +805,11 @@ impl GcObject for BoundClassState {
         for arg in &self.type_args {
             arg.mark(gc);
         }
+    }
+
+    // A released class clears its own references too.
+    fn release_refs(&mut self) {
+        self.type_args.clear();
     }
 }
 
@@ -798,6 +826,10 @@ impl GcObject for VariantState {
         for arg in &self.data {
             arg.mark(gc);
         }
+    }
+
+    fn release_refs(&mut self) {
+        self.data.clear();
     }
 }
 
@@ -825,6 +857,10 @@ impl GcObject for BoundInterfaceState {
         for arg in &self.type_args {
             arg.mark(gc);
         }
+    }
+
+    fn release_refs(&mut self) {
+        self.type_args.clear();
     }
 }
 
@@ -858,11 +894,24 @@ impl GcObject for EnumType {
         for m in self.static_methods.values() {
             m.mark(gc);
         }
+        for variant in self.variants.values() {
+            if let Some(value) = &variant.value {
+                value.mark(gc);
+            }
+            mark_annotations(&variant.annotations, gc);
+        }
+        mark_annotations(&self.annotations, gc);
     }
 
     fn clear_refs(&mut self) {
         self.methods.clear();
         self.static_methods.clear();
+    }
+
+    fn release_refs(&mut self) {
+        self.clear_refs();
+        self.variants.clear();
+        self.annotations.clear();
     }
 }
 
@@ -948,6 +997,10 @@ impl GcObject for Class {
         for m in self.operators.values() {
             m.mark(gc);
         }
+        if let Some(constructor) = &self.constructor {
+            constructor.mark(gc);
+        }
+        mark_annotations(&self.annotations, gc);
     }
 
     fn clear_refs(&mut self) {
@@ -962,6 +1015,12 @@ impl GcObject for Class {
         self.implements.clear();
         self.operators.clear();
         self.type_constraints.clear();
+    }
+
+    fn release_refs(&mut self) {
+        self.clear_refs();
+        self.constructor = None;
+        self.annotations.clear();
     }
 }
 
@@ -1078,13 +1137,9 @@ pub struct MethodInfo {
 
 impl MethodInfo {
     pub fn mark(&self, gc: &mut MarkAndSweepGC) {
-        match &self.owner {
-            MethodOwner::Class(c) => gc.mark_object(&c.to_gc_object()),
-            MethodOwner::Enum(e) => gc.mark_object(&e.to_gc_object()),
-            MethodOwner::Interface(i) => gc.mark_object(&i.to_gc_object()),
-            MethodOwner::Builtin(_) => {}
-        }
+        mark_owner(&self.owner, gc);
         self.function.mark(gc);
+        mark_annotations(&self.annotations, gc);
     }
 }
 
@@ -1437,6 +1492,10 @@ impl GcObject for ClosureState {
             v.mark(gc);
         }
     }
+
+    fn release_refs(&mut self) {
+        self.captures.clear();
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1460,6 +1519,11 @@ impl GcObject for ThunkState {
         if let Some(value) = &self.value {
             value.mark(gc);
         }
+    }
+
+    fn release_refs(&mut self) {
+        self.callable = Value::Null;
+        self.value = None;
     }
 }
 
@@ -1906,11 +1970,19 @@ impl GcObject for Object {
         for v in self.fields.values() {
             v.mark(gc);
         }
+        for v in self.type_args.iter().flatten() {
+            v.mark(gc);
+        }
     }
 
     fn clear_refs(&mut self) {
         self.class = None;
         self.fields.clear();
+    }
+
+    fn release_refs(&mut self) {
+        self.clear_refs();
+        self.type_args = None;
     }
 
     fn byte_size(&self) -> usize {
@@ -1988,15 +2060,17 @@ impl GcObject for IteratorState {
         }
     }
 
+    /// Drops the iterator's reference to what it iterates, which is not
+    /// emptied: other values may still use it.
     fn clear_refs(&mut self) {
-        match self {
-            IteratorState::Array { array, .. } => array.borrow_mut().clear_refs(),
-            IteratorState::Tuple { tuple, .. } => tuple.borrow_mut().clear_refs(),
-            IteratorState::Range { .. } => {}
-            IteratorState::Object { iterator } => iterator.borrow_mut().clear_refs(),
-            IteratorState::Map { map, .. } => map.borrow_mut().clear_refs(),
-            IteratorState::Set { set, .. } => set.borrow_mut().clear_refs(),
-        }
+        *self = IteratorState::Range {
+            range: Range {
+                start: Some(0),
+                end: Some(0),
+                inclusive: false,
+            },
+            current: 0,
+        };
     }
 }
 
@@ -2035,6 +2109,11 @@ impl GcObject for PartialState {
             arg.mark(gc);
         }
     }
+
+    fn release_refs(&mut self) {
+        self.callee = Value::Null;
+        self.args.clear();
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -2049,7 +2128,28 @@ impl GcObject for BoundMethodState {
     fn mark(&self, gc: &mut MarkAndSweepGC) {
         self.receiver.mark(gc);
         self.function.mark(gc);
+        mark_owner(&self.owner, gc);
     }
+
+    fn release_refs(&mut self) {
+        self.receiver = Value::Null;
+        self.function = Value::Null;
+        self.owner = released_owner();
+    }
+}
+
+fn mark_owner(owner: &MethodOwner, gc: &mut MarkAndSweepGC) {
+    match owner {
+        MethodOwner::Class(c) => gc.mark_object(&c.to_gc_object()),
+        MethodOwner::Enum(e) => gc.mark_object(&e.to_gc_object()),
+        MethodOwner::Interface(i) => gc.mark_object(&i.to_gc_object()),
+        MethodOwner::Builtin(_) => {}
+    }
+}
+
+/// The owner left in a released method, which refers to nothing.
+fn released_owner() -> MethodOwner {
+    MethodOwner::Builtin(Rc::new(String::new()))
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -2062,6 +2162,12 @@ pub struct StaticMethodState {
 impl GcObject for StaticMethodState {
     fn mark(&self, gc: &mut MarkAndSweepGC) {
         self.function.mark(gc);
+        mark_owner(&self.owner, gc);
+    }
+
+    fn release_refs(&mut self) {
+        self.function = Value::Null;
+        self.owner = released_owner();
     }
 }
 
@@ -2075,6 +2181,10 @@ pub struct BoundNativeMethodState {
 impl GcObject for BoundNativeMethodState {
     fn mark(&self, gc: &mut MarkAndSweepGC) {
         self.receiver.mark(gc);
+    }
+
+    fn release_refs(&mut self) {
+        self.receiver = Value::Null;
     }
 }
 
@@ -2090,6 +2200,11 @@ impl GcObject for BoundFunctionState {
         for arg in &self.type_args {
             arg.mark(gc);
         }
+    }
+
+    fn release_refs(&mut self) {
+        self.function = Value::Null;
+        self.type_args.clear();
     }
 }
 

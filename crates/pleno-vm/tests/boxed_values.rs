@@ -20,7 +20,8 @@ fn run(source: &str) -> VM {
 
 #[test]
 fn temporary_strings_ranges_and_big_ints_are_freed() {
-    run(r#"
+    // Keep the VM: dropping the last one on the thread frees every slot.
+    let _vm = run(r#"
         import { collect } from "std:gc";
         fn churn() {
             let mut last = "";

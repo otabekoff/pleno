@@ -1,7 +1,7 @@
 use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 use std::cell::{Ref, RefCell, RefMut};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::ops::Deref;
 use std::rc::{Rc, Weak};
@@ -10,6 +10,13 @@ use std::rc::{Rc, Weak};
 pub trait GcObject {
     fn mark(&self, gc: &mut MarkAndSweepGC);
     fn clear_refs(&mut self) {} // Default implementation does nothing
+    /// Drops every reference to other values that `mark` visits, so that
+    /// objects freed together (see `MarkAndSweepGC::release_unreferenced`)
+    /// cannot keep each other alive. Collections use `clear_refs` instead;
+    /// this runs only on objects that nothing can reach any more.
+    fn release_refs(&mut self) {
+        self.clear_refs();
+    }
     fn byte_size(&self) -> usize {
         std::mem::size_of_val(self)
     }
@@ -107,6 +114,12 @@ pub struct MarkAndSweepGC {
     roots: Vec<Weak<RefCell<dyn GcObject>>>,
     heap: Vec<Rc<RefCell<dyn GcObject>>>,
     marked: HashSet<*const ()>,
+    /// While `release_unreferenced` counts the references between heap
+    /// objects, `mark_object` adds to these counts instead of marking.
+    incoming: Option<HashMap<*const (), usize>>,
+    /// Marked objects whose references are still to be marked.
+    pending: Vec<GcRc<dyn GcObject>>,
+    marking: bool,
     pub allocation_threshold: usize,
 }
 
@@ -116,6 +129,9 @@ impl MarkAndSweepGC {
             roots: Vec::new(),
             heap: Vec::new(),
             marked: HashSet::new(),
+            incoming: None,
+            pending: Vec::new(),
+            marking: false,
             allocation_threshold,
         }
     }
@@ -136,8 +152,16 @@ impl MarkAndSweepGC {
         self.roots.push(Rc::downgrade(&obj.inner));
     }
 
-    pub fn collect(&mut self, manual_roots: &[&dyn GcObject]) {
+    /// Forgets the marks of the last collection, and any marking a panic
+    /// interrupted.
+    fn reset_marks(&mut self) {
         self.marked.clear();
+        self.pending.clear();
+        self.marking = false;
+    }
+
+    pub fn collect(&mut self, manual_roots: &[&dyn GcObject]) {
+        self.reset_marks();
 
         let roots_snapshot = self.roots.clone();
         for root_weak in roots_snapshot {
@@ -157,7 +181,7 @@ impl MarkAndSweepGC {
     where
         F: FnOnce(&mut MarkAndSweepGC),
     {
-        self.marked.clear();
+        self.reset_marks();
 
         let roots_snapshot = self.roots.clone();
         for root_weak in roots_snapshot {
@@ -174,13 +198,27 @@ impl MarkAndSweepGC {
     pub fn mark_object(&mut self, obj: &GcRc<dyn GcObject>) {
         let ptr = Rc::as_ptr(&obj.inner) as *const ();
 
-        if self.marked.contains(&ptr) {
+        if let Some(incoming) = &mut self.incoming {
+            *incoming.entry(ptr).or_insert(0) += 1;
             return;
         }
 
-        self.marked.insert(ptr);
+        if !self.marked.insert(ptr) {
+            return;
+        }
 
+        // Objects found while marking wait in `pending` instead of being
+        // marked recursively, so a long linked list cannot overflow the stack.
+        if self.marking {
+            self.pending.push(obj.clone());
+            return;
+        }
+        self.marking = true;
         obj.inner.borrow().mark(self);
+        while let Some(next) = self.pending.pop() {
+            next.inner.borrow().mark(self);
+        }
+        self.marking = false;
     }
 
     fn sweep(&mut self) {
@@ -197,6 +235,61 @@ impl MarkAndSweepGC {
         });
 
         self.roots.retain(|weak| weak.upgrade().is_some());
+    }
+
+    /// Empties the heap for good, as when its VM goes away, and frees every
+    /// object that nothing outside the heap refers to, including objects that
+    /// only refer to each other.
+    ///
+    /// An object is still in use when it has more strong references than the
+    /// heap's own and those from other heap objects: a `Value` the embedder
+    /// kept (the result of `execute`, say), a global of another VM, a native
+    /// structure. Those objects, and everything they reach, are left intact
+    /// and are freed by reference counting once their last holder lets go;
+    /// a cycle among them is not collected after that, as no collector is
+    /// left. Every other object drops its references (`release_refs`), which
+    /// breaks the cycles, and is freed.
+    ///
+    /// A reference that some `mark` does not visit can only keep its target
+    /// (and what the target reaches) alive, never free it early. Returns the
+    /// number of objects released.
+    pub fn release_unreferenced(&mut self) -> usize {
+        let heap = std::mem::take(&mut self.heap);
+        self.roots.clear();
+        self.reset_marks();
+
+        // An object borrowed elsewhere cannot be inspected: free nothing then.
+        if heap.iter().any(|obj| obj.try_borrow_mut().is_err()) {
+            return 0;
+        }
+
+        // References between heap objects.
+        self.incoming = Some(HashMap::with_capacity(heap.len()));
+        for obj in &heap {
+            obj.borrow().mark(self);
+        }
+        let incoming = self.incoming.take().unwrap_or_default();
+
+        // Objects held from outside the heap, and what they reach, stay.
+        for obj in &heap {
+            let ptr = Rc::as_ptr(obj) as *const ();
+            let internal = incoming.get(&ptr).copied().unwrap_or(0);
+            if Rc::strong_count(obj) > internal + 1 {
+                self.mark_object(&GcRc { inner: obj.clone() });
+            }
+        }
+
+        let mut released = 0;
+        for obj in &heap {
+            let ptr = Rc::as_ptr(obj) as *const ();
+            if !self.marked.contains(&ptr) {
+                obj.borrow_mut().release_refs();
+                released += 1;
+            }
+        }
+        self.marked.clear();
+        drop(heap);
+        released
     }
 
     pub fn get_heap_size(&self) -> usize {
@@ -222,6 +315,20 @@ pub struct GCManager {
     pub total_freed_bytes: usize,
     pub total_freed_objects: usize,
     pub last_collection_freed_bytes: usize,
+}
+
+/// Dropping the heap (when its VM goes away) frees every object it allocated,
+/// including objects that only refer to each other, which reference counting
+/// alone never frees.
+///
+/// Objects still held from outside the heap, such as a `Value` returned by a
+/// run and kept by the embedder, stay intact together with everything they
+/// reach: they keep working and are freed by reference counting once their
+/// holders drop them. A cycle among those is then no longer collected.
+impl Drop for GCManager {
+    fn drop(&mut self) {
+        self.release_all();
+    }
 }
 
 impl GCManager {
@@ -268,6 +375,15 @@ impl GCManager {
     {
         self.track_allocation(std::mem::size_of::<T>())?;
         Ok(self.gc.allocate(value))
+    }
+
+    /// Frees the heap for good (see `MarkAndSweepGC::release_unreferenced`);
+    /// dropping the manager does this.
+    pub fn release_all(&mut self) {
+        let released = self.gc.release_unreferenced();
+        self.total_freed_objects += released;
+        self.current_allocation = 0;
+        self.allocated_bytes = 0;
     }
 
     pub fn maybe_collect(&mut self, roots: &[&dyn GcObject]) {
