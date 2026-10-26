@@ -12,11 +12,13 @@ pub fn toml_parse(
         _ => return Err(RuntimeError::new("toml.parse expects string")),
     };
 
-    let toml_val: TomlValue = input
+    // A TOML document is a table. (Since toml 0.9, parsing into `Value`
+    // reads a single value such as `1` or `"x"`, not a document.)
+    let table: toml::Table = input
         .parse()
         .map_err(|e| RuntimeError::new(format!("TOML parse error: {}", e)))?;
 
-    convert_toml_to_value(vm, &toml_val)
+    convert_toml_to_value(vm, &TomlValue::Table(table))
 }
 
 pub fn toml_stringify(

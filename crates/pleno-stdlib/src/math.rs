@@ -318,15 +318,13 @@ pub fn math_random(
     _vm: &mut dyn pleno_value::VMProvider,
     _args: &[Value],
 ) -> Result<Value, pleno_value::RuntimeError> {
-    use rand::Rng;
-    Ok(Value::Float(rand::thread_rng().r#gen()))
+    Ok(Value::Float(rand::random::<f64>()))
 }
 
 pub fn math_random_int(
     _vm: &mut dyn pleno_value::VMProvider,
     args: &[Value],
 ) -> Result<Value, pleno_value::RuntimeError> {
-    use rand::Rng;
     if args.len() < 2 {
         return Err(pleno_value::RuntimeError::new(
             "Math.randomInt requires min and max arguments",
@@ -347,5 +345,5 @@ pub fn math_random_int(
         ));
     }
 
-    Ok(Value::Int(rand::thread_rng().gen_range(min..=max)))
+    Ok(Value::Int(rand::random_range(min..=max)))
 }
