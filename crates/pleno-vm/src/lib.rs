@@ -472,6 +472,7 @@ impl VMProvider for VM {
     fn collect(&mut self) {
         self.gc.collect_garbage_with(|gc| {
             // Mark all reachable objects
+            Value::Class(self.error_class.clone()).mark(gc);
             for val in self.registers.iter() {
                 val.mark(gc);
             }
@@ -901,11 +902,14 @@ impl VM {
 
     pub fn new() -> Self {
         let live = LiveVm::new();
-        let gc = pleno_value::gc::GCManager::new(4 * 1024 * 1024);
+        let mut gc = pleno_value::gc::GCManager::new(4 * 1024 * 1024);
         let mut globals = IndexMap::new();
         let modules = IndexMap::new();
-        // Never handed to the collector: it lives as long as the VM.
-        let error_class = GcRc::new(Class::error());
+        // On the heap like any class, so a dropped VM frees cycles through its
+        // static fields; `collect` keeps it as a root while the VM lives.
+        let error_class = gc
+            .allocate(Class::error())
+            .expect("the Error class fits in a new heap");
         globals.insert(
             pleno_value::ERROR_CLASS.to_string(),
             Value::Class(error_class.clone()),
