@@ -4,6 +4,8 @@ Notable changes to Pleno. The format follows [Keep a Changelog](https://keepacha
 
 ## Unreleased
 
+## 0.3.0 - 2026-10-27
+
 ### Added
 
 - `<`, `<=`, `>` and `>=` compare strings and characters, by Unicode code point (`"abc" < "abd"`); before, they were an error.

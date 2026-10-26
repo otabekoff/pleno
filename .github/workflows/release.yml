@@ -139,7 +139,8 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v7
         with:
-          node-version: "20"
+          # ESLint 10 and @vscode/test-electron 3 need Node 22, as in CI.
+          node-version: "22"
 
       - name: Install dependencies
         working-directory: ide/vscode
