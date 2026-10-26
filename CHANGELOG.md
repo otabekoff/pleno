@@ -7,6 +7,7 @@ Notable changes to Pleno. The format follows [Keep a Changelog](https://keepacha
 ### Fixed
 
 - Two kinds of deeply nested code could overflow the stack while compiling (found by a long `fuzz_compile` run): calls on calls (`f(1)(1)(1)...`), `f<T>`, `x!`, `x++` and macro calls did not count toward the limit of 1,000 operators and calls per statement, and each `${...}` in a string started its own nesting count, so `"${"${...}"}"` 2,000 deep crashed. Both are now parse errors (`expression too long`, `Recursion limit exceeded`), and an error in a nested interpolation says `Parse error in interpolation` once instead of once per level.
+- Values stored on the built-in `Error` class (`Error.cache = box`) stayed allocated after the VM was dropped when they were part of a reference cycle: `Error` was created outside the collector's heap. It is now on the heap like any class and freed with the VM.
 
 ## 0.3.0 - 2026-10-27
 
