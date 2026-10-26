@@ -1478,7 +1478,7 @@ checksum = "7edddbd0b52d732b21ad9a5fab5c704c14cd949e5e9a1ec5929a24fded1b904c"
 
 [[package]]
 name = "pleno-ast"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "pleno-common",
  "serde",
@@ -1486,7 +1486,7 @@ dependencies = [
 
 [[package]]
 name = "pleno-bytecode"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "bincode",
  "indexmap",
@@ -1500,7 +1500,7 @@ dependencies = [
 
 [[package]]
 name = "pleno-cli"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "chrono",
  "env_logger",
@@ -1530,7 +1530,7 @@ dependencies = [
 
 [[package]]
 name = "pleno-common"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "chrono",
  "env_logger",
@@ -1540,7 +1540,7 @@ dependencies = [
 
 [[package]]
 name = "pleno-compiler"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "indexmap",
  "log",
@@ -1555,7 +1555,7 @@ dependencies = [
 
 [[package]]
 name = "pleno-dap"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "log",
@@ -1574,14 +1574,14 @@ dependencies = [
 
 [[package]]
 name = "pleno-diagnostics"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "pleno-common",
 ]
 
 [[package]]
 name = "pleno-doc"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "pleno-ast",
  "pleno-lexer",
@@ -1590,7 +1590,7 @@ dependencies = [
 
 [[package]]
 name = "pleno-formatter"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "pleno-ast",
  "pleno-lexer",
@@ -1599,7 +1599,7 @@ dependencies = [
 
 [[package]]
 name = "pleno-lexer"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "pleno-ast",
  "pleno-diagnostics",
@@ -1607,7 +1607,7 @@ dependencies = [
 
 [[package]]
 name = "pleno-linter"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "pleno-ast",
  "pleno-compiler",
@@ -1619,7 +1619,7 @@ dependencies = [
 
 [[package]]
 name = "pleno-lsp"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "pleno-ast",
  "pleno-compiler",
@@ -1634,7 +1634,7 @@ dependencies = [
 
 [[package]]
 name = "pleno-optimizer"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "indexmap",
  "pleno-ast",
@@ -1647,7 +1647,7 @@ dependencies = [
 
 [[package]]
 name = "pleno-package"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "bincode",
  "dirs",
@@ -1670,7 +1670,7 @@ dependencies = [
 
 [[package]]
 name = "pleno-parser"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "pleno-ast",
  "pleno-diagnostics",
@@ -1679,7 +1679,7 @@ dependencies = [
 
 [[package]]
 name = "pleno-registry"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "axum",
  "hex",
@@ -1700,7 +1700,7 @@ dependencies = [
 
 [[package]]
 name = "pleno-repl"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "pleno-common",
  "pleno-compiler",
@@ -1716,11 +1716,11 @@ dependencies = [
 
 [[package]]
 name = "pleno-runtime"
-version = "0.2.0"
+version = "0.3.0"
 
 [[package]]
 name = "pleno-stdlib"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "aes",
  "base64 0.23.1",
@@ -1750,7 +1750,7 @@ dependencies = [
 
 [[package]]
 name = "pleno-value"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "indexmap",
  "mio",
@@ -1761,7 +1761,7 @@ dependencies = [
 
 [[package]]
 name = "pleno-vm"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "chrono",
  "env_logger",
@@ -1789,7 +1789,7 @@ dependencies = [
 
 [[package]]
 name = "pleno-wasm"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "console_error_panic_hook",
  "getrandom 0.4.3",

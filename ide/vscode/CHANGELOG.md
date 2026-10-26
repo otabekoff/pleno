@@ -5,6 +5,8 @@ All notable changes to the Pleno extension for VS Code. The format follows
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-27
+
 ### Added
 
 - Diagnostics show their source (`pleno`, `pleno-lint`) and rule code, cover the whole offending name or operator, and unused names are faded out.
