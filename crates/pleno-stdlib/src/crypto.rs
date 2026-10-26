@@ -1,8 +1,8 @@
 use aes::Aes256;
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use cbc::cipher::block_padding::Pkcs7;
-use cbc::cipher::{BlockDecryptMut, BlockEncryptMut, KeyIvInit};
-use hmac::{Hmac, Mac};
+use cbc::cipher::{BlockModeDecrypt, BlockModeEncrypt, KeyIvInit};
+use hmac::{Hmac, KeyInit, Mac};
 use pleno_value::{RuntimeError, Value};
 use sha2::{Digest, Sha256, Sha512};
 use std::rc::Rc;
@@ -137,7 +137,7 @@ pub fn encrypt(
 
             let ct = Aes256CbcEnc::new_from_slices(&key_bytes, &iv_bytes)
                 .map_err(|e| RuntimeError::new(format!("Cipher init error: {}", e)))?
-                .encrypt_padded_mut::<Pkcs7>(&mut buf, pt_len)
+                .encrypt_padded::<Pkcs7>(&mut buf, pt_len)
                 .map_err(|e| RuntimeError::new(format!("Encryption error: {}", e)))?;
 
             // Return base64 for ciphertext
@@ -198,7 +198,7 @@ pub fn decrypt(
 
             let pt = Aes256CbcDec::new_from_slices(&key_bytes, &iv_bytes)
                 .map_err(|e| RuntimeError::new(format!("Cipher init error: {}", e)))?
-                .decrypt_padded_mut::<Pkcs7>(&mut buf)
+                .decrypt_padded::<Pkcs7>(&mut buf)
                 .map_err(|e| RuntimeError::new(format!("Decryption error: {}", e)))?;
 
             Ok(Value::String(Rc::new(
