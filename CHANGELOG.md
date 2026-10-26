@@ -4,6 +4,10 @@ Notable changes to Pleno. The format follows [Keep a Changelog](https://keepacha
 
 ## Unreleased
 
+### Fixed
+
+- Values stored on the built-in `Error` class (`Error.cache = box`) stayed allocated after the VM was dropped when they were part of a reference cycle: `Error` was created outside the collector's heap. It is now on the heap like any class and freed with the VM.
+
 ## 0.3.0 - 2026-10-27
 
 ### Added

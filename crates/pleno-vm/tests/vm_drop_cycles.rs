@@ -190,3 +190,32 @@ fn collection_keeps_what_an_unreachable_iterator_iterated() {
         "#);
     assert_eq!(result.to_string(), "[3, 1]");
 }
+
+#[test]
+fn cycles_through_error_static_fields_are_freed() {
+    // `Error` is created with the VM; a cycle stored on it was kept alive by
+    // it before it lived on the heap.
+    let leaked = leaked_after_drop(
+        r#"
+        let box = {"self": None};
+        box["self"] = box;
+        Error.cache = box;
+        [box, Error];
+        "#,
+    );
+    assert!(leaked.is_empty(), "still allocated: {leaked:?}");
+}
+
+#[test]
+fn the_error_class_survives_collections() {
+    // A collection while the program runs must keep `Error` (a root even
+    // when no global names it) and everything on it.
+    let (_vm, result) = run(r#"
+        Error.marker = "kept";
+        let Error2 = Error;
+        let mut junk = [];
+        for (i in 0..20000) { junk = [junk, {"i": i}]; }
+        try { 1 / 0; } catch (e) { e.name + " " + Error2.marker + " " + (e is Error); }
+        "#);
+    assert_eq!(result.to_string(), "Error kept true");
+}
