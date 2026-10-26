@@ -23,6 +23,8 @@ All notable changes to the Pleno extension for VS Code. The format follows
 
 ### Changed
 
+- Development dependencies: `@vscode/test-electron` 3 (which needs Node 22 to run the tests)
+  and `@types/node` 26. TypeScript stays at 5.9, the newest version typescript-eslint supports.
 - The extension needs VS Code 1.91 or later (it was 1.75), because it now uses version 11 of
   the language client. The **Pleno** output channel is a log channel, so its lines carry a
   time and level and **Set Log Level** filters them.
