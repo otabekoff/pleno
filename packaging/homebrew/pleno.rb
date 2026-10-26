@@ -1,26 +1,26 @@
 class Pleno < Formula
   desc "Readable language with optional checked types and async built in"
   homepage "https://pleno.mohirlab.uz"
-  version "0.2.0"
+  version "0.3.0"
   license "MIT"
 
   on_macos do
     if Hardware::CPU.arm?
-      url "https://github.com/otabekoff/pleno/releases/download/v0.2.0/pleno-v0.2.0-aarch64-apple-darwin.tar.gz"
-      sha256 "ef419e40eca1552359e39543bab0441850ce85d678c956380fc2b49ba29cb12b"
+      url "https://github.com/otabekoff/pleno/releases/download/v0.3.0/pleno-v0.3.0-aarch64-apple-darwin.tar.gz"
+      sha256 "70ea122891110b9c26a973349b3e9f7a478a49dc37bef5f88e57991059c4d5af"
     else
-      url "https://github.com/otabekoff/pleno/releases/download/v0.2.0/pleno-v0.2.0-x86_64-apple-darwin.tar.gz"
-      sha256 "7dd483a7a50f13a01e2ab7bb98ecb5cc68623f8e2b9bc1ac159382b5b523630c"
+      url "https://github.com/otabekoff/pleno/releases/download/v0.3.0/pleno-v0.3.0-x86_64-apple-darwin.tar.gz"
+      sha256 "69498be59014b5178c5a5dca9a90f1c4d70d4c0478809dd6ffd010d33d3c73b0"
     end
   end
 
   on_linux do
     if Hardware::CPU.arm?
-      url "https://github.com/otabekoff/pleno/releases/download/v0.2.0/pleno-v0.2.0-aarch64-unknown-linux-gnu.tar.gz"
-      sha256 "1534f90b9cc844caa7bbdd2c7c2c6f05169e4b813fba5c0dfd53952283edd29a"
+      url "https://github.com/otabekoff/pleno/releases/download/v0.3.0/pleno-v0.3.0-aarch64-unknown-linux-gnu.tar.gz"
+      sha256 "7711e241920d1b5c49c1f5717562881e9d0eb9d62de5173ca5011d7d101321cb"
     else
-      url "https://github.com/otabekoff/pleno/releases/download/v0.2.0/pleno-v0.2.0-x86_64-unknown-linux-gnu.tar.gz"
-      sha256 "a22dec76f1758063a6d7816926322d5fccb639c0a9ad840a244f9ac010678b21"
+      url "https://github.com/otabekoff/pleno/releases/download/v0.3.0/pleno-v0.3.0-x86_64-unknown-linux-gnu.tar.gz"
+      sha256 "12fee4bbf53905e5916b245ecf3905c5afdea9ff7c376a3424f6de4db5e0b28f"
     end
   end
 
