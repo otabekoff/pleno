@@ -1,4 +1,4 @@
-use pleno_ast::visitor::{walk_expr, walk_stmt, Visitor};
+use pleno_ast::visitor::{Visitor, walk_expr, walk_stmt};
 use pleno_ast::*;
 use std::collections::HashSet;
 
@@ -62,10 +62,10 @@ impl DeadCodeEliminator {
             i += 1;
         }
 
-        if let Some(idx) = terminator_index {
-            if idx + 1 < stmts.len() {
-                stmts.truncate(idx + 1);
-            }
+        if let Some(idx) = terminator_index
+            && idx + 1 < stmts.len()
+        {
+            stmts.truncate(idx + 1);
         }
 
         // Filter out empty blocks produced by simplification

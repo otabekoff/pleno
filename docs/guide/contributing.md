@@ -30,7 +30,7 @@ target/release/pleno run examples/hello.pln
 | --- | --- |
 | `crates/pleno-lexer`, `pleno-parser`, `pleno-ast` | Source text to tokens to a syntax tree. |
 | `crates/pleno-compiler`, `pleno-optimizer`, `pleno-bytecode` | The syntax tree to bytecode, and the bytecode format. |
-| `crates/pleno-vm`, `pleno-value`, `pleno-runtime` | The register-based virtual machine, its values, the garbage collector and the event loop. |
+| `crates/pleno-vm`, `pleno-value` | The register-based virtual machine, its values, the garbage collector and the event loop. |
 | `crates/pleno-stdlib` | The `std:*` modules. |
 | `crates/pleno-cli` | The `pleno` and `plm` commands. |
 | `crates/pleno-package` | Packages: `pleno.toml`, `pleno.lock`, fetching from Git. |

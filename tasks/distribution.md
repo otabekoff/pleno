@@ -17,13 +17,13 @@ Status checked on 2026-10-27.
 
 | Channel                                                                      | Version there                   | Updated on release                                                     | Left                                       |
 | ---------------------------------------------------------------------------- | ------------------------------- | ---------------------------------------------------------------------- | ------------------------------------------ |
-| GitHub release (6 targets, `.deb`, `.vsix`, Docker image, cosign signatures) | 0.3.0                           | Yes                                                                    | Windows code signing (below)               |
+| GitHub release (6 targets, `.deb`, `.vsix`, Docker image, cosign signatures) | 0.3.0                           | Yes                                                                    | Windows signing, older glibc (below)       |
 | Install scripts (`scripts/install.sh`, `install.ps1`)                        | latest release                  | Yes                                                                    | —                                          |
 | Homebrew (`otabekoff/homebrew-tap`)                                          | 0.3.0                           | Yes                                                                    | —                                          |
-| Scoop (`otabekoff/scoop-bucket`)                                             | 0.3.0                           | After #161 merges (the `SCOOP_BUCKET_TOKEN` secret is set)             | Merge #161                                 |
+| Scoop (`otabekoff/scoop-bucket`)                                             | 0.3.0                           | Yes (from the next tag; the `SCOOP_BUCKET_TOKEN` secret is set)        | —                                          |
 | WinGet (`microsoft/winget-pkgs`)                                             | not listed yet                  | After the first version is accepted (the `WINGET_TOKEN` secret is set) | First version accepted                     |
-| VS Code Marketplace                                                          | not published                   | After #163 merges, with `VSCE_PAT`                                     | Publisher and token                        |
-| Open VSX                                                                     | not published                   | After #163 merges, by trusted publishing                               | Trusted publisher, variable, first publish |
+| VS Code Marketplace                                                          | not published                   | Yes, once the `VSCE_PAT` secret is set                                 | Publisher and token                        |
+| Open VSX                                                                     | not published                   | Yes, once trusted publishing is set up                                 | Trusted publisher, variable, first publish |
 | Chocolatey                                                                   | not published                   | No                                                                     | Account, first push, maybe automation      |
 | AUR (`pleno-bin`)                                                            | not published                   | No                                                                     | Account, first push                        |
 | apt (Debian, Ubuntu)                                                         | `.deb` on the release page only | No                                                                     | An apt repository                          |
@@ -31,23 +31,26 @@ Status checked on 2026-10-27.
 
 ## Must have for 1.0
 
-- [ ] **Merge the publishing automation.** Status: #161 adds the Scoop and WinGet release jobs and
-      `scripts/scoop-manifest.sh`. #163, stacked on it, adds `.github/workflows/publish-extension.yml`
-      (Marketplace with `VSCE_PAT`, Open VSX by trusted publishing). Their secrets
-      `SCOOP_BUCKET_TOKEN` and `WINGET_TOKEN` are set. Missing: merge #161, then #163. The jobs first
-      run on the next release tag.
+- [ ] **Linux binaries that run on older distributions.** Status: the Linux archives and the
+      `.deb` are built on `ubuntu-latest` (Ubuntu 24.04), so they need glibc 2.39 and do not start
+      on Debian 12, Ubuntu 22.04, RHEL 9 or older (`GLIBC_2.39 not found`); the Homebrew formula
+      installs the same archives on Linux. The release Docker image moved to Debian 13 for this.
+      Missing: build the Linux targets against an older glibc, for example on `ubuntu-22.04`
+      (glibc 2.35), in a `manylinux`-style container, or with `cargo zigbuild` and a glibc
+      version suffix such as `x86_64-unknown-linux-gnu.2.28`, or add `musl` builds.
 - [ ] **WinGet: first version accepted.** Status: microsoft/winget-pkgs#460928 adds `Pleno.Pleno`
       0.3.0. It passed validation for 0.2.0, the CLA is signed, and it is waiting for a volunteer
       moderator (since 2026-10-24). Missing: a moderator's approval. Answer any review comment there.
       After that, every release opens its WinGet pull request by itself.
 - [ ] **VS Code Marketplace.** Status: the extension ID `pleno.pleno-language` and the publisher
-      name `pleno` are free, and the publishing job is ready in #163. Missing:
+      name `pleno` are free, and the publishing workflow (`publish-extension.yml`, #163) is
+      merged. Missing:
   - an Azure DevOps token with **Marketplace → Manage**, saved as the `VSCE_PAT` secret;
   - the `pleno` publisher at marketplace.visualstudio.com/manage;
   - the first upload: run the Publish Extension workflow for v0.3.0.
     Steps: `ide/vscode/PUBLISHING.md` → "VS Code Marketplace".
 - [ ] **Open VSX.** Status: the `pleno` namespace exists (created 2026-10-27) and the publishing
-      job is ready in #163. Missing:
+      workflow is merged. Missing:
   - the Eclipse Contributor Agreement signed, with GitHub Username `otabekoff` in the Eclipse
     account;
   - the trusted publisher registered for `otabekoff/pleno`, workflow `publish-extension.yml`,

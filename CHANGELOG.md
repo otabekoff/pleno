@@ -23,6 +23,7 @@ Notable changes to Pleno. The format follows [Keep a Changelog](https://keepacha
 - Return annotations are checked in more places. A `Void` function that returns a value throws `TypeError: f returned Int, expected Void`, and returns `null` instead of the value of its last expression. An annotation that mentions a type parameter (`fn first<T>(xs: T[]): T`) is checked against the explicit type argument (`first<Int>(...)`); an inferred one accepts any value, or any value that satisfies its constraint. A return annotated with a class of the same file and type arguments (`Box<Int>`) checks them, as a parameter does.
 - Lambdas and nested functions inside a generic function or class see its type parameters: in `fn apply<T>(x: T, y) { let g = (z: T) => z; ... }`, `apply<Int>(1, "s")` throws `TypeError: parameter 'z' expected T, got String`, and `let` and return annotations in them are checked too. Before, such annotations were not checked, or, in a nested `fn` and in `let`, rejected every value.
 - `@inline` functions keep their parameter and return checks where they are inlined (`TypeError: add returned String, expected Int`).
+- The install scripts read `PLENO_VERSION` (install a given release), `PLENO_HOME` (install somewhere other than `~/.pleno`, as `plm` already allowed for its cache) and `PLENO_NO_MODIFY_PATH=1` (leave `PATH` alone). `install.sh` also installs the i686 Linux build, and `install.ps1` installs the x86_64 build on Windows on ARM.
 
 ### Changed
 
@@ -36,9 +37,7 @@ Notable changes to Pleno. The format follows [Keep a Changelog](https://keepacha
 - Pages for the experimental `std:gc` and `std:db` modules, and how to set Code Runner's `code-runner.executorMap` for Pleno in `docs/guide/editor.md`.
 - String escapes `\0` and `\u{...}` (1 to 6 hex digits).
 
-### Changed
-
-These changes were made in the 1.0 review of the reference, because the compatibility promise would forbid them later.
+The changes below were made in the 1.0 review of the reference, because the compatibility promise would forbid them later.
 
 - **Closures share the variables they use.** A function, lambda or method that read a variable kept the value the variable had when the function was created: after `let mut debug = false; fn log(m) { if (debug) print(m); } debug = true;`, `log` still saw `false`. Functions now see later assignments, as in Python and JavaScript, for top-level and local `let` variables, parameters and `for` loop variables; an assignment a closure makes to a parameter is no longer lost. Each loop iteration still has its own loop variable.
 - **Floats always print as Floats:** `print(3.0)` and `print(10 / 2)` print `3.0` and `5.0` (they printed `3` and `5`), also in string concatenation, template strings and `toString()`. Very large and very small Floats use an exponent (`1e21`, `1e-7`) instead of dozens of digits. Map keys are unchanged: `m[1.0]` is still `m[1]`.
@@ -75,12 +74,14 @@ These changes were made in the 1.0 review of the reference, because the compatib
 - A script or function with a few hundred expression statements in a row (such as 300 `print` calls) failed to compile with `too many registers in function`: each statement's value kept its register to the end. It is now freed when the next statement starts.
 - Inlining an `@inline` function no longer changes what the program does. Calls in top-level code returned the wrong value (`pick(1)` returned `null` for a function with an `if` and two `return`s), and a function whose body is `return <expression>` was substituted with its arguments evaluated once per use of the parameter and its free names read where it was called. A call is now inlined only when it behaves like the call: the arguments are evaluated once, before the body, names keep their meaning, and anything else is a normal call.
 - `pleno format` keeps comments inside an index (`a[/* c */ 1]`; a line comment puts the index on a line of its own), in import and export lists (`import { a, /* the b */ b }` is broken one name per line with the comment in front of `b`) and block comments in slices, parentheses and after a unary operator in place; before, they moved below the statement. A block comment after a comma in a broken list stays in front of the next element.
-- Two kinds of deeply nested code could overflow the stack while compiling (found by a long `fuzz_compile` run): calls on calls (`f(1)(1)(1)...`), `f<T>`, `x!`, `x++` and macro calls did not count toward the limit of 1,000 operators and calls per statement, and each `${...}` in a string started its own nesting count, so `"${"${...}"}"` 2,000 deep crashed. Both are now parse errors (`expression too long`, `Recursion limit exceeded`), and an error in a nested interpolation says `Parse error in interpolation` once instead of once per level.
 - `(-9223372036854775807 - 1) % -1` crashed the compiler's constant folder, and at runtime threw `integer overflow in modulo`; it is `0`.
 - The formatter wrote a whole Float of 1e16 or more with all its digits, which read back as an Int (`1e17`) or did not parse (`1e21`). It keeps such literals Floats, and writes `\0` back as an escape.
 - `Database.connect` in `std:db` ignored the sandbox: it now needs IO access, and read and write access to the database file under `--allow-read` and `--allow-write`.
 - Two kinds of deeply nested code could overflow the stack while compiling (found by a long `fuzz_compile` run): calls on calls (`f(1)(1)(1)...`), `f<T>`, `x!`, `x++` and macro calls did not count toward the limit of 1,000 operators and calls per statement, and each `${...}` in a string started its own nesting count, so `"${"${...}"}"` 2,000 deep crashed. Both are now parse errors (`expression too long`, `code nested too deeply`), and an error in a nested interpolation says `Parse error in interpolation` once instead of once per level.
 - Values stored on the built-in `Error` class (`Error.cache = box`) stayed allocated after the VM was dropped when they were part of a reference cycle: `Error` was created outside the collector's heap. It is now on the heap like any class and freed with the VM.
+- The Docker image could not start its binaries: it was based on Debian 12, whose glibc (2.36) is older than the 2.39 the release binaries need. It is now based on Debian 13, includes `pleno-dap` and `git` (which `plm` runs), and `Dockerfile` builds from source again.
+- The debug adapter crashed on a `setBreakpoints` or `setDataBreakpoints` request without arguments or without a `breakpoints` list; such a request now clears the breakpoints.
+- `scripts/plenovm.sh uninstall` without a version removed every installed version; `plenovm use` now links all five tools, and downloads are checked against their checksums.
 
 ## 0.3.0 - 2026-10-27
 

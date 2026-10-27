@@ -17,3 +17,15 @@ clippy_output.txt
 /.vitepress/
 # The docs playground's WebAssembly build (scripts/build-playground.sh)
 docs/.vitepress/theme/wasm/
+# Programs that bench/run_comparisons.py compiles from the sources next to them
+/bench/src/c/*
+!/bench/src/c/*.c
+/bench/src/cpp/*
+!/bench/src/cpp/*.cpp
+/bench/src/rust/*
+!/bench/src/rust/*.rs
+/bench/src/java/*.class
+/bench/src/kotlin/*.jar
+/bench/src/ts/*.js
+# Python bytecode (bench/ and scripts/)
+__pycache__/

@@ -4,12 +4,13 @@ We take the security of the Pleno programming language seriously. This document 
 
 ## 🛡️ Supported Versions
 
-We currently provide security updates for the following versions:
+Security fixes go into the latest release series. Before 1.0, a fix comes as a new release of
+that series; update to it rather than expecting a patch for an older one.
 
 | Version | Supported       |
 | ------- | --------------- |
-| 0.1.x   | ✅ Yes (Active) |
-| < 0.1.0 | ❌ No           |
+| 0.3.x   | ✅ Yes (Active) |
+| < 0.3.0 | ❌ No           |
 
 ## 📝 Reporting a Vulnerability
 

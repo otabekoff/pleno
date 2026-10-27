@@ -43,8 +43,9 @@ detect_target() {
 
     ARCH="$(uname -m)"
     case "$ARCH" in
-        x86_64) ARCH_NAME="x86_64" ;;
+        x86_64|amd64) ARCH_NAME="x86_64" ;;
         arm64|aarch64) ARCH_NAME="aarch64" ;;
+        i386|i686) ARCH_NAME="i686" ;;
         *) echo "Error: Unsupported architecture: $ARCH"; exit 1 ;;
     esac
 
@@ -82,6 +83,17 @@ command_install() {
         exit 1
     fi
 
+    EXPECTED_HASH=$(curl -fsL "$DOWNLOAD_URL.sha256" | cut -d ' ' -f 1)
+    if command -v sha256sum >/dev/null 2>&1; then
+        ACTUAL_HASH=$(sha256sum "$TMP_DIR/pleno.tar.gz" | cut -d ' ' -f 1)
+    else
+        ACTUAL_HASH=$(shasum -a 256 "$TMP_DIR/pleno.tar.gz" | cut -d ' ' -f 1)
+    fi
+    if [ -z "$EXPECTED_HASH" ] || [ "$EXPECTED_HASH" != "$ACTUAL_HASH" ]; then
+        echo -e "${RED}Error: Checksum verification failed for $VERSION${NC}"
+        exit 1
+    fi
+
     mkdir -p "$VERSION_DIR"
     tar -xzf "$TMP_DIR/pleno.tar.gz" -C "$VERSION_DIR"
 
@@ -103,13 +115,13 @@ command_use() {
 
     echo -e "${BLUE}Switching to Pleno $VERSION...${NC}"
 
-    # Remove existing symlinks
-    rm -f "$PLENO_BIN/pleno"
-    rm -f "$PLENO_BIN/plm"
-
-    # Create new symlinks
-    ln -s "$VERSION_DIR/pleno" "$PLENO_BIN/pleno"
-    ln -s "$VERSION_DIR/plm" "$PLENO_BIN/plm"
+    # Point every tool the version has at it (older releases lack some).
+    for tool in pleno plm pleno-lsp pleno-dap pleno-repl; do
+        if [ -f "$VERSION_DIR/$tool" ]; then
+            rm -f "$PLENO_BIN/$tool"
+            ln -s "$VERSION_DIR/$tool" "$PLENO_BIN/$tool"
+        fi
+    done
 
     echo "$VERSION" > "$PLENO_HOME/current_version"
     echo -e "${GREEN}Now using Pleno $VERSION${NC}"
@@ -142,7 +154,12 @@ case "$1" in
     list-remote) command_list_remote ;;
     uninstall)
         VERSION="$2"
-        rm -rf "$PLENO_VERSIONS/$VERSION"
+        # Without a version this would remove $PLENO_VERSIONS itself.
+        if [ -z "$VERSION" ] || [ ! -d "$PLENO_VERSIONS/$VERSION" ]; then
+            echo "Error: give an installed version (see 'plenovm list')"
+            exit 1
+        fi
+        rm -rf "${PLENO_VERSIONS:?}/$VERSION"
         echo "Uninstalled $VERSION"
         ;;
     version) echo "plenovm 0.1.0" ;;

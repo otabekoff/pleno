@@ -9,7 +9,6 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 wasm-bindgen = "0.2"
-serde = { workspace = true }
 serde_json = { workspace = true }
 console_error_panic_hook = "0.1"
 # rand 0.10 uses getrandom 0.4, which needs the wasm_js feature in the browser.
@@ -17,10 +16,8 @@ getrandom = { version = "0.4", features = ["wasm_js"] }
 uuid = { version = "1.20", features = ["v4", "js"] }
 
 # Workspace dependencies
-pleno-ast = { workspace = true }
 pleno-lexer = { workspace = true }
 pleno-parser = { workspace = true }
-pleno-common = { workspace = true }
 pleno-value = { workspace = true }
 pleno-bytecode = { workspace = true }
 pleno-compiler = { workspace = true }

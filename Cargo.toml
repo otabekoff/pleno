@@ -17,7 +17,6 @@ pleno-ast = { path = "crates/pleno-ast" }
 pleno-lexer = { path = "crates/pleno-lexer" }
 pleno-parser = { path = "crates/pleno-parser" }
 pleno-formatter = { path = "crates/pleno-formatter" }
-pleno-runtime = { path = "crates/pleno-runtime" }
 pleno-lsp = { path = "crates/pleno-lsp" }
 pleno-repl = { path = "crates/pleno-repl" }
 pleno-common = { path = "crates/pleno-common" }

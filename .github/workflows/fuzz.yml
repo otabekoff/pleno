@@ -20,6 +20,9 @@ on:
       - "crates/pleno-stdlib/**"
       - ".github/workflows/fuzz.yml"
 
+permissions:
+  contents: read
+
 jobs:
   fuzz:
     name: Fuzz ${{ matrix.target }}

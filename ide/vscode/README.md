@@ -30,7 +30,7 @@ for the toolchain.
 - **Format Document** (`Shift+Alt+F`) and **Format Selection**.
 - Snippets: `fn`, `fnr`, `async`, `lambda`, `class`, `classex`, `constructor`, `prop`, `op`,
   `interface`, `enum`, `let`, `lett`, `letm`, `const`, `if`, `ife`, `for`, `forr`, `while`, `match`,
-  `import`, `try`, `tryf`, `catcht`, `print`, `describe` and `test`.
+  `import`, `try`, `tryf`, `with`, `catcht`, `print`, `describe` and `test`.
 
 ### Running, debugging and testing
 
@@ -80,7 +80,7 @@ For each tool, in order:
 
 1. The setting: `pleno.cli.path`, `pleno.lsp.path` or `pleno.dap.path`.
 2. The toolchain installed by **Install or Update Toolchain**.
-3. `PATH`, then `~/.pleno/bin`, where the install scripts put it.
+3. `PATH`, then `~/.pleno/bin` (or `$PLENO_HOME/bin`), where the install scripts put it.
 4. A build in the Pleno repository (`target/release` or `target/debug`), when you work on Pleno
    itself.
 

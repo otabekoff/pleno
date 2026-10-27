@@ -43,13 +43,17 @@ bun run docs:dev
 We value correctness above all. Every new feature must be accompanied by tests.
 
 - **Unit Tests**: Place them in the `src/` file where the logic lives.
-- **Integration Tests**: Place them in `tests/`. For VM execution tests, use `crates/pleno-vm/tests/vm_exec.rs`.
-- **Pleno Source Tests**: We have a large collection of `.pln` files in `tests/sources_tests/` that are executed by the VM and checked for expected output.
+- **Integration Tests**: Place them in the crate's `tests/` folder. For VM execution tests, use `crates/pleno-vm/tests/vm_exec.rs`.
+- **Pleno Source Tests**: `.pln` programs in `tests/` and `examples/`, run by `scripts/run_pln_tests.sh`. Comments at the top of a file say what it must print or which error it must fail with; see [tests/README.md](tests/README.md).
+- **Docs Examples**: every ` ```pleno ` block in `docs/` runs in CI, through `scripts/check-doc-examples.py`.
 
-To run all tests:
+To run all tests, as CI does:
 
 ```bash
-make test
+cargo test --workspace
+cargo build --bin pleno
+bash scripts/run_pln_tests.sh
+python3 scripts/check-doc-examples.py target/debug/pleno docs
 ```
 
 ## 📝 Coding Standards
@@ -62,20 +66,21 @@ make test
 
 ## 🚀 Pull Request Process
 
-1. **Fork** the repository and create your branch from `main`.
-2. **Implement** your changes.
-3. **Verify** with `make check` (this runs format, lint, and all tests).
-4. **Commit** using [Conventional Commits](https://www.conventionalcommits.org/):
+1. **Open an issue** first for anything larger than a small fix, and for every change to the language or the standard library (see [GOVERNANCE.md](GOVERNANCE.md)).
+2. **Fork** the repository and create your branch from `main`.
+3. **Implement** your changes, with a line under "Unreleased" in `CHANGELOG.md` for anything users notice.
+4. **Verify** with `make check` (this runs format, lint, and the Rust tests) and the `.pln` tests above.
+5. **Commit** using [Conventional Commits](https://www.conventionalcommits.org/) (commitlint checks them):
    - `feat:` for new features
    - `fix:` for bug fixes
    - `docs:` for documentation changes
    - `refactor:` for code restructuring
-5. **Push** and open a Pull Request.
-6. **Respond** to review feedback promptly.
+6. **Push** and open a Pull Request against `main` that says `Closes #<issue>`.
+7. **Respond** to review feedback promptly.
 
 ## 🔢 Versioning
 
-We adhere to the [Language Versioning Policy](README.dev.md#language-versioning-policy) described in the developer guide. Ensure your changes align with the intended version target.
+Pleno follows [SemVer](https://semver.org/); see [Versioning](README.dev.md#versioning) in the developer guide. From 1.0 on, changes must keep the [compatibility promise](docs/specs/compatibility.md): the language reference is frozen for 1.x, so changes to it are additions.
 
 ## ⚖️ License
 

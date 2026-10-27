@@ -1,8 +1,8 @@
-# Docker Compose for Pleno Development
+# Docker Compose services that run Pleno, built from source by the Dockerfile
 # Run with: docker compose up -d
 
 services:
-  # Development environment with full tooling
+  # A shell in the runtime image (the Pleno tools, no Rust toolchain) with the checkout mounted
   dev:
     build:
       context: .

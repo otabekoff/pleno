@@ -1,6 +1,6 @@
 # After 1.0
 
-Planned, but not needed for a stable 1.0. Status checked against the code on 2026-10-24.
+Planned, but not needed for a stable 1.0. Status checked against the code on 2026-10-27.
 
 ## Performance
 
@@ -21,5 +21,5 @@ Planned, but not needed for a stable 1.0. Status checked against the code on 202
 - [ ] **std:db PostgreSQL driver**. Status: `std:db` supports SQLite (`sqlite:path`) only.
 - [ ] **Macro expansion explorer**. Status: macros expand inside the compiler; no command prints the expanded program.
 - [ ] **Language server refactorings** beyond rename. Status: not started.
-- [ ] **WASM distribution**. Status: `crates/pleno-wasm` builds for `wasm32-unknown-unknown` and exports `compile`, `run` and `run_source`. Missing: an npm package and a browser playground.
+- [ ] **WASM distribution**. Status: `crates/pleno-wasm` builds for `wasm32-unknown-unknown` and exports `compile`, `run` and `run_source`. It runs the docs playground and tutorial (`docs/playground.md`, built by `scripts/build-playground.sh` and tested in CI). Missing: an npm package.
 - [ ] **Self-hosted compiler**. Status: not started. Needs a stable 1.0 language, fast enough execution, and file and string APIs good enough to write a compiler in Pleno.
