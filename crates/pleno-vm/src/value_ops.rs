@@ -130,11 +130,8 @@ pub fn div_values(a: Value, b: Value) -> Result<Value, RuntimeError> {
 pub fn mod_values(a: Value, b: Value) -> Result<Value, RuntimeError> {
     match numbers(&a, &b) {
         Some(Numbers::Ints(_, 0)) => Err(RuntimeError::new("modulo by zero")),
-        // `i64::MIN % -1` overflows.
-        Some(Numbers::Ints(a, b)) => a
-            .checked_rem(b)
-            .map(Value::Int)
-            .ok_or_else(|| overflow("modulo")),
+        // `i64::MIN % -1` is 0, which `%` in Rust reports as an overflow.
+        Some(Numbers::Ints(a, b)) => Ok(Value::Int(a.wrapping_rem(b))),
         Some(Numbers::Floats(_, 0.0)) => Err(RuntimeError::new("modulo by zero")),
         Some(Numbers::Floats(a, b)) => Ok(Value::Float(a % b)),
         None => Err(operand_error("%", &a, &b)),

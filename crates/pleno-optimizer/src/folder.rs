@@ -405,7 +405,9 @@ impl ConstantFolder {
                 ExprKind::Literal(Literal::Int(a)),
                 BinaryOp::Modulo,
                 ExprKind::Literal(Literal::Int(b)),
-            ) if *b != 0 => Some(ExprKind::Literal(Literal::Int(a % b))),
+                // `wrapping_rem`: `i64::MIN % -1` is 0, which `%` in Rust reports
+                // as an overflow.
+            ) if *b != 0 => Some(ExprKind::Literal(Literal::Int(a.wrapping_rem(*b)))),
 
             // Mixed Int and Float arithmetic produces a Float, as at runtime.
             (ExprKind::Literal(Literal::Int(a)), op, ExprKind::Literal(Literal::Float(b)))
