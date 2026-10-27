@@ -7198,12 +7198,14 @@ impl VM {
             }
             Value::StaticMethod(state) => {
                 let state = state.borrow();
+                // The arguments are bound like any call's: counted, with
+                // defaults and rest parameters filled in.
                 self.call_function(
                     state.function.clone(),
                     None,
                     &args,
                     return_reg,
-                    true,
+                    false,
                     CallOptions {
                         current_owner: Some(state.owner.clone()),
                         ..Default::default()

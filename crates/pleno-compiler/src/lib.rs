@@ -165,7 +165,6 @@ pub struct Compiler {
     module_mode: bool,
     module_exports: Vec<ExportItem>,
     module_name: Option<String>,
-    source: String,
     current_span: pleno_ast::Span,
     next_labels: Vec<String>,
     /// Type aliases by name: their type parameters and the aliased type.
@@ -189,7 +188,9 @@ pub struct Compiler {
     return_check: Option<ReturnCheck>,
     pub is_async: bool,
     pub profile: BuildProfile,
-    _source_map: pleno_diagnostics::SourceMap,
+    /// The source and where its lines start, shared with the compilers of
+    /// the functions inside it: building it reads the whole file.
+    source_map: Rc<pleno_diagnostics::SourceMap>,
 }
 
 #[derive(Debug, Clone)]
@@ -206,6 +207,19 @@ impl Default for Compiler {
 
 impl Compiler {
     pub fn new(source: String) -> Self {
+        Self::sharing(Rc::new(pleno_diagnostics::SourceMap::new(
+            "file".to_string(),
+            source,
+        )))
+    }
+
+    /// A compiler for code in the same source as this one, such as a
+    /// function inside it.
+    fn for_same_source(&self) -> Self {
+        Self::sharing(Rc::clone(&self.source_map))
+    }
+
+    fn sharing(source_map: Rc<pleno_diagnostics::SourceMap>) -> Self {
         Self {
             global_reads: Vec::new(),
             scope_names: Rc::default(),
@@ -235,8 +249,7 @@ impl Compiler {
             module_mode: false,
             module_exports: Vec::new(),
             module_name: None,
-            _source_map: pleno_diagnostics::SourceMap::new("file".to_string(), source.clone()),
-            source,
+            source_map,
             current_span: pleno_ast::Span::new(0, 0),
             next_labels: Vec::new(),
             type_aliases: HashMap::new(),
@@ -271,7 +284,8 @@ impl Compiler {
     /// Before an optimized compile drops unused code, compiles a copy of the
     /// whole program to report the errors in that code too.
     fn check_unused_code(&self, program: &Program, module: bool) -> Result<(), CompileError> {
-        let mut checker = Compiler::new(self.source.clone())
+        let mut checker = self
+            .for_same_source()
             .with_profile(self.profile)
             .keeping_unused_code();
         let mut copy = program.clone();
@@ -380,6 +394,24 @@ impl Compiler {
         self.chunk.max_registers = self.registers.max_used;
         self.chunk.module_name = None;
         Ok(self.chunk.clone())
+    }
+
+    /// Compiles `program` as a module when it exports names or declares
+    /// `module name;` (it is meant to be imported, and importing it compiles
+    /// it that way), and as a script otherwise. `pleno check` and the
+    /// language server compile files this way to find their errors.
+    pub fn compile_file(&mut self, program: &mut Program) -> Result<Chunk, CompileError> {
+        let is_module = program.statements.iter().any(|stmt| {
+            matches!(
+                stmt.kind,
+                StmtKind::Export(_) | StmtKind::ExportList(_) | StmtKind::Module { body: None, .. }
+            )
+        });
+        if is_module {
+            self.compile_module(program)
+        } else {
+            self.compile(program)
+        }
     }
 
     pub fn compile_module(&mut self, program: &mut Program) -> Result<Chunk, CompileError> {
@@ -2007,7 +2039,7 @@ impl Compiler {
                 .push(self.chunk.code.len());
         }
         self.chunk.code.push(Instruction::new(opcode, a, b, c));
-        let line = self._source_map.get_line_col(self.current_span.start).0;
+        let line = self.source_map.get_line_col(self.current_span.start).0;
         self.chunk.lines.push(line as u32);
         self.chunk.spans.push(self.current_span);
     }
@@ -3336,7 +3368,7 @@ impl Compiler {
     ) -> Result<u8, CompileError> {
         let captures = self.analyze_captures(decl, is_method);
         // The function's instructions map back to lines of the same source.
-        let mut compiler = Compiler::new(self.source.clone());
+        let mut compiler = self.for_same_source();
         compiler.scope_names = Rc::clone(&self.scope_names);
         compiler.scope_head = self.scope_head;
         compiler.is_top_level = false;
@@ -3787,7 +3819,7 @@ impl Compiler {
         }
 
         let captures = self.analyze_captures(&decl, false);
-        let mut compiler = Compiler::new(self.source.clone());
+        let mut compiler = self.for_same_source();
         compiler.scope_names = Rc::clone(&self.scope_names);
         compiler.scope_head = self.scope_head;
         compiler.is_top_level = false;

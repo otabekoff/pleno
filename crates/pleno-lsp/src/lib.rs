@@ -94,10 +94,13 @@ impl ServerState {
         // Parsing
         let mut parser = pleno_parser::Parser::new(tokens, &text);
         match parser.parse_program() {
-            Ok(program) => {
+            Ok(mut program) => {
+                let path = uri_to_path(&uri);
                 // The static checks `pleno check` runs: argument counts, unknown
-                // methods on `this`, literals that do not match their annotation.
-                for found in pleno_compiler::check::check_program(&program) {
+                // methods, names a `.pln` file does not export, values that do
+                // not match their annotation.
+                let found = pleno_compiler::check::check_program_in(&program, path.as_deref());
+                for found in found {
                     let (start, end) = span_to_range(&text, found.span.start, found.span.end);
                     let severity = match found.severity {
                         pleno_compiler::check::Severity::Error => 1,
@@ -111,9 +114,11 @@ impl ServerState {
                         "message": found.message
                     }));
                 }
+                let compile_error = compile_diagnostic(&text, &mut program);
+                let mut duplicates = Vec::new();
 
                 // Index symbols
-                if let Some(path) = uri_to_path(&uri) {
+                if let Some(path) = path {
                     let symbols = extract_symbols(&program, &path);
 
                     // Check for re-definitions in this file
@@ -121,6 +126,7 @@ impl ServerState {
                         std::collections::HashMap::new();
                     for sym in &symbols {
                         if let Some(original) = seen_names.get(&sym.name) {
+                            duplicates.push(format!("Local '{}' already defined", sym.name));
                             let (start, end) = span_to_range(&text, sym.span.start, sym.span.end);
                             let (orig_start, orig_end) =
                                 span_to_range(&text, original.span.start, original.span.end);
@@ -147,6 +153,12 @@ impl ServerState {
 
                     self.index.insert(uri.clone(), symbols);
                 }
+                // The redefinition the compiler stops at is reported above.
+                if let Some(error) = compile_error
+                    && !duplicates.iter().any(|d| error["message"] == d.as_str())
+                {
+                    diagnostics.push(error);
+                }
                 self.programs.insert(uri, program);
             }
             Err(e) => {
@@ -163,6 +175,35 @@ impl ServerState {
 
         diagnostics
     }
+}
+
+/// The first compile error in `program`, such as `cannot assign to immutable
+/// binding`, as `pleno check` finds it: all code is compiled, unused functions
+/// too, and a file that exports names is compiled as a module. Compiling this
+/// way leaves `program` as it was.
+fn compile_diagnostic(text: &str, program: &mut Program) -> Option<Value> {
+    let compile = std::panic::AssertUnwindSafe(|| {
+        pleno_compiler::Compiler::new(text.to_string())
+            .keeping_unused_code()
+            .compile_file(program)
+            .err()
+    });
+    // A compiler bug must not take the server down with it.
+    let err = std::panic::catch_unwind(compile).ok()??;
+    let (start, end) = err
+        .diagnostic
+        .labels
+        .first()
+        .map(|label| (label.span.start, label.span.end))
+        .unwrap_or((0, 0));
+    let (start, end) = span_to_range(text, start, end);
+    Some(json!({
+        "range": { "start": start, "end": end },
+        "severity": 1,
+        "source": "pleno",
+        "code": "compile-error",
+        "message": err.diagnostic.message
+    }))
 }
 
 // --- Main Loop ---
