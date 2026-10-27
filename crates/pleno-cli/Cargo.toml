@@ -18,7 +18,9 @@ copyright = "2026, Otabek"
 license-file = ["../../LICENSE", "0"]
 extended-description = """
 Pleno is a modern, high-performance programming language.
-This package contains the 'pleno' runner and 'plm' package manager.
+This package contains the 'pleno' runner, the 'plm' package manager, the
+'pleno-lsp' language server, the 'pleno-dap' debug adapter and the
+'pleno-repl' shell.
 """
 section = "devel"
 priority = "optional"
@@ -31,6 +33,22 @@ assets = [
     [
         "target/release/plm",
         "usr/bin/plm",
+        "755",
+    ],
+    # Built by the workspace build that runs before cargo deb (release.yml).
+    [
+        "target/release/pleno-lsp",
+        "usr/bin/pleno-lsp",
+        "755",
+    ],
+    [
+        "target/release/pleno-dap",
+        "usr/bin/pleno-dap",
+        "755",
+    ],
+    [
+        "target/release/pleno-repl",
+        "usr/bin/pleno-repl",
         "755",
     ],
 ]

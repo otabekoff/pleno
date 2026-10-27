@@ -6,7 +6,7 @@ BIN_DIR = $(PREFIX)/bin
 TARGET_DIR = target/release
 
 # Binaries
-BINS = pleno plm pleno-lsp pleno-repl
+BINS = pleno plm pleno-lsp pleno-dap pleno-repl
 
 .PHONY: help setup build release install uninstall vscode test lint format check clean clean-all all sync
 
@@ -34,7 +34,7 @@ all: sync check release
 setup:
 	@echo "Setting up development environment..."
 	rustup component add clippy rustfmt
-	npm install
+	bun install
 	cd ide/vscode && npm install
 	@echo "Setup complete."
 
