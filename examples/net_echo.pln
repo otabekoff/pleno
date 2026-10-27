@@ -1,0 +1,35 @@
+// A TCP echo server and its client in one program.
+//
+// The server and the client are two async tasks on the same event loop:
+// while one awaits the network, the other runs.
+import { Net } from "std:net";
+
+// Port 0 asks the system for a free port; `listener.port` tells which.
+let listener = Net.listen("127.0.0.1", 0);
+print("listening on " + listener.address);
+
+async fn serve() {
+    let conn = await listener.accept();
+    print("server: connection from " + conn.remoteAddress);
+    // readLine() gives null once the client closes its end.
+    let mut line = await conn.readLine();
+    while (line != null) {
+        await conn.write("echo: " + line + "\n");
+        line = await conn.readLine();
+    }
+    conn.close();
+    print("server: client left");
+}
+
+let server = serve();
+
+let client = await Net.connect("127.0.0.1", listener.port);
+client.setTimeout(5000);  // fail instead of waiting forever
+for (word in ["hello", "world"]) {
+    await client.write(word + "\n");
+    print("client: " + await client.readLine());
+}
+client.close();
+
+await server;
+listener.close();
