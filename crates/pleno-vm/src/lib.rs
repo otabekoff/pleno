@@ -348,6 +348,14 @@ impl VMProvider for VM {
         self.event_loop.add_timer(delay_ms, callback, args)
     }
 
+    fn cancel_timer(&mut self, id: u64) {
+        self.event_loop.cancel_timer(id);
+    }
+
+    fn error_value(&mut self, message: &str) -> Value {
+        self.new_error(message)
+    }
+
     #[cfg(feature = "net")]
     fn register_io(
         &mut self,
@@ -513,8 +521,8 @@ impl VMProvider for VM {
                 frame.mark(gc);
             }
             // Callbacks the event loop will run: timers, queued tasks and I/O
-            // handlers such as a server's `accept`, which may be the only
-            // reference to the server.
+            // handlers such as a server's or socket's `accept`/`read`, which
+            // may be the only reference to the server or socket.
             for timer in self.event_loop.timers.iter() {
                 timer.callback.mark(gc);
                 for arg in &timer.args {
@@ -557,10 +565,6 @@ impl VMProvider for VM {
 
     fn get_named_args(&self) -> &IndexMap<String, Value> {
         &self.current_named_args
-    }
-
-    fn error_value(&mut self, error: RuntimeError) -> Value {
-        self.rejection_reason(error)
     }
 
     fn is_io_allowed(&self) -> bool {

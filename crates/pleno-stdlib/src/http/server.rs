@@ -1000,7 +1000,12 @@ fn track(
         }
         Err(error) if error.fatal => Err(error),
         Err(error) => {
-            let reason = vm.error_value(error.clone());
+            // The value a `catch` (and `onError`) sees for the error.
+            let message = error
+                .message
+                .strip_prefix("uncaught exception: ")
+                .unwrap_or(&error.message);
+            let reason = vm.error_value(message);
             record_error(ctx, reason);
             Err(error)
         }

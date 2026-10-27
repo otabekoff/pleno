@@ -34,10 +34,10 @@ Status as of 2026-10-27. The latest release is [0.3.0](https://github.com/otabek
   type arguments of generic classes, `@inline` functions.
 - [ ] **Speed**: Pleno is already faster than CPython on every benchmark. Left: cheaper calls, the
   fast loop while debugging, closures that share their code.
-- [ ] **TCP sockets** (`std:net`): a real socket with `accept`, `read`, `write` and `close`, so it
-  can leave experimental.
 - [ ] **HTTP server connections**: read requests without blocking the event loop, so one slow
   client does not delay the others.
+- [ ] **Web framework**: middleware, static files and cookies for `std:http`, so `Router` and
+  `Server` can become stable.
 - [ ] **`with` statement** for resources that close themselves.
 - [ ] **Packages**: decide between a hosted registry and Git-based dependencies for 1.0, and
   document the protocol.

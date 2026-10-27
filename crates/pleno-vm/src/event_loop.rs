@@ -101,6 +101,11 @@ impl EventLoop {
         id
     }
 
+    /// Removes the timer `id` if it has not fired yet.
+    pub fn cancel_timer(&mut self, id: u64) {
+        self.timers.retain(|timer| timer.id != id);
+    }
+
     pub fn add_task(&mut self, callback: Value, args: Vec<Value>, promise_id: Option<u64>) {
         self.ready_queue.push_back(Task {
             callback,

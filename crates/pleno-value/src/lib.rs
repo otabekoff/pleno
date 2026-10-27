@@ -59,6 +59,15 @@ pub trait VMProvider {
     /// the names "did you mean" suggestions choose from.
     fn set_builtin_method_names(&mut self, _names: &'static [&'static str]) {}
     fn add_timer(&mut self, delay_ms: u64, callback: Value, args: Vec<Value>) -> u64;
+    /// Removes a timer `add_timer` made, if it has not fired yet, so that it
+    /// no longer keeps the program running.
+    fn cancel_timer(&mut self, _id: u64) {}
+    /// An `Error` instance for `message`, to reject a promise with. A
+    /// `Name: rest` message whose name ends in `Error` (`TimeoutError: ...`)
+    /// gives an error with that `name`, as a thrown native error does.
+    fn error_value(&mut self, message: &str) -> Value {
+        Value::String(Rc::new(message.to_string()))
+    }
     #[cfg(feature = "net")]
     fn register_io(
         &mut self,
@@ -74,15 +83,6 @@ pub trait VMProvider {
         token: mio::Token,
     ) -> Result<(), RuntimeError>;
     fn check_is_instance(&self, value: &Value, type_val: &Value) -> bool;
-    /// The value a Pleno `catch` would see for `error`: an `Error` instance
-    /// in the VM, the message as a string otherwise.
-    fn error_value(&mut self, error: RuntimeError) -> Value {
-        let message = error.message;
-        let message = message
-            .strip_prefix("uncaught exception: ")
-            .unwrap_or(&message);
-        Value::String(Rc::new(message.to_string()))
-    }
     fn get_named_args(&self) -> &IndexMap<String, Value>;
     fn is_io_allowed(&self) -> bool {
         true
@@ -512,8 +512,15 @@ impl<'de> Deserialize<'de> for NativeResource {
     }
 }
 
+/// A resource nothing can reach any more is closed at once, even if a stray
+/// reference keeps the `NativeResource` itself alive: dropping the handle
+/// closes the socket or file it wraps.
 impl GcObject for NativeResource {
     fn mark(&self, _gc: &mut MarkAndSweepGC) {}
+
+    fn clear_refs(&mut self) {
+        self.inner.get_mut().take();
+    }
 }
 
 impl GcObject for DatabaseState {

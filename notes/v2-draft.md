@@ -89,14 +89,13 @@ let puts = libc.bind("puts", [Type.String], Type.Int);
 
 ### TCP sockets (`std:net`)
 
-Status: experimental in 1.0. `Net.listen` binds and `Net.connect` connects, but both close the socket at once and return a plain map.
+Status: stable in 1.0 (`Net.listen`, `Net.connect`, `accept`, `read`, `readLine`, `write`, `setTimeout`, `close`). Later additions:
 
-Planned API:
-
-| Call | Returns |
-| --- | --- |
-| `Net.listen(addr)` | `Listener` with `address`, `accept()`, `close()` |
-| `Net.connect(addr)` | `Connection` with `remoteAddress`, `read()`, `write(data)`, `close()` |
+- binary data, once Pleno has a bytes type (`readBytes`, `write` of bytes);
+- `end()`: close the sending side only, so the peer reads `null` while this side can still read;
+- TLS (`Net.connectTls` or a `tls:` option);
+- a host name lookup that does not block the event loop;
+- UDP.
 
 ### HTTP server
 
