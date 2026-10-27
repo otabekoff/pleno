@@ -3,11 +3,26 @@ title: Team and contributors
 aside: false
 ---
 
+<script setup>
+import { VPTeamMembers } from 'vitepress/theme'
+
+const maintainer = [
+  {
+    avatar: 'https://avatars.githubusercontent.com/otabekoff?s=256',
+    name: 'Otabek Sadiridinov',
+    title: 'Creator and maintainer',
+    links: [{ icon: 'github', link: 'https://github.com/otabekoff' }],
+  },
+]
+</script>
+
 # Team and contributors
 
 ## Maintainer
 
-Pleno is written and maintained by **Otabek Ismoilov** ([@otabekoff](https://github.com/otabekoff)), who reviews and merges changes, makes the releases and approves signing requests (see the [code signing policy](./code-signing-policy#team-roles)).
+<VPTeamMembers size="medium" :members="maintainer" />
+
+Pleno is written and maintained by **Otabek Sadiridinov** ([@otabekoff](https://github.com/otabekoff)). He reviews and merges changes, makes the releases and approves signing requests (see the [code signing policy](./code-signing-policy#team-roles)).
 
 ## Contributors
 

@@ -76,7 +76,7 @@ Actions, and Open VSX accepts it because you register that workflow as a *truste
    - That agreement is the **Eclipse Contributor Agreement (ECA)**. In its form, tick every box
      of the Developer Certificate of Origin (A to D and "I Acknowledge and Agree"). Give your
      **legal name** as in your passport, a **public name** only if it differs (for example
-     `Otabek Ismoilov`), your **employer** (`student`, `Self` or `Individual`) and your **postal
+     `Otabek Sadiridinov`), your **employer** (`student`, `Self` or `Individual`) and your **postal
      address**, then tick **Acceptance of Terms** and press **Accept**. It has to be renewed every
      three years.
 3. Create the `pleno` namespace. If [open-vsx.org/user-settings/namespaces](https://open-vsx.org/user-settings/namespaces)
