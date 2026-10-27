@@ -47,6 +47,8 @@ the extension again, so claim both before the first release.
 
 ### Each release
 
+The **Publish Extension** workflow does it (see below). By hand:
+
 ```sh
 gh release download v0.3.0 --pattern 'pleno-language-*.vsix'
 npx @vscode/vsce publish --packagePath pleno-language-v0.3.0.vsix --pat <token>
@@ -57,48 +59,73 @@ extension's page usually appears within minutes, after an automatic scan.
 
 ## Open VSX
 
+Open VSX publishing needs no stored token. The **Publish Extension** workflow
+(`.github/workflows/publish-extension.yml`) signs in with a short-lived OIDC token from GitHub
+Actions, and Open VSX accepts it because you register that workflow as a *trusted publisher*.
+
 ### Once
 
-1. Sign in at [open-vsx.org](https://open-vsx.org/) with your GitHub account.
-2. Link an Eclipse Foundation account and sign the **Open VSX Publisher Agreement** at
-   [open-vsx.org/user-settings/profile](https://open-vsx.org/user-settings/profile) → **Log in
-   with Eclipse**, then **Show Publisher Agreement → Agree**. Create the Eclipse account at
-   [accounts.eclipse.org](https://accounts.eclipse.org/user/register) with the same email address
-   as your GitHub account. Publishing fails until the agreement is signed.
-3. Create an access token at [open-vsx.org/user-settings/tokens](https://open-vsx.org/user-settings/tokens):
-   **Generate New Token**, with the description `pleno release`. Copy it; Open VSX shows it only
-   once. It stays valid until you delete it there.
-4. Create the namespace once:
+1. Sign in at [open-vsx.org](https://open-vsx.org/) with your GitHub account (`otabekoff`).
+2. Sign the publisher agreement:
+   - Create an Eclipse Foundation account at
+     [accounts.eclipse.org/user/register](https://accounts.eclipse.org/user/register).
+   - At [accounts.eclipse.org/user/edit](https://accounts.eclipse.org/user/edit), set
+     **GitHub Username** to `otabekoff`.
+   - At [open-vsx.org/user-settings/profile](https://open-vsx.org/user-settings/profile), choose
+     **Log in with Eclipse** and accept the agreement it shows.
+   - That agreement is the **Eclipse Contributor Agreement (ECA)**. In its form, tick every box
+     of the Developer Certificate of Origin (A to D and "I Acknowledge and Agree"). Give your
+     **legal name** as in your passport, a **public name** only if it differs (for example
+     `Otabek Ismoilov`), your **employer** (`student`, `Self` or `Individual`) and your **postal
+     address**, then tick **Acceptance of Terms** and press **Accept**. It has to be renewed every
+     three years.
+3. Create the `pleno` namespace. If [open-vsx.org/user-settings/namespaces](https://open-vsx.org/user-settings/namespaces)
+   offers no button for it, use a temporary token:
+   - Create it at [open-vsx.org/user-settings/tokens](https://open-vsx.org/user-settings/tokens).
+   - Run `npx ovsx create-namespace pleno --pat <token>`.
+   - Delete the token again on the same page.
+4. Register the trusted publisher at
+   [open-vsx.org/user-settings/trusted-publishers](https://open-vsx.org/user-settings/trusted-publishers),
+   for the namespace `pleno`:
+
+   | Field | Value |
+   | ----- | ----- |
+   | Provider | GitHub Actions |
+   | Repository (owner/name) | `otabekoff/pleno` |
+   | Workflow file | `publish-extension.yml` |
+   | Environment | leave empty |
+
+5. Turn the step on with a repository variable (a plain setting, not a secret):
 
    ```sh
-   npx ovsx create-namespace pleno --pat <token>
+   gh variable set OPEN_VSX_PUBLISH --body true --repo otabekoff/pleno
    ```
 
-5. Optional: ask for the namespace to be verified (the "verified publisher" badge) by opening an
+   Or create it at [github.com/otabekoff/pleno/settings/variables/actions](https://github.com/otabekoff/pleno/settings/variables/actions).
+6. Optional: ask for the namespace to be verified (the "verified publisher" badge) by opening an
    issue in [EclipseFdn/open-vsx.org](https://github.com/EclipseFdn/open-vsx.org/issues) that
    links the namespace to `github.com/otabekoff/pleno`.
 
-### Each release
+## Publishing from GitHub Actions
+
+`.github/workflows/publish-extension.yml` publishes one release's `.vsix` to both stores:
+
+- **VS Code Marketplace:** when the `VSCE_PAT` secret is set (the Azure DevOps token from "VS Code
+  Marketplace → Once"). Add it with `gh secret set VSCE_PAT --repo otabekoff/pleno`, or at
+  [github.com/otabekoff/pleno/settings/secrets/actions](https://github.com/otabekoff/pleno/settings/secrets/actions).
+  When the token expires, the step fails with an authentication error. Make a new token and
+  replace the secret.
+- **Open VSX:** when `OPEN_VSX_PUBLISH` is `true`, by trusted publishing.
+
+The release workflow starts it for every new `vX.Y.Z` tag (not for prereleases). To publish a
+release that already exists, such as v0.3.0, start it by hand:
 
 ```sh
-npx ovsx publish pleno-language-v0.3.0.vsix --pat <token>
+gh workflow run publish-extension.yml --repo otabekoff/pleno --ref main -f tag=v0.3.0
 ```
 
-## Publishing from the release workflow
-
-The release workflow's **Publish the VS Code extension** job uploads the release's `.vsix` to both
-stores on every `vX.Y.Z` tag (not on prereleases). It needs two repository secrets, which you add
-at [github.com/otabekoff/pleno/settings/secrets/actions](https://github.com/otabekoff/pleno/settings/secrets/actions)
-with **New repository secret**:
-
-| Secret     | Value |
-| ---------- | ----- |
-| `VSCE_PAT` | The Azure DevOps token from "VS Code Marketplace → Once" |
-| `OVSX_PAT` | The Open VSX token from "Open VSX → Once" |
-
-Each store is skipped while its secret is missing. Do the first upload of each store by hand, as
-above: it checks that the publisher, the namespace and the agreement are in place. When a token
-expires, the job fails at that step. Make a new token and replace the secret.
+Or use **Actions → Publish Extension → Run workflow** on GitHub. Each store rejects a version it
+already has, so running it twice for one tag fails at the second upload and changes nothing.
 
 ## After publishing
 

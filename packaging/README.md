@@ -28,8 +28,8 @@ the secrets under **Settings → Secrets and variables → Actions** in `otabeko
 | `HOMEBREW_TAP_TOKEN` | Pushing `Formula/pleno.rb` to `otabekoff/homebrew-tap` | Fine-grained token, repository `homebrew-tap`, **Contents: Read and write** |
 | `SCOOP_BUCKET_TOKEN` | Pushing `bucket/pleno.json` to `otabekoff/scoop-bucket` | Fine-grained token, repository `scoop-bucket`, **Contents: Read and write** |
 | `WINGET_TOKEN`       | `wingetcreate update --submit`: pushes a branch to your `winget-pkgs` fork and opens the pull request | Classic token with the **public_repo** scope (fine-grained tokens cannot open pull requests in another owner's repository) |
-| `VSCE_PAT`           | Publishing the `.vsix` to the VS Code Marketplace | Azure DevOps token, **Marketplace: Manage** ([`ide/vscode/PUBLISHING.md`](../ide/vscode/PUBLISHING.md)) |
-| `OVSX_PAT`           | Publishing the `.vsix` to Open VSX | Open VSX access token ([`ide/vscode/PUBLISHING.md`](../ide/vscode/PUBLISHING.md)) |
+| `VSCE_PAT`           | Publishing the `.vsix` to the VS Code Marketplace (`publish-extension.yml`) | Azure DevOps token, **Marketplace: Manage** ([`ide/vscode/PUBLISHING.md`](../ide/vscode/PUBLISHING.md)) |
+| `OPEN_VSX_PUBLISH` (a variable, not a secret) | Publishing the `.vsix` to Open VSX by trusted publishing, without a token | `true` once the trusted publisher is registered ([`ide/vscode/PUBLISHING.md`](../ide/vscode/PUBLISHING.md)) |
 
 GitHub has two kinds of personal access token. A **fine-grained** token is limited to the
 repositories and permissions you pick; it can last at most a year. A **classic** token applies to

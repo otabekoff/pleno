@@ -1,0 +1,47 @@
+name: Publish Extension
+
+# Publishes a release's .vsix, the same file people download from the release, to the VS Code
+# Marketplace and Open VSX. release.yml starts it for every new vX.Y.Z tag; start it by hand
+# (Actions → Publish Extension → Run workflow) to publish an existing release.
+#
+# - Marketplace: needs the VSCE_PAT secret (an Azure DevOps token); skipped without it.
+# - Open VSX: trusted publishing, no secret. Open VSX accepts this workflow's short-lived OIDC
+#   token because a trusted publisher is registered for otabekoff/pleno and this file. Set the
+#   repository variable OPEN_VSX_PUBLISH to true once it is; skipped until then.
+#
+# See ide/vscode/PUBLISHING.md.
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to publish, such as v0.3.0"
+        required: true
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    name: Publish ${{ inputs.tag }}
+    runs-on: ubuntu-latest
+    env:
+      TAG: ${{ inputs.tag }}
+      VSCE_PAT: ${{ secrets.VSCE_PAT }}
+    steps:
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+
+      - name: Download the .vsix
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern "pleno-language-$TAG.vsix"
+
+      - name: VS Code Marketplace
+        if: env.VSCE_PAT != ''
+        run: npx --yes @vscode/vsce@3.2.1 publish --packagePath "pleno-language-$TAG.vsix"
+
+      - name: Open VSX
+        if: vars.OPEN_VSX_PUBLISH == 'true'
+        run: npx --yes ovsx@1.3.0 publish "pleno-language-$TAG.vsix" --trusted-publishing
