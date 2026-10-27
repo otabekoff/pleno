@@ -110,7 +110,7 @@ Splits the input string by the pattern.
 import { Regex } from "std:regex";
 
 let pattern = Regex(r",\s*");
-print(pattern.split("a, b,  c"));  // [a, b, c]
+print(pattern.split("a, b,  c"));  // ["a", "b", "c"]
 ```
 
 ## Static Functions

@@ -198,7 +198,7 @@ Parses a date and time string into a timestamp. The format must include a time o
 ```pleno
 import { parse } from "std:time";
 
-print(parse("2026-02-03 00:00:00", "%Y-%m-%d %H:%M:%S"));  // 1770076800
+print(parse("2026-02-03 00:00:00", "%Y-%m-%d %H:%M:%S"));  // 1770076800.0
 ```
 
 ### `parts(timestamp: Float): Map`

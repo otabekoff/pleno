@@ -39,7 +39,7 @@ sum(b = 5, a = 2);     // 10
 fn calculateArea(width: Float, height: Float): Float {
     return width * height;
 }
-print(calculateArea(2, 3));   // 6
+print(calculateArea(2, 3));   // 6.0
 
 @pure
 fn noisy(x: Int): Int {

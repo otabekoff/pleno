@@ -64,7 +64,7 @@ fn totalArea<T: Shape>(shapes: T[]): Float {
     return total;
 }
 
-print(totalArea<Square>([Square(2.0), Square(3.0)]));   // 13
+print(totalArea<Square>([Square(2.0), Square(3.0)]));   // 13.0
 
 try {
     totalArea<Int>([1, 2]);
@@ -74,7 +74,7 @@ try {
 }
 ```
 
-Constraints are checked only when the call or constructor gives explicit type arguments (`totalArea<Int>(...)`). A call without them, `totalArea([1, 2])`, is not checked and fails later, inside the function.
+Without explicit type arguments, only a parameter annotated with the type parameter itself (`x: T`) is checked against the constraint. `totalArea([1, 2])` has a `T[]` parameter, so nothing is checked when it is called, and it fails later, inside the function (`cannot read property 'area' of Int`).
 
 ### 10.4 Generic Interfaces
 

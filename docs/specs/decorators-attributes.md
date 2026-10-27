@@ -111,7 +111,7 @@ class User {
 }
 
 let annotations = Reflect.getAnnotations(User);
-print(annotations);   // [{"name": Entity, "args": []}, {"name": Table, "args": [users]}]
+print(annotations);   // [{"name": "Entity", "args": []}, {"name": "Table", "args": ["users"]}]
 ```
 
 `Reflect.getAnnotations` returns the annotations of a class or enum (or of an instance's class). Annotations on fields, such as `@Column("id")` here, and on functions are accepted but not returned.

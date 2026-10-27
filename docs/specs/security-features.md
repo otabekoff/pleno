@@ -46,7 +46,7 @@ The flags go before or after the file name: `pleno run --max-instructions 100000
 - `--allow-read <path>`, `--allow-write <path>`: allow reading or writing only paths that start with `<path>` (see the warning above). Can be repeated. `File.exists` is not restricted.
 - `--allow-network false`: deny `std:http` and `std:net`.
 
-Denied operations throw a `SecurityError` that a `catch` can handle. When a limit is exceeded the program stops.
+Denied operations throw a `SecurityError` that a `catch` can handle. When a limit is exceeded the program stops with `SandboxError: instruction limit exceeded` (or `memory limit exceeded`) and exit status 1: no `catch` or `finally` block runs, so a program cannot keep itself alive past its limit.
 
 #### Programmatic Sandbox
 

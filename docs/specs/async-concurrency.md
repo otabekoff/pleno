@@ -62,7 +62,7 @@ let results = await Promise.all([
     fetchData("b"),
     fetchData("c")
 ]);
-print(results);  // [data for a, data for b, data for c]
+print(results);  // ["data for a", "data for b", "data for c"]
 
 // Promise.race: the first to settle
 let fastest = await Promise.race([

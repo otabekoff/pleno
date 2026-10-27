@@ -64,7 +64,7 @@ class Person {
 }
 
 let person = Person("Alice", 30);
-print(Reflect.getFields(person));  // [age, name]
+print(Reflect.getFields(person));  // ["age", "name"]
 ```
 
 ### `getMethods(value: Class | Object): String[]`
@@ -80,7 +80,7 @@ class Person {
     static fn create(): Person { return Person(); }
 }
 
-print(Reflect.getMethods(Person));  // [constructor, create, greet]
+print(Reflect.getMethods(Person));  // ["constructor", "create", "greet"]
 ```
 
 ---
@@ -174,7 +174,7 @@ class User {
 let annotations = Reflect.getAnnotations(User);
 print(annotations.length);   // 2
 print(annotations[0].name);  // Entity
-print(annotations[1].args);  // [users]
+print(annotations[1].args);  // ["users"]
 ```
 
 ---

@@ -147,7 +147,7 @@ import { File, Directory } from "std:io";
 
 // The default form binds the whole module
 import math from "std:math";
-print(math.sin(math.PI / 2));   // 1
+print(math.sin(math.PI / 2));   // 1.0
 ```
 
 For the available modules, see the [Standard Library reference](/stdlib/).

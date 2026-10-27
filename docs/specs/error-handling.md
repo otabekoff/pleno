@@ -37,12 +37,36 @@ for (kind in ["network", "input", "other"]) {
 
 An error that nothing catches stops the program with exit status 1. It prints the message, the line that threw, and a backtrace of the calls that led there. A backtrace deeper than 60 calls shows the innermost 50 and the outermost 10, with a `... N more frames` line between them.
 
+### Limits
+
+| Limit | What happens |
+| --- | --- |
+| Calls nested more than 100,000 deep | `RecursionError: maximum call depth exceeded (100000 calls)`, which `catch` can handle |
+| Calls from built-in functions such as `map`, `filter` or `sort` back into Pleno nested more than 200 deep | `RecursionError` (`200 nested callbacks`), which `catch` can handle |
+| Brackets, blocks or `${...}` nested more than about 40 deep inside one expression | compile error `code nested too deeply` |
+| More than 1,000 operators and calls in one statement | compile error `expression too long` |
+| `--max-instructions`, `--max-memory` | `SandboxError`, which ends the program: no `catch` or `finally` runs (see [Security](./security-features.md)) |
+
+```pleno
+fn depth(n: Int): Int {
+    return depth(n + 1);
+}
+
+try {
+    depth(0);
+} catch (e) {
+    print(e.name);   // RecursionError
+}
+```
+
 ## What an error looks like
 
 Every error a `catch` receives from the runtime or from `throw Error(...)` is an `Error` instance with two String fields:
 
 - `message`: what went wrong, such as `division by zero`.
 - `name`: the kind of error. It is `Error` unless the runtime says more: `TypeError` for a value that does not match a type annotation, `SecurityError` for an operation a sandbox or permission flag denies, `SandboxError` for an exceeded instruction or memory limit (which ends the program; see [Security](./security-features.md)), `RecursionError` when calls nest more than 100,000 deep (or calls from built-in functions such as `map` back into Pleno more than 200 deep), `AssertionError` for a failed `assert`. For a class that extends `Error`, it is the class name.
+
+The `name` of a built-in error and the situations that throw it are part of the [compatibility promise](./compatibility.md); the wording of `message` is not, and can be improved in any release. Check `e.name` or catch by class, and do not parse messages. The messages quoted on these pages are today's wording.
 
 Printing an error, or putting it in a string, gives `name: message`. Because runtime errors are `Error` instances, `catch (e: Error)` handles them too:
 
@@ -136,13 +160,13 @@ fn divide(a: Float, b: Float): Result<Float, String> {
 }
 
 match (divide(10.0, 2.0)) {
-    case Ok(value) => print("Result: " + value),   // Result: 5
+    case Ok(value) => print("Result: " + value),   // Result: 5.0
     case Err(error) => print("Error: " + error)
 }
 
 let result = divide(1.0, 0.0);
 print(result.isErr());          // true
-print(result.unwrapOr(0.0));    // 0
+print(result.unwrapOr(0.0));    // 0.0
 ```
 
 `unwrap()` returns the value of an `Ok` and throws for an `Err`; `expect("message")` does the same with your message.

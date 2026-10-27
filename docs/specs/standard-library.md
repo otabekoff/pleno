@@ -6,10 +6,10 @@ These names are available in every program without an import:
 
 | Name | What it does |
 | --- | --- |
-| `print(...values, sep = " ", end = "\n")` | Writes the values to standard output, separated by `sep` and followed by `end` |
+| `print(...values, sep = " ", end = "\n")` | Writes the values to standard output, separated by `sep` and followed by `end`; see [How values print](./core-syntax-fundamentals.md#_1-5-how-values-print) |
 | `input(prompt?)` | Prints the prompt, reads a line from standard input and returns it without the newline |
 | `assert(condition, message?)` | Throws an `AssertionError` when the condition is false or `null` |
-| `typeof(value)` | The type name: `"Int"`, `"String"`, `"Array"`, a class name, ... |
+| `typeof(value)` | The type name: `"Int"`, `"String"`, `"Array"`, a class name, `"Function"`, ...; see [TypeOf](./core-syntax-fundamentals.md#_1-4-typeof-operator) |
 | `Int.parse(s)`, `Float.parse(s)` | Parse a number; throw for text that is not one |
 | `map`, `filter`, `reduce` | Function forms of the array methods, for the pipeline operator `\|>` |
 | `id(value)` | Returns its argument |
@@ -31,7 +31,7 @@ Every position and length counts Unicode characters (scalar values), not UTF-8 b
 | Operation | Positions out of range |
 | --- | --- |
 | `s[i]` | Error `string index out of bounds` when `i` is negative or not less than `length` |
-| `s[a..b]`, `s[a..=b]`, `s[a..]` | Positions are clamped to `0..length`; `b < a` gives `""` |
+| `s[a..b]`, `s[a..=b]`, `s[a..]` | A negative position counts from the end (`s[-3..]` is the last three characters); positions are then clamped to `0..length`, and `b < a` gives `""` |
 | `s.substring(start, end?)` | Like JavaScript: both are clamped to `0..length`, swapped when `start > end`; `end` defaults to `length` |
 | `s.charAt(i)` | `null` when `i` is negative or not less than `length` |
 | `s.indexOf(sub)` | The position of the first `sub`, `-1` when missing, `0` for `""` |
@@ -45,7 +45,7 @@ print(str.length);                    // 13
 print(str.toUpperCase());             // HELLO, WORLD!
 print(str.toLowerCase());             // hello, world!
 print("  padded  ".trim());           // padded
-print(str.split(","));                // [Hello,  World!]
+print(str.split(","));                // ["Hello", " World!"]
 print(str.contains("World"));         // true
 print(str.startsWith("Hello"));       // true
 print(str.endsWith("!"));             // true
@@ -63,7 +63,7 @@ print(word[1..3]);                    // él
 print(word.indexOf("l"));             // 2
 print(word.substring(0, 2));          // hé
 print(word.charAt(9));                // null
-print("a€😀".split(""));              // [a, €, 😀]
+print("a€😀".split(""));              // ["a", "€", "😀"]
 
 // String interpolation
 let name = "Alice";
@@ -86,12 +86,12 @@ import { Math } from "std:math";
 
 Math.abs(-5);           // 5
 Math.ceil(4.3);         // 5
-Math.floor(4.7);        // 4
+Math.floor(4.7);        // 4: floor, ceil and round return an Int
 Math.round(4.5);        // 5
-Math.max(1, 5, 3);      // 5
+Math.max(1, 5, 3);      // 5: any number of arguments; Ints stay Ints
 Math.min(1, 5, 3);      // 1
-Math.pow(2, 3);         // 8
-Math.sqrt(16);          // 4
+Math.pow(2, 3);         // 8.0 (a Float)
+Math.sqrt(16);          // 4.0
 Math.random();          // Random float between 0 and 1
 Math.randomInt(1, 10);  // Random int between 1 and 10
 Math.PI;                // 3.141592653589793
@@ -149,9 +149,9 @@ print(Directory.exists("box"));       // true
 File.write("box/a.txt", "a");
 Directory.create("box/inner");
 
-print(Directory.list("box"));             // [a.txt, inner]
-print(Directory.listFiles("box"));        // [a.txt]
-print(Directory.listDirectories("box"));  // [inner]
+print(Directory.list("box"));             // ["a.txt", "inner"]
+print(Directory.listFiles("box"));        // ["a.txt"]
+print(Directory.listDirectories("box"));  // ["inner"]
 Directory.delete("box/inner");            // Delete an empty folder
 
 // Recursive operations
