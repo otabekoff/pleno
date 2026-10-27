@@ -1245,6 +1245,7 @@ impl VM {
             let ip = if frame.ip > 0 { frame.ip - 1 } else { 0 };
             if let Some(span) = func.chunk.spans.get(ip) {
                 err.span = Some(*span);
+                err.file = func.module_path.as_deref().cloned();
             }
         }
         if err.stack_trace.is_empty() {
@@ -1282,6 +1283,7 @@ impl VM {
             Some(pleno_value::StackFrame {
                 function_name: (*func.name).clone(),
                 span: func.chunk.spans.get(ip).copied(),
+                file: func.module_path.as_deref().cloned(),
             })
         };
         let count = self.frames.len();
@@ -1697,8 +1699,7 @@ impl VM {
                     if err.fatal || err.message.contains("uncaught exception") {
                         return Err(err);
                     }
-                    let message = err.message.clone();
-                    let unwound = self.throw_runtime_error(&message);
+                    let unwound = self.rethrow(err);
                     if unwound.handled {
                         continue;
                     }
@@ -7276,7 +7277,15 @@ impl VM {
             .strip_prefix("uncaught exception: ")
             .unwrap_or(&err.message)
             .to_string();
-        self.throw_runtime_error(&message)
+        let mut unwound = self.throw_runtime_error(&message);
+        // An error in another file's text (a module that does not parse)
+        // keeps its place there when nothing catches it, rather than
+        // pointing at the instruction that loaded the module.
+        if !unwound.handled && err.file.is_some() {
+            unwound.span = err.span;
+            unwound.file = err.file;
+        }
+        unwound
     }
 
     /// The error `with` throws for a resource, in register `at`, that has no
@@ -7690,15 +7699,25 @@ impl VM {
         let source = fs::read_to_string(&resolved).map_err(|err| {
             RuntimeError::new(format!("failed to read module {resolved_key}: {err}"))
         })?;
-        let tokens = pleno_lexer::lex(&source).map_err(|err| RuntimeError::new(err.message))?;
+        // An error in the module's text points into the module, not at the
+        // `import` that loaded it.
+        let in_module = |message: String, span: Option<pleno_common::Span>| {
+            let mut err = RuntimeError::new(message);
+            err.span = span;
+            err.file = Some(resolved_key.clone());
+            err
+        };
+        let tokens =
+            pleno_lexer::lex(&source).map_err(|err| in_module(err.message, Some(err.span)))?;
         let mut parser = pleno_parser::Parser::new(tokens, &source);
         let mut program = parser
             .parse_program()
-            .map_err(|err| RuntimeError::new(err.message))?;
+            .map_err(|err| in_module(err.message, Some(err.span)))?;
         let mut compiler = pleno_compiler::Compiler::new(source);
-        let chunk = compiler
-            .compile_module(&mut program)
-            .map_err(|err| RuntimeError::new(err.diagnostic.message))?;
+        let chunk = compiler.compile_module(&mut program).map_err(|err| {
+            let span = err.diagnostic.labels.first().map(|label| label.span);
+            in_module(err.diagnostic.message, span)
+        })?;
         let module_name = chunk
             .module_name
             .clone()
