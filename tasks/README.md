@@ -5,6 +5,7 @@ How work on Pleno is tracked. Every open item says what exists and what is missi
 | File | What it holds |
 | --- | --- |
 | [`v1.md`](v1.md) | Everything Pleno needs before a stable 1.0 release, in priority order |
+| [`distribution.md`](distribution.md) | Releases, signing, package managers and the VS Code extension stores: what each channel has and what is left |
 | [`later.md`](later.md) | Planned work after 1.0 |
 | [`ideas.md`](ideas.md) | Ideas and open questions, not yet planned |
 | [`done.md`](done.md) | What was finished, by date |
