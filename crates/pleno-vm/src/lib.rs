@@ -1799,11 +1799,10 @@ impl VM {
         let debugging = self.debug_context.is_active();
         // The instruction `run_fast` last stopped at without running anything.
         let mut fast_skip: Option<(usize, usize)> = None;
-        // The instruction counts at which the sandbox limits and the tables of
-        // strings and big integers are checked next. Fused instructions and
-        // `run_fast` add more than one to the count, so a check on every
-        // hundredth count could be stepped over for good.
-        let mut next_limit_check = self.instruction_count;
+        // The instruction count at which the tables of strings and big integers
+        // are checked next. Fused instructions and `run_fast` add more than one
+        // to the count, so a check on every 128th count could be stepped over
+        // for good.
         let mut next_boxed_check = self.instruction_count;
         // The instruction after the one at `ip`, for instructions that also run
         // the following one they produce the input of (fused, saving a round
@@ -1931,11 +1930,14 @@ impl VM {
             frame.ip += 1;
 
             self.instruction_count += 1;
-            if let Some(config) = &self.sandbox_config
-                && self.instruction_count >= next_limit_check
-            {
-                next_limit_check = self.instruction_count + 100;
+            // Both limits are checked on every instruction, as `run_fast` does.
+            if let Some(config) = &self.sandbox_config {
                 if config.max_instructions > 0 && self.instruction_count > config.max_instructions {
+                    // The two loops count fused instructions at different
+                    // points, so where each passes the limit differs by an
+                    // instruction or two; a stopped program has used exactly
+                    // one more than its limit either way.
+                    self.instruction_count = config.max_instructions + 1;
                     return Err(self.sandbox_limit_error("instruction limit exceeded"));
                 }
                 if config.max_memory > 0

@@ -263,6 +263,24 @@ fn sandbox_limits_hold_in_the_fast_loop() {
             .unwrap_err();
         assert!(err.contains("memory limit exceeded"), "fast={fast}: {err}");
     }
+    // A program stopped by the limit stops at the same count both ways (found by
+    // fuzzing: the general loop checked the limit only every 100 instructions).
+    let recursion =
+        "fn fib(n) { if (n <= 0) { return n; } return fib(n - 1) + fib(n - 2); } print(fib(20));";
+    for limit in [200_000, 100_001, 12_345] {
+        let fast = run_limited(recursion, true, limit, 0);
+        assert!(
+            fast.result
+                .as_ref()
+                .unwrap_err()
+                .contains("instruction limit exceeded")
+        );
+        assert_eq!(
+            fast,
+            run_limited(recursion, false, limit, 0),
+            "limit {limit}"
+        );
+    }
     // Under limits it does not reach, a program gives the same result both ways.
     let program =
         "fn fib(n) { if (n < 2) { return n; } return fib(n - 1) + fib(n - 2); } print(fib(15));";
