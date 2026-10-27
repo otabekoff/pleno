@@ -1,6 +1,45 @@
 # Done
 
-What was finished, newest first. Open work is in `v1.md` and `later.md`.
+What was finished, newest first. Open work is in `v1.md`, `distribution.md` and `later.md`.
+
+## 2026-10-27
+- [x] Memory after a run (#60): dropping a VM frees every value it allocated, reference cycles included (#147), also cycles stored on the `Error` class (#149). Fuzzing runs with leak detection again (#155).
+- [x] `==` compares arrays, tuples, maps and sets by contents, as `assert.equal` already did (#159)
+- [x] Release 0.3.0: six targets, `.deb`, `.vsix` and Docker image, signed with cosign; the Homebrew tap updates itself; Scoop bucket at 0.3.0; package manifests in `packaging/` point at 0.3.0 (#146, #151)
+- [x] Deep call chains and nested string interpolations are parse errors instead of stack overflows (#153); method values print without a memory address (#128)
+- [x] `@pure` functions can build array, map and set literals (#142)
+- [x] Language server: integration tests (`crates/pleno-lsp/tests/server.rs`) and workspace symbol search
+
+## 2026-10-26
+- [x] Differences between the language reference and the implementation fixed: `!=` uses `operator ==` and a sandbox limit cannot be caught (#68), string positions count characters (#76), sandbox path rules normalize paths and `File.exists` is restricted (#74), `@deprecated` warns (#101), generic constraints are checked for inferred type arguments and `T: Comparable` accepts `Int` (#105)
+- [x] Std library gaps: `Regex` flags, `CSV.parse(text, { header: false })`, JWT `exp`/`nbf`/`alg` checks with constant-time comparison, `JSON.stringify` of class instances and sets, `XML.parse` errors, HTTP `HEAD`, number and Bool map literal keys (#103)
+- [x] Error messages end with `; did you mean 'x'?` for close names (#113)
+- [x] Destructuring patterns in `for` loops (#115); checked parameter annotations on lambdas (#119); inclusive `a[..=end]` slices (#121)
+- [x] Runaway recursion and very long expressions are errors, not crashes (#78, #111); errors deep in the stack stay fast (#117)
+- [x] A module cannot read the top-level names of the program that imports it
+
+## 2026-10-25
+- [x] Formatter keeps lines within 100 characters, breaking at the outermost call, literal, parameter list, import list, method chain or operator chain; a round-trip test formats every test, example and docs block (#70)
+- [x] One error shape: every caught error is an `Error` instance with `name` and `message`, caught by `catch (e: Error)`; VM statistics moved to `vmStats()` in `std:reflect`
+- [x] Destructuring in `let` (tuples, arrays with `...rest`, nesting, `_`) and tuple type annotations
+- [x] Bytecode format version: `.plc` files start with `PLNC` and `BYTECODE_FORMAT_VERSION`; other versions and truncated files are rejected
+- [x] Class and module rules enforced: imports bind only what they list, `internal`, inherited `protected`/`private`, abstract methods, `static const` and `const` fields
+- [x] Runtime type annotations: `Int` to `Float`, return checks at every `return`, intersection types, `&mut` parameters cannot be reassigned
+- [x] Int and Float equality as in Python (`5.0 == 5`, `9007199254740993 != 9007199254740992.0`)
+- [x] Std library stability: every module marked stable or experimental in `docs/stdlib/index.md`
+- [x] Language reference checked claim by claim; unimplemented designs moved to `notes/v2-draft.md`; `docs/specs/compatibility.md` written
+- [x] Speed: faster than CPython 3.14 on every benchmark. Seconds, release build, best of 9 interleaved runs on one Windows machine, process start included (about 20 ms for Pleno, 35 ms for CPython):
+
+  | Benchmark | Pleno before | Pleno after | CPython 3.14 |
+  | --- | --- | --- | --- |
+  | `bench/cases/fib` (fib(30)) | 0.151 | 0.090 | 0.099 |
+  | `bench/cases/loop` (1M steps) | 0.040 | 0.029 | 0.078 |
+  | `bench/cases/string` | 0.042 | 0.018 | 0.029 |
+  | `bench/cases/collection` | 0.020 | 0.016 | 0.030 |
+  | `bench/src/fib` | 0.118 | 0.074 | 0.080 |
+  | `bench/src/loop` (10M steps) | 0.249 | 0.186 | 0.391 |
+  | `bench/src/array` (1M elements) | 0.481 | 0.156 | 0.170 |
+  | fib(27) plus a 3-million-step loop | 0.102 | 0.060 | 0.163 |
 
 ## 2026-10-24
 - [x] Compound assignment operators (`+=`, `-=`, `*=`, `/=`, `%=`)
