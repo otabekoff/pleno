@@ -645,7 +645,7 @@ fn run_single_test(
     let is_expected_compile_error = source.contains("// EXPECT_COMPILE_ERROR");
     let is_expected_runtime_error = source.contains("// EXPECT_RUNTIME_ERROR");
 
-    let compiler = pleno_compiler::Compiler::new(source);
+    let compiler = pleno_compiler::Compiler::new(source.clone());
     let chunk = match compiler.with_profile(profile).compile(&mut program) {
         Ok(chunk) => {
             if is_expected_compile_error {
@@ -763,20 +763,40 @@ fn run_single_test(
                     "message": "Expected runtime error occurred"
                 }));
             } else {
+                let location = error_location(&err, &path.display().to_string(), &source);
                 if !json_output {
                     println!("{}", style::red(Stream::Stdout, "FAILED (Runtime Error)"));
                     eprintln!("  Runtime error: {}", err.message);
+                    if let Some(location) = &location {
+                        eprintln!("    --> {location}");
+                    }
                 }
                 stats.failed += 1;
                 stats.results.push(serde_json::json!({
                     "file": path.display().to_string(),
                     "status": "failed",
                     "error_type": "runtime",
-                    "message": err.message
+                    "message": err.message,
+                    "location": location
                 }));
             }
         }
     }
+}
+
+/// `file:line:col` of a runtime error: in the module it names, or in the
+/// main program `main` with text `source`.
+fn error_location(err: &pleno_value::RuntimeError, main: &str, source: &str) -> Option<String> {
+    let span = err.span?;
+    let (file, text) = match &err.file {
+        Some(file) => (display_path(file), fs::read_to_string(file).ok()?),
+        None => (main.to_string(), source.to_string()),
+    };
+    if span.start > text.len() {
+        return None;
+    }
+    let (line, col) = get_line_col(&text, span.start);
+    Some(format!("{file}:{line}:{col}"))
 }
 
 fn debug_ast(path: &str) {
@@ -907,31 +927,54 @@ fn execute_main_chunk(
             process::exit(err.exit_status().unwrap_or(0));
         }
         Ok(Err(err)) => {
-            match source {
-                Some((_, source_map)) => eprintln!(
+            // An error in an imported module is shown in that module's text.
+            let module_map = err.file.as_deref().and_then(|file| {
+                let text = fs::read_to_string(file).ok()?;
+                Some(pleno_diagnostics::SourceMap::new(display_path(file), text))
+            });
+            match (&module_map, source) {
+                (Some(map), _) => {
+                    eprintln!("{}", DiagnosticReporter::report(&err.to_diagnostic(), map))
+                }
+                (None, Some((_, source_map))) if err.file.is_none() => eprintln!(
                     "{}",
                     DiagnosticReporter::report(&err.to_diagnostic(), source_map)
                 ),
-                None => eprintln!("{} {}", style::red(Stream::Stderr, "Error:"), err.message),
+                _ => eprintln!("{} {}", style::red(Stream::Stderr, "Error:"), err.message),
             }
 
-            // Manual stack trace printing for now as Diagnostic doesn't support it fully yet
             if !err.stack_trace.is_empty() {
                 eprintln!("\nStack backtrace:");
+                // Each frame's position is in its own file: the main
+                // program's, or a module's, read once.
+                let mut module_sources: std::collections::HashMap<String, Option<String>> =
+                    std::collections::HashMap::new();
                 for frame in err.stack_trace {
-                    if let Some(span) = frame.span {
-                        // Fallback line calculation if outside main file?
-                        // For now assume main file or just print span
-                        if let Some((source, _)) = source
-                            && span.end <= source.len()
-                        {
-                            let (line, col) = get_line_col(source, span.start);
-                            eprintln!("  at {} ({}:{})", frame.function_name, line, col);
-                        } else {
-                            eprintln!("  at {} (unknown location)", frame.function_name);
-                        }
-                    } else {
+                    let Some(span) = frame.span else {
                         eprintln!("  {}", frame.describe());
+                        continue;
+                    };
+                    let (text, file) = match &frame.file {
+                        Some(file) => (
+                            module_sources
+                                .entry(file.clone())
+                                .or_insert_with(|| fs::read_to_string(file).ok())
+                                .clone(),
+                            Some(display_path(file)),
+                        ),
+                        None => (source.map(|(text, _)| text.to_string()), None),
+                    };
+                    match (text, file) {
+                        (Some(text), file) if span.end <= text.len() => {
+                            let (line, col) = get_line_col(&text, span.start);
+                            match file {
+                                Some(file) => {
+                                    eprintln!("  at {} ({file}:{line}:{col})", frame.function_name)
+                                }
+                                None => eprintln!("  at {} ({line}:{col})", frame.function_name),
+                            }
+                        }
+                        _ => eprintln!("  at {} (unknown location)", frame.function_name),
                     }
                 }
             }
@@ -942,6 +985,23 @@ fn execute_main_chunk(
             process::exit(1);
         }
     }
+}
+
+/// A module path as errors show it: relative to the current folder when it
+/// is inside it, and without the `\\?\` prefix of a canonical Windows path.
+fn display_path(file: &str) -> String {
+    let plain = |p: &str| p.strip_prefix(r"\\?\").unwrap_or(p).to_string();
+    let file = plain(file);
+    std::env::current_dir()
+        .ok()
+        .and_then(|dir| {
+            let dir = plain(&std::fs::canonicalize(&dir).unwrap_or(dir).to_string_lossy());
+            std::path::Path::new(&file)
+                .strip_prefix(&dir)
+                .ok()
+                .map(|relative| relative.to_string_lossy().to_string())
+        })
+        .unwrap_or(file)
 }
 
 fn get_line_col(source: &str, offset: usize) -> (usize, usize) {
