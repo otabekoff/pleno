@@ -1,0 +1,112 @@
+name: Bug report
+description: Pleno, plm, the language server, the debugger or the VS Code extension does not work as documented.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting it. Please search the [open issues](https://github.com/otabekoff/pleno/issues) first.
+
+        **Security problems:** do not open a public issue. Report them privately as described in [SECURITY.md](https://github.com/otabekoff/pleno/blob/main/SECURITY.md).
+
+  - type: dropdown
+    id: component
+    attributes:
+      label: Where is the bug?
+      options:
+        - Language (parser, compiler, type checks, error messages)
+        - Runtime (wrong result, crash, slow program)
+        - Standard library
+        - plm (packages, pleno.toml, pleno.lock)
+        - pleno check, pleno fmt, pleno test or another command
+        - REPL
+        - Language server or VS Code extension
+        - Debugger (pleno-dap)
+        - Playground
+        - Installation or release archives
+        - Not sure
+    validations:
+      required: true
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you did and what went wrong, in a sentence or two.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: The smallest program that shows it
+      description: Cut the program down until removing anything more makes the bug go away. It is turned into a code block for you.
+      render: text
+      placeholder: |
+        let xs = [1, 2, 3]
+        print(xs[5])
+    validations:
+      required: true
+
+  - type: input
+    id: command
+    attributes:
+      label: Command you ran
+      placeholder: pleno run main.pln
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: What you got
+      description: The full output or error message, unedited.
+      render: text
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Pleno version
+      description: The output of `pleno --version`.
+      placeholder: pleno 0.3.0
+    validations:
+      required: true
+
+  - type: dropdown
+    id: install
+    attributes:
+      label: How you installed it
+      options:
+        - Install script
+        - Homebrew
+        - Scoop
+        - winget
+        - .deb package
+        - Release archive by hand
+        - Docker
+        - Built from source
+        - Not installed (playground)
+    validations:
+      required: true
+
+  - type: input
+    id: os
+    attributes:
+      label: Operating system and version
+      placeholder: Windows 11, Ubuntu 22.04, macOS 15
+    validations:
+      required: true
+
+  - type: input
+    id: editor
+    attributes:
+      label: VS Code and extension version
+      description: Only if the bug is in the extension or the language server.
+      placeholder: VS Code 1.105, Pleno extension 0.3.0
