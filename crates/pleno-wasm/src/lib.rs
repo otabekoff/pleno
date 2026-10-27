@@ -48,7 +48,7 @@ pub fn run(bytecode: Vec<u8>) -> Result<String, String> {
     pleno_stdlib::register(&mut vm);
 
     // `exit(0)` ends the program normally; another code is an error.
-    match vm.execute(chunk).or_else(|e| match e.exit_code {
+    match vm.execute(chunk).or_else(|e| match e.exit_status() {
         Some(0) => Ok(pleno_value::Value::Null),
         _ => Err(e),
     }) {
@@ -136,7 +136,7 @@ fn run_with_limit(source: String, max_instructions: u64) -> String {
     pleno_stdlib::register(&mut vm);
     // The count is per thread, and the playground's worker runs many programs.
     pleno_stdlib::test::take_failures();
-    let outcome = vm.execute(chunk).or_else(|e| match e.exit_code {
+    let outcome = vm.execute(chunk).or_else(|e| match e.exit_status() {
         Some(0) => Ok(pleno_value::Value::Null),
         _ => Err(e),
     });

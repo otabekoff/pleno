@@ -92,6 +92,8 @@ pub struct VM {
     /// The built-in `Error` class, which runtime errors are instances of even
     /// when a program shadows the global `Error`.
     pub error_class: GcRc<Class>,
+    /// The built-in `SystemExit` class that `exit(code)` throws.
+    system_exit_class: GcRc<Class>,
     /// Where `GetGlobal` found each name last time, per function and constant
     /// index: an index into `globals` plus one (0 = not looked up yet). The
     /// name at that index is checked before use, so a stale entry only costs
@@ -486,6 +488,7 @@ impl VMProvider for VM {
         self.gc.collect_garbage_with(|gc| {
             // Mark all reachable objects
             Value::Class(self.error_class.clone()).mark(gc);
+            Value::Class(self.system_exit_class.clone()).mark(gc);
             for val in self.registers.iter() {
                 val.mark(gc);
             }
@@ -946,6 +949,13 @@ impl VM {
             pleno_value::ERROR_CLASS.to_string(),
             Value::Class(error_class.clone()),
         );
+        let system_exit_class = gc
+            .allocate(Class::system_exit(error_class.clone()))
+            .expect("the SystemExit class fits in a new heap");
+        globals.insert(
+            pleno_value::SYSTEM_EXIT_CLASS.to_string(),
+            Value::Class(system_exit_class.clone()),
+        );
 
         Self {
             sandbox_config: None,
@@ -981,6 +991,7 @@ impl VM {
             debug_context: DebugContext::new(),
             output: None,
             error_class,
+            system_exit_class,
             global_slots: Vec::new(),
             method_sites: Vec::new(),
             method_sites_resolver: None,
@@ -7058,7 +7069,27 @@ impl VM {
                 return Err(RuntimeError::handled());
             }
         }
+        // A `SystemExit` nothing caught ends the program with its code.
+        if let Some(code) = self.system_exit_code(&error_value) {
+            return Err(RuntimeError::exit(code));
+        }
         Err(uncaught)
+    }
+
+    /// The code of a `SystemExit` instance.
+    fn system_exit_code(&self, value: &Value) -> Option<i32> {
+        let Value::Object(object) = value else {
+            return None;
+        };
+        let object = object.borrow();
+        let class = object.class.as_ref()?;
+        if class.as_ptr() != self.system_exit_class.as_ptr() {
+            return None;
+        }
+        match object.fields.get("code") {
+            Some(Value::Int(code)) => i32::try_from(*code).ok(),
+            _ => None,
+        }
     }
 
     /// The promise an async function frame settles; its ID is the last argument.
@@ -7143,7 +7174,20 @@ impl VM {
     /// It is allocated outside the memory limit, so it can always be thrown.
     fn new_error(&mut self, message: &str) -> Value {
         let (name, message) = pleno_value::split_error_message(message);
-        let mut object = Object::new(Some(self.error_class.clone()), None);
+        // `exit(code)` (see `RuntimeError::exit`): a `SystemExit` with its code.
+        let exit_code = (name == pleno_value::SYSTEM_EXIT_CLASS)
+            .then(|| RuntimeError::exit_code_in(&format!("SystemExit: {message}")))
+            .flatten();
+        let class = match exit_code {
+            Some(_) => self.system_exit_class.clone(),
+            None => self.error_class.clone(),
+        };
+        let mut object = Object::new(Some(class), None);
+        if let Some(code) = exit_code {
+            object
+                .fields
+                .insert("code".to_string(), Value::Int(code as i64));
+        }
         object.fields.insert(
             "message".to_string(),
             Value::String(Rc::new(message.to_string())),

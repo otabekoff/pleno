@@ -164,8 +164,15 @@ pub fn sandbox_run(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, Run
 
     // A limit is fatal inside the sandbox, so the sandboxed code cannot catch
     // it; the program that started the sandbox gets an error it can catch.
+    // `exit(code)` in the sandbox ends only the sandboxed function: the
+    // caller gets an error it can catch, not an exit of its own.
     sandbox_vm.call(func.clone(), Vec::new()).map_err(|err| {
-        if err.fatal {
+        let exit_code = err
+            .exit_code
+            .or_else(|| RuntimeError::exit_code_in(&err.message));
+        if let Some(code) = exit_code {
+            RuntimeError::new(format!("program exited with code {code}"))
+        } else if err.fatal {
             RuntimeError::new(err.message)
         } else {
             err

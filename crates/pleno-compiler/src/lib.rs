@@ -2553,7 +2553,8 @@ impl Compiler {
         let mut end_jumps = Vec::new();
 
         for catch in catch_branches {
-            let mut next_catch_jump = None;
+            // Where a catch that does not apply jumps: to the next catch.
+            let next_catch_jump;
             if let Some(ty_name) = &catch.ty {
                 let type_reg = self.registers.allocate()?;
                 // Try to resolve as global or treat as primitive name
@@ -2578,6 +2579,20 @@ impl Compiler {
 
                 self.free_temp(type_reg);
                 self.free_temp(is_match_reg);
+            } else {
+                // An untyped `catch` lets `exit(code)`'s `SystemExit` through, so
+                // the program still ends; `finally` and `with` closes run on the
+                // way. `catch (e: SystemExit)` catches it on purpose.
+                let type_reg = self.registers.allocate()?;
+                let name_idx = self.add_constant(Value::String(
+                    pleno_value::SYSTEM_EXIT_CLASS.to_string().into(),
+                ));
+                self.emit(Opcode::GetGlobal, type_reg, name_idx, 0);
+                let is_exit_reg = self.registers.allocate()?;
+                self.emit(Opcode::Is, is_exit_reg, error_reg, type_reg);
+                next_catch_jump = Some(self.emit_jump(Opcode::JumpIf, is_exit_reg));
+                self.free_temp(type_reg);
+                self.free_temp(is_exit_reg);
             }
 
             self.push_scope();

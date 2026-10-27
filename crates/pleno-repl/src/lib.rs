@@ -469,9 +469,9 @@ fn execute_line(vm: &mut VM, line: &str) {
                 println!("=> {}", value);
             }
         }
-        Err(err) if err.exit_code.is_some() => {
+        Err(err) if err.exit_status().is_some() => {
             // `exit(code)` ends the REPL session.
-            std::process::exit(err.exit_code.unwrap_or(0));
+            std::process::exit(err.exit_status().unwrap_or(0));
         }
         Err(err) => {
             let diag = if let Some(span) = err.span {
