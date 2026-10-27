@@ -1,4 +1,66 @@
+use pleno_ast::visitor::{walk_expr, walk_stmt, Visitor};
 use pleno_ast::*;
+
+/// The most AST nodes an unrolled loop may produce: iterations times the
+/// size of its body. Without it, nested constant loops multiply: eleven
+/// `for (let i = 0; i < 3; i = i + 1)` loops inside each other unrolled to
+/// 3^11 copies of the innermost body and the compiler ran out of memory.
+const MAX_UNROLLED_NODES: usize = 256;
+
+/// What unrolling needs to know about a loop body: its size in AST nodes and
+/// whether it assigns the loop variable (`i = ...`, `i++`), which the
+/// unrolled `let` copies could not do.
+struct BodyFacts<'a> {
+    name: &'a str,
+    nodes: usize,
+    assigns_name: bool,
+}
+
+impl BodyFacts<'_> {
+    fn of<'a>(name: &'a str, body: &Stmt) -> BodyFacts<'a> {
+        let mut facts = BodyFacts {
+            name,
+            nodes: 0,
+            assigns_name: false,
+        };
+        facts.visit_stmt(body);
+        facts
+    }
+
+    /// Whether `count` copies of the body stay within the budget and keep
+    /// the program's meaning.
+    fn allow(&self, count: usize) -> bool {
+        !self.assigns_name && self.nodes.saturating_mul(count) <= MAX_UNROLLED_NODES
+    }
+}
+
+impl<'ast> Visitor<'ast> for BodyFacts<'_> {
+    fn visit_stmt(&mut self, stmt: &'ast Stmt) {
+        self.nodes += 1;
+        if matches!(&stmt.kind, StmtKind::Assign { name, .. } if name == self.name) {
+            self.assigns_name = true;
+        }
+        walk_stmt(self, stmt)
+    }
+
+    fn visit_expr(&mut self, expr: &'ast Expr) {
+        self.nodes += 1;
+        if let ExprKind::Unary {
+            op:
+                UnaryOp::PreIncrement
+                | UnaryOp::PostIncrement
+                | UnaryOp::PreDecrement
+                | UnaryOp::PostDecrement,
+            expr: target,
+        } = &expr.kind
+        {
+            if matches!(&target.kind, ExprKind::Ident(n) if n == self.name) {
+                self.assigns_name = true;
+            }
+        }
+        walk_expr(self, expr)
+    }
+}
 
 /// Loop Unrolling Optimizer
 /// Unrolls small, constant-bound loops to reduce loop overhead.
@@ -184,7 +246,10 @@ impl LoopUnroller {
                 (end_val - start_val) as usize
             };
 
-            if count == 0 || count > self.max_unroll_iterations {
+            if count == 0
+                || count > self.max_unroll_iterations
+                || !BodyFacts::of(name, body).allow(count)
+            {
                 return None;
             }
 
@@ -255,7 +320,10 @@ impl LoopUnroller {
             (end_val - start_val) as usize
         };
 
-        if count == 0 || count > self.max_unroll_iterations {
+        if count == 0
+            || count > self.max_unroll_iterations
+            || !BodyFacts::of(&name, body).allow(count)
+        {
             return None;
         }
 
