@@ -243,21 +243,20 @@ jobs:
 
       - name: Prepare Binaries
         run: |
-          ls -R
-          mkdir -p binaries/amd64 binaries/arm64
-          
-          # Use find to locate binaries regardless of directory structure
-          cp $(find bin-amd64 -name "pleno" -type f | head -n 1) binaries/amd64/pleno
-          cp $(find bin-amd64 -name "plm" -type f | head -n 1) binaries/amd64/plm
-          cp $(find bin-amd64 -name "pleno-lsp" -type f | head -n 1) binaries/amd64/pleno-lsp
-          cp $(find bin-amd64 -name "pleno-repl" -type f | head -n 1) binaries/amd64/pleno-repl
-          
-          cp $(find bin-arm64 -name "pleno" -type f | head -n 1) binaries/arm64/pleno
-          cp $(find bin-arm64 -name "plm" -type f | head -n 1) binaries/arm64/plm
-          cp $(find bin-arm64 -name "pleno-lsp" -type f | head -n 1) binaries/arm64/pleno-lsp
-          cp $(find bin-arm64 -name "pleno-repl" -type f | head -n 1) binaries/arm64/pleno-repl
-          
-          chmod +x binaries/*/pleno binaries/*/plm binaries/*/pleno-lsp binaries/*/pleno-repl
+          # Every tool the archives ship; find locates them wherever the
+          # artifact put them, and a missing one fails the job.
+          for arch in amd64 arm64; do
+            mkdir -p "binaries/$arch"
+            for tool in pleno plm pleno-lsp pleno-dap pleno-repl; do
+              found=$(find "bin-$arch" -name "$tool" -type f | head -n 1)
+              if [ -z "$found" ]; then
+                echo "::error::$tool not found in the $arch artifact"
+                exit 1
+              fi
+              cp "$found" "binaries/$arch/$tool"
+            done
+          done
+          chmod +x binaries/*/*
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4

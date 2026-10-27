@@ -1,52 +1,42 @@
-# Multi-stage Dockerfile for Pleno
-# Build stage: compile Pleno from source
-FROM rust:1.82-slim-bookworm AS builder
+# Builds Pleno from source: `docker build -t pleno .`
+# (The release images are made from the prebuilt binaries by Dockerfile.release.)
+
+# Build stage. The workspace uses edition 2024, so it needs a current stable Rust.
+FROM rust:1-slim-bookworm AS builder
 
 WORKDIR /app
 
-# Install build dependencies
-RUN apt-get update && apt-get install -y \
-    pkg-config \
-    libssl-dev \
-    && rm -rf /var/lib/apt/lists/*
-
-# Copy source code
+# Everything the build reads: the crates and the Windows metadata their build
+# scripts include.
 COPY Cargo.toml Cargo.lock ./
+COPY build ./build
 COPY crates ./crates
 
-# Build release binaries
-RUN cargo build --release --workspace
+RUN cargo build --release --locked -p pleno-cli -p pleno-lsp -p pleno-dap -p pleno-repl
 
-# Runtime stage: minimal image with just the binaries
+# Runtime stage: the binaries on the same Debian release they were built on.
 FROM debian:bookworm-slim
 
-# Install runtime dependencies
-RUN apt-get update && apt-get install -y \
+# HTTPS (std:http, plm over Git) needs the CA certificates.
+RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
-    libssl3 \
+    git \
     && rm -rf /var/lib/apt/lists/*
 
-# Create non-root user
 RUN useradd -m -s /bin/bash pleno
 
-# Copy binaries from builder
-COPY --from=builder /app/target/release/pleno /usr/local/bin/pleno
-COPY --from=builder /app/target/release/plm /usr/local/bin/plm
+COPY --from=builder /app/target/release/pleno /app/target/release/plm \
+    /app/target/release/pleno-lsp /app/target/release/pleno-dap \
+    /app/target/release/pleno-repl /usr/local/bin/
 
-# Set ownership
-RUN chown pleno:pleno /usr/local/bin/pleno /usr/local/bin/plm
-
-# Create workspace directory
 WORKDIR /workspace
 RUN chown pleno:pleno /workspace
 
-# Switch to non-root user
 USER pleno
 
-# Default command: start REPL
+# Default command: start the REPL
 CMD ["pleno", "repl"]
 
-# Labels for container metadata
 LABEL org.opencontainers.image.title="Pleno"
 LABEL org.opencontainers.image.description="Pleno Programming Language Runtime"
 LABEL org.opencontainers.image.source="https://github.com/otabekoff/pleno"
