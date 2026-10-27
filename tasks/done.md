@@ -3,6 +3,8 @@
 What was finished, newest first. Open work is in `v1.md`, `distribution.md` and `later.md`.
 
 ## 2026-10-27
+- [x] Linux release binaries need only glibc 2.17: built with cargo-zigbuild, checked in CI, and run on CentOS 7 (#207); every GitHub Action and CI tool pinned to an exact commit or version (#215, #217)
+- [x] Fuzzing finds fixed: the instruction limit always stops a loop, `super()` into a closure constructor, a class in a function extending another one there (#213); a self-connecting TCP test (#211)
 - [x] Repository review before 1.0 (outside `docs/`): a package scaffold named `--help` and 31 MB of compiled benchmark programs removed, the unused `pleno-runtime` crate and unused dependencies dropped, every crate on the workspace version, edition and license; the Docker images build and start (Debian 13 base for the glibc 2.39 release binaries, all five tools); the install scripts take `PLENO_HOME`, `PLENO_VERSION` and `PLENO_NO_MODIFY_PATH`; `make sync` no longer resets the version to 0.1.0; the debug adapter no longer panics on requests without arguments; READMEs, contributing guide, security policy and issue templates brought up to date
 - [x] Publishing automation merged: Scoop and WinGet release jobs (#161) and `publish-extension.yml` for the VS Code Marketplace and Open VSX (#163); they first run on the next release tag
 - [x] `Server.listen` binds `127.0.0.1` by default, `host:` chooses the address (#189); the optimizer's loop unrolling stays within a size budget (#191); `exit()` unwinds the program instead of ending the host process (#183) and throws a `SystemExit` that runs `finally` and `with` cleanup (#197); more than 256 functions in a file no longer call the wrong one (#195)
