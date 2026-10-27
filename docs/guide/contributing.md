@@ -1,369 +1,102 @@
-# Pleno Developer Guide
+# Contributing
 
-Welcome to the Pleno programming language development guide! This document provides everything you need to build, test, and contribute to Pleno.
+This page explains how to build Pleno from source, run the same checks as CI, and send a change. Changes of every size are welcome: a typo in these docs, a test, a bug fix or a new feature. Everyone with a merged change is listed on the [team and contributors](/team) page.
 
-## Table of Contents
+For a change to the language or the standard library, open an [issue](https://github.com/otabekoff/pleno/issues) first that describes the problem and the behavior you propose, so it can be discussed before you write the code. The 1.x language reference is frozen: additions are possible, changes to documented behavior are not (see the [compatibility promise](/specs/compatibility)).
 
-- [Getting Started](#getting-started)
-- [Project Structure](#project-structure)
-- [Development Workflow](#development-workflow)
-- [Testing](#testing)
-- [Code Quality](#code-quality)
-- [Architecture Overview](#architecture-overview)
-- [Contributing](#contributing)
+## What you need
 
----
+- [Rust](https://rustup.rs), stable, with `rustfmt` and `clippy` (`rustup component add rustfmt clippy`).
+- Git.
+- [Bun](https://bun.sh), for the commit hooks and the documentation site.
+- Python 3, for the script that runs the examples in these docs.
+- Node.js, for the VS Code extension in `ide/vscode` and the playground's smoke test.
 
-## Getting Started
+## Build and run
 
-### Prerequisites
-
-- **Rust** 1.70+ (install via [rustup](https://rustup.rs/))
-- **Git** for version control
-- **Node.js** 18+ (for documentation site)
-
-### Building from Source
-
-```bash
-# Clone the repository
+```sh
 git clone https://github.com/otabekoff/pleno.git
 cd pleno
-
-# Build the project
-cargo build
-
-# Build optimized release version
-cargo build --release
-
-# Run the REPL
-cargo run --bin pleno-cli -- repl
-
-# Run a Pleno file
-cargo run --bin pleno-cli -- run examples/hello_world.pln
+bun install                      # the commit hooks (husky, commitlint)
+cargo build --release -p pleno-cli
+target/release/pleno run examples/hello.pln
 ```
 
----
+`pleno-cli` builds the `pleno` and `plm` programs. `cargo build --workspace` builds everything, including `pleno-lsp`, `pleno-dap` and `pleno-repl`. While working, `cargo run -p pleno-cli --bin pleno -- run file.pln` builds and runs in one step.
 
-## Project Structure
+## The repository
 
-```
-pleno/
-├── crates/              # Rust workspace crates
-│   ├── pleno-cli/       # Command-line interface
-│   ├── pleno-lexer/     # Lexical analyzer
-│   ├── pleno-parser/    # Syntax parser
-│   ├── pleno-compiler/  # Bytecode compiler
-│   ├── pleno-vm/        # Virtual machine
-│   ├── pleno-stdlib/    # Standard library
-│   ├── pleno-package/   # Package manager
-│   ├── pleno-doc/       # Documentation generator
-│   └── ...              # Other crates
-├── examples/            # Example Pleno programs
-├── tests/               # Integration tests
-│   └── fixtures/        # Test data (mock HTTP, JSON, etc.)
-├── dev-tests/           # Development/debugging tests
-│   ├── async/           # Async feature tests
-│   ├── stdlib/          # Standard library tests
-│   ├── features/        # Language feature tests
-│   └── ...
-├── sources/             # Additional source files
-├── docs/                # Documentation site
-├── scripts/             # Utility scripts
-├── tasks/               # Project management
-└── .logs/               # Log files (gitignored)
-```
+| Path | What is in it |
+| --- | --- |
+| `crates/pleno-lexer`, `pleno-parser`, `pleno-ast` | Source text to tokens to a syntax tree. |
+| `crates/pleno-compiler`, `pleno-optimizer`, `pleno-bytecode` | The syntax tree to bytecode, and the bytecode format. |
+| `crates/pleno-vm`, `pleno-value`, `pleno-runtime` | The register-based virtual machine, its values, the garbage collector and the event loop. |
+| `crates/pleno-stdlib` | The `std:*` modules. |
+| `crates/pleno-cli` | The `pleno` and `plm` commands. |
+| `crates/pleno-package` | Packages: `pleno.toml`, `pleno.lock`, fetching from Git. |
+| `crates/pleno-formatter`, `pleno-linter`, `pleno-doc` | `pleno format`, `pleno lint`, `pleno doc`. |
+| `crates/pleno-lsp`, `pleno-dap`, `pleno-repl` | The language server, the debugger and the REPL. |
+| `crates/pleno-wasm` | The WebAssembly build used by the playground and the tutorial. |
+| `crates/pleno-common`, `pleno-diagnostics` | Shared code and error reporting. |
+| `tests/`, `examples/` | `.pln` programs that CI runs and checks. |
+| `fuzz/` | Fuzz targets for the lexer, the parser, the compiler and the VM. |
+| `bench/` | Benchmarks, compared with CPython. |
+| `docs/` | This site: the guide, the tutorial and the language and standard library reference. |
+| `ide/vscode/` | The VS Code extension. |
+| `tasks/` | What is left before 1.0 ([`tasks/v1.md`](https://github.com/otabekoff/pleno/blob/main/tasks/v1.md)). |
 
----
+[ARCHITECTURE.md](https://github.com/otabekoff/pleno/blob/main/ARCHITECTURE.md) describes how the parts fit together.
 
-## Development Workflow
+## The checks
 
-### Common Commands
+CI runs these on every pull request. Run the ones that concern your change before you push:
 
-```bash
-# Run all tests
-cargo test --workspace
-
-# Run specific crate tests
-cargo test -p pleno-vm
-cargo test -p pleno-parser
-
-# Run with output (for debugging)
-cargo test -p pleno-vm --test vm_exec -- --nocapture
-
-# Run formatter
-cargo fmt --all
-
-# Run linter (strict mode)
-cargo clippy --workspace --all-targets --all-features -- -D warnings
-
-# Build documentation
-cargo doc --workspace --no-deps --open
-```
-
-### Running Pleno Programs
-
-```bash
-# Run a file
-cargo run --bin pleno-cli -- run path/to/file.pln
-
-# Run tests in a directory
-cargo run --bin pleno-cli -- test tests/
-
-# Format Pleno code
-cargo run --bin pleno-cli -- format path/to/file.pln
-
-# Lint Pleno code
-cargo run --bin pleno-cli -- lint path/to/file.pln
-
-# Generate documentation
-cargo run --bin pleno-cli -- doc sources/ docs_output/
-```
-
-### Package Manager (plm)
-
-```bash
-# Initialize a new package
-cargo run --bin pleno-cli -- plm init my-package
-
-# Install dependencies
-cargo run --bin pleno-cli -- plm install
-
-# Run a script
-cargo run --bin pleno-cli -- plm run dev
-
-# Build package
-cargo run --bin pleno-cli -- plm build
-
-# Check the package and print the tag commands that publish it
-cargo run --bin pleno-cli -- plm publish
-```
-
----
-
-## Testing
-
-### Test Organization
-
-- **Unit tests**: Located in `src/` files within each crate
-- **Integration tests**: Located in `tests/` directory
-- **Example tests**: Located in `examples/` directory
-- **Dev tests**: Located in `dev-tests/` for debugging
-
-### Running Tests
-
-```bash
-# All tests
-cargo test --workspace
-
-# Specific test file
-cargo test -p pleno-vm --test vm_exec
-
-# Specific test function
-cargo test -p pleno-parser test_class_parsing
-
-# With backtrace for debugging
-RUST_BACKTRACE=1 cargo test -p pleno-vm
-
-# Show test output
-cargo test -- --nocapture
-```
-
-### Writing Tests
-
-```rust
-#[test]
-fn test_example() {
-    let source = "let x = 42;";
-    let tokens = pleno_lexer::lex(source).unwrap();
-    let mut parser = pleno_parser::Parser::new(tokens);
-    let program = parser.parse_program().unwrap();
-    assert_eq!(program.statements.len(), 1);
-}
-```
-
----
-
-## Code Quality
-
-### Formatting
-
-```bash
-# Format all code
-cargo fmt --all
-
-# Check formatting without modifying
+```sh
 cargo fmt --all -- --check
-```
-
-### Linting
-
-```bash
-# Run clippy with strict warnings
 cargo clippy --workspace --all-targets --all-features -- -D warnings
-
-# Fix clippy warnings automatically (when possible)
-cargo clippy --workspace --all-targets --all-features --fix
+cargo test --workspace
+bash scripts/run_pln_tests.sh target/debug/pleno     # the .pln programs in tests/ and examples/
+bash scripts/test_http_server.sh                     # the HTTP server, over real connections
+python3 scripts/check-doc-examples.py target/debug/pleno docs   # every example in these docs
 ```
 
-### Pre-commit Hooks
+`make check` runs the formatter, clippy and the Rust tests in one go.
 
-The project uses Husky for pre-commit hooks:
-- Runs `cargo fmt` on staged Rust files
-- Runs `cargo clippy` to catch issues early
+A `.pln` file in `tests/` or `examples/` is run by `run_pln_tests.sh`, which reads directives from its first lines: `// expect-error: <text>`, `// args: <flags>`, `// stdin: <text>`, `// skip: <reason>` and `// requires: network`. Add one for each bug you fix.
 
----
+## Changing the docs
 
-## Architecture Overview
+The site uses [VitePress](https://vitepress.dev). The playground and the tutorial run Pleno compiled to WebAssembly, which you build once, and again after changing the Rust code:
 
-### Compilation Pipeline
-
-```
-Source Code (.pln)
-    ↓
-Lexer (pleno-lexer)
-    ↓
-Tokens
-    ↓
-Parser (pleno-parser)
-    ↓
-AST (pleno-ast)
-    ↓
-Compiler (pleno-compiler)
-    ↓
-Bytecode (pleno-bytecode)
-    ↓
-VM (pleno-vm)
-    ↓
-Execution
+```sh
+rustup target add wasm32-unknown-unknown
+cargo install wasm-bindgen-cli --version 0.2.108   # the version in Cargo.lock
+bun run docs:wasm
+bun run docs:dev       # a local server that reloads as you edit
+bun run docs:build     # what the deployment runs; a broken internal link fails it
 ```
 
-### Key Components
+Every ```` ```pleno ```` block in `docs/` is run by `check-doc-examples.py`, and the build adds a **Run** link to it. A block that cannot run by itself (a fragment, a server, a file that imports another) is marked ```` ```pleno norun ````. `node scripts/playground-smoke.mjs` runs a few programs through the WebAssembly build.
 
-1. **Lexer**: Tokenizes source code into a stream of tokens
-2. **Parser**: Builds an Abstract Syntax Tree (AST) from tokens
-3. **Compiler**: Transforms AST into bytecode instructions
-4. **VM**: Executes bytecode with stack-based architecture
-5. **GC**: Garbage collector for memory management
-6. **Standard Library**: Built-in modules (io, http, json, etc.)
+Write plain, concrete English, and describe what exists: features for later versions belong in [`notes/v2-draft.md`](https://github.com/otabekoff/pleno/blob/main/notes/v2-draft.md), not in the reference.
 
-### Crate Dependencies
+## Send a change
 
-```
-pleno-cli
-  ├── pleno-lexer
-  ├── pleno-parser
-  │     └── pleno-ast
-  ├── pleno-compiler
-  │     ├── pleno-ast
-  │     └── pleno-bytecode
-  ├── pleno-vm
-  │     ├── pleno-bytecode
-  │     ├── pleno-value
-  │     └── pleno-gc
-  ├── pleno-stdlib
-  ├── pleno-package
-  ├── pleno-formatter
-  ├── pleno-linter
-  └── pleno-doc
-```
+1. Fork the repository and create a branch from `main`, named after the change (`fix/slice-bounds`, `docs/http-cookies`).
+2. Make the change, with a test for a bug fix or a feature, and update the docs it affects.
+3. Add a line to [`CHANGELOG.md`](https://github.com/otabekoff/pleno/blob/main/CHANGELOG.md) under **Unreleased** when users can notice the change.
+4. Commit with a [Conventional Commits](https://www.conventionalcommits.org/) message: `feat: ...`, `fix: ...`, `docs: ...`, `test: ...`, `refactor: ...`, `chore: ...`. The `commit-msg` hook checks it with commitlint, and the `pre-commit` hook formats Rust files and runs `cargo fmt --check`, clippy, the tests and the build.
+5. Push the branch and open a pull request against `main` that says what changed and why, and links the issue (`Closes #123`).
 
----
+The maintainer reviews every pull request. Pleno is maintained in spare time, so a review can take a few days.
 
-## Contributing
+## Debugging tips
 
-### Code Style
+- `RUST_LOG=debug pleno run file.pln` prints the internal log; `RUST_LOG=pleno_vm=trace` narrows it to the VM.
+- `RUST_BACKTRACE=1` adds a Rust backtrace to a crash.
+- `pleno check file.pln` reports compile errors and other problems without running the file.
+- `pleno compile file.pln` writes the bytecode to a `.plc` file.
 
-- Follow Rust standard conventions
-- Use `cargo fmt` before committing
-- Ensure `cargo clippy` passes with no warnings
-- Write tests for new features
-- Document public APIs with doc comments
+## License
 
-### Pull Request Process
-
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Make your changes
-4. Run tests: `cargo test --workspace`
-5. Run linter: `cargo clippy --workspace --all-targets --all-features -- -D warnings`
-6. Format code: `cargo fmt --all`
-7. Commit changes (`git commit -m 'Add amazing feature'`)
-8. Push to branch (`git push origin feature/amazing-feature`)
-9. Open a Pull Request
-
-### Commit Message Convention
-
-We follow [Conventional Commits](https://www.conventionalcommits.org/):
-
-```
-feat: add new feature
-fix: fix bug
-docs: update documentation
-style: format code
-refactor: refactor code
-test: add tests
-chore: update dependencies
-```
-
-### Release Process
-
-1. Update version in `Cargo.toml` files
-2. Update `CHANGELOG.md`
-3. Create a git tag: `git tag v0.x.0`
-4. Push tag: `git push origin v0.x.0`
-5. GitHub Actions will build and publish release
-
----
-
-## Debugging Tips
-
-### Enable Logging
-
-```bash
-# Set log level
-RUST_LOG=debug cargo run --bin pleno-cli -- run test.pln
-
-# VM-specific logging
-RUST_LOG=pleno_vm=trace cargo run --bin pleno-cli -- run test.pln
-```
-
-### Debug AST
-
-```bash
-# Print AST for a file
-cargo run --bin pleno-cli -- debug-ast test.pln
-```
-
-### Debug Bytecode
-
-```rust
-// In compiler or VM code
-println!("{:?}", bytecode);
-```
-
-### Common Issues
-
-**Parser errors**: Check lexer output first
-**VM errors**: Enable RUST_BACKTRACE=1 for stack traces
-**Memory issues**: Run with `cargo run --bin pleno-cli -- run test.pln` (debug build has better error messages)
-
----
-
-## Resources
-
-- **Specs**: See `specs.md` for language specification
-- **Roadmap**: See `tasks/v1.md` for what is left before 1.0
-- **Contributing**: See `CONTRIBUTING.md` for contribution guidelines
-- **Code of Conduct**: See `CODE_OF_CONDUCT.md`
-
----
-
-## Getting Help
-
-- **Issues**: [GitHub Issues](https://github.com/otabekoff/pleno/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/otabekoff/pleno/discussions)
-- **Discord**: [Join our Discord](https://discord.gg/pleno) (if available)
-
----
-
-Thank you for helping with Pleno.
+Pleno is released under the [MIT License](https://github.com/otabekoff/pleno/blob/main/LICENSE). By contributing, you agree that your contributions are released under it too. Everyone taking part follows the [Code of Conduct](https://github.com/otabekoff/pleno/blob/main/CODE_OF_CONDUCT.md).
