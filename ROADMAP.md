@@ -38,7 +38,6 @@ Status as of 2026-10-27. The latest release is [0.3.0](https://github.com/otabek
   client does not delay the others.
 - [ ] **Web framework**: middleware, static files and cookies for `std:http`, so `Router` and
   `Server` can become stable.
-- [ ] **`with` statement** for resources that close themselves.
 - [ ] **Error suggestions** in the places not covered yet (enclosing functions' locals, other
   modules' exports, type names).
 - [ ] **Formatter**: comments inside an index or an import list stay in place.

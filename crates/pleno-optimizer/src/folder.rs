@@ -168,6 +168,12 @@ impl ConstantFolder {
                     self.fold_stmt(finally);
                 }
             }
+            StmtKind::With { resources, body } => {
+                for resource in resources {
+                    self.fold_expr(&mut resource.value);
+                }
+                self.fold_stmt(body);
+            }
             StmtKind::Throw(expr) => {
                 self.fold_expr(expr);
             }

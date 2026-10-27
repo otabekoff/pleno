@@ -223,6 +223,15 @@
         ],
         "description": "Try-catch-finally block"
     },
+    "With": {
+        "prefix": "with",
+        "body": [
+            "with (${1:file} = ${2:File.open(\"${3:path}\")}) {",
+            "\t$0",
+            "}"
+        ],
+        "description": "With statement: closes the resource when the block ends"
+    },
     "Catch by type": {
         "prefix": "catcht",
         "body": [

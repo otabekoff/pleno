@@ -411,6 +411,13 @@ pub enum StmtKind {
         catch_branches: Vec<CatchBlock>,
         finally_branch: Option<Box<Stmt>>,
     },
+    /// `with (f = File.open(path), g = other()) body`: binds each resource in
+    /// order, runs `body`, then calls `close()` on each resource that was
+    /// bound, in reverse order, however the body ends.
+    With {
+        resources: Vec<WithResource>,
+        body: Box<Stmt>,
+    },
     Throw(Expr),
     Return(Option<Expr>),
     Break(Option<String>),
@@ -435,6 +442,14 @@ pub enum StmtKind {
         doc: Option<String>,
     },
     Expr(Expr),
+}
+
+/// One `name = value` binding of a `with` statement.
+#[derive(Debug, Clone, PartialEq)]
+pub struct WithResource {
+    pub name: String,
+    pub name_span: Span,
+    pub value: Expr,
 }
 
 #[derive(Debug, Clone, PartialEq)]

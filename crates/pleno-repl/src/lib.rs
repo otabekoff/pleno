@@ -67,6 +67,7 @@ impl Highlighter for PlenoHelper {
                 | TokenKind::KeywordTry
                 | TokenKind::KeywordCatch
                 | TokenKind::KeywordFinally
+                | TokenKind::KeywordWith
                 | TokenKind::KeywordMatch
                 | TokenKind::KeywordCase
                 | TokenKind::KeywordNew
@@ -152,6 +153,7 @@ impl Completer for PlenoHelper {
             "try",
             "catch",
             "finally",
+            "with",
             "throw",
             "import",
             "export",

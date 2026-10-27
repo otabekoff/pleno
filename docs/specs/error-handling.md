@@ -37,6 +37,80 @@ for (kind in ["network", "input", "other"]) {
 
 An error that nothing catches stops the program with exit status 1. It prints the message, the line that threw, and a backtrace of the calls that led there. A backtrace deeper than 60 calls shows the innermost 50 and the outermost 10, with a `... N more frames` line between them.
 
+`return`, `break` and `continue` inside `try` or `catch` run the `finally` block before they leave it.
+
+## Closing resources with `with`
+
+`with` opens one or more resources, runs a block, and then calls `close()` on each resource, however the block ends: at its closing brace, through `return`, `break` or `continue`, or with an error.
+
+```pleno
+import { File } from "std:io";
+
+with (out = File.open("notes.txt", "w")) {
+    out.write("first line\n");
+}   // out.close() runs here
+
+with (input = File.open("notes.txt")) {
+    print(input.read());    // first line
+}
+File.delete("notes.txt");
+```
+
+The rules:
+
+- **A resource is any value with a `close()` method**: an instance of a class that defines `close`, a map with a `close` function, or a built-in handle. In the standard library these are `File` handles (`std:io`), `Database` connections (`std:db`) and `Channel`s (`std:concurrency`). `with` checks for `close` before the block runs; a value without it, `null` included, throws a `TypeError` such as `'with' needs a value with a close() method, got Int`.
+- **Several resources** are separated by commas. They open from left to right and close in reverse order, so a resource can use the ones before it: `with (db = Database.connect(url), tx = Transaction(db)) { ... }` closes `tx` and then `db`. If opening a resource throws, the ones already open are closed and the block does not run.
+- **The names** are visible in the later resources and in the block, and not after the statement. They cannot be reassigned, so the value that is closed is always the one that was opened. Start a name with `_` when the block does not use it (`with (_guard = Guard()) { ... }`), and the linter will not report it as unused.
+- **The block must be in braces.**
+
+When the block throws, every resource is closed and the block's error propagates. If a `close()` throws as well, the block's error still wins: it is the cause of the failure, and the close error is usually a consequence of it. The close error is not lost; when the block's error is an object (an `Error`), it is appended to its `suppressed` array. When the block ends without an error and a `close()` throws, that error propagates, after the other resources are closed.
+
+```pleno
+import { File } from "std:io";
+
+let log = [];
+
+class Connection {
+    name: String;
+    fn constructor(name: String) {
+        this.name = name;
+    }
+    fn close() {
+        log.push("closed " + this.name);
+        throw Error("could not close " + this.name);
+    }
+}
+
+try {
+    with (a = Connection("a"), b = Connection("b")) {
+        throw Error("request failed");
+    }
+} catch (e) {
+    print(e.message);                                   // request failed
+    print(e.suppressed.map((s) => s.message));         // [could not close b, could not close a]
+}
+print(log);                                             // [closed b, closed a]
+
+fn firstLine(path: String): String {
+    with (input = File.open(path)) {
+        return input.readLines()[0];   // input is closed before the function returns
+    }
+}
+```
+
+`with (r = open()) { body }` is close to this `try`/`finally`, which is what to write for a value that needs a different cleanup call:
+
+```pleno norun
+let r = open();
+try {
+    body;
+} finally {
+    r.close();
+}
+```
+
+The differences: a `finally` that throws replaces the body's error, while `with` keeps the body's error and records the close error in `suppressed`; and `with` checks for `close()` before the body runs, not after.
+
 ## What an error looks like
 
 Every error a `catch` receives from the runtime or from `throw Error(...)` is an `Error` instance with two String fields:
