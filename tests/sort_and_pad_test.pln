@@ -1,0 +1,89 @@
+// sort, sortBy, concat, padStart and padEnd.
+import { assert } from "std:test";
+
+fn errorOf(f: Function): String {
+    try {
+        f();
+    } catch (e) {
+        return e.name + ": " + e.message;
+    }
+    return "no error";
+}
+
+// Numbers sort by value. They were sorted by their text, so [10, 9, 2] gave
+// [10, 2, 9].
+assert.equal([10, 9, 2].sort(), [2, 9, 10]);
+assert.equal([-1, -10, 5, 0].sort(), [-10, -1, 0, 5]);
+assert.equal([2.5, 10.0, 3, -0.5].sort(), [-0.5, 2.5, 3, 10.0]);
+assert.equal(["pear", "Fig", "apple"].sort(), ["Fig", "apple", "pear"]);
+assert.equal([true, false].sort(), [false, true]);
+assert.equal([[2, 1], [1, 9], [1, 2]].sort(), [[1, 2], [1, 9], [2, 1]]);
+// `==`, not assert.equal, which compares tuples correctly only from #225 on.
+assert.isTrue([(2, "b"), (1, "z"), (1, "a")].sort() == [(1, "a"), (1, "z"), (2, "b")]);
+assert.equal([].sort(), []);
+
+// sort returns a copy.
+let original = [3, 1, 2];
+assert.equal(original.sort(), [1, 2, 3]);
+assert.equal(original, [3, 1, 2]);
+
+// A comparator: it was ignored.
+assert.equal([3, 1, 2].sort((a, b) => b - a), [3, 2, 1]);
+assert.equal(["bb", "a", "ccc"].sort((a, b) => a.length - b.length), ["a", "bb", "ccc"]);
+assert.equal(
+    errorOf(() => [2, 1].sort((a, b) => a < b)),
+    "TypeError: a sort comparator must return a number (negative, 0 or positive), got Bool"
+);
+// A comparator that contradicts itself gives some order instead of a crash.
+assert.equal([3, 1, 2].sort((a, b) => 1).length, 3);
+
+// sortBy is stable: equal keys keep their order.
+let people = [("Ann", 30), ("Bob", 25), ("Cy", 30), ("Di", 25)];
+assert.equal(people.sortBy((p) => p[1]).map((p) => p[0]), ["Bob", "Di", "Ann", "Cy"]);
+
+// Instances order by their class's operator <.
+class Version {
+    major: Int;
+    minor: Int;
+    fn constructor(major: Int, minor: Int) {
+        this.major = major;
+        this.minor = minor;
+    }
+    operator <(other) {
+        return this.major < other.major || (this.major == other.major && this.minor < other.minor);
+    }
+}
+let versions = [Version(1, 10), Version(1, 2), Version(0, 9)].sort();
+assert.equal(versions.map((v) => `${v.major}.${v.minor}`), ["0.9", "1.2", "1.10"]);
+
+// What cannot be ordered is an error, not an order made up from the text.
+assert.equal(
+    errorOf(() => [1, "a"].sort()),
+    "TypeError: cannot sort String and Int together; pass a comparator or use sortBy"
+);
+class Plain {
+    fn constructor() {}
+}
+assert.equal(
+    errorOf(() => [Plain(), Plain()].sort()),
+    "TypeError: cannot sort Plain values: the class has no operator <; pass a comparator or use sortBy"
+);
+
+// concat
+assert.equal([1, 2].concat([3], [], [4, 5]), [1, 2, 3, 4, 5]);
+assert.equal([1].concat(), [1]);
+assert.equal(
+    errorOf(() => [1].concat(2)),
+    "TypeError: concat takes arrays, got Int; use push to add one element"
+);
+
+// padStart and padEnd count characters.
+assert.equal("7".padStart(3, "0"), "007");
+assert.equal("ab".padEnd(5, "."), "ab...");
+assert.equal("x".padStart(4), "   x");
+assert.equal("abc".padStart(2), "abc");
+assert.equal("a".padEnd(6, "xy"), "axyxyx");
+assert.equal("é".padEnd(3, "€"), "é€€");
+assert.equal(errorOf(() => "a".padEnd(3, "")), "Error: padEnd cannot fill with an empty string");
+
+print("sort and pad ok");

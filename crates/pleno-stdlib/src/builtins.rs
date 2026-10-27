@@ -561,6 +561,7 @@ pub const BUILTIN_METHOD_NAMES: &[&str] = &[
     "clear",
     "clone",
     "close",
+    "concat",
     "contains",
     "containsKey",
     "difference",
@@ -595,6 +596,8 @@ pub const BUILTIN_METHOD_NAMES: &[&str] = &[
     "map",
     "match",
     "next",
+    "padEnd",
+    "padStart",
     "pop",
     "push",
     "put",
@@ -612,6 +615,7 @@ pub const BUILTIN_METHOD_NAMES: &[&str] = &[
     "slice",
     "some",
     "sort",
+    "sortBy",
     "split",
     "startsWith",
     "substring",
@@ -649,6 +653,8 @@ pub fn resolve_builtin_method(ty: &str, name: &str) -> Option<pleno_value::Nativ
         ("String", "charAt") => Some(native_string_char_at),
         ("String", "indexOf") => Some(native_string_index_of),
         ("String", "repeat") => Some(native_string_repeat),
+        ("String", "padStart") => Some(native_string_pad_start),
+        ("String", "padEnd") => Some(native_string_pad_end),
         ("String", "toInt") => Some(native_string_to_int),
         ("String", "toFloat") => Some(native_string_to_float),
         ("Array", "push") => Some(native_array_push),
@@ -672,6 +678,8 @@ pub fn resolve_builtin_method(ty: &str, name: &str) -> Option<pleno_value::Nativ
         ("Array", "every") => Some(native_array_every),
         ("Array", "some") => Some(native_array_some),
         ("Array", "sort") => Some(native_array_sort),
+        ("Array", "sortBy") => Some(native_array_sort_by),
+        ("Array", "concat") => Some(native_array_concat),
         ("Array", "contains") => Some(native_array_contains),
         ("Array", "indexOf") => Some(native_array_index_of),
         ("Array", "isEmpty") => Some(native_array_is_empty),
@@ -1159,6 +1167,67 @@ fn native_string_repeat(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Valu
     Ok(Value::String(Rc::new(s.repeat(n))))
 }
 
+/// `padStart(width, fill = " ")` and `padEnd`: the string made `width`
+/// characters long with copies of `fill` (cut to fit) before or after it. A
+/// string already that long is returned as it is.
+fn pad_string(args: &[Value], at_start: bool) -> Result<Value, RuntimeError> {
+    let name = if at_start { "padStart" } else { "padEnd" };
+    let s = match &args[0] {
+        Value::String(s) => s.clone(),
+        _ => return Err(RuntimeError::new("expected string")),
+    };
+    let width = match args.get(1) {
+        Some(Value::Int(w)) => *w,
+        Some(other) => {
+            return Err(RuntimeError::new(format!(
+                "TypeError: {name} expects an Int width, got {}",
+                kind_name(other)
+            )));
+        }
+        None => return Err(RuntimeError::new(format!("{name} expects a width"))),
+    };
+    let fill = match args.get(2) {
+        None => " ".to_string(),
+        Some(Value::String(f)) => f.to_string(),
+        Some(other) => {
+            return Err(RuntimeError::new(format!(
+                "TypeError: {name} expects a String to fill with, got {}",
+                kind_name(other)
+            )));
+        }
+    };
+    let length = s.chars().count() as i64;
+    if width <= length {
+        return Ok(Value::String(s));
+    }
+    if fill.is_empty() {
+        return Err(RuntimeError::new(format!(
+            "{name} cannot fill with an empty string"
+        )));
+    }
+    let missing = usize::try_from(width - length).unwrap_or(usize::MAX);
+    if missing > isize::MAX as usize / 4 {
+        return Err(RuntimeError::new(format!("{name} result is too long")));
+    }
+    let padding: String = fill.chars().cycle().take(missing).collect();
+    Ok(Value::String(Rc::new(if at_start {
+        padding + &s
+    } else {
+        format!("{s}{padding}")
+    })))
+}
+
+fn native_string_pad_start(
+    _vm: &mut dyn VMProvider,
+    args: &[Value],
+) -> Result<Value, RuntimeError> {
+    pad_string(args, true)
+}
+
+fn native_string_pad_end(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    pad_string(args, false)
+}
+
 fn native_string_to_int(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
     let s = match &args[0] {
         Value::String(s) => s.as_str().trim(),
@@ -1480,13 +1549,225 @@ fn native_array_reverse(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Valu
     arr.borrow_mut().elements.reverse();
     Ok(args[0].clone())
 }
+/// A value's kind for an error message: the class name for an instance.
+fn kind_name(value: &Value) -> String {
+    match value {
+        Value::Object(object) => object
+            .borrow()
+            .class
+            .as_ref()
+            .map(|class| class.borrow().name.to_string())
+            .unwrap_or_else(|| "Object".to_string()),
+        other => other.type_name().to_string(),
+    }
+}
+
+/// `a < b` through the class's `operator <`, or `None` when it has none.
+fn operator_less(
+    vm: &mut dyn VMProvider,
+    a: &Value,
+    b: &Value,
+) -> Result<Option<bool>, RuntimeError> {
+    let Value::Object(object) = a else {
+        return Ok(None);
+    };
+    let operator = object
+        .borrow()
+        .class
+        .as_ref()
+        .and_then(|class| class.borrow().operators.get("<").cloned());
+    let Some(operator) = operator else {
+        return Ok(None);
+    };
+    let method = Value::BoundMethod(vm.get_gc().allocate(pleno_value::BoundMethodState {
+        receiver: a.clone(),
+        function: operator.function.clone(),
+        owner: operator.owner.clone(),
+        visibility: operator.visibility,
+    })?);
+    let result = vm.call_with(&method, std::slice::from_ref(b))?;
+    Ok(Some(!matches!(
+        result,
+        Value::Null | Value::Missing | Value::Bool(false)
+    )))
+}
+
+/// The order of `sort()` and `sortBy`: numbers by value (Ints and Floats
+/// together), strings by code point, chars, `false` before `true`, arrays and
+/// tuples element by element, and instances by their class's `operator <`.
+/// Values of kinds that cannot be ordered, or of two different kinds, are a
+/// TypeError rather than an order made up from their text.
+fn natural_order(
+    vm: &mut dyn VMProvider,
+    a: &Value,
+    b: &Value,
+) -> Result<std::cmp::Ordering, RuntimeError> {
+    use std::cmp::Ordering;
+    let number = |v: &Value| match v {
+        Value::Int(i) => Some(*i as f64),
+        Value::Float(f) => Some(*f),
+        _ => None,
+    };
+    match (a, b) {
+        (Value::Int(x), Value::Int(y)) => Ok(x.cmp(y)),
+        (Value::Int(_) | Value::Float(_), Value::Int(_) | Value::Float(_)) => {
+            let (x, y) = (number(a).unwrap_or(0.0), number(b).unwrap_or(0.0));
+            x.partial_cmp(&y)
+                .ok_or_else(|| RuntimeError::new("TypeError: cannot sort NaN"))
+        }
+        (Value::String(x), Value::String(y)) => Ok(x.as_str().cmp(y.as_str())),
+        (Value::Char(x), Value::Char(y)) => Ok(x.cmp(y)),
+        (Value::Bool(x), Value::Bool(y)) => Ok(x.cmp(y)),
+        (Value::Array(_), Value::Array(_)) | (Value::Tuple(_), Value::Tuple(_)) => {
+            // Copied out first: an `operator <` may change either value.
+            let elements = |v: &Value| match v {
+                Value::Array(x) => x.borrow().elements.clone(),
+                Value::Tuple(x) => x.borrow().elements.clone(),
+                _ => Vec::new(),
+            };
+            let (xs, ys) = (elements(a), elements(b));
+            for (x, y) in xs.iter().zip(&ys) {
+                let order = natural_order(vm, x, y)?;
+                if order != Ordering::Equal {
+                    return Ok(order);
+                }
+            }
+            Ok(xs.len().cmp(&ys.len()))
+        }
+        (Value::Object(_), Value::Object(_)) => match operator_less(vm, a, b)? {
+            Some(true) => Ok(Ordering::Less),
+            Some(false) => match operator_less(vm, b, a)? {
+                Some(true) => Ok(Ordering::Greater),
+                _ => Ok(Ordering::Equal),
+            },
+            None => Err(RuntimeError::new(format!(
+                "TypeError: cannot sort {} values: the class has no operator <; pass a comparator or use sortBy",
+                kind_name(a)
+            ))),
+        },
+        _ => Err(RuntimeError::new(format!(
+            "TypeError: cannot sort {} and {} together; pass a comparator or use sortBy",
+            kind_name(a),
+            kind_name(b)
+        ))),
+    }
+}
+
+/// A stable merge sort with a comparison that can fail. Unlike the standard
+/// library's sort, it never panics when the comparison is inconsistent, so a
+/// comparator that contradicts itself gives some order, not a crash.
+fn merge_sort(
+    items: Vec<Value>,
+    compare: &mut dyn FnMut(&Value, &Value) -> Result<std::cmp::Ordering, RuntimeError>,
+) -> Result<Vec<Value>, RuntimeError> {
+    let mut current = items;
+    let mut width = 1;
+    while width < current.len() {
+        let mut merged = Vec::with_capacity(current.len());
+        let mut start = 0;
+        while start < current.len() {
+            let middle = (start + width).min(current.len());
+            let end = (start + 2 * width).min(current.len());
+            let (mut i, mut j) = (start, middle);
+            while i < middle && j < end {
+                // Takes from the right run only when it is strictly smaller,
+                // so equal elements keep their order.
+                if compare(&current[j], &current[i])? == std::cmp::Ordering::Less {
+                    merged.push(current[j].clone());
+                    j += 1;
+                } else {
+                    merged.push(current[i].clone());
+                    i += 1;
+                }
+            }
+            merged.extend_from_slice(&current[i..middle]);
+            merged.extend_from_slice(&current[j..end]);
+            start = end;
+        }
+        current = merged;
+        width *= 2;
+    }
+    Ok(current)
+}
+
+/// `array.sort()` sorts a copy in natural order; `array.sort(cmp)` with a
+/// comparator that returns a negative number, 0 or a positive number when its
+/// first argument comes before, with or after its second.
 fn native_array_sort(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
     let arr = match &args[0] {
         Value::Array(a) => a.clone(),
         _ => return Err(RuntimeError::new("expected array")),
     };
-    let mut items = arr.borrow().elements.clone();
-    items.sort_by_key(|v| v.to_string());
+    let items = arr.borrow().elements.clone();
+    let sorted = match args.get(1) {
+        None | Some(Value::Null) => merge_sort(items, &mut |a, b| natural_order(vm, a, b))?,
+        Some(comparator) => {
+            let comparator = comparator.clone();
+            merge_sort(items, &mut |a, b| {
+                let result = vm.call_with(&comparator, &[a.clone(), b.clone()])?;
+                let order = match result {
+                    Value::Int(n) => n as f64,
+                    Value::Float(f) if !f.is_nan() => f,
+                    other => {
+                        return Err(RuntimeError::new(format!(
+                            "TypeError: a sort comparator must return a number (negative, 0 or positive), got {}",
+                            kind_name(&other)
+                        )));
+                    }
+                };
+                Ok(order.partial_cmp(&0.0).unwrap_or(std::cmp::Ordering::Equal))
+            })?
+        }
+    };
+    Ok(Value::Array(vm.get_gc().allocate(ArrayState::new(sorted))?))
+}
+
+/// `array.sortBy(key)`: a copy sorted by `key(element)` in natural order,
+/// keeping the order of elements with equal keys.
+fn native_array_sort_by(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    let arr = match &args[0] {
+        Value::Array(a) => a.clone(),
+        _ => return Err(RuntimeError::new("expected array")),
+    };
+    let key = args.get(1).cloned().ok_or_else(|| {
+        RuntimeError::new("sortBy expects a function that gives each element's key")
+    })?;
+    let items = arr.borrow().elements.clone();
+    // Each key is computed once; the positions of the elements are sorted by
+    // their keys.
+    let mut keys = Vec::with_capacity(items.len());
+    for item in &items {
+        keys.push(vm.call_with(&key, std::slice::from_ref(item))?);
+    }
+    let positions = (0..items.len() as i64).map(Value::Int).collect();
+    let at = |v: &Value| match v {
+        Value::Int(i) => *i as usize,
+        _ => 0,
+    };
+    let sorted = merge_sort(positions, &mut |a, b| {
+        natural_order(vm, &keys[at(a)], &keys[at(b)])
+    })?;
+    let values = sorted.iter().map(|v| items[at(v)].clone()).collect();
+    Ok(Value::Array(vm.get_gc().allocate(ArrayState::new(values))?))
+}
+
+/// `a.concat(b, c)`: a new array with the elements of `a`, then `b`, then `c`.
+fn native_array_concat(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    let mut items = match &args[0] {
+        Value::Array(a) => a.borrow().elements.clone(),
+        _ => return Err(RuntimeError::new("expected array")),
+    };
+    for other in &args[1..] {
+        match other {
+            Value::Array(a) => items.extend(a.borrow().elements.iter().cloned()),
+            value => {
+                return Err(RuntimeError::new(format!(
+                    "TypeError: concat takes arrays, got {}; use push to add one element",
+                    kind_name(value)
+                )));
+            }
+        }
+    }
     Ok(Value::Array(vm.get_gc().allocate(ArrayState::new(items))?))
 }
 fn native_array_contains(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
