@@ -146,6 +146,7 @@ impl LoopUnroller {
                     self.unroll_stmt(fb);
                 }
             }
+            StmtKind::With { body, .. } => self.unroll_stmt(body),
             _ => {}
         }
     }
@@ -394,6 +395,7 @@ impl LoopUnroller {
                         .map(|fb| self.contains_loop_control(fb))
                         .unwrap_or(false)
             }
+            StmtKind::With { body, .. } => self.contains_loop_control(body),
             // Don't recurse into inner loops - break/continue there is fine
             StmtKind::For { .. } | StmtKind::CFor { .. } | StmtKind::While { .. } => false,
             _ => false,

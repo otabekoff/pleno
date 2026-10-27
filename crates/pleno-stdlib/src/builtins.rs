@@ -519,9 +519,10 @@ fn native_file_close(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, 
         Some(Value::File(f)) => f,
         _ => return Err(RuntimeError::new("Expected file")),
     };
-    let file_state = file.borrow();
-    let mut inner = file_state.inner.borrow_mut();
-    *inner = None;
+    // Closing twice is allowed. A closed handle can no longer read or write.
+    let mut file_state = file.borrow_mut();
+    *file_state.inner.borrow_mut() = None;
+    file_state.read_path = None;
     Ok(Value::Null)
 }
 
@@ -535,7 +536,7 @@ fn read_open_file(args: &[Value]) -> Result<String, RuntimeError> {
         .borrow()
         .read_path
         .clone()
-        .ok_or_else(|| RuntimeError::new("file is not open for reading"))?;
+        .ok_or_else(|| RuntimeError::new("file is closed or not open for reading"))?;
     std::fs::read_to_string(&path).map_err(|e| RuntimeError::new(e.to_string()))
 }
 

@@ -471,6 +471,24 @@ impl Formatter {
 
                 result
             }
+            StmtKind::With { resources, body } => {
+                let items: Vec<Item> = resources
+                    .iter()
+                    .map(|resource| {
+                        let mut item = Item::expr(format!("{} = ", resource.name), &resource.value);
+                        item.span =
+                            Some(Span::new(resource.name_span.start, resource.value.span.end));
+                        item
+                    })
+                    .collect();
+                let prefix = format!("{current_indent}with ");
+                let col = offset + self.width(&prefix);
+                let region = Span::new(stmt.span.start, body.span.start);
+                let list = self.list("(", &items, ")", true, region, indent_level, col, 2);
+                let mut result = format!("{prefix}{list} ");
+                result.push_str(&self.format_branch(body, indent_level));
+                result
+            }
             StmtKind::Throw(expr) => {
                 let prefix = format!("{current_indent}throw ");
                 self.fit_line(&prefix, expr, ";\n", indent_level, offset)

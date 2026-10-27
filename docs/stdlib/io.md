@@ -128,10 +128,20 @@ A handle has these methods:
 
 - `write(text)` writes a string (write and append modes).
 - `flush()` flushes buffered output.
-- `close()` closes the handle.
+- `close()` closes the handle. After that, reading and writing throw an error; closing again does nothing.
 - `read()` and `readLines()` return the contents (read mode).
 
-You can also pass a handle to `print` with `file=`.
+You can also pass a handle to `print` with `file=`. A [`with`](../specs/error-handling.md#closing-resources-with-with) statement closes a handle when its block ends, also on an error:
+
+```pleno
+import { File } from "std:io";
+
+with (log = File.open("run.log", "w")) {
+    log.write("started\n");
+}
+print(File.read("run.log"));  // started
+File.delete("run.log");
+```
 
 ```pleno
 import { File } from "std:io";

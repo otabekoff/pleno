@@ -88,7 +88,7 @@ print(msg); // hello
 
 ### `close(): Null`
 
-Closes the channel. Values already sent can still be received. Further sends throw an error.
+Closes the channel. Values already sent can still be received. Further sends throw an error. A channel can be the resource of a [`with`](../specs/error-handling.md#closing-resources-with-with) statement, which closes it when the block ends.
 
 ```pleno
 import { Channel } from "std:concurrency";

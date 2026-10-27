@@ -799,6 +799,21 @@ impl<'a> LintVisitor<'a> {
                     self.visit_stmt(finally);
                 }
             }
+            StmtKind::With { resources, body } => {
+                // Each name is visible in the later resources and the body.
+                self.scope_tracker.enter_scope();
+                for resource in resources {
+                    self.check_assignment_spacing(
+                        resource.name_span.end,
+                        resource.value.span.start,
+                    );
+                    self.visit_expr(&resource.value);
+                    self.declare(&resource.name, resource.name_span);
+                }
+                self.visit_stmt(body);
+                self.check_unused_in_current_scope();
+                self.scope_tracker.exit_scope();
+            }
             StmtKind::Break(_) | StmtKind::Continue(_) => {}
         }
     }

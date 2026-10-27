@@ -32,3 +32,17 @@ fn test_preserves_multiple_blank_lines_capped() {
     let result = format_code(input, &FormatOptions::default()).unwrap();
     assert_eq!(result, expected);
 }
+
+#[test]
+fn test_preserves_comments_in_with_statement() {
+    let input = "// open both\nwith (a = open(\"a\"), b = open(\"b\")) {\n    // copy\n    b.write(a.read()); // all of it\n}\n";
+    let result = format_code(input, &FormatOptions::default()).unwrap();
+    assert_eq!(result, input);
+}
+
+#[test]
+fn test_preserves_comments_between_with_resources() {
+    let input = "with (\n    // the source\n    a = open(\"a\"),\n    b = open(\"b\"), // the copy\n) {\n    b.write(a.read());\n}\n";
+    let result = format_code(input, &FormatOptions::default()).unwrap();
+    assert_eq!(result, input);
+}

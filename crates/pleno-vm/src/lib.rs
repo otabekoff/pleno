@@ -2777,6 +2777,12 @@ impl VM {
                     self.registers[base + a] = NanValue::from_int(val % c as i64);
                 }
 
+                Opcode::CheckClose => {
+                    if self.registers[base + b].is_null() {
+                        return Err(self.missing_close_error(base + a));
+                    }
+                }
+                Opcode::AddSuppressed => self.add_suppressed(base + a, base + b)?,
                 Opcode::MapLiteralSet => {
                     let Value::String(name) = &function.chunk.constants[c] else {
                         return Err(RuntimeError::new("property name must be string"));
@@ -7056,6 +7062,53 @@ impl VM {
             .unwrap_or(&err.message)
             .to_string();
         self.throw_runtime_error(&message)
+    }
+
+    /// The error `with` throws for a resource, in register `at`, that has no
+    /// `close()` method.
+    #[cold]
+    #[inline(never)]
+    fn missing_close_error(&mut self, at: usize) -> RuntimeError {
+        let type_name = match self.registers[at].to_value() {
+            Value::Object(object) => object
+                .borrow()
+                .class
+                .as_ref()
+                .map(|class| class.borrow().name.to_string())
+                .unwrap_or_else(|| "Object".to_string()),
+            other => other.type_name().to_string(),
+        };
+        let message =
+            format!("TypeError: 'with' needs a value with a close() method, got {type_name}");
+        self.throw_runtime_error(&message)
+    }
+
+    /// `with`: appends the error in register `suppressed_at`, thrown by a
+    /// `close()`, to the `suppressed` array of the error in `error_at` when
+    /// that error is an object.
+    #[cold]
+    #[inline(never)]
+    fn add_suppressed(
+        &mut self,
+        error_at: usize,
+        suppressed_at: usize,
+    ) -> Result<(), RuntimeError> {
+        let Value::Object(object) = self.registers[error_at].to_value() else {
+            return Ok(());
+        };
+        let suppressed = self.registers[suppressed_at].to_value();
+        let existing = object.borrow().fields.get("suppressed").cloned();
+        match existing {
+            Some(Value::Array(array)) => array.borrow_mut().elements.push(suppressed),
+            _ => {
+                let array = self.gc.allocate(ArrayState::new(vec![suppressed]))?;
+                object
+                    .borrow_mut()
+                    .fields
+                    .insert("suppressed".to_string(), Value::Array(array));
+            }
+        }
+        Ok(())
     }
 
     fn throw_runtime_error(&mut self, message: &str) -> RuntimeError {

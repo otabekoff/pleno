@@ -211,3 +211,23 @@ fn test_comments_may_exceed_the_line_length() {
         vec!["2:101 Line exceeds maximum line length of 100 characters"]
     );
 }
+
+#[test]
+fn test_with_statement_names_are_declared_and_checked() {
+    let input = r#"
+fn open(path) { return path; }
+with (a = open("a"), b = open(a), unused = open("c"), _lock = open("d")) {
+    print(b);
+}
+print(a);
+"#;
+    assert_eq!(
+        rules(input, "no-unused-vars"),
+        vec!["3:35 Variable 'unused' is declared but never used"]
+    );
+    // The names are not visible after the statement.
+    assert_eq!(
+        rules(input, "no-undef"),
+        vec!["6:7 Usage of undefined variable 'a'"]
+    );
+}

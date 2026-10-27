@@ -130,3 +130,39 @@ fn test_parse_pipeline() {
     // Let's check parsing succeeds at least.
     assert!(!program.statements.is_empty());
 }
+
+#[test]
+fn with_statement_binds_each_resource() {
+    let source = "with (a = open(\"x\"), b = wrap(a),) { use(a, b); }";
+    let program = parse_program(source);
+    match &program.statements[0].kind {
+        StmtKind::With { resources, body } => {
+            let names: Vec<_> = resources.iter().map(|r| r.name.as_str()).collect();
+            assert_eq!(names, ["a", "b"]);
+            let a = source.find("a =").unwrap();
+            assert_eq!(resources[0].name_span, pleno_ast::Span::new(a, a + 1));
+            assert!(matches!(resources[1].value.kind, ExprKind::Call { .. }));
+            assert!(matches!(body.kind, StmtKind::Block(_)));
+        }
+        other => panic!("expected with, got {other:?}"),
+    }
+}
+
+#[test]
+fn with_statement_errors() {
+    assert!(parse_error("with () { }").contains("at least one resource"));
+    assert!(parse_error("with (f) { }").contains("Expected '='"));
+    assert!(parse_error("with (f = open()) print(f);").contains("body of 'with' is a block"));
+    assert!(parse_error("with (1 = open()) { }").contains("Expected a name"));
+}
+
+#[test]
+fn with_is_still_a_method_name() {
+    let program = parse_program("let b = [1, 2].with(0, 5);");
+    assert!(matches!(program.statements[0].kind, StmtKind::Let { .. }));
+    let program = parse_program("class Box { fn with(v) { return Box(); } }");
+    match &program.statements[0].kind {
+        StmtKind::Class { methods, .. } => assert_eq!(methods[0].name, "with"),
+        other => panic!("expected class, got {other:?}"),
+    }
+}

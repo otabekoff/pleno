@@ -1,0 +1,130 @@
+// The `with` statement: each resource's close() runs when the block ends,
+// in reverse order, also on an error, `return`, `break` and `continue`.
+
+import { File } from "std:io";
+
+fn check(condition: Bool, message: String) {
+    if (!condition) {
+        throw "FAILED: " + message;
+    }
+}
+
+let log = [];
+
+class Res {
+    name: String;
+    failClose: Bool;
+    fn constructor(name: String, failClose: Bool = false) {
+        this.name = name;
+        this.failClose = failClose;
+        log.push("open " + name);
+    }
+    fn close() {
+        log.push("close " + this.name);
+        if (this.failClose) {
+            throw Error("close " + this.name + " failed");
+        }
+    }
+}
+
+fn logged(): String {
+    let text = log.join(", ");
+    log.clear();
+    return text;
+}
+
+// Normal exit, several resources, closing order
+with (a = Res("a"), b = Res("b")) {
+    log.push("body " + a.name + b.name);
+}
+check(logged() == "open a, open b, body ab, close b, close a", "normal exit");
+
+// The body throws: both close, the error propagates
+let mut message = "";
+try {
+    with (_a = Res("a"), _b = Res("b")) {
+        throw Error("body failed");
+    }
+} catch (e) {
+    message = e.message;
+}
+check(message == "body failed", "body error propagates");
+check(logged() == "open a, open b, close b, close a", "closes on throw");
+
+// close() throws while the body's error propagates: the body's error wins,
+// the close error is in `suppressed`
+let mut suppressed = [];
+try {
+    with (_a = Res("a", true)) {
+        throw Error("body failed");
+    }
+} catch (e) {
+    message = e.message;
+    suppressed = e.suppressed.map((s) => s.message);
+}
+check(message == "body failed", "body error wins");
+check(suppressed == ["close a failed"], "close error suppressed");
+logged();
+
+// close() throws after a normal body: that error propagates
+try {
+    with (_a = Res("a"), _b = Res("b", true)) {
+        log.push("body");
+    }
+} catch (e) {
+    message = e.message;
+}
+check(message == "close b failed", "close error propagates");
+check(logged() == "open a, open b, body, close b, close a", "outer closes after a close error");
+
+// return, break and continue
+fn firstName(): String {
+    with (r = Res("r")) {
+        return r.name;
+    }
+}
+check(firstName() == "r", "return value");
+check(logged() == "open r, close r", "closes on return");
+
+for (i in [1, 2, 3]) {
+    with (_r = Res(i.toString())) {
+        if (i == 1) {
+            continue;
+        }
+        if (i == 2) {
+            break;
+        }
+    }
+}
+check(logged() == "open 1, close 1, open 2, close 2", "closes on continue and break");
+
+// Nesting
+with (_outer = Res("outer")) {
+    with (_inner = Res("inner")) {
+        log.push("body");
+    }
+}
+check(logged() == "open outer, open inner, body, close inner, close outer", "nesting");
+
+// A value without close() is an error before the body runs
+try {
+    with (_x = 42) {
+        log.push("never");
+    }
+} catch (e) {
+    message = e.message;
+}
+check(message == "'with' needs a value with a close() method, got Int", "no close()");
+check(log.length == 0, "body did not run");
+
+// Files
+let path = "with_statement_test.tmp";
+with (out = File.open(path, "w")) {
+    out.write("hello");
+}
+with (input = File.open(path)) {
+    check(input.read() == "hello", "file contents");
+}
+File.delete(path);
+
+print("with statement tests passed");
