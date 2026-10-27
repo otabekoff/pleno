@@ -408,7 +408,15 @@ impl Compiler {
             let local_idx = self.add_constant(Value::String(local_name.clone().into()));
             let mut temp_reg = None;
             let value_reg = if let Some(local) = self.resolve_local(&local_name) {
-                local.reg
+                if local.is_boxed {
+                    // Export the value, not the cell a nested function shares.
+                    let reg = self.registers.allocate()?;
+                    self.emit(Opcode::LoadCell, reg, local.reg, 0);
+                    temp_reg = Some(reg);
+                    reg
+                } else {
+                    local.reg
+                }
             } else {
                 let reg = self.registers.allocate()?;
                 self.emit(Opcode::GetGlobal, reg, local_idx, 0);
@@ -514,18 +522,8 @@ impl Compiler {
                     // let deep should also work
                     self.emit(Opcode::Freeze, reg, 1, 0);
                 }
-                if self
-                    .boxed_vars
-                    .last()
-                    .map(|b| b.contains(name))
-                    .unwrap_or(false)
-                {
-                    let cell_reg = self.registers.allocate()?;
-                    self.emit(Opcode::MakeCell, cell_reg, reg, 0);
-                    self.emit(Opcode::Move, reg, cell_reg, 0);
-                    self.free_temp(cell_reg);
-                }
-                self.insert_local(name.clone(), reg, *mutable, ty.clone())?;
+                let boxed = self.box_if_shared(name, reg)?;
+                self.insert_local_cell(name.clone(), reg, *mutable, ty.clone(), boxed)?;
                 if *is_lazy {
                     self.lazy_locals.insert(reg, true);
                 }
@@ -2199,7 +2197,15 @@ impl Compiler {
                         return Err(self.error("cannot increment immutable variable", expr.span));
                     }
 
-                    let current_val = local.reg;
+                    // A variable a nested function shares lives in a cell:
+                    // work on its value and store it back.
+                    let current_val = if local.is_boxed {
+                        let inner = self.registers.allocate()?;
+                        self.emit(Opcode::LoadCell, inner, local.reg, 0);
+                        inner
+                    } else {
+                        local.reg
+                    };
                     if !is_pre {
                         self.emit(Opcode::Move, return_reg, current_val, 0);
                     }
@@ -2212,6 +2218,10 @@ impl Compiler {
 
                     if is_pre {
                         self.emit(Opcode::Move, return_reg, current_val, 0);
+                    }
+                    if local.is_boxed {
+                        self.emit(Opcode::SetCell, local.reg, current_val, 0);
+                        self.free_temp(current_val);
                     }
                 } else if let Some((index, info)) = self.captures.get(name).cloned() {
                     if info.borrow_mut {
@@ -2880,7 +2890,10 @@ impl Compiler {
             self.compile_binding_pattern(pattern, item_reg, true)?;
             self.free_temp(item_reg);
         } else if let ForBinding::Names([name]) = binding {
-            self.insert_local(name.clone(), item_reg, true, None)?;
+            // `item_reg` gets a new value each iteration, so each iteration
+            // gets its own cell.
+            let boxed = self.box_if_shared(name, item_reg)?;
+            self.insert_local_cell(name.clone(), item_reg, true, None, boxed)?;
         } else if let ForBinding::Names(names) = binding {
             for (i, name) in names.iter().enumerate() {
                 let val_reg = self.registers.allocate()?;
@@ -2888,7 +2901,8 @@ impl Compiler {
                 self.emit(Opcode::LoadInt, idx_reg, i as u8, 0);
                 self.emit(Opcode::GetIndex, val_reg, item_reg, idx_reg);
                 self.free_temp(idx_reg);
-                self.insert_local(name.clone(), val_reg, true, None)?;
+                let boxed = self.box_if_shared(name, val_reg)?;
+                self.insert_local_cell(name.clone(), val_reg, true, None, boxed)?;
             }
             self.free_temp(item_reg);
         }
@@ -2929,20 +2943,10 @@ impl Compiler {
             BindingPatternKind::Name(name) => {
                 let reg = self.registers.allocate()?;
                 self.emit(Opcode::Move, reg, value_reg, 0);
-                if self
-                    .boxed_vars
-                    .last()
-                    .map(|b| b.contains(name))
-                    .unwrap_or(false)
-                {
-                    let cell_reg = self.registers.allocate()?;
-                    self.emit(Opcode::MakeCell, cell_reg, reg, 0);
-                    self.emit(Opcode::Move, reg, cell_reg, 0);
-                    self.free_temp(cell_reg);
-                }
+                let boxed = self.box_if_shared(name, reg)?;
                 let previous_span = self.current_span;
                 self.current_span = pattern.span;
-                let result = self.insert_local(name.clone(), reg, mutable, None);
+                let result = self.insert_local_cell(name.clone(), reg, mutable, None, boxed);
                 self.current_span = previous_span;
                 result
             }
@@ -3430,6 +3434,7 @@ impl Compiler {
             }
         }
 
+        compiler.box_shared_params(decl)?;
         compiler.compile_stmt(&decl.body)?;
         let return_reg = match compiler.last_expr_register {
             Some(reg) => reg,
@@ -3841,6 +3846,7 @@ impl Compiler {
             }
         }
 
+        compiler.box_shared_params(&decl)?;
         compiler.compile_stmt(&decl.body)?;
         let return_reg = match compiler.last_expr_register {
             Some(reg) => reg,
@@ -6027,11 +6033,64 @@ impl Compiler {
         mutable: bool,
         ty: Option<String>,
     ) -> Result<(), CompileError> {
-        let is_boxed = self
+        self.insert_local_cell(name, reg, mutable, ty, false)
+    }
+
+    /// Puts the value in `reg` into a shared cell when a nested function of
+    /// the current block uses the variable `name` and the block can change
+    /// it; see `find_boxed_vars`. Returns whether it did.
+    fn box_if_shared(&mut self, name: &str, reg: u8) -> Result<bool, CompileError> {
+        let shared = self
             .boxed_vars
             .last()
-            .map(|b| b.contains(&name))
-            .unwrap_or(false);
+            .is_some_and(|boxed| boxed.contains(name));
+        if shared {
+            let cell_reg = self.registers.allocate()?;
+            self.emit(Opcode::MakeCell, cell_reg, reg, 0);
+            self.emit(Opcode::Move, reg, cell_reg, 0);
+            self.free_temp(cell_reg);
+        }
+        Ok(shared)
+    }
+
+    /// Moves each parameter that a nested function of the body uses, and that
+    /// the body can change, into a shared cell, after defaults and type checks
+    /// have run. See `find_boxed_vars`.
+    fn box_shared_params(&mut self, decl: &FunctionDecl) -> Result<(), CompileError> {
+        let body = match &decl.body.kind {
+            StmtKind::Block(stmts) => prelude::CaptureScan::shared_names(stmts),
+            _ => prelude::CaptureScan::shared_names(std::slice::from_ref(&*decl.body)),
+        };
+        for param in &decl.params {
+            if !body.contains(&param.name) {
+                continue;
+            }
+            let Some(local) = self.locals.last().and_then(|s| s.get(&param.name)).cloned() else {
+                continue;
+            };
+            if local.is_boxed {
+                continue;
+            }
+            let cell_reg = self.registers.allocate()?;
+            self.emit(Opcode::MakeCell, cell_reg, local.reg, 0);
+            self.emit(Opcode::Move, local.reg, cell_reg, 0);
+            self.free_temp(cell_reg);
+            if let Some(local) = self.locals.last_mut().and_then(|s| s.get_mut(&param.name)) {
+                local.is_boxed = true;
+            }
+        }
+        Ok(())
+    }
+
+    /// `insert_local` for a register that holds a cell when `is_boxed`.
+    fn insert_local_cell(
+        &mut self,
+        name: String,
+        reg: u8,
+        mutable: bool,
+        ty: Option<String>,
+        is_boxed: bool,
+    ) -> Result<(), CompileError> {
         if let Some(scope) = self.locals.last_mut() {
             if scope.contains_key(&name) {
                 return Err(self.error(
@@ -6140,6 +6199,9 @@ impl Compiler {
         for stmt in stmts {
             self.find_closures_and_captures_in_stmt(stmt, &mut boxed);
         }
+        // Variables a nested function only reads must be shared too when the
+        // block reassigns them, or the function sees a stale copy.
+        boxed.extend(prelude::CaptureScan::shared_names(stmts));
         boxed
     }
 

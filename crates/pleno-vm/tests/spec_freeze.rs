@@ -145,6 +145,81 @@ fn math_min_and_max_take_every_argument_and_keep_ints() {
 }
 
 #[test]
+fn functions_see_later_assignments_to_the_variables_they_use() {
+    // Before, a function kept the value a variable had when the function was
+    // created, unless the function itself assigned the variable.
+    assert_eq!(
+        output(
+            r#"let mut debug = false;
+               fn log(m) { if (debug) { print(m); } }
+               debug = true;
+               log("on");
+               let mut items = [];
+               let read = fn() => items;
+               items = [1];
+               print(read());
+               class K { fn flag() { return debug; } }
+               debug = false;
+               print(K().flag());
+               fn outer() { let mut v = 1; fn inner() { return v; } v = 2; return inner(); }
+               print(outer());"#
+        ),
+        "on\n[1]\nfalse\n2\n"
+    );
+}
+
+#[test]
+fn closures_share_parameters_and_loop_variables() {
+    assert_eq!(
+        output(
+            r#"fn p1(x) { let g = fn() => x; x = 5; return g(); }
+               fn p2(x) { let g = fn() { x = 5; }; g(); return x; }
+               fn p3(x = 1) { let g = fn() => x; x += 1; return g(); }
+               print(p1(1), p2(1), p3(), p3(10));
+               let fs = [];
+               for (k in [1, 2]) { fs.push(fn() => k); k = k * 10; }
+               print(fs.map(|f| => f()));
+               let gs = [];
+               for (let i = 0; i < 3; i++) { gs.push(fn() => i); }
+               print(gs.map(|f| => f()));
+               let mut w = 0;
+               let seen = fn() => w;
+               w++;
+               ++w;
+               print(seen());"#
+        ),
+        "5 5 2 11\n[10, 20]\n[0, 1, 2]\n2\n"
+    );
+}
+
+#[test]
+fn an_exported_shared_variable_exports_its_value() {
+    let dir = std::env::temp_dir().join(format!("pleno-spec-freeze-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(
+        dir.join("counter.pln"),
+        "export let mut count = 1;\nexport fn current() { return count; }\ncount = 2;\n",
+    )
+    .unwrap();
+    let main = dir.join("main.pln");
+    let source = "import { count, current } from \"./counter.pln\";\nprint(count, current());\n";
+    let tokens = pleno_lexer::lex(source).unwrap();
+    let mut parser = pleno_parser::Parser::new(tokens, source);
+    let mut program = parser.parse_program().unwrap();
+    let chunk = Compiler::new(source.to_string())
+        .compile(&mut program)
+        .unwrap();
+    let mut vm = VM::new();
+    vm.output = Some(String::new());
+    vm.main_path = Some(main);
+    pleno_stdlib::register(&mut vm);
+    vm.execute(chunk)
+        .unwrap_or_else(|e| panic!("{}", e.message));
+    assert_eq!(vm.output.take().unwrap_or_default(), "2 2\n");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
 fn integer_remainder_has_the_sign_of_the_dividend() {
     assert_eq!(
         output("let m = -9223372036854775807 - 1; print(7 % 3, -7 % 3, 7 % -3, -7.5 % 2, m % -1);"),

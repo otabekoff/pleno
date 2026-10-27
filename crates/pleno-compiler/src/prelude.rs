@@ -15,6 +15,104 @@ fn declared_name(stmt: &Stmt) -> Option<&str> {
     }
 }
 
+/// Finds the variables of a block that a nested function (a `fn`, a lambda,
+/// or a method of a class, enum or `extend` declared in the block) can see
+/// change: names used inside a nested function that are also assigned
+/// somewhere in the block. Such a variable has to live in a shared cell, or the
+/// function keeps the value it had when the function was created.
+///
+/// A parameter of the nested function shadows the outer name. A local the
+/// nested function declares with `let` is not tracked, so such a name still
+/// counts: that only costs a cell, never correctness.
+#[derive(Default)]
+pub struct CaptureScan {
+    depth: usize,
+    /// The parameters of each nested function being visited.
+    params: Vec<Vec<String>>,
+    used_in_nested: std::collections::HashSet<String>,
+    assigned: std::collections::HashSet<String>,
+}
+
+impl CaptureScan {
+    pub fn shared_names(stmts: &[Stmt]) -> std::collections::HashSet<String> {
+        let mut scan = CaptureScan::default();
+        for stmt in stmts {
+            scan.visit_stmt(stmt);
+        }
+        scan.used_in_nested
+            .intersection(&scan.assigned)
+            .cloned()
+            .collect()
+    }
+
+    fn note_use(&mut self, name: &str) {
+        if self.depth > 0 && !self.params.iter().flatten().any(|param| param == name) {
+            self.used_in_nested.insert(name.to_string());
+        }
+    }
+}
+
+impl<'ast> Visitor<'ast> for CaptureScan {
+    fn visit_stmt(&mut self, stmt: &'ast Stmt) {
+        if let StmtKind::Assign { name, .. } = &stmt.kind {
+            self.assigned.insert(name.clone());
+            self.note_use(name);
+        }
+        let nested = matches!(
+            stmt.kind,
+            StmtKind::Fn { .. }
+                | StmtKind::Class { .. }
+                | StmtKind::Enum(_)
+                | StmtKind::Extend { .. }
+        );
+        let params = match &stmt.kind {
+            StmtKind::Fn { params, .. } => params.iter().map(|p| p.name.clone()).collect(),
+            _ => Vec::new(),
+        };
+        self.depth += usize::from(nested);
+        self.params.push(params);
+        walk_stmt(self, stmt);
+        self.params.pop();
+        self.depth -= usize::from(nested);
+    }
+
+    fn visit_function_decl(&mut self, decl: &'ast FunctionDecl) {
+        self.params
+            .push(decl.params.iter().map(|p| p.name.clone()).collect());
+        walk_function_decl(self, decl);
+        self.params.pop();
+    }
+
+    fn visit_expr(&mut self, expr: &'ast Expr) {
+        match &expr.kind {
+            ExprKind::Ident(name) => self.note_use(name),
+            ExprKind::Unary {
+                op:
+                    pleno_ast::UnaryOp::PreIncrement
+                    | pleno_ast::UnaryOp::PostIncrement
+                    | pleno_ast::UnaryOp::PreDecrement
+                    | pleno_ast::UnaryOp::PostDecrement,
+                expr: target,
+            } => {
+                if let ExprKind::Ident(name) = &target.kind {
+                    self.assigned.insert(name.clone());
+                }
+            }
+            _ => {}
+        }
+        let nested = matches!(expr.kind, ExprKind::Lambda { .. });
+        let params = match &expr.kind {
+            ExprKind::Lambda { params, .. } => params.iter().map(|p| p.name.clone()).collect(),
+            _ => Vec::new(),
+        };
+        self.depth += usize::from(nested);
+        self.params.push(params);
+        walk_expr(self, expr);
+        self.params.pop();
+        self.depth -= usize::from(nested);
+    }
+}
+
 /// Collects every name a program refers to, so unreferenced top-level
 /// declarations can be skipped. Besides identifiers this counts names that
 /// only appear in decorators, type annotations, `extends`/`implements`

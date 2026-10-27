@@ -38,13 +38,17 @@ fn aliases_keep_the_old_string() {
         t = t + "t";
         print(mp, m, tup, t);
         let mut c = "c";
-        let f = () => c;
+        let old = c;
+        let f = () => old;
+        let g = () => c;
         c = c + "2";
-        print(f(), c);
+        print(f(), c, g());
     "#;
+    // `g` shares the variable `c`, so it sees the new string; `old` keeps the
+    // value it was given.
     assert_eq!(
         output(source),
-        "ab abx\n[\"abx\"] abxy\n{\"k\": \"m\"} m3 (\"t\", 1) tt\nc c2\n"
+        "ab abx\n[\"abx\"] abxy\n{\"k\": \"m\"} m3 (\"t\", 1) tt\nc c2 c2\n"
     );
 }
 
