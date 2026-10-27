@@ -4,7 +4,7 @@
     <id>pleno</id>
     <version>0.3.0</version>
     <title>Pleno Programming Language</title>
-    <authors>Otabek Ismoilov</authors>
+    <authors>Otabek Sadiridinov</authors>
     <owners>otabekoff</owners>
     <licenseUrl>https://github.com/otabekoff/pleno/blob/main/LICENSE</licenseUrl>
     <projectUrl>https://pleno.mohirlab.uz/</projectUrl>
@@ -13,7 +13,7 @@
     <description>Pleno is a dynamically typed programming language with optional type annotations that are checked when the program runs, classes and pattern matching, and async built in. This package installs pleno (compiler and runtime), plm (package manager), pleno-lsp (language server), pleno-dap (debug adapter) and pleno-repl.</description>
     <summary>A readable programming language with optional checked types and async built in</summary>
     <releaseNotes>https://github.com/otabekoff/pleno/releases/tag/v0.3.0</releaseNotes>
-    <copyright>Copyright 2026 Otabek Ismoilov and Pleno contributors</copyright>
+    <copyright>Copyright 2026 Otabek Sadiridinov and Pleno contributors</copyright>
     <tags>pleno programming language compiler interpreter</tags>
     <packageSourceUrl>https://github.com/otabekoff/pleno/tree/main/packaging/chocolatey</packageSourceUrl>
     <docsUrl>https://pleno.mohirlab.uz/</docsUrl>

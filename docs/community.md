@@ -1,6 +1,6 @@
 # Community
 
-Pleno is an open-source language, built in the open on [GitHub](https://github.com/otabekoff/pleno). It is maintained by one person, [Otabek Ismoilov](https://github.com/otabekoff), in spare time, so the project is kept small on purpose: it avoids anything that costs money or needs constant care, and spends the time on the language.
+Pleno is an open-source language, built in the open on [GitHub](https://github.com/otabekoff/pleno). It is maintained by one person, [Otabek Sadiridinov](https://github.com/otabekoff), in his own time, so the project is kept small on purpose: it avoids anything that costs money or needs constant care, and spends the time on the language.
 
 Help is welcome if you are interested in:
 
@@ -12,11 +12,12 @@ Help is welcome if you are interested in:
 
 ## Where to talk
 
-- **Questions, bugs and ideas:** [GitHub issues](https://github.com/otabekoff/pleno/issues). Search first, then open a new one. For a bug, include `pleno --version`, your operating system and the smallest program that shows the problem.
+- **Questions and ideas:** [GitHub Discussions](https://github.com/otabekoff/pleno/discussions). Ask how to do something, share what you built, or propose a change to the language before writing it up as an issue.
+- **Bugs:** [GitHub issues](https://github.com/otabekoff/pleno/issues). Search first, then open a new one, with `pleno --version`, your operating system and the smallest program that shows the problem.
 - **Security problems:** do not open a public issue; follow [SECURITY.md](https://github.com/otabekoff/pleno/blob/main/SECURITY.md).
 - **News:** the [blog](/blog/) and the [releases](https://github.com/otabekoff/pleno/releases).
 
-Pleno has no chat server, forum or social media accounts yet. Answers can take a few days.
+Answers can take a few days.
 
 ## How the project is run
 
