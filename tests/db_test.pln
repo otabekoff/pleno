@@ -1,0 +1,24 @@
+// args: --allow-write only-this-folder
+// std:db with an in-memory SQLite database, and the sandbox applying to
+// database files: writing anywhere but `only-this-folder` is denied.
+import { Database } from "std:db";
+import { assert } from "std:test";
+
+let db = Database.connect("sqlite::memory:");
+assert.equal(db.execute("CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT, score REAL)"), 0);
+assert.equal(db.execute("INSERT INTO t (name, score) VALUES (?, ?)", ["Ada", 9.5]), 1);
+assert.equal(db.execute("INSERT INTO t (name, score) VALUES (?, ?)", ["Alan", null]), 1);
+let rows = db.query("SELECT id, name, score FROM t ORDER BY id");
+assert.equal(rows, [{"id": 1, "name": "Ada", "score": 9.5}, {"id": 2, "name": "Alan", "score": null}]);
+assert.equal(db.query("SELECT name FROM t WHERE score > ?", [5]), [{"name": "Ada"}]);
+db.close();
+assert.throws(fn() { db.query("SELECT 1"); });
+
+let mut denied = "";
+try {
+    Database.connect("sqlite:outside.db");
+} catch (e) {
+    denied = e.name;
+}
+assert.equal(denied, "SecurityError");
+print("db ok");

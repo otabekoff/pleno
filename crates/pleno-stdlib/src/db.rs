@@ -6,12 +6,6 @@ use rusqlite::{Connection, ToSql};
 use std::rc::Rc;
 
 pub fn db_connect(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
-    if !vm.is_network_allowed() {
-        // Technically SQLite is local, but often grouped under IO/Network permissions.
-        // We'll use a generic IO check or specific DB check if it existed.
-        // For now, let's assume it's allowed if IO is allowed.
-    }
-
     let conn_str = match args.first() {
         Some(Value::String(s)) => s.as_str(),
         _ => {
@@ -28,6 +22,20 @@ pub fn db_connect(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, Runt
             "Unsupported database driver. Use 'sqlite:path'",
         ));
     };
+
+    // A database file is read and written like any other file, so the
+    // sandbox flags apply (`--allow-io false`, `--allow-read`, `--allow-write`).
+    if !vm.is_io_allowed() {
+        return Err(RuntimeError::new("SecurityError: IO access denied"));
+    }
+    if path != ":memory:" {
+        if !vm.is_read_allowed(path) {
+            return Err(RuntimeError::new("SecurityError: Read access denied"));
+        }
+        if !vm.is_write_allowed(path) {
+            return Err(RuntimeError::new("SecurityError: Write access denied"));
+        }
+    }
 
     let conn = Connection::open(path)
         .map_err(|e| RuntimeError::new(format!("Connection failed: {}", e)))?;
