@@ -59,6 +59,36 @@ pub fn char_slice(s: &str, start: usize, end: usize) -> &str {
     &s[from..to]
 }
 
+/// The positions `from..to` that a slice of a sequence of `len` items covers,
+/// for arrays, tuples and strings alike. A negative position counts from the
+/// end (`-1` is the last item), positions outside the sequence are clamped,
+/// `inclusive` (`..=end`) takes the item at `end` too, and an end before the
+/// start gives an empty slice.
+pub fn slice_bounds(
+    len: usize,
+    start: Option<i64>,
+    end: Option<i64>,
+    inclusive: bool,
+) -> (usize, usize) {
+    let len_i = len as i128;
+    let resolve = |position: i64| -> i128 {
+        let position = position as i128;
+        if position < 0 {
+            len_i + position
+        } else {
+            position
+        }
+    };
+    let from = start.map_or(0, resolve).clamp(0, len_i);
+    let to = match end {
+        None => len_i,
+        Some(end) if inclusive => resolve(end) + 1,
+        Some(end) => resolve(end),
+    }
+    .clamp(from, len_i);
+    (from as usize, to as usize)
+}
+
 /// A position given as an integer, clamped into `0..=len`.
 #[inline]
 pub fn clamp_position(position: i64, len: usize) -> usize {
@@ -98,5 +128,20 @@ mod tests {
         assert_eq!(char_slice(s, 2, 99), "😀b");
         assert_eq!(clamp_position(-5, 3), 0);
         assert_eq!(clamp_position(i64::MAX, 3), 3);
+    }
+
+    #[test]
+    fn slice_bounds_count_negative_positions_from_the_end() {
+        assert_eq!(slice_bounds(5, Some(-2), None, false), (3, 5));
+        assert_eq!(slice_bounds(5, Some(1), Some(-1), false), (1, 4));
+        assert_eq!(slice_bounds(5, None, Some(-1), true), (0, 5));
+        assert_eq!(slice_bounds(5, Some(-9), Some(2), false), (0, 2));
+        assert_eq!(slice_bounds(5, Some(3), Some(1), false), (3, 3));
+        assert_eq!(slice_bounds(5, None, Some(-9), true), (0, 0));
+        assert_eq!(
+            slice_bounds(5, Some(i64::MIN), Some(i64::MAX), true),
+            (0, 5)
+        );
+        assert_eq!(slice_bounds(0, Some(-1), None, false), (0, 0));
     }
 }

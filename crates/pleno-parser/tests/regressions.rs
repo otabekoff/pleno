@@ -36,7 +36,7 @@ fn test_recursion_limit_expr() {
                 result
                     .unwrap_err()
                     .message
-                    .contains("Recursion limit exceeded")
+                    .contains("code nested too deeply")
             );
         })
         .unwrap()

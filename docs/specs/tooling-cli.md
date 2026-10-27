@@ -8,7 +8,7 @@ The Pleno CLI provides tools for running, building, testing, and formatting Plen
 # Run a script
 pleno run script.pln
 
-# Run with arguments; Process.args() returns [pleno, run, script.pln, arg1, arg2]
+# Run with arguments; Process.args() returns [<path of pleno>, "run", "script.pln", "arg1", "arg2"]
 pleno run script.pln arg1 arg2
 
 # Start interactive REPL

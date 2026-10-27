@@ -322,7 +322,7 @@ if (found != null) {
 
 let numbers = Regex(r"\d+");
 let all = numbers.findAll("abc 123 def 456");
-print(all.map(fn(m) => m.value));     // [123, 456]
+print(all.map(fn(m) => m.value));     // ["123", "456"]
 ```
 
 ---

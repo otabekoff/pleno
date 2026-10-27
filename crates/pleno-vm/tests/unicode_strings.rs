@@ -126,7 +126,9 @@ fn range_slices_count_characters() {
         (r#"""[0..3]"#, ""),
         ("\"e\u{301}x\"[1..2]", "\u{301}"),
     ]);
-    assert_eq!(output("let i = -2; print(\"héllo\"[i..2]);"), "hé\n");
+    // A negative position counts from the end.
+    assert_eq!(output("let i = -2; print(\"héllo\"[i..]);"), "lo\n");
+    assert_eq!(output("let i = -2; print(\"héllo\"[i..2]);"), "\n");
     assert_eq!(output("let i = -5; print(\"héllo\"[0..i]);"), "\n");
 }
 
@@ -226,15 +228,15 @@ fn positions_agree_with_each_other() {
 #[test]
 fn split_with_an_empty_separator_gives_characters() {
     check(&[
-        (r#""abc".split("")"#, "[a, b, c]"),
+        (r#""abc".split("")"#, r#"["a", "b", "c"]"#),
         (r#""abc".split("").length"#, "3"),
-        (r#""héllo".split("")"#, "[h, é, l, l, o]"),
-        (r#""a€😀".split("")"#, "[a, €, 😀]"),
+        (r#""héllo".split("")"#, r#"["h", "é", "l", "l", "o"]"#),
+        (r#""a€😀".split("")"#, r#"["a", "€", "😀"]"#),
         (r#""".split("")"#, "[]"),
         (r#""".split("").length"#, "0"),
         ("\"e\u{301}\".split(\"\").length", "2"),
-        (r#""a,b,,c".split(",")"#, "[a, b, , c]"),
-        (r#""é,€".split(",")"#, "[é, €]"),
+        (r#""a,b,,c".split(",")"#, r#"["a", "b", "", "c"]"#),
+        (r#""é,€".split(",")"#, r#"["é", "€"]"#),
         (r#""".split(",").length"#, "1"),
     ]);
 }

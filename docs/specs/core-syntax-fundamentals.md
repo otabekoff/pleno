@@ -89,6 +89,60 @@ print([1, 2] == [2, 1]);                 // false
 print([[1]].contains([1]));              // true
 ```
 
+A `Char` and a one-character `String` are different values: `'a' == "a"` is `false`. Indexing a string gives a `String` (`"ab"[0]` is `"a"`).
+
+#### Numbers
+
+Int literals are written in decimal, hexadecimal (`0xff`), binary (`0b101`) or octal (`0o17`), and may use `_` between digits (`1_000_000`). A literal with a `.` or an exponent (`2.5`, `1e3`) is a `Float`.
+
+- **Overflow.** `Int` arithmetic that leaves the 64-bit range throws `integer overflow in addition` (or `subtraction`, `multiplication`, `negation`) instead of wrapping. `Float` arithmetic does not throw: it can reach infinity (`1e308 * 10`) or NaN (`Math.sqrt(-1)`), and NaN is not equal to anything, itself included.
+- **Division.** `/` always gives a `Float`, also for two Ints: `7 / 2` is `3.5` and `6 / 2` is `3.0`. For a whole-number quotient, use `Math.floor(a / b)` (or `Math.trunc`), which returns an `Int`. There is no `**` operator; `Math.pow` returns a `Float`.
+- **Remainder.** `%` gives the remainder with the sign of the left operand, as in C, Java, JavaScript and Rust (not Python): `7 % 3` is `1`, `-7 % 3` is `-1` and `7 % -3` is `1`. It works on Floats too: `-7.5 % 2` is `-1.5`.
+- **Zero.** Dividing by zero, or taking a remainder by zero, throws `division by zero` (or `modulo by zero`), for Floats as well as Ints: `1.0 / 0.0` throws too.
+- **Mixing.** An operation on an `Int` and a `Float` gives a `Float`: `2 * 1.5` is `3.0`.
+
+```pleno
+print(7 / 2, 6 / 2, -7 % 3, 2 * 1.5);   // 3.5 3.0 -1 3.0
+
+try {
+    let big = 9223372036854775807;
+    print(big + 1);
+} catch (e) {
+    print(e.message);                    // integer overflow in addition
+}
+
+try {
+    let zero = 0.0;
+    print(1.0 / zero);
+} catch (e) {
+    print(e.message);                    // division by zero
+}
+```
+
+#### String literals
+
+- `"..."` is a string. It can span several lines.
+- `` `...` `` is a template string: `${expression}` inside it is replaced by the value of the expression, printed the way `print` shows it.
+- `r"..."` is a raw string: a backslash in it is an ordinary character, which suits regular expressions (`r"\d+"`) and Windows paths.
+- `'a'` is a `Char`, one character.
+
+In `"..."`, template strings and characters, a backslash starts an escape:
+
+| Escape | Character |
+| --- | --- |
+| `\n`, `\r`, `\t` | newline, carriage return, tab |
+| `\0` | the NUL character |
+| `\\`, `\"`, `\'`, `` \` `` | the character itself |
+| `\$` | a `$` that does not start `${` |
+| `\u{e9}` | the Unicode character with that hex code (1 to 6 digits) |
+
+Any other escape, such as `"\d"` or `"C:\new\x"`, is a compile error (`unknown escape '\d'`) instead of a silent change of meaning: write `\\` for a backslash, or use a raw string.
+
+```pleno
+print("tab:\tend", "caf\u{e9}", r"C:\new\x");   // tab:	end café C:\new\x
+print(`2 + 2 = ${2 + 2}, not \${x}`);           // 2 + 2 = 4, not ${x}
+```
+
 #### Type Annotations
 ```pleno
 let age: Int = 25;
@@ -116,7 +170,7 @@ A `Void` function returns `null`: `return;` and `return null;` are accepted, `re
 
 A return annotation that mentions a type parameter (`T`, `T[]`, `T?`) is checked against the type argument: with `fn first<T>(xs: T[]): T`, `first<Int>([1, 2])` must return an `Int`. When the type argument was inferred (`first([1, 2])`), `T` accepts any value, or any value that satisfies its constraint (`T: Named`), so a right program is never rejected. A class's type parameter in a method is bound to the instance's type arguments (`Box<Int>(1)`), and accepts any value for an instance made without them (`Box(1)`). The return annotation `Box<Int>` of a class declared in the same file checks the type arguments, as a parameter does (see [Generics](./generics.md)); for a class imported from another module, and for `Box<Int>?`, only the class is checked. Not checked: `Any` returns, `Self`, setters, constructors, and annotations that mention the type parameter of an extension (`extend <T> Array<T>`) or of a function enclosing a class declaration (a method of `class Local` inside `fn make<T>()` cannot see `T`).
 
-**Int and Float.** An `Int` is accepted where a `Float` is expected, and it becomes a `Float` there: in `fn half(x: Float)`, `half(7)` binds `x` to `7.0`, so `x / 2` is `3.5`. The same applies to `let`, assignments, fields and return values, and to `Float?` and unions such as `Float | String`. In a union that also allows `Int` (`Int | Float`, `Number`, `Any`), an `Int` stays an `Int`. Collections are checked but not copied: a `Float[]` (or `Map<String, Float>`) accepts `[1, 2.5]` and keeps the `1` an `Int`. A `Float` prints without a trailing `.0` when it is whole (`print(3.0)` prints `3`), so the conversion shows in `typeof` and in division.
+**Int and Float.** An `Int` is accepted where a `Float` is expected, and it becomes a `Float` there: in `fn half(x: Float)`, `half(7)` binds `x` to `7.0`, so `x / 2` is `3.5`. The same applies to `let`, assignments, fields and return values, and to `Float?` and unions such as `Float | String`. In a union that also allows `Int` (`Int | Float`, `Number`, `Any`), an `Int` stays an `Int`. Collections are checked but not copied: a `Float[]` (or `Map<String, Float>`) accepts `[1, 2.5]` and keeps the `1` an `Int`. The conversion shows when the value is printed: a `Float` always prints as one, so `let ratio: Float = 1; print(ratio);` prints `1.0`.
 
 ```pleno
 fn half(x: Float): Float {
@@ -124,6 +178,7 @@ fn half(x: Float): Float {
 }
 print(half(7));             // 3.5
 let ratio: Float = 1;
+print(ratio);               // 1.0
 print(typeof(ratio));       // Float
 let either: Int | Float = 1;
 print(typeof(either));      // Int
@@ -177,7 +232,77 @@ fn processValue(val: Int | String) {
 
 
 ### 1.4 TypeOf Operator
+
+`typeof(value)` returns the name of the value's type as a string: `"Int"`, `"Float"`, `"String"`, `"Char"`, `"Bool"`, `"Null"`, `"Array"`, `"Map"`, `"Set"`, `"Tuple"` or `"Range"`; the class name for an instance (`"Person"`, `"Error"`); `"Function"` for every function, lambda, method and built-in function; `"Class"` for a class itself; `"Variant"` for an enum value and `"Enum"` for an enum. `Ok`, `Err`, `Some` and `None` are maps underneath, so `typeof(Ok(1))` is `"Map"`; ask them with `isOk()` or `isSome()` instead.
+
 ```pleno
+class Person {}
 let x = 42;
-print(typeof(x));  // "Int"
+print(typeof(x));            // Int
+print(typeof(Person()));     // Person
+print(typeof(fn() => 1));    // Function
+print(typeof([1, 2]));       // Array
 ```
+
+### 1.5 How values print
+
+`print`, string concatenation (`"n = " + n`), template strings and `toString()` all turn a value into text the same way:
+
+| Value | Prints as |
+| --- | --- |
+| `Int` | its digits: `42`, `-7` |
+| `Float` | always as a Float: `3.0`, `2.5`, `0.30000000000000004`; the shortest digits that read back as the same number, with an exponent when very large or small (`1e21`, `1e-7`); `inf`, `-inf` and `NaN` |
+| `String`, `Char` | the text itself, without quotes |
+| `Bool`, `null` | `true`, `false`, `null` |
+| `Array` | `[1, "two", 'c', null]` |
+| `Map` | `{"name": "Ada", "age": 36}`, in insertion order |
+| `Set` | `{1, 2, 3}` |
+| `Tuple` | `(1, "a")`, `(x: 1, y: 2)`, and `(1,)` for one element |
+| `Ok(1)`, `Err("x")`, `Some(2)`, `None` | as written |
+| enum value | `Color.Red`, `Shape.Circle(2.0)` |
+| `Error` | `name: message`, such as `TypeError: expected Int, found String` |
+| `Range` | `0..3`, `0..=3` |
+| instance of a class | `<instance of Person>`; a `toString` method is not called, so call it yourself |
+| class, function | `<class Person>`, `<fn>` and similar; the exact text is not specified |
+
+Inside an array, map, set, tuple or enum value, strings and characters are quoted and escaped the way they are written in source (`"a\"b"`, `'\n'`), so `["1", 1]` and `[1, 1]` print differently. A container that contains itself prints `[...]` (or `{...}`, `(...)`) at the point where it repeats, and nesting deeper than 200 levels is cut off the same way.
+
+```pleno
+print("text", ["text", 1, "1"], {"k": "v"}, ("a",));   // text ["text", 1, "1"] {"k": "v"} ("a",)
+print(10 / 4, 10 / 5, 1e21);                            // 2.5 2.0 1e21
+print(Ok(1), None);                                     // Ok(1) None
+
+let items = [1];
+items.push(items);
+print(items);                                           // [1, [...]]
+```
+
+### 1.6 Scope and shadowing
+
+A `let` or `const` belongs to the block (`{ ... }`) it is declared in, from that point to the end of the block. A function body, a loop body and each branch of an `if` are blocks.
+
+- An inner block can declare a name that already exists outside it. The inner name hides the outer one until the block ends; the outer variable is not changed.
+- Declaring the same name twice in the same block is a compile error (`Local 'x' already defined`). Use `let mut` and assign instead.
+- A parameter can be redeclared with `let` inside its function, which hides the parameter.
+
+```pleno
+let x = 1;
+{
+    let x = 2;
+    print(x);    // 2
+}
+print(x);        // 1
+
+fn next(n: Int): Int {
+    let n = n + 1;
+    return n;
+}
+print(next(1));  // 2
+```
+
+### 1.7 Reserved words
+
+These words are keywords and cannot be used as names:
+`abstract`, `as`, `async`, `await`, `break`, `case`, `catch`, `class`, `const`, `continue`, `deep`, `do`, `else`, `enum`, `export`, `extend`, `extends`, `false`, `finally`, `fn`, `for`, `from`, `if`, `implements`, `import`, `in`, `interface`, `internal`, `is`, `lazy`, `let`, `macro`, `match`, `module`, `move`, `mut`, `new`, `null`, `operator`, `private`, `protected`, `public`, `return`, `static`, `super`, `this`, `throw`, `true`, `try`, `type`, `while`, `with` and `_`. A keyword can still follow a `.` as a method or property name: `items.with(0, x)` and a method named `with` work.
+
+`get`, `set`, `out` and `property` are keywords in some positions (property accessors, variance annotations) and are accepted as variable names elsewhere, but not, for example, as names in an `import { ... }` list. Avoid them as names.

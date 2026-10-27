@@ -1269,6 +1269,98 @@ impl PartialEq for Value {
     }
 }
 
+/// How deep `print` follows nested containers. Deeper values, and a container
+/// that contains itself, print as `[...]` (or `{...}`, `(...)`) instead of
+/// overflowing the stack.
+const MAX_DISPLAY_DEPTH: usize = 200;
+
+thread_local! {
+    static DISPLAYING: RefCell<Vec<*const ()>> = const { RefCell::new(Vec::new()) };
+}
+
+struct DisplayGuard;
+
+impl DisplayGuard {
+    fn enter(ptr: *const ()) -> Option<Self> {
+        DISPLAYING.with(|stack| {
+            let mut stack = stack.borrow_mut();
+            if stack.len() >= MAX_DISPLAY_DEPTH || stack.contains(&ptr) {
+                return None;
+            }
+            stack.push(ptr);
+            Some(DisplayGuard)
+        })
+    }
+}
+
+impl Drop for DisplayGuard {
+    fn drop(&mut self) {
+        DISPLAYING.with(|stack| {
+            stack.borrow_mut().pop();
+        });
+    }
+}
+
+/// Writes a value that sits inside a container. Strings and characters are
+/// quoted there, so `["1", 1]` prints differently from `[1, 1]`.
+fn write_nested(f: &mut std::fmt::Formatter<'_>, value: &Value) -> std::fmt::Result {
+    match value {
+        Value::String(s) => write_quoted_str(f, s),
+        Value::Char(c) => write_quoted_char(f, *c),
+        other => write!(f, "{}", other),
+    }
+}
+
+fn write_escaped_char(f: &mut std::fmt::Formatter<'_>, c: char, quote: char) -> std::fmt::Result {
+    match c {
+        '\\' => f.write_str("\\\\"),
+        '\n' => f.write_str("\\n"),
+        '\r' => f.write_str("\\r"),
+        '\t' => f.write_str("\\t"),
+        '\0' => f.write_str("\\0"),
+        c if c == quote => write!(f, "\\{}", c),
+        c if c.is_control() => write!(f, "\\u{{{:x}}}", c as u32),
+        c => write!(f, "{}", c),
+    }
+}
+
+/// Writes `s` as a double-quoted string literal that Pleno reads back as `s`.
+pub fn write_quoted_str(f: &mut std::fmt::Formatter<'_>, s: &str) -> std::fmt::Result {
+    f.write_str("\"")?;
+    for c in s.chars() {
+        write_escaped_char(f, c, '"')?;
+    }
+    f.write_str("\"")
+}
+
+fn write_quoted_char(f: &mut std::fmt::Formatter<'_>, c: char) -> std::fmt::Result {
+    f.write_str("'")?;
+    write_escaped_char(f, c, '\'')?;
+    f.write_str("'")
+}
+
+/// `Ok(1)`, `Err("x")`, `Some(2)` and `None` are maps underneath; they print
+/// the way they are written.
+fn write_result_or_option(
+    f: &mut std::fmt::Formatter<'_>,
+    entries: &IndexMap<String, Value>,
+) -> Option<std::fmt::Result> {
+    let Some(Value::String(variant)) = entries.get("variant") else {
+        return None;
+    };
+    let payload = match (variant.as_str(), entries.len()) {
+        ("None", 1) => return Some(f.write_str("None")),
+        ("Ok" | "Some", 2) => entries.get("value")?,
+        ("Err", 2) => entries.get("error")?,
+        _ => return None,
+    };
+    Some(
+        write!(f, "{}(", variant)
+            .and_then(|_| write_nested(f, payload))
+            .and_then(|_| f.write_str(")")),
+    )
+}
+
 impl std::fmt::Display for Value {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -1276,7 +1368,10 @@ impl std::fmt::Display for Value {
             Value::Missing => write!(f, "<missing>"),
             Value::Bool(v) => write!(f, "{}", v),
             Value::Int(v) => write!(f, "{}", v),
-            Value::Float(v) => write!(f, "{}", v),
+            // `{:?}` keeps a `.0` on whole numbers (`3.0`), gives the shortest
+            // text that reads back as the same Float, and switches to an
+            // exponent for very large and very small numbers (`1e21`, `1e-7`).
+            Value::Float(v) => write!(f, "{:?}", v),
             Value::String(v) => write!(f, "{}", v),
             Value::Char(v) => write!(f, "{}", v),
             Value::File(v) => write!(f, "<file {}>", v.borrow().name),
@@ -1348,24 +1443,35 @@ impl std::fmt::Display for Value {
             Value::NativeFunction(_) => write!(f, "<native fn>"),
             Value::BoundNativeMethod(_) => write!(f, "<native method>"),
             Value::Map(m) => {
+                let Some(_guard) = DisplayGuard::enter(m.as_ptr() as *const ()) else {
+                    return write!(f, "{{...}}");
+                };
+                let map = m.borrow();
+                if let Some(result) = write_result_or_option(f, &map.entries) {
+                    return result;
+                }
                 write!(f, "{{")?;
-                let entries = &m.borrow().entries;
-                for (i, (k, v)) in entries.iter().enumerate() {
+                for (i, (k, v)) in map.entries.iter().enumerate() {
                     if i > 0 {
                         write!(f, ", ")?;
                     }
-                    write!(f, "\"{}\": {}", k, v)?;
+                    write_quoted_str(f, k)?;
+                    write!(f, ": ")?;
+                    write_nested(f, v)?;
                 }
                 write!(f, "}}")
             }
             Value::Array(a) => {
+                let Some(_guard) = DisplayGuard::enter(a.as_ptr() as *const ()) else {
+                    return write!(f, "[...]");
+                };
                 write!(f, "[")?;
                 let elements = &a.borrow().elements;
                 for (i, v) in elements.iter().enumerate() {
                     if i > 0 {
                         write!(f, ", ")?;
                     }
-                    write!(f, "{}", v)?;
+                    write_nested(f, v)?;
                 }
                 write!(f, "]")
             }
@@ -1379,9 +1485,9 @@ impl std::fmt::Display for Value {
                         ValueKey::Null => write!(f, "null")?,
                         ValueKey::Bool(v) => write!(f, "{}", v)?,
                         ValueKey::Int(v) => write!(f, "{}", v)?,
-                        ValueKey::Float(bits) => write!(f, "{}", f64::from_bits(*bits))?,
-                        ValueKey::String(v) => write!(f, "\"{}\"", v)?,
-                        ValueKey::Char(v) => write!(f, "\'{}\'", v)?,
+                        ValueKey::Float(bits) => write!(f, "{:?}", f64::from_bits(*bits))?,
+                        ValueKey::String(v) => write_quoted_str(f, v)?,
+                        ValueKey::Char(v) => write_quoted_char(f, *v)?,
                     }
                 }
                 write!(f, "}}")
@@ -1407,6 +1513,9 @@ impl std::fmt::Display for Value {
             Value::Mutex(_) => write!(f, "<mutex>"),
             Value::Channel(_) => write!(f, "<channel>"),
             Value::Tuple(t) => {
+                let Some(_guard) = DisplayGuard::enter(t.as_ptr() as *const ()) else {
+                    return write!(f, "(...)");
+                };
                 write!(f, "(")?;
                 let t = t.borrow();
                 for (i, v) in t.elements.iter().enumerate() {
@@ -1420,7 +1529,11 @@ impl std::fmt::Display for Value {
                     {
                         write!(f, "{}: ", name)?;
                     }
-                    write!(f, "{}", v)?;
+                    write_nested(f, v)?;
+                }
+                // `(1,)`: a tuple of one element prints the way it is written.
+                if t.elements.len() == 1 && t.names.is_none() {
+                    write!(f, ",")?;
                 }
                 write!(f, ")")
             }
@@ -1440,7 +1553,7 @@ impl std::fmt::Display for Value {
                         if i > 0 {
                             write!(f, ", ")?;
                         }
-                        write!(f, "{}", v)?;
+                        write_nested(f, v)?;
                     }
                     write!(f, ")")?;
                 }
@@ -2082,9 +2195,9 @@ impl std::hash::Hash for ValueKey {
 pub fn map_key(value: &Value) -> Option<std::borrow::Cow<'_, str>> {
     match value {
         Value::String(s) => Some(std::borrow::Cow::Borrowed(s.as_str())),
-        Value::Int(_) | Value::Float(_) | Value::Bool(_) => {
-            Some(std::borrow::Cow::Owned(value.to_string()))
-        }
+        Value::Int(_) | Value::Bool(_) => Some(std::borrow::Cow::Owned(value.to_string())),
+        // A whole Float names the key of the Int it equals: `m[1.0]` is `m[1]`.
+        Value::Float(f) => Some(std::borrow::Cow::Owned(f.to_string())),
         _ => None,
     }
 }

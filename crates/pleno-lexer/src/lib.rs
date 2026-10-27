@@ -660,17 +660,10 @@ fn lex_string(
                 if brace_depth > 0 {
                     value.push('\\');
                     value.push(esc);
+                } else if esc == '$' {
+                    value.push(ESCAPED_DOLLAR);
                 } else {
-                    value.push(match esc {
-                        'n' => '\n',
-                        'r' => '\r',
-                        't' => '\t',
-                        '"' => '"',
-                        '`' => '`',
-                        '\\' => '\\',
-                        '$' => ESCAPED_DOLLAR,
-                        other => other,
-                    });
+                    value.push(lex_escape(chars, esc, idx)?);
                 }
             } else {
                 return Err(LexError {
@@ -689,23 +682,78 @@ fn lex_string(
     })
 }
 
+/// The character an escape sequence stands for, after the backslash at byte
+/// `at` and the character `esc` that follows it. The escapes are `\n`, `\r`,
+/// `\t`, `\0`, `\\`, `\"`, `\'`, `` \` `` and `\u{...}` with 1 to 6 hex digits.
+/// Any other escape is an error, so a forgotten backslash (`"C:\new"`) or a
+/// regex in a plain string (`"\d+"`) is reported instead of changing meaning.
+fn lex_escape(
+    chars: &mut std::iter::Peekable<std::str::CharIndices<'_>>,
+    esc: char,
+    at: usize,
+) -> Result<char, LexError> {
+    let simple = match esc {
+        'n' => Some('\n'),
+        'r' => Some('\r'),
+        't' => Some('\t'),
+        '0' => Some('\0'),
+        '\\' => Some('\\'),
+        '"' => Some('"'),
+        '\'' => Some('\''),
+        '`' => Some('`'),
+        _ => None,
+    };
+    if let Some(ch) = simple {
+        return Ok(ch);
+    }
+    if esc == 'u' {
+        let error = |message: &str| LexError {
+            message: message.to_string(),
+            span: Span::new(at, at + 2),
+        };
+        if chars.next().map(|c| c.1) != Some('{') {
+            return Err(error(
+                "invalid escape '\\u': write '\\u{' and 1 to 6 hex digits, then '}'",
+            ));
+        }
+        let mut digits = String::new();
+        loop {
+            match chars.next() {
+                Some((_, '}')) => break,
+                Some((_, c)) if c.is_ascii_hexdigit() && digits.len() < 6 => digits.push(c),
+                _ => {
+                    return Err(error(
+                        "invalid escape '\\u{...}': write 1 to 6 hex digits, then '}'",
+                    ));
+                }
+            }
+        }
+        return u32::from_str_radix(&digits, 16)
+            .ok()
+            .and_then(char::from_u32)
+            .ok_or_else(|| {
+                error(&format!(
+                    "invalid escape '\\u{{{digits}}}': not a Unicode scalar value"
+                ))
+            });
+    }
+    Err(LexError {
+        message: format!(
+            "unknown escape '\\{esc}'; write '\\\\' for a backslash, or use a raw string r\"...\""
+        ),
+        span: Span::new(at, at + 1 + esc.len_utf8()),
+    })
+}
+
 fn lex_char(
     chars: &mut std::iter::Peekable<std::str::CharIndices<'_>>,
     start: usize,
 ) -> Result<(char, usize), LexError> {
     let ch = match chars.next() {
-        Some((_, ch)) => {
+        Some((idx, ch)) => {
             if ch == '\\' {
-                // Handle escape sequences
                 match chars.next() {
-                    Some((_, esc)) => match esc {
-                        'n' => '\n',
-                        'r' => '\r',
-                        't' => '\t',
-                        '\'' => '\'',
-                        '\\' => '\\',
-                        other => other,
-                    },
+                    Some((_, esc)) => lex_escape(chars, esc, idx)?,
                     None => {
                         return Err(LexError {
                             message: "Unterminated char escape".to_string(),

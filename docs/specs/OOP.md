@@ -94,7 +94,7 @@ class Circle {
 let circle = Circle(5.0);
 print(circle.area);      // 78.53981633974483 (computed)
 circle.diameter = 20.0;  // Sets radius to 10
-print(circle.diameter);  // 20
+print(circle.diameter);  // 20.0
 ```
 
 ## Inheritance
@@ -171,7 +171,7 @@ class Rectangle extends Shape {
 }
 
 let rect = Rectangle("blue", 10.0, 5.0);
-print(rect.area());      // 50
+print(rect.area());      // 50.0
 print(rect.describe());  // A blue shape
 
 try {
@@ -259,7 +259,7 @@ class MathUtils {
 
 // Usage without instance
 print(MathUtils.PI);             // 3.14159
-print(MathUtils.square(5.0));    // 25
+print(MathUtils.square(5.0));    // 25.0
 
 MathUtils();
 MathUtils();

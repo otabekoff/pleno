@@ -52,19 +52,13 @@ pub fn array_slice(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, Run
     let array = arr.borrow();
     let len = array.len();
 
-    let start = match args.get(1) {
-        Some(Value::Int(i)) => *i as usize,
-        Some(Value::Null) | None => 0,
-        _ => 0,
+    let position = |arg: Option<&Value>| match arg {
+        Some(Value::Int(i)) => Some(*i),
+        _ => None,
     };
-    let end = match args.get(2) {
-        Some(Value::Int(i)) => *i as usize,
-        Some(Value::Null) | None => len,
-        _ => len,
-    };
-
-    let start = start.min(len);
-    let end = end.min(len);
+    // Like `arr[start..end]`: a negative position counts from the end.
+    let (start, end) =
+        pleno_value::text::slice_bounds(len, position(args.get(1)), position(args.get(2)), false);
 
     let slice: Vec<Value> = array[start..end].to_vec();
     Ok(Value::Array(gc.allocate(ArrayState::new(slice))))

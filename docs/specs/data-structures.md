@@ -38,7 +38,18 @@ print(numbers[..=1]);   // [5, 4]
 print(numbers[..=-1]);  // [5, 4, 3, 99, 1]: a negative end counts from the back
 ```
 
-Strings slice the same way, by character: `"hello"[..=1]` is `"he"`.
+A slice never throws. A negative position counts from the end (`-1` is the last element), in the start as well as the end: `numbers[-2..]` is the last two elements and `numbers[1..-1]` drops the first and the last. Positions outside the array are clamped to it, and an end before the start gives an empty array. A single index is different: `numbers[-1]` and `numbers[10]` throw `array index out of bounds`.
+
+Strings and tuples slice the same way, strings by character: `"hello"[..=1]` is `"he"` and `"hello"[-3..]` is `"llo"`.
+
+```pleno
+let letters = ["a", "b", "c", "d", "e"];
+print(letters[-2..]);     // ["d", "e"]
+print(letters[1..-1]);    // ["b", "c", "d"]
+print(letters[3..1]);     // []
+print(letters[-9..2]);    // ["a", "b"]
+print("hello"[-3..]);     // llo
+```
 
 ## Maps (Dictionaries)
 
@@ -51,7 +62,7 @@ let codes = {200: "OK", 404: "Not Found"};
 print(codes[404]);            // Not Found
 print(codes["200"]);          // OK
 print(codes.containsKey(200)); // true
-print(codes.keys());          // [200, 404]: the strings "200" and "404"
+print(codes.keys());          // ["200", "404"]
 ```
 
 ```pleno
@@ -74,7 +85,7 @@ ages.put("David", 28);               // Add or update an entry
 ages.remove("Bob");                  // Remove an entry
 print(ages.get("Alice"));            // 30 (null if the key is missing)
 print(ages.containsKey("Charlie"));  // true
-print(ages.keys());                  // [Alice, Charlie, David]
+print(ages.keys());                  // ["Alice", "Charlie", "David"]
 print(ages.values());                // [30, 35, 28]
 print(ages.size());                  // 3
 print(ages.isEmpty());               // false
@@ -88,7 +99,20 @@ for (key, value in ages) {
 }
 ```
 
+A map keeps its keys in insertion order: `keys()`, `values()`, `entries()`, `for` loops, `print` and `JSON.stringify` all follow it. Assigning to an existing key keeps its place; removing a key and adding it again moves it to the end.
+
+```pleno
+let order = {"b": 1, "a": 2};
+order["b"] = 3;                 // keeps its place
+order["c"] = 4;                 // added at the end
+order.remove("a");
+order["a"] = 5;                 // added again, at the end
+print(order.keys());            // ["b", "c", "a"]
+```
+
 ## Sets
+
+A set also keeps its elements in insertion order, which `print`, `toArray()` and `for` loops follow.
 
 ```pleno
 let uniqueNumbers: Set<Int> = {1, 2, 3, 4, 5};
@@ -242,7 +266,7 @@ let arr = [1, 2, 3, 4, 5];
 print(arr.pop());                    // 5: removes and returns the last element
 print(arr.shift());                  // 1: removes and returns the first element
 print(arr.remove(0));                // 2: removes and returns the element at an index
-print(arr.slice(0, 1));              // [3]: elements from start to end (exclusive)
+print(arr.slice(0, 1));              // [3]: elements from start to end (exclusive); a negative position counts from the end
 print(arr.join(", "));               // 3, 4
 print(arr.find(|x| => x > 3));       // 4: the first match, or null
 print(arr.with(0, 99));              // [99, 4]: a copy with one element replaced

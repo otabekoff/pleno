@@ -894,7 +894,24 @@ fn native_id(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeE
 
 fn native_typeof(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
     let val = args.first().unwrap_or(&Value::Null);
-    Ok(Value::String(Rc::new(val.type_name().to_string())))
+    let name = match val {
+        // An instance gives its class, as an annotation names it.
+        Value::Object(object) => match &object.borrow().class {
+            Some(class) => class.borrow().name.to_string(),
+            None => "Object".to_string(),
+        },
+        // Every kind of callable is a `Function`, as the annotation says.
+        Value::Function(_)
+        | Value::Closure(_)
+        | Value::NativeFunction(_)
+        | Value::BoundMethod(_)
+        | Value::StaticMethod(_)
+        | Value::BoundNativeMethod(_)
+        | Value::BoundFunction(_)
+        | Value::Partial(_) => "Function".to_string(),
+        other => other.type_name().to_string(),
+    };
+    Ok(Value::String(Rc::new(name)))
 }
 
 fn native_async_spawn(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
@@ -1260,16 +1277,21 @@ fn native_array_slice(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, 
         _ => return Err(RuntimeError::new("expected array")),
     };
     let b = arr.borrow();
-    let start = match args.get(1) {
-        Some(Value::Int(i)) => *i as usize,
-        _ => 0,
+    let position = |arg: Option<&Value>| match arg {
+        Some(Value::Int(i)) => Ok(Some(*i)),
+        Some(Value::Null) | None => Ok(None),
+        Some(other) => Err(RuntimeError::new(format!(
+            "slice expects Int positions, got {}",
+            other.type_name()
+        ))),
     };
-    let end = match args.get(2) {
-        Some(Value::Int(i)) => *i as usize,
-        _ => b.elements.len(),
-    };
-    let start = start.min(b.elements.len());
-    let end = end.min(b.elements.len()).max(start);
+    // Like `arr[start..end]`: a negative position counts from the end.
+    let (start, end) = pleno_value::text::slice_bounds(
+        b.elements.len(),
+        position(args.get(1))?,
+        position(args.get(2))?,
+        false,
+    );
     Ok(Value::Array(vm.get_gc().allocate(ArrayState::new(
         b.elements[start..end].to_vec(),
     ))?))

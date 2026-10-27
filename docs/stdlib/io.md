@@ -152,7 +152,7 @@ print("line 2", file=out);
 out.close();
 
 let input = File.open("notes.txt");
-print(input.readLines());  // [line 1, line 2]
+print(input.readLines());  // ["line 1", "line 2"]
 File.delete("notes.txt");
 ```
 
@@ -247,8 +247,8 @@ import { File, Directory } from "std:io";
 Directory.create("box");
 File.write("box/a.txt", "a");
 Directory.create("box/sub");
-print(Directory.listFiles("box"));        // [a.txt]
-print(Directory.listDirectories("box"));  // [sub]
+print(Directory.listFiles("box"));        // ["a.txt"]
+print(Directory.listDirectories("box"));  // ["sub"]
 Directory.deleteRecursive("box");
 ```
 

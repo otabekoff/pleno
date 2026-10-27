@@ -40,7 +40,7 @@ for (row in data) {
 }
 
 let rows = CSV.parse("1,2\n3,4\n", { header: false });
-print(rows);  // [[1, 2], [3, 4]]
+print(rows);  // [["1", "2"], ["3", "4"]]
 ```
 
 > **Note**: Fields are always strings. Convert numbers yourself, for example with `Int.parse(row[1])`.

@@ -94,7 +94,7 @@ fn two_name_and_one_name_forms_still_work() {
 fn an_iterator_can_be_looped_over() {
     assert_eq!(
         eval(r#"let mut s = []; for (e in {"a": 1}.entries()) { s.push(e); } s;"#),
-        "[(a, 1)]"
+        r#"[("a", 1)]"#
     );
 }
 

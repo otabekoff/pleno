@@ -34,6 +34,11 @@ impl pleno_diagnostics::ToDiagnostic for ParseError {
 /// threads, the fuzzers on 8 MB and the playground on 8 MB (.cargo/config.toml).
 const MAX_CHAIN_LENGTH: usize = 1_000;
 
+/// The error for code nested deeper than the parser's depth limit (about 40
+/// levels of brackets in one expression).
+const NESTED_TOO_DEEPLY: &str =
+    "code nested too deeply: split it into smaller expressions or functions";
+
 pub struct Parser {
     tokens: Vec<Token>,
     comments: Vec<Comment>,
@@ -97,7 +102,7 @@ impl Parser {
     fn enter_recursive(&mut self) -> Result<(), ParseError> {
         self.depth += 1;
         if self.depth > self.max_depth {
-            return Err(self.error_at_current("Recursion limit exceeded".to_string()));
+            return Err(self.error_at_current(NESTED_TOO_DEEPLY.to_string()));
         }
         Ok(())
     }
@@ -3192,7 +3197,7 @@ impl Parser {
                 sub_parser.depth = self.depth + 1;
                 sub_parser.max_depth = self.max_depth;
                 if sub_parser.depth > sub_parser.max_depth {
-                    return Err(self.error_at_current("Recursion limit exceeded".to_string()));
+                    return Err(self.error_at_current(NESTED_TOO_DEEPLY.to_string()));
                 }
                 let expr = sub_parser.parse_expr().map_err(|e| {
                     // An error from a nested interpolation already says so.

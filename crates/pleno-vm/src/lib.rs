@@ -3543,15 +3543,12 @@ impl VM {
                         }
                         (Value::Array(array), Value::Range(range)) => {
                             let array_borrow = array.borrow();
-                            let len = array_borrow.elements.len();
-                            let start = range.start.unwrap_or(0).max(0) as usize;
-                            let end = range
-                                .end
-                                .map(|e| if range.inclusive { e + 1 } else { e })
-                                .unwrap_or(len as i64)
-                                .max(0) as usize;
-                            let start = start.min(len);
-                            let end = end.min(len).max(start);
+                            let (start, end) = pleno_value::text::slice_bounds(
+                                array_borrow.elements.len(),
+                                range.start,
+                                range.end,
+                                range.inclusive,
+                            );
                             let sub_elements = array_borrow.elements[start..end].to_vec();
                             Ok(Value::Array(
                                 self.gc.allocate(ArrayState::new(sub_elements))?,
@@ -3559,14 +3556,12 @@ impl VM {
                         }
                         (Value::Tuple(tuple), Value::Range(range)) => {
                             let tuple_borrow = tuple.borrow();
-                            let len = tuple_borrow.elements.len();
-                            let start = (range.start.unwrap_or(0).max(0) as usize).min(len);
-                            let end = range
-                                .end
-                                .map(|e| if range.inclusive { e + 1 } else { e })
-                                .unwrap_or(len as i64)
-                                .max(0) as usize;
-                            let end = end.min(len).max(start);
+                            let (start, end) = pleno_value::text::slice_bounds(
+                                tuple_borrow.elements.len(),
+                                range.start,
+                                range.end,
+                                range.inclusive,
+                            );
                             Ok(Value::Tuple(self.gc.allocate(TupleState {
                                 elements: tuple_borrow.elements[start..end].to_vec(),
                                 names: None,
@@ -3582,17 +3577,13 @@ impl VM {
                             Ok(Value::String(Rc::new(ch.to_string())))
                         }
                         (Value::String(s), Value::Range(range)) => {
-                            // Character positions, clamped like array slices.
-                            let len = pleno_value::text::char_len(s);
-                            let start =
-                                pleno_value::text::clamp_position(range.start.unwrap_or(0), len);
-                            let end = match range.end {
-                                Some(e) if range.inclusive => {
-                                    pleno_value::text::clamp_position(e.saturating_add(1), len)
-                                }
-                                Some(e) => pleno_value::text::clamp_position(e, len),
-                                None => len,
-                            };
+                            // Character positions, resolved like array slices.
+                            let (start, end) = pleno_value::text::slice_bounds(
+                                pleno_value::text::char_len(s),
+                                range.start,
+                                range.end,
+                                range.inclusive,
+                            );
                             let sub_s = pleno_value::text::char_slice(s, start, end);
                             Ok(Value::String(Rc::new(sub_s.to_string())))
                         }
@@ -3611,15 +3602,15 @@ impl VM {
                             .cloned()
                             .unwrap_or(Value::Null)),
                         // `map[0]` reads the key "0", as in JavaScript, and a
-                        // Float or Bool the key it prints as (`map[5.0]` is
-                        // `map[5]`): the keys `{0: x}` and `{true: x}` create.
+                        // Float or Bool its key (`map[5.0]` is `map[5]`): the
+                        // keys `{0: x}` and `{true: x}` create.
                         (
                             Value::Map(map),
                             key @ (Value::Int(_) | Value::Float(_) | Value::Bool(_)),
                         ) => Ok(map
                             .borrow()
                             .entries
-                            .get(&key.to_string())
+                            .get(pleno_value::map_key(key).unwrap_or_default().as_ref())
                             .cloned()
                             .unwrap_or(Value::Null)),
                         (Value::Set(set), value) => {
@@ -5578,34 +5569,37 @@ impl VM {
                         Value::Map(m) => m.borrow().entries.to_owned(),
                         _ => return Err(RuntimeError::new("Slice expects map of ranges")),
                     };
-                    let start = wrapper.get("start").cloned();
-                    let mut end = wrapper.get("end").cloned();
-                    let step = wrapper.get("step").cloned();
-                    // `[..=end]`: an exclusive end one further, so `..=-1`
-                    // reaches the last element.
-                    if matches!(wrapper.get("inclusive"), Some(Value::Bool(true))) {
-                        end = match end {
-                            Some(Value::Int(-1)) => None,
-                            Some(Value::Int(e)) => Some(Value::Int(e.saturating_add(1))),
-                            other => other,
-                        };
-                    }
+                    let position = |key: &str| match wrapper.get(key) {
+                        Some(Value::Int(i)) => Ok(Some(*i)),
+                        Some(Value::Null) | None => Ok(None),
+                        Some(other) => Err(RuntimeError::new(format!(
+                            "slice positions must be Int, got {}",
+                            other.type_name()
+                        ))),
+                    };
+                    let start = position("start")?;
+                    let end = position("end")?;
+                    let inclusive = matches!(wrapper.get("inclusive"), Some(Value::Bool(true)));
+                    let bounds = |len| pleno_value::text::slice_bounds(len, start, end, inclusive);
 
                     match collection {
                         Value::Array(array) => {
-                            let slice = array_slice(&array.borrow().elements, start, end, step)?;
+                            let (from, to) = bounds(array.borrow().elements.len());
+                            let slice = array.borrow().elements[from..to].to_vec();
                             self.registers[base + a] = NanValue::from_value(&Value::Array(
                                 self.gc.allocate(ArrayState::new(slice))?,
                             ));
                         }
                         Value::Tuple(tuple) => {
-                            let slice = array_slice(&tuple.borrow().elements, start, end, step)?;
+                            let (from, to) = bounds(tuple.borrow().elements.len());
+                            let slice = tuple.borrow().elements[from..to].to_vec();
                             let new_tuple = TupleState::new(slice, None);
                             self.registers[base + a] =
                                 NanValue::from_value(&Value::Tuple(self.gc.allocate(new_tuple)?));
                         }
                         Value::String(s) => {
-                            let slice = string_slice(s.as_str(), start, end, step)?;
+                            let (from, to) = bounds(pleno_value::text::char_len(&s));
+                            let slice = pleno_value::text::char_slice(&s, from, to).to_string();
                             self.registers[base + a] =
                                 NanValue::from_value(&Value::String(Rc::new(slice)));
                         }
