@@ -108,6 +108,7 @@ export default defineConfig({
             items: [
               { text: 'Showcase', link: '/showcase' },
               { text: 'Community', link: '/community' },
+              { text: 'Team and contributors', link: '/team' },
               { text: 'Contributing', link: '/guide/contributing' },
               { text: 'Code signing policy', link: '/code-signing-policy' },
             ]
@@ -138,6 +139,7 @@ export default defineConfig({
           text: 'Project',
           items: [
             { text: 'Contributing', link: '/guide/contributing' },
+            { text: 'Team and contributors', link: '/team' },
           ]
         }
       ],
