@@ -7,7 +7,7 @@ import { withBase } from 'vitepress'
 import PlIcon from './PlIcon.vue'
 
 // Also read by the script in <head> (config.ts).
-const BANNER_KEY = 'pleno-announcement-1.0-road'
+const BANNER_KEY = 'pleno-announcement-0.3.0'
 
 function dismiss() {
   document.documentElement.classList.add('pl-banner-dismissed')
@@ -21,9 +21,9 @@ function dismiss() {
 
 <template>
   <div class="announcement">
-    <a :href="withBase('/blog/toward-1-0')">
+    <a :href="withBase('/blog/pleno-0-3')">
       <span class="tag">New</span>
-      <span class="text">Every example in these docs now runs. Read about the road to Pleno 1.0</span>
+      <span class="text">Pleno 0.3.0 is out: faster than CPython, and installable with Homebrew and Scoop</span>
       <PlIcon name="arrow-right" :size="14" />
     </a>
     <button class="close" type="button" aria-label="Dismiss announcement" @click="dismiss">
