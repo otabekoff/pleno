@@ -2,7 +2,7 @@
 # Prints the Homebrew formula for a release, using the prebuilt archives and
 # the checksums in the release's SHA256SUMS.txt.
 #
-# Usage: scripts/homebrew-formula.sh <version, e.g. 0.2.0> <path to SHA256SUMS.txt>
+# Usage: scripts/homebrew-formula.sh <version, e.g. 1.2.3> <path to SHA256SUMS.txt>
 set -euo pipefail
 
 version="$1"

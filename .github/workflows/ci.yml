@@ -23,6 +23,11 @@ jobs:
         uses: Swatinem/rust-cache@v2
       - name: Check formatting
         run: cargo fmt --all -- --check
+      # The fuzz crate has its own lockfile; a version bump must update it too.
+      - name: Check that the lockfiles are up to date
+        run: |
+          cargo metadata --locked --format-version 1 > /dev/null
+          cargo metadata --locked --format-version 1 --manifest-path fuzz/Cargo.toml > /dev/null
 
   clippy:
     name: Clippy
