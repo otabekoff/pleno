@@ -257,6 +257,28 @@ A tuple pattern with one element needs a trailing comma, `let (a,) = single;`, a
 
 `for` loops take the same patterns, which destructure each item: `for ((name, score) in pairs) { ... }`, `for ([first, ...rest] in rows) { ... }`. Over a map, a pattern matches each `(key, value)` entry. See [Control flow](control-flow.md#destructuring-each-item).
 
+## Sorting
+
+`sort()` returns a sorted copy and leaves the array as it is. Without an argument it uses the natural order: numbers by value (Ints and Floats together), strings by Unicode code point (so `"Z"` comes before `"a"`), chars, `false` before `true`, arrays and tuples element by element, and instances by their class's `operator <`. Values that have no order, or two kinds that cannot be compared (an `Int` and a `String`), are a `TypeError`.
+
+`sort(cmp)` sorts with a comparator: `cmp(a, b)` returns a negative number when `a` comes first, `0` when they are equal, and a positive number when `b` comes first. `sortBy(key)` sorts by `key(element)` in the natural order. Sorting is stable: elements that compare equal keep their order.
+
+```pleno
+print([10, 9, 2].sort());                       // [2, 9, 10]
+print(["pear", "Fig", "apple"].sort());         // ["Fig", "apple", "pear"]
+print([(2, "b"), (1, "z"), (1, "a")].sort());   // [(1, "a"), (1, "z"), (2, "b")]
+print([3, 1, 2].sort((a, b) => b - a));         // [3, 2, 1]: largest first
+
+let people = [{"name": "Ann", "age": 30}, {"name": "Bob", "age": 25}, {"name": "Cy", "age": 30}];
+print(people.sortBy((p) => p["age"]).map((p) => p["name"]));   // ["Bob", "Ann", "Cy"]
+
+try {
+    [1, "a"].sort();
+} catch (e) {
+    print(e.name);                              // TypeError
+}
+```
+
 ## Method reference
 
 The methods of arrays, maps and sets not shown above:
@@ -271,6 +293,7 @@ print(arr.join(", "));               // 3, 4
 print(arr.find(|x| => x > 3));       // 4: the first match, or null
 print(arr.with(0, 99));              // [99, 4]: a copy with one element replaced
 print(arr.indexOf(42));              // -1 when missing
+print(arr.concat([7], [8, 9]));      // [3, 4, 7, 8, 9]: a new array with the others' elements after these
 arr.clear();                         // removes every element
 
 let map = {"a": 1, "b": 2};

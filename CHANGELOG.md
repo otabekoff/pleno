@@ -10,6 +10,7 @@ Upgrading from 0.3: `with` is now a keyword, `exit()` throws `SystemExit`, the H
 
 ### Added
 
+- `array.sortBy(key)` sorts by each element's key, `array.concat(other, ...)` joins arrays into a new one, and `s.padStart(width, fill)` and `s.padEnd(width, fill)` pad a string to a number of characters.
 - Middleware for the HTTP server: `router.use(fn(req, res, next) { ... })` and `router.use("/api", ...)` run before the route, in the order they were registered. `next()` runs the rest of the chain and returns its promise, so an `async fn` middleware can `await next()` and change the response afterwards; errors from the rest of the chain come out of `next()`; `next(err)` fails the request. A middleware that returns without calling `next()` or sending a response gets a 500 and a message on stderr naming it, instead of a hanging client.
 - `router.onError(fn(err, req, res) { ... })` answers requests whose middleware or route failed, starting from a fresh 500 response.
 - Static files: `router.static("/assets", "./public")` serves a folder with content types by extension, `index.html` for folders (and a redirect to add the trailing `/`), `HEAD`, `ETag` and `Last-Modified` with `304 Not Modified`. Paths cannot leave the folder: `..` (also encoded as `%2e%2e`), backslashes, drive letters and NUL are refused, files are normalized the way the sandbox normalizes paths (so a symbolic link out of the folder is refused), dotfiles are not served, and the sandbox's read rule applies.
@@ -59,6 +60,7 @@ The changes below were made in the 1.0 review of the reference, because the comp
 
 ### Fixed
 
+- `array.sort()` ordered elements by their text, so `[10, 9, 2].sort()` gave `[10, 2, 9]`, and it ignored a comparator: `sort((a, b) => b - a)` sorted ascending. It now sorts numbers by value, strings by code point, arrays and tuples element by element and instances by `operator <`, with a stable merge sort; `sort(cmp)` uses the comparator (a negative number, 0 or a positive number), and values that cannot be ordered are a `TypeError`.
 - `a ?? b` evaluated `b` even when `a` was not null, and twice when it was, so a call on the right ran (and could throw) every time: `status ?? args.next()` consumed an argument it did not use. The right side now runs only when the left side is null. `??` and `x is T?` also test for null without calling a class's `operator ==`.
 - The Linux release programs needed glibc 2.39, the version on the build machine, so they failed with `version 'GLIBC_2.39' not found` on Ubuntu 22.04, Debian 12, RHEL 9 and older. They are now built against glibc 2.17, and CI checks this and runs `pleno` on CentOS 7.
 - The instruction limit (`--max-instructions`, the playground and other sandboxes) could fail to stop a loop. It was checked only when the instruction count was a multiple of 100, and loops of fused instructions add two or three at a time, so `let mut i = 0; while (i < 2) { }` could step past every check and run forever. The limit is now checked against a threshold, and so is the collector's check of the string and big-integer tables. Found by fuzzing.
