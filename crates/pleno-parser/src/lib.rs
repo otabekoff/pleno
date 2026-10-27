@@ -694,6 +694,24 @@ impl Parser {
         let rhs = self.parse_expr()?;
         let value = match compound_op {
             Some(op) => {
+                // `n *= 3 + 1` is `n = n * (3 + 1)`: the value keeps its grouping
+                // as a `Paren`, so printing the tree (the formatter) cannot turn
+                // it into `n = n * 3 + 1`. A literal or a name stays as it is,
+                // so `i += 1` still compiles to `AddInt`.
+                let rhs = if matches!(
+                    rhs.kind,
+                    ExprKind::Binary { .. }
+                        | ExprKind::Range { .. }
+                        | ExprKind::Lambda { .. }
+                        | ExprKind::Pipeline { .. }
+                        | ExprKind::If { .. }
+                        | ExprKind::Is { .. }
+                ) {
+                    let span = rhs.span;
+                    Expr::new(ExprKind::Paren(Box::new(rhs)), span)
+                } else {
+                    rhs
+                };
                 let span = Span::new(target.span.start, rhs.span.end);
                 Expr::new(
                     ExprKind::Binary {
