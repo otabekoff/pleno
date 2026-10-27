@@ -132,3 +132,30 @@ fn new_creates_a_package_in_a_new_folder() {
     assert!(manifest.contains("name = \"cool-lib\""), "{manifest}");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn an_unknown_command_is_named_with_a_suggestion() {
+    let out = pleno(&["chek"]);
+    assert_eq!(out.status.code(), Some(2));
+    assert!(
+        stderr(&out).contains("unknown command 'chek'; did you mean 'check'?"),
+        "{}",
+        stderr(&out)
+    );
+    let out = pleno(&["tree"]);
+    assert!(
+        stderr(&out).contains("did you mean 'pleno plm tree'?"),
+        "{}",
+        stderr(&out)
+    );
+}
+
+#[test]
+fn a_file_starting_with_a_byte_order_mark_runs() {
+    let dir = temp_dir("bom");
+    let file = dir.join("bom.pln");
+    std::fs::write(&file, b"\xef\xbb\xbfprint(\"bom\");\n").unwrap();
+    let out = pleno(&["run", file.to_str().unwrap()]);
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert_eq!(stdout(&out).trim(), "bom");
+}

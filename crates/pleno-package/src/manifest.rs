@@ -214,6 +214,8 @@ impl Manifest {
     }
 
     pub fn parse(text: &str) -> Result<Self, PackageError> {
+        // A byte order mark that a Windows editor wrote is not part of the TOML.
+        let text = text.strip_prefix('\u{feff}').unwrap_or(text);
         let manifest: Manifest = toml::from_str(text)?;
         if manifest.package.name.is_empty() {
             return Err(PackageError::MissingName);
@@ -313,6 +315,8 @@ pub struct ManifestEditor {
 
 impl ManifestEditor {
     pub fn parse(text: &str) -> Result<Self, PackageError> {
+        // A byte order mark is dropped; `plm` writes the file back without it.
+        let text = text.strip_prefix('\u{feff}').unwrap_or(text);
         let doc = text
             .parse::<toml_edit::DocumentMut>()
             .map_err(|e| PackageError::InvalidManifest(format!("pleno.toml: {e}")))?;
