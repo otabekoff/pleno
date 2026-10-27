@@ -15,6 +15,7 @@ Notable changes to Pleno. The format follows [Keep a Changelog](https://keepacha
 
 ### Fixed
 
+- `exit(code)` from `std:process` ended the whole process from inside the VM. A program in a `Sandbox`, the playground or any embedder could stop its host. `exit` now unwinds the program like an uncaught error that `catch` cannot stop, and the host decides: `pleno run` exits with the code as before, a `Sandbox` gets a catchable `program exited with code N`, and the playground and `pleno test` treat `exit(0)` as a normal end. Found by the `fuzz_run` fuzz target.
 - Two kinds of deeply nested code could overflow the stack while compiling (found by a long `fuzz_compile` run): calls on calls (`f(1)(1)(1)...`), `f<T>`, `x!`, `x++` and macro calls did not count toward the limit of 1,000 operators and calls per statement, and each `${...}` in a string started its own nesting count, so `"${"${...}"}"` 2,000 deep crashed. Both are now parse errors (`expression too long`, `Recursion limit exceeded`), and an error in a nested interpolation says `Parse error in interpolation` once instead of once per level.
 - Values stored on the built-in `Error` class (`Error.cache = box`) stayed allocated after the VM was dropped when they were part of a reference cycle: `Error` was created outside the collector's heap. It is now on the heap like any class and freed with the VM.
 

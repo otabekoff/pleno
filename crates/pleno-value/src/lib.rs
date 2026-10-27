@@ -674,6 +674,11 @@ pub struct RuntimeError {
     pub handled: bool,
     /// Ends the program and cannot be caught: a sandbox limit was reached.
     pub fatal: bool,
+    /// Set by `exit(code)`: the program asked to end with this status. The
+    /// error is fatal, so it unwinds the whole program; the host decides what
+    /// ending means (the `pleno` CLI exits the process with the code).
+    #[serde(default)]
+    pub exit_code: Option<i32>,
 }
 
 impl RuntimeError {
@@ -684,6 +689,7 @@ impl RuntimeError {
             stack_trace: Vec::new(),
             handled: false,
             fatal: false,
+            exit_code: None,
         }
     }
 
@@ -694,6 +700,7 @@ impl RuntimeError {
             stack_trace: Vec::new(),
             handled: true,
             fatal: false,
+            exit_code: None,
         }
     }
 
@@ -703,6 +710,14 @@ impl RuntimeError {
         Self {
             fatal: true,
             ..Self::new(message)
+        }
+    }
+
+    /// `exit(code)`: ends the program with `code` (see `exit_code`).
+    pub fn exit(code: i32) -> Self {
+        Self {
+            exit_code: Some(code),
+            ..Self::fatal(format!("program exited with code {code}"))
         }
     }
 
