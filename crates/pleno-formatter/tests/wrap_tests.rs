@@ -242,3 +242,21 @@ fn the_default_limit_is_100() {
     );
     assert!(format_code(&too_long, &options).unwrap().contains("f(\n"));
 }
+
+#[test]
+fn with_statement_resources_stay_on_one_line_when_they_fit() {
+    let source = "with(a=open(\"x\"),b=open(\"y\")){use(a,b);}\n";
+    assert_eq!(
+        fmt(source, 100),
+        "with (a = open(\"x\"), b = open(\"y\")) {\n    use(a, b);\n}\n"
+    );
+}
+
+#[test]
+fn long_with_statement_resources_go_one_per_line() {
+    let source = "with (input = File.open(\"input.txt\"), output = File.open(\"output.txt\", \"w\")) {\n    output.write(input.read());\n}\n";
+    assert_eq!(
+        fmt(source, 60),
+        "with (\n    input = File.open(\"input.txt\"),\n    output = File.open(\"output.txt\", \"w\"),\n) {\n    output.write(input.read());\n}\n"
+    );
+}

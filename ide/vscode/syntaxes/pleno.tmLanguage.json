@@ -301,7 +301,7 @@
       "patterns": [
         {
           "name": "keyword.control.flow.pleno",
-          "match": "(?<!\\.)\\b(if|else|while|for|do|break|continue|return|match|case|try|catch|finally|throw|await)\\b"
+          "match": "(?<!\\.)\\b(if|else|while|for|do|break|continue|return|match|case|try|catch|finally|throw|await|with)\\b"
         },
         {
           "name": "keyword.control.import.pleno",

@@ -39,7 +39,7 @@ Behavior a page calls unspecified (for example the order of `Directory.list`) is
 | [`std:regex`](regex.md)                 | stable       |                                                                                                                                              |
 | [`std:security`](../specs/security-features.md) | experimental | `Sandbox`, described under [Security features](../specs/security-features.md).                                                     |
 | `std:gc`                                | experimental | `collect`, `heapSize`, `isEnabled`, `report`, `stats`: views of the VM's memory manager. Not documented further.                            |
-| `std:db`                                | experimental | `Database.connect("sqlite:path")` with `execute`, `query` and `close`. Not documented further.                                               |
+| `std:db`                                | experimental | `Database.connect("sqlite:path")` with `execute`, `query` and `close` (so `with` can close it). Not documented further.                      |
 
 ## Categories
 

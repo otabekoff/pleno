@@ -779,6 +779,7 @@ pub fn start() -> io::Result<()> {
                                     "try",
                                     "catch",
                                     "finally",
+                                    "with",
                                     "throw",
                                     "match",
                                     "case",
@@ -1697,6 +1698,13 @@ fn collect_from_stmt(stmt: &pleno_ast::Stmt, source: &str, tokens: &mut Vec<Sema
                 }
             }
             collect_from_expr(iterable, source, tokens);
+            collect_from_stmt(body, source, tokens);
+        }
+        StmtKind::With { resources, body } => {
+            for resource in resources {
+                add_token_from_span(resource.name_span, source, 4, 1, tokens); // variable, declaration
+                collect_from_expr(&resource.value, source, tokens);
+            }
             collect_from_stmt(body, source, tokens);
         }
         StmtKind::Expr(expr) => {

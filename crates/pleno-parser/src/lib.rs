@@ -281,6 +281,7 @@ impl Parser {
             TokenKind::KeywordWhile => self.parse_while_stmt(),
             TokenKind::KeywordFor => self.parse_for_stmt(),
             TokenKind::KeywordTry => self.parse_try_stmt(),
+            TokenKind::KeywordWith => self.parse_with_stmt(),
             TokenKind::KeywordThrow => self.parse_throw_stmt(),
             TokenKind::KeywordImport => self.parse_import_stmt(),
             TokenKind::KeywordExport => self.parse_export_stmt(annotations, doc),
@@ -1581,6 +1582,63 @@ impl Parser {
         ))
     }
 
+    /// `with (name = value, ...) { body }`
+    fn parse_with_stmt(&mut self) -> Result<Stmt, ParseError> {
+        let start_span = self.peek_span();
+        self.advance(); // with
+        self.expect(TokenKind::LParen, "Expected '(' after 'with'")?;
+        let mut resources = Vec::new();
+        while !matches!(self.peek_kind(), TokenKind::RParen) {
+            let name_span = self.peek_span();
+            let name = match self.peek_kind().clone() {
+                TokenKind::Ident(name) => name,
+                kind => match contextual_keyword_name(&kind) {
+                    Some(name) => name.to_string(),
+                    None => {
+                        return Err(self.error(
+                            format!("Expected a name in 'with', found {kind:?}"),
+                            name_span,
+                        ));
+                    }
+                },
+            };
+            self.advance();
+            self.expect_with_hint(
+                TokenKind::Equal,
+                "Expected '=' after the name in 'with'",
+                "Each resource is a name and a value: with (f = File.open(path)) { ... }",
+            )?;
+            let value = self.parse_expr()?;
+            resources.push(pleno_ast::WithResource {
+                name,
+                name_span,
+                value,
+            });
+            if !self.matches(&TokenKind::Comma) {
+                break;
+            }
+        }
+        if resources.is_empty() {
+            return Err(self.error(
+                "'with' needs at least one resource: with (f = File.open(path)) { ... }"
+                    .to_string(),
+                self.peek_span(),
+            ));
+        }
+        self.expect(
+            TokenKind::RParen,
+            "Expected ')' after the resources of 'with'",
+        )?;
+        if !matches!(self.peek_kind(), TokenKind::LBrace) {
+            return Err(self.error(
+                "Expected '{' after 'with (...)': the body of 'with' is a block".to_string(),
+                self.peek_span(),
+            ));
+        }
+        let body = Box::new(self.parse_stmt()?);
+        Ok(self.wrap_stmt(StmtKind::With { resources, body }, start_span))
+    }
+
     fn parse_throw_stmt(&mut self) -> Result<Stmt, ParseError> {
         let start_span = self.peek_span();
         self.advance();
@@ -2353,6 +2411,8 @@ impl Parser {
             TokenKind::KeywordMatch => "match".to_string(),
             TokenKind::KeywordGet => "get".to_string(),
             TokenKind::KeywordSet => "set".to_string(),
+            // Like the built-in `Array.with`, a class can have a `with` method.
+            TokenKind::KeywordWith => "with".to_string(),
             other => {
                 return Err(self.error(
                     format!("Expected function name, found {other:?}"),

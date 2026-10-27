@@ -6,20 +6,6 @@ Code blocks here are sketches and do not run.
 
 ## Language
 
-### `with` statement
-
-Status: not started.
-
-A block that closes a resource when it ends, also on an error:
-
-```text
-with (file = File.open("data.txt", "r")) {
-    print(file.read());
-}   // file.close() runs here
-```
-
-Until then, close handles in `finally`.
-
 ### Iterating strings
 
 Status: not started. `for (c in "abc")` is a compile error (`for loop expects array, set, or range`) and a string variable throws `type 'String' is not iterable`. Planned: iterate Unicode characters.

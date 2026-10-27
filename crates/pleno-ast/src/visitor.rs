@@ -230,6 +230,12 @@ pub fn walk_stmt<'ast, V: Visitor<'ast, T> + ?Sized, T: Default>(
                 visitor.visit_stmt(f);
             }
         }
+        StmtKind::With { resources, body } => {
+            for resource in resources {
+                visitor.visit_expr(&resource.value);
+            }
+            visitor.visit_stmt(body);
+        }
         StmtKind::Throw(expr) => {
             visitor.visit_expr(expr);
         }

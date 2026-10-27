@@ -161,6 +161,13 @@ pub enum Opcode {
     /// register b, to R[a]. Unlike `SetProperty` it is allowed in `@pure`
     /// functions: the map was created by the same expression.
     MapLiteralSet,
+    /// `with`: throws unless b, the `close` property read from the resource
+    /// in a, is set. b is null when the resource has no `close`.
+    CheckClose,
+    /// `with`: the resource's `close()` threw b while the error a was already
+    /// propagating. When a is an object (an `Error`), b is appended to its
+    /// `suppressed` array, which is created if a has none.
+    AddSuppressed,
 }
 
 /// Whether a value checked against the annotation `ty` is stored as a `Float`
@@ -203,7 +210,7 @@ pub fn annotation_widens_int(ty: &str) -> bool {
 }
 
 /// The opcode with the highest discriminant: keep it the last variant.
-const LAST_OPCODE: Opcode = Opcode::MapLiteralSet;
+const LAST_OPCODE: Opcode = Opcode::AddSuppressed;
 
 /// `Destructure` mode: a tuple with exactly `c` elements.
 pub const DESTRUCTURE_TUPLE: u8 = 0;

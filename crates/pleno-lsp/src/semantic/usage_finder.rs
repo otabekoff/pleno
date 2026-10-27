@@ -126,6 +126,17 @@ impl<'a> Visitor<'a> for ScopeBuilder<'a> {
                 self.visit_stmt(body);
                 self.exit_scope();
             }
+            // `with (f = open(path)) { ... }`: the names live in the statement's
+            // scope, visible in later resources and the body.
+            StmtKind::With { resources, body } => {
+                self.enter_scope(stmt.span);
+                for resource in resources {
+                    self.visit_expr(&resource.value);
+                    self.define(&resource.name, resource.name_span);
+                }
+                self.visit_stmt(body);
+                self.exit_scope();
+            }
             // `fn` statements are not `FunctionDecl`s: define the name and
             // give the parameters a scope the same way.
             StmtKind::Fn {
@@ -249,6 +260,9 @@ fn get_node_name(node: &Node, pos: usize) -> Option<String> {
                 pattern: Some(pattern),
                 ..
             } => binding_at(pattern, pos).map(|(name, _)| name),
+            StmtKind::With { resources, .. } => {
+                with_resource_at(resources, pos).map(|resource| resource.name.clone())
+            }
             _ => None,
         },
         _ => None,
@@ -287,6 +301,11 @@ pub fn find_declaration(program: &Program, pos: usize) -> Option<Span> {
                     return Some(span);
                 }
             }
+            StmtKind::With { resources, .. } => {
+                if let Some(resource) = with_resource_at(resources, pos) {
+                    return Some(resource.name_span);
+                }
+            }
             _ => {}
         }
     }
@@ -301,6 +320,16 @@ pub fn find_declaration(program: &Program, pos: usize) -> Option<Span> {
     let scope_idx = find_scope_for_pos(&builder, pos);
 
     resolve_in_scope(&builder, scope_idx, &name)
+}
+
+/// The resource of a `with` whose name is at `pos`.
+fn with_resource_at(
+    resources: &[pleno_ast::WithResource],
+    pos: usize,
+) -> Option<&pleno_ast::WithResource> {
+    resources
+        .iter()
+        .find(|resource| resource.name_span.contains(pos))
 }
 
 /// The name a destructuring pattern binds at `pos`, with its span.
@@ -413,6 +442,46 @@ mod tests {
         assert_eq!(
             usages,
             vec![Span::new(a_decl, a_decl + 1), Span::new(a_use, a_use + 1)]
+        );
+    }
+
+    #[test]
+    fn with_names_resolve_to_their_resource() {
+        let source = "let f = 0;\nwith (f = open(), g = wrap(f)) {\n    print(f, g);\n}\nprint(f);";
+        let program = parse(source);
+        let f_decl = source.find("(f =").unwrap() + 1;
+        let f_in_g = source.find("wrap(f)").unwrap() + 5;
+        let f_use = source.find("print(f, g)").unwrap() + 6;
+        let g_decl = source.find("g =").unwrap();
+        let g_use = f_use + 3;
+        let outer_f = source.find("let f").unwrap() + 4;
+        let outer_use = source.rfind("f)").unwrap();
+
+        assert_eq!(
+            find_declaration(&program, f_use),
+            Some(Span::new(f_decl, f_decl + 1))
+        );
+        assert_eq!(
+            find_declaration(&program, g_use),
+            Some(Span::new(g_decl, g_decl + 1))
+        );
+        // From the name in `with (...)`: the declaration itself.
+        assert_eq!(
+            find_declaration(&program, f_decl),
+            Some(Span::new(f_decl, f_decl + 1))
+        );
+        // The names do not leak out of the statement.
+        assert_eq!(
+            find_declaration(&program, outer_use),
+            Some(Span::new(outer_f, outer_f + 1))
+        );
+        assert_eq!(
+            find_usages(&program, f_decl),
+            vec![
+                Span::new(f_decl, f_decl + 1),
+                Span::new(f_in_g, f_in_g + 1),
+                Span::new(f_use, f_use + 1)
+            ]
         );
     }
 

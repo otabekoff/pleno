@@ -88,6 +88,28 @@ struct LoopContext {
     continue_jumps: Vec<usize>,
     continue_target: Option<usize>,
     labels: Vec<String>,
+    /// How many cleanups were open when the loop started: `break` and
+    /// `continue` run the ones above this.
+    cleanup_depth: usize,
+}
+
+/// Code that must run when control leaves a `try` or `with` early, through
+/// `return`, `break` or `continue`, innermost first.
+#[derive(Clone)]
+struct Cleanup {
+    /// The region has an exception handler pushed, popped before the action
+    /// runs (so an error from the action is not caught by its own handler).
+    pops_handler: bool,
+    action: CleanupAction,
+}
+
+#[derive(Clone)]
+enum CleanupAction {
+    None,
+    /// A `finally` block.
+    Finally(Box<Stmt>),
+    /// `close()` on the resource of a `with`, in the hidden local of that name.
+    Close(String),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -148,7 +170,9 @@ pub struct Compiler {
     ownership_states: HashMap<u8, OwnershipState>,
     fn_signatures: Vec<HashMap<String, Vec<ParamOwnership>>>,
     inline_functions: Vec<HashMap<String, FunctionDecl>>,
-    inline_return_stack: Vec<Vec<usize>>,
+    /// For each `@inline` call being compiled: its `return` jumps, how many
+    /// cleanups were open when it started, and the register for its result.
+    inline_return_stack: Vec<(Vec<usize>, usize, u8)>,
     referenced_entities: HashSet<String>,
     /// Compile every declaration and statement as written: no optimizer pass
     /// and no skipping of unused functions and classes. Used to find the
@@ -172,7 +196,8 @@ pub struct Compiler {
     type_aliases: HashMap<String, (Vec<String>, String)>,
     macros: HashMap<String, MacroDef>,
     boxed_vars: Vec<HashSet<String>>,
-    finally_stack: Vec<Option<Stmt>>,
+    /// The `try` and `with` regions around the code being compiled.
+    cleanup_stack: Vec<Cleanup>,
     optional_chain_jumps: Vec<usize>,
     /// Set while a postfix operation (property, index, call) compiles its object,
     /// so a `?.` inside that object continues the same chain.
@@ -242,7 +267,7 @@ impl Compiler {
             type_aliases: HashMap::new(),
             macros: HashMap::new(),
             boxed_vars: vec![HashSet::new()],
-            finally_stack: Vec::new(),
+            cleanup_stack: Vec::new(),
             optional_chain_jumps: Vec::new(),
             in_postfix_chain: false,
             expr_depth: 0,
@@ -757,6 +782,9 @@ impl Compiler {
                 catch_branches,
                 finally_branch,
             } => self.compile_try_stmt(try_branch, catch_branches, finally_branch.as_deref()),
+            StmtKind::With { resources, body } => {
+                self.compile_with_stmt(resources, body, stmt.span)
+            }
             StmtKind::Throw(expr) => {
                 let reg = self.compile_expr(expr)?;
                 self.emit(Opcode::Throw, reg, 0, 0);
@@ -947,19 +975,20 @@ impl Compiler {
                         reg
                     }
                 };
-                if !self.inline_return_stack.is_empty() {
-                    // Inline return handling... (unchanged logic for inline, need to be careful? Inline functions don't cross try boundaries of parent? They do if defined inside try?)
-                    // For now, assume inline functions are self-contained.
-                    self.last_expr_register = Some(reg);
+                if let Some(&(_, depth, dest)) = self.inline_return_stack.last() {
+                    // A `return` in an inlined body stores the result, leaves
+                    // the `try` and `with` regions opened inside that body and
+                    // jumps past its end.
+                    self.emit(Opcode::Move, dest, reg, 0);
+                    self.emit_cleanups(depth)?;
                     let jump = self.emit_jump(Opcode::Jump, 0);
-                    self.inline_return_stack.last_mut().unwrap().push(jump);
+                    if let Some((jumps, _, _)) = self.inline_return_stack.last_mut() {
+                        jumps.push(jump);
+                    }
                 } else {
                     let reg = self.emit_return_check(reg)?;
-                    // Execute valid finally blocks in reverse order
-                    let pending_finally = self.finally_stack.to_vec();
-                    for finally_stmt in pending_finally.iter().rev().flatten() {
-                        self.compile_stmt(finally_stmt)?;
-                    }
+                    // Run every open `finally` and `with` close, innermost first.
+                    self.emit_cleanups(0)?;
                     self.emit(Opcode::Return, reg, 0, 0);
                 }
                 Ok(())
@@ -2376,9 +2405,12 @@ impl Compiler {
         let push_handler_idx = self.chunk.code.len();
         self.emit(Opcode::PushHandler, error_reg, 0, 0);
 
-        self.finally_stack.push(finally_branch.cloned());
+        self.cleanup_stack.push(Cleanup {
+            pops_handler: true,
+            action: finally_action(finally_branch),
+        });
         self.compile_stmt(try_branch)?;
-        self.finally_stack.pop();
+        self.cleanup_stack.pop();
 
         self.emit(Opcode::PopHandler, 0, 0, 0);
 
@@ -2419,14 +2451,17 @@ impl Compiler {
             }
 
             self.push_scope();
-            self.finally_stack.push(finally_branch.cloned());
+            self.cleanup_stack.push(Cleanup {
+                pops_handler: false,
+                action: finally_action(finally_branch),
+            });
             // The catch variable gets its own register: leaving this scope frees
             // it, and `error_reg` must stay live for the following catches.
             let catch_reg = self.registers.allocate()?;
             self.emit(Opcode::Move, catch_reg, error_reg, 0);
             self.insert_local(catch.name.clone(), catch_reg, false, catch.ty.clone())?;
             self.compile_stmt(&catch.body)?;
-            self.finally_stack.pop();
+            self.cleanup_stack.pop();
             self.pop_scope();
 
             let jump = self.emit_jump(Opcode::Jump, 0);
@@ -2547,24 +2582,11 @@ impl Compiler {
         if self.loop_stack.is_empty() {
             return Err(self.error("break used outside of loop", span));
         }
+        let target = self.loop_target(label, span)?;
+        self.emit_cleanups(self.loop_stack[target].cleanup_depth)?;
         let jump = self.emit_jump(Opcode::Jump, 0);
-        if let Some(target_label) = label {
-            for ctx in self.loop_stack.iter_mut().rev() {
-                if ctx.labels.iter().any(|l| l == target_label) {
-                    ctx.break_jumps.push(jump);
-                    return Ok(());
-                }
-            }
-            Err(self.error(
-                &format!("no loop found with label '{}'", target_label),
-                span,
-            ))
-        } else {
-            if let Some(loop_ctx) = self.loop_stack.last_mut() {
-                loop_ctx.break_jumps.push(jump);
-            }
-            Ok(())
-        }
+        self.loop_stack[target].break_jumps.push(jump);
+        Ok(())
     }
 
     fn compile_continue_stmt(
@@ -2575,24 +2597,200 @@ impl Compiler {
         if self.loop_stack.is_empty() {
             return Err(self.error("continue used outside of loop", span));
         }
+        let target = self.loop_target(label, span)?;
+        self.emit_cleanups(self.loop_stack[target].cleanup_depth)?;
         let jump = self.emit_jump(Opcode::Jump, 0);
-        if let Some(target_label) = label {
-            for ctx in self.loop_stack.iter_mut().rev() {
-                if ctx.labels.iter().any(|l| l == target_label) {
-                    ctx.continue_jumps.push(jump);
-                    return Ok(());
-                }
-            }
-            Err(self.error(
-                &format!("no loop found with label '{}'", target_label),
-                span,
-            ))
-        } else {
-            if let Some(loop_ctx) = self.loop_stack.last_mut() {
-                loop_ctx.continue_jumps.push(jump);
-            }
-            Ok(())
+        self.loop_stack[target].continue_jumps.push(jump);
+        Ok(())
+    }
+
+    /// The index in `loop_stack` of the loop a `break` or `continue` leaves:
+    /// the innermost one, or the one with `label`.
+    fn loop_target(&self, label: Option<&str>, span: Span) -> Result<usize, CompileError> {
+        match label {
+            None => Ok(self.loop_stack.len() - 1),
+            Some(target_label) => self
+                .loop_stack
+                .iter()
+                .rposition(|ctx| ctx.labels.iter().any(|l| l == target_label))
+                .ok_or_else(|| {
+                    self.error(
+                        &format!("no loop found with label '{}'", target_label),
+                        span,
+                    )
+                }),
         }
+    }
+
+    /// Emits the code that leaving the open `try` and `with` regions above
+    /// `depth` runs, innermost first: pop each region's handler, then run its
+    /// `finally` block or close its resource. The code of each cleanup is
+    /// compiled as if the regions inside it were already closed.
+    fn emit_cleanups(&mut self, depth: usize) -> Result<(), CompileError> {
+        let saved = self.cleanup_stack.clone();
+        let mut result = Ok(());
+        while self.cleanup_stack.len() > depth {
+            let Some(cleanup) = self.cleanup_stack.pop() else {
+                break;
+            };
+            if cleanup.pops_handler {
+                self.emit(Opcode::PopHandler, 0, 0, 0);
+            }
+            result = match &cleanup.action {
+                CleanupAction::None => Ok(()),
+                CleanupAction::Finally(stmt) => self.compile_stmt(stmt),
+                CleanupAction::Close(name) => self.emit_with_close(name),
+            };
+            if result.is_err() {
+                break;
+            }
+        }
+        self.cleanup_stack = saved;
+        result
+    }
+
+    /// `with (a = x, b = y) body`: binds `a`, then, with `a` protected, the
+    /// rest. See [`Compiler::compile_with_resource`].
+    fn compile_with_stmt(
+        &mut self,
+        resources: &[pleno_ast::WithResource],
+        body: &Stmt,
+        span: Span,
+    ) -> Result<(), CompileError> {
+        // Resource names that closures in the body capture are stored in cells,
+        // as `let` does.
+        let boxed = self.find_boxed_vars(std::slice::from_ref(body));
+        self.boxed_vars.push(boxed);
+        self.push_scope();
+        let result = self.compile_with_resource(resources, body, span);
+        self.pop_scope();
+        self.boxed_vars.pop();
+        result
+    }
+
+    /// Binds the first of `resources` and compiles the rest (or the body) so
+    /// that the resource is closed however they end:
+    ///
+    /// ```text
+    ///     res = value; check that res has close()
+    ///     PushHandler err -> on_error
+    ///     <rest>                      // return/break/continue: PopHandler, close
+    ///     PopHandler
+    ///     res.close()                 // an error here propagates
+    ///     Jump end
+    /// on_error:
+    ///     PushHandler close_err -> suppress
+    ///     res.close()
+    ///     PopHandler
+    ///     Jump rethrow
+    /// suppress:
+    ///     AddSuppressed err, close_err  // err.suppressed gets the close error
+    /// rethrow:
+    ///     Throw err                     // the body's error wins
+    /// end:
+    /// ```
+    fn compile_with_resource(
+        &mut self,
+        resources: &[pleno_ast::WithResource],
+        body: &Stmt,
+        span: Span,
+    ) -> Result<(), CompileError> {
+        let Some((resource, rest)) = resources.split_first() else {
+            return self.compile_stmt(body);
+        };
+        self.current_span = resource.value.span;
+        // The resource stays in a hidden local, so the variable can be boxed
+        // and `close()` still reaches the value.
+        let hidden = format!("$with_{}", self.loop_counter);
+        self.loop_counter += 1;
+        let value_reg = self.compile_expr(&resource.value)?;
+        let res_reg = self.registers.allocate()?;
+        self.emit(Opcode::Move, res_reg, value_reg, 0);
+        self.free_temp(value_reg);
+        self.insert_local(hidden.clone(), res_reg, false, None)?;
+
+        // Check for `close` before the body runs. Reading it can throw (an
+        // `Int` has no properties); that counts as having none.
+        let close_reg = self.registers.allocate()?;
+        let read_handler = self.chunk.code.len();
+        self.emit(Opcode::PushHandler, close_reg, 0, 0);
+        let close_name = self.add_constant(Value::String(Rc::new("close".to_string())));
+        self.emit(Opcode::GetProperty, close_reg, res_reg, close_name);
+        self.emit(Opcode::PopHandler, 0, 0, 0);
+        let to_check = self.emit_jump(Opcode::Jump, 0);
+        self.patch_jump(read_handler)?;
+        self.emit(Opcode::LoadNull, close_reg, 0, 0);
+        self.patch_jump(to_check)?;
+        self.emit(Opcode::CheckClose, res_reg, close_reg, 0);
+        self.free_temp(close_reg);
+
+        let var_reg = self.registers.allocate()?;
+        if self
+            .boxed_vars
+            .last()
+            .is_some_and(|boxed| boxed.contains(&resource.name))
+        {
+            self.emit(Opcode::MakeCell, var_reg, res_reg, 0);
+        } else {
+            self.emit(Opcode::Move, var_reg, res_reg, 0);
+        }
+        self.insert_local(resource.name.clone(), var_reg, false, None)?;
+
+        let error_reg = self.registers.allocate()?;
+        let error_name = format!("$with_error_{}", self.loop_counter);
+        self.loop_counter += 1;
+        self.insert_local(error_name, error_reg, false, None)?;
+        let push_handler = self.chunk.code.len();
+        self.emit(Opcode::PushHandler, error_reg, 0, 0);
+        self.cleanup_stack.push(Cleanup {
+            pops_handler: true,
+            action: CleanupAction::Close(hidden.clone()),
+        });
+        let result = self.compile_with_resource(rest, body, span);
+        self.cleanup_stack.pop();
+        result?;
+        self.emit(Opcode::PopHandler, 0, 0, 0);
+        self.current_span = span;
+        self.emit_with_close(&hidden)?;
+        let to_end = self.emit_jump(Opcode::Jump, 0);
+
+        // The body (or a later resource) threw: close, record an error from
+        // `close()` on the first error, and throw the first error again.
+        self.patch_jump(push_handler)?;
+        let close_error_reg = self.registers.allocate()?;
+        let close_handler = self.chunk.code.len();
+        self.emit(Opcode::PushHandler, close_error_reg, 0, 0);
+        self.emit_with_close(&hidden)?;
+        self.emit(Opcode::PopHandler, 0, 0, 0);
+        let to_rethrow = self.emit_jump(Opcode::Jump, 0);
+        self.patch_jump(close_handler)?;
+        self.emit(Opcode::AddSuppressed, error_reg, close_error_reg, 0);
+        self.patch_jump(to_rethrow)?;
+        self.free_temp(close_error_reg);
+        self.emit(Opcode::Throw, error_reg, 0, 0);
+        self.patch_jump(to_end)?;
+        Ok(())
+    }
+
+    /// `name.close()`, for the hidden local of a `with` resource.
+    fn emit_with_close(&mut self, name: &str) -> Result<(), CompileError> {
+        let span = self.current_span;
+        let call = Expr::new(
+            ExprKind::Call {
+                callee: Box::new(Expr::new(
+                    ExprKind::Property {
+                        object: Box::new(Expr::new(ExprKind::Ident(name.to_string()), span)),
+                        name: "close".to_string(),
+                    },
+                    span,
+                )),
+                args: Vec::new(),
+            },
+            span,
+        );
+        let reg = self.compile_expr(&call)?;
+        self.free_temp(reg);
+        Ok(())
     }
 
     fn compile_call_internal(
@@ -4639,6 +4837,12 @@ impl Compiler {
                 }
             }
             StmtKind::While { body, .. } => self.collect_locals(body, locals),
+            StmtKind::With { resources, body } => {
+                for resource in resources {
+                    locals.insert(resource.name.clone(), ());
+                }
+                self.collect_locals(body, locals)
+            }
             StmtKind::For { names, body, .. } => {
                 for name in names {
                     locals.insert(name.clone(), ());
@@ -4852,6 +5056,15 @@ impl Compiler {
                 if let Some(finally_branch) = finally_branch {
                     self.collect_idents(finally_branch, used, scope);
                 }
+            }
+            StmtKind::With { resources, body } => {
+                scope.push(HashSet::new());
+                for resource in resources {
+                    self.collect_idents_expr(&resource.value, used, scope);
+                    scope.last_mut().unwrap().insert(resource.name.clone());
+                }
+                self.collect_idents(body, used, scope);
+                scope.pop();
             }
             StmtKind::Throw(expr) => self.collect_idents_expr(expr, used, scope),
             StmtKind::DoWhile { body, condition } => {
@@ -5192,6 +5405,12 @@ impl Compiler {
                 self.expand_expr(condition, substitutions);
                 self.expand_stmt(body, substitutions);
             }
+            StmtKind::With { resources, body } => {
+                for resource in resources {
+                    self.expand_expr(&mut resource.value, substitutions);
+                }
+                self.expand_stmt(body, substitutions);
+            }
             StmtKind::For { iterable, body, .. } => {
                 self.expand_expr(iterable, substitutions);
                 self.expand_stmt(body, substitutions);
@@ -5484,8 +5703,8 @@ impl Compiler {
         }
 
         let old_last_expr = self.last_expr_register;
-        let mut return_jumps = Vec::new();
-        self.inline_return_stack.push(return_jumps);
+        self.inline_return_stack
+            .push((Vec::new(), self.cleanup_stack.len(), dest));
 
         self.compile_stmt(&decl.body)?;
 
@@ -5495,7 +5714,11 @@ impl Compiler {
             self.emit(Opcode::LoadNull, dest, 0, 0);
         }
 
-        return_jumps = self.inline_return_stack.pop().unwrap();
+        let return_jumps = self
+            .inline_return_stack
+            .pop()
+            .map(|(jumps, _, _)| jumps)
+            .unwrap_or_default();
         self.last_expr_register = old_last_expr;
         self.pop_scope();
 
@@ -5540,6 +5763,7 @@ impl Compiler {
             continue_jumps: Vec::new(),
             continue_target,
             labels,
+            cleanup_depth: self.cleanup_stack.len(),
         });
     }
 
@@ -6171,6 +6395,12 @@ impl Compiler {
             }
             StmtKind::While { condition, body } => {
                 self.find_closures_and_captures_in_expr(condition, boxed);
+                self.find_closures_and_captures_in_stmt(body, boxed);
+            }
+            StmtKind::With { resources, body } => {
+                for resource in resources {
+                    self.find_closures_and_captures_in_expr(&resource.value, boxed);
+                }
                 self.find_closures_and_captures_in_stmt(body, boxed);
             }
             StmtKind::For { iterable, body, .. } => {
@@ -6812,4 +7042,12 @@ fn declaration_kinds(stmts: &[Stmt]) -> HashMap<String, &'static str> {
         kinds.insert(name.clone(), kind);
     }
     kinds
+}
+
+/// The cleanup a `try` region runs when left early: its `finally` block, if any.
+fn finally_action(finally_branch: Option<&Stmt>) -> CleanupAction {
+    match finally_branch {
+        Some(stmt) => CleanupAction::Finally(Box::new(stmt.clone())),
+        None => CleanupAction::None,
+    }
 }

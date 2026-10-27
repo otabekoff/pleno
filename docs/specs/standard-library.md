@@ -123,12 +123,10 @@ print(File.exists("data.txt"));     // true
 File.copy("data.txt", "copy.txt");  // Copy file
 File.move("copy.txt", "new.txt");   // Move or rename file
 
-// Working with file handles: mode "r" (read), "w" (write) or "a" (append)
-let file = File.open("data.txt", "r");
-try {
+// Working with file handles: mode "r" (read), "w" (write) or "a" (append).
+// `with` closes the handle when the block ends.
+with (file = File.open("data.txt", "r")) {
     print(file.read());
-} finally {
-    file.close();
 }
 
 // Delete files
@@ -137,7 +135,7 @@ File.delete("log.txt");
 File.delete("new.txt");
 ```
 
-Pleno has no statement that closes a file automatically; close file handles in a `finally` block as above.
+A file handle can also be closed by calling `close()` yourself; [`with`](./error-handling.md#closing-resources-with-with) does it even when the block throws.
 
 ## Directory Operations
 

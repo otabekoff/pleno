@@ -145,6 +145,12 @@ impl Inliner {
                     self.inline_stmt(fb);
                 }
             }
+            StmtKind::With { resources, body } => {
+                for resource in resources {
+                    self.inline_expr(&mut resource.value);
+                }
+                self.inline_stmt(body);
+            }
             StmtKind::Expr(expr) | StmtKind::Return(Some(expr)) | StmtKind::Throw(expr) => {
                 self.inline_expr(expr);
             }

@@ -161,6 +161,9 @@ impl DeadCodeEliminator {
                     self.eliminate_stmt(fb);
                 }
             }
+            StmtKind::With { body, .. } => {
+                self.eliminate_stmt(body);
+            }
             StmtKind::Export(inner) => {
                 self.eliminate_stmt(inner);
             }
