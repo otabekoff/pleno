@@ -22,7 +22,10 @@ pub fn process_exit(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, Ru
             _ => return Err(RuntimeError::new("exit code must be integer")),
         }
     };
-    std::process::exit(code);
+    // Ending the process from inside the VM would also end whatever embeds it
+    // (the playground, the language server, a `Sandbox`); the program unwinds
+    // instead, and the host ends it.
+    Err(RuntimeError::exit(code))
 }
 
 pub fn process_args(vm: &mut dyn VMProvider, _args: &[Value]) -> Result<Value, RuntimeError> {

@@ -24,7 +24,7 @@ print(Process.cwd());  // e.g. /home/user/project
 
 ### `exit(code: Int = 0): Void`
 
-Terminates the process with the given exit code. Code after the call does not run.
+Ends the program with the given exit code. Code after the call does not run, and `catch` cannot stop it: `exit` unwinds the whole program, through callbacks and `async` functions. `pleno run` then exits with that code. In a `Sandbox`, `exit` ends only the sandboxed function: the program that called `sandbox.run` gets a catchable `program exited with code N`. In `pleno test` and the playground, `exit(0)` is a normal end.
 
 ```pleno
 import { Process } from "std:process";
