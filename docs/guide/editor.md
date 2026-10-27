@@ -10,7 +10,7 @@ The Pleno extension adds highlighting, the language server, the debugger and a t
    code --install-extension pleno-language-<version>.vsix
    ```
 
-   The extension is not on the VS Code Marketplace yet.
+   The extension is not in the VS Code Marketplace or on Open VSX yet; both are planned for 1.0.
 
 2. Run **Pleno: Install or Update Toolchain** from the Command Palette (`Ctrl+Shift+P`). Skip this if Pleno is already on your `PATH`.
 

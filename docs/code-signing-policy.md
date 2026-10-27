@@ -7,7 +7,7 @@ Free code signing provided by [SignPath.io](https://about.signpath.io), certific
 Windows release binaries are signed with an Authenticode certificate:
 
 - `pleno.exe`, `plm.exe`, `pleno-lsp.exe`, `pleno-repl.exe` and `pleno-dap.exe`
-- shipped in `pleno-<version>-x86_64-pc-windows-msvc.zip` on [GitHub Releases](https://github.com/otabekoff/pleno/releases)
+- shipped in `pleno-vX.Y.Z-x86_64-pc-windows-msvc.zip` on [GitHub Releases](https://github.com/otabekoff/pleno/releases)
 
 Only binaries built from this repository by the [release workflow](https://github.com/otabekoff/pleno/blob/main/.github/workflows/release.yml) are signed. That workflow runs on GitHub Actions for tags pushed from the `main` branch, and every signing request is approved manually by an approver listed below. Third-party libraries are compiled into the binaries from source; no upstream binaries are signed under this policy.
 
@@ -19,8 +19,8 @@ All release archives, on every platform, are also signed with [Sigstore](https:/
 
 | Role | Members |
 | --- | --- |
-| Committers and reviewers | [Otabek (@otabekoff)](https://github.com/otabekoff) |
-| Approvers | [Otabek (@otabekoff)](https://github.com/otabekoff) |
+| Committers and reviewers | [Otabek Ismoilov (@otabekoff)](https://github.com/otabekoff) |
+| Approvers | [Otabek Ismoilov (@otabekoff)](https://github.com/otabekoff) |
 
 Changes from contributors without commit access are reviewed by a committer before they are merged. All team members use multi-factor authentication for GitHub and SignPath.
 
@@ -40,17 +40,17 @@ The [VS Code extension](https://github.com/otabekoff/pleno/tree/main/ide/vscode)
 Check an archive's checksum:
 
 ```bash
-sha256sum -c pleno-<version>-x86_64-unknown-linux-gnu.tar.gz.sha256
+sha256sum -c pleno-vX.Y.Z-x86_64-unknown-linux-gnu.tar.gz.sha256
 ```
 
 Check its Sigstore signature with [cosign](https://docs.sigstore.dev/cosign/system_config/installation/):
 
 ```bash
 cosign verify-blob \
-  --bundle pleno-<version>-x86_64-unknown-linux-gnu.tar.gz.bundle \
+  --bundle pleno-vX.Y.Z-x86_64-unknown-linux-gnu.tar.gz.bundle \
   --certificate-identity-regexp "https://github.com/otabekoff/pleno/.github/workflows/release.yml@refs/tags/.*" \
   --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
-  pleno-<version>-x86_64-unknown-linux-gnu.tar.gz
+  pleno-vX.Y.Z-x86_64-unknown-linux-gnu.tar.gz
 ```
 
 On Windows, the Authenticode signature of a signed `.exe` is shown under **Properties → Digital Signatures**, or with `Get-AuthenticodeSignature .\pleno.exe` in PowerShell.
