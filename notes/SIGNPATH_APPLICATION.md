@@ -103,7 +103,7 @@ Contributions from people without commit access are reviewed by a committer befo
 
 **Does the software transfer data to other systems?**
 ```
-No, unless the user requests it. The plm package manager contacts the package registry and Git hosts only when the user runs plm install, update or publish, and Pleno programs can make network requests through std:http and std:net only when the program's author writes them (they can be disabled with --allow-network false). There is no telemetry.
+No, unless the user requests it. The plm package manager runs git to contact the Git hosts of the user's dependencies only when the user runs plm add, install, update or publish (there is no package registry), and Pleno programs can make network requests through std:http and std:net only when the program's author writes them (they can be disabled with --allow-network false). There is no telemetry.
 ```
 
 **Does the software change system configuration?**

@@ -21,13 +21,13 @@ platform package managers and ecosystem tooling.
 - Chocolatey (Windows)
 - Docker images
 - VS Code extension
-- PLM package registry (basic)
+- PLM packages from Git repositories (no central registry)
 
 ### Phase 3: Ecosystem Growth
 - Debian/Ubuntu packages
 - Snap/Flatpak
 - AUR (Arch)
-- Expanded PLM registry with search
+- A package index as a plain Git repository (optional)
 
 ## Installation Methods
 
@@ -95,4 +95,4 @@ Release assets:
 4. Docker image
 5. Homebrew + Chocolatey
 6. VS Code extension
-7. PLM registry
+7. PLM packages from Git

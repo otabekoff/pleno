@@ -58,7 +58,6 @@ env_logger = { workspace = true }
 notify = "8"
 pleno-bytecode = { workspace = true }
 chrono = { workspace = true }
-reqwest = { workspace = true }
 
 [build-dependencies]
 winresource = "0.1"

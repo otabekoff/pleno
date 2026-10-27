@@ -33,10 +33,11 @@ print(`Balance: ${account.total()}`);
 
 ## Status
 
-Pleno is at version 0.1, before 1.0. The language can change between releases, and the [changelog](https://github.com/otabekoff/pleno/blob/main/CHANGELOG.md) lists what did. The [1.0 plan](https://github.com/otabekoff/pleno/blob/main/tasks/v1.md) lists what is left, including:
+Pleno is at version 0.3, the last step before 1.0. The language can still change before 1.0, and the [changelog](https://github.com/otabekoff/pleno/blob/main/CHANGELOG.md) lists every change. The [1.0 plan](https://github.com/otabekoff/pleno/blob/main/tasks/v1.md) lists what is left.
 
-- **Speed:** the interpreter is faster than CPython on loops, but function calls, array callbacks and building strings piece by piece are still slower (recursive `fib(30)`: 0.12 s against 0.08 s).
-- **Static checking:** `pleno check` finds syntax errors, undefined names, wrong argument counts and literals that contradict their annotations, but most type errors appear only when the code runs.
-- **Missing features:** a public package registry. The [language reference](/specs/) describes only what exists; designs for later versions are in the [version 2 draft](https://github.com/otabekoff/pleno/blob/main/notes/v2-draft.md), and the [compatibility promise](/specs/compatibility) says what 1.x will guarantee.
+- **Speed:** the interpreter is faster than CPython 3.14 on every benchmark in the repository (recursive `fib(30)`: 0.09 s against 0.10 s; a million-step loop: 0.03 s against 0.08 s).
+- **Static checking:** `pleno check` and the editor find syntax and compile errors, undefined names, wrong argument counts, unknown methods and literals that contradict their annotations, but most type errors appear only when the code runs.
+- **Packages** are Git repositories versioned by tags, with a lockfile. There is no central registry, by design.
+- The [language reference](/specs/) describes only what exists; designs for later versions are in the [version 2 draft](https://github.com/otabekoff/pleno/blob/main/notes/v2-draft.md), and the [compatibility promise](/specs/compatibility) says what 1.x will guarantee.
 
 Ready to try it? [Install Pleno](./installation).

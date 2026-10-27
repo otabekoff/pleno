@@ -30,7 +30,7 @@ This program will not transfer any information to other networked systems unless
 
 Pleno connects to the network only when you ask it to:
 
-- `plm install`, `plm update` and `plm publish` contact the package registry and the Git hosts of the packages you depend on.
+- `plm add`, `plm install`, `plm update` and `plm publish` run `git` to contact the Git hosts of the packages you depend on (and your own repository's remote). There is no package registry.
 - Pleno programs you write or run can make network requests through `std:http` and `std:net`. These can be turned off with `--allow-network false`.
 
 The [VS Code extension](https://github.com/otabekoff/pleno/tree/main/ide/vscode) is distributed separately and is not covered by this policy.

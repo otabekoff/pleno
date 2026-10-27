@@ -49,7 +49,6 @@ Pleno is a workspace of modular crates:
 | `pleno-bytecode` | Instruction definitions.                    |
 | `pleno-vm`       | Core execution engine.                      |
 | `pleno-stdlib`   | Standard library.                           |
-| `pleno-registry` | Package registry backend.                   |
 
 ---
 

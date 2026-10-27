@@ -36,7 +36,7 @@ I deliberately avoid building and maintaining things that create:
 
 This is why Pleno does **not** have:
 
-- A central package registry
+- A central package registry (packages are Git repositories, versioned with tags)
 - Winget, Scoop, Brew, Apt, or similar installers
 - Complex cloud infrastructure
 - Paid hosting requirements

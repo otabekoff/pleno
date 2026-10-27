@@ -182,14 +182,18 @@ pleno dap
 pleno new my-app
 pleno init
 
-# Install dependencies
+# Add a package from a Git repository (a version is a tag vX.Y.Z)
+plm add github:ada/greet@^1.2
+
+# Install what pleno.lock records
 plm install
 
-# Add a package from Git (or by name, from the registry in PLENO_REGISTRY)
-plm install https://github.com/user/http-utils
-
-# Update dependencies
+# Update dependencies, and show the tree
 plm update
+plm tree
+
+# Check the package and print the commands that tag a release
+plm publish
 
 # Run a script from pleno.toml
 plm run <script>

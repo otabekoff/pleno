@@ -6,25 +6,16 @@ license.workspace = true
 
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
 toml = "1.1"
+toml_edit = "0.25"
 semver = "1.0"
 thiserror = "2"
-reqwest = { version = "0.12", default-features = false, features = [
-    "blocking",
-    "json",
-    "rustls-tls",
-] }
 sha2 = "0.11"
 hex = "0.4"
 dirs = "7.0"
 bincode = "1"
 tar = "0.4"
-pleno-ast = { workspace = true }
 pleno-lexer = { workspace = true }
 pleno-parser = { workspace = true }
 pleno-compiler = { workspace = true }
 pleno-bytecode = { workspace = true }
-
-[dev-dependencies]
-mockall = "0.15"
