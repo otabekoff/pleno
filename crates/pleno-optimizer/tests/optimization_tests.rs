@@ -49,10 +49,9 @@ fn test_inlining() {
         if let StmtKind::Let {
             value: Some(expr), ..
         } = &stmt.kind
+            && let ExprKind::Literal(Literal::Int(3)) = &expr.kind
         {
-            if let ExprKind::Literal(Literal::Int(3)) = &expr.kind {
-                found_3 = true;
-            }
+            found_3 = true;
         }
     }
     assert!(
@@ -75,19 +74,15 @@ fn test_no_optimize() {
     // Inside slow, 1+2 should NOT be folded to 3
     let mut folded = true;
     for stmt in &program.statements {
-        if let StmtKind::Fn { name, body, .. } = &stmt.kind {
-            if name == "slow" {
-                if let StmtKind::Block(stmts) = &body.kind {
-                    if let StmtKind::Let {
-                        value: Some(expr), ..
-                    } = &stmts[0].kind
-                    {
-                        if let ExprKind::Binary { .. } = &expr.kind {
-                            folded = false;
-                        }
-                    }
-                }
-            }
+        if let StmtKind::Fn { name, body, .. } = &stmt.kind
+            && name == "slow"
+            && let StmtKind::Block(stmts) = &body.kind
+            && let StmtKind::Let {
+                value: Some(expr), ..
+            } = &stmts[0].kind
+            && let ExprKind::Binary { .. } = &expr.kind
+        {
+            folded = false;
         }
     }
     assert!(
@@ -112,14 +107,12 @@ fn test_unroll_with_no_optimize() {
     // The loop should NOT be unrolled
     let mut unrolled = true;
     for stmt in &program.statements {
-        if let StmtKind::Fn { name, body, .. } = &stmt.kind {
-            if name == "loop_fn" {
-                if let StmtKind::Block(stmts) = &body.kind {
-                    if matches!(&stmts[0].kind, StmtKind::CFor { .. }) {
-                        unrolled = false;
-                    }
-                }
-            }
+        if let StmtKind::Fn { name, body, .. } = &stmt.kind
+            && name == "loop_fn"
+            && let StmtKind::Block(stmts) = &body.kind
+            && matches!(&stmts[0].kind, StmtKind::CFor { .. })
+        {
+            unrolled = false;
         }
     }
     assert!(

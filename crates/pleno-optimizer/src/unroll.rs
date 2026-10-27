@@ -1,4 +1,4 @@
-use pleno_ast::visitor::{walk_expr, walk_stmt, Visitor};
+use pleno_ast::visitor::{Visitor, walk_expr, walk_stmt};
 use pleno_ast::*;
 
 /// The most AST nodes an unrolled loop may produce: iterations times the
@@ -53,10 +53,9 @@ impl<'ast> Visitor<'ast> for BodyFacts<'_> {
                 | UnaryOp::PostDecrement,
             expr: target,
         } = &expr.kind
+            && matches!(&target.kind, ExprKind::Ident(n) if n == self.name)
         {
-            if matches!(&target.kind, ExprKind::Ident(n) if n == self.name) {
-                self.assigns_name = true;
-            }
+            self.assigns_name = true;
         }
         walk_expr(self, expr)
     }
@@ -111,10 +110,10 @@ impl LoopUnroller {
 
                 // Try to unroll if iterable is a small range literal. A
                 // destructuring loop is left for the compiler to reject.
-                if pattern.is_none() {
-                    if let Some(unrolled) = self.try_unroll_range_for(names, iterable, body) {
-                        stmt.kind = StmtKind::Block(unrolled);
-                    }
+                if pattern.is_none()
+                    && let Some(unrolled) = self.try_unroll_range_for(names, iterable, body)
+                {
+                    stmt.kind = StmtKind::Block(unrolled);
                 }
             }
             StmtKind::CFor {
@@ -404,29 +403,23 @@ impl LoopUnroller {
 
     fn extract_step(&self, stmt: &Stmt) -> Option<String> {
         // Handle i++ as expression statement
-        if let StmtKind::Expr(expr) = &stmt.kind {
-            if let ExprKind::Unary { op, expr: inner } = &expr.kind {
-                if matches!(op, pleno_ast::UnaryOp::PostIncrement) {
-                    if let ExprKind::Ident(name) = &inner.kind {
-                        return Some(name.clone());
-                    }
-                }
-            }
+        if let StmtKind::Expr(expr) = &stmt.kind
+            && let ExprKind::Unary { op, expr: inner } = &expr.kind
+            && matches!(op, pleno_ast::UnaryOp::PostIncrement)
+            && let ExprKind::Ident(name) = &inner.kind
+        {
+            return Some(name.clone());
         }
 
         // Handle i = i + 1
-        if let StmtKind::Assign { name, value } = &stmt.kind {
-            if let ExprKind::Binary { left, op, right } = &value.kind {
-                if matches!(op, BinaryOp::Add) {
-                    if let ExprKind::Ident(n) = &left.kind {
-                        if n == name {
-                            if let ExprKind::Literal(Literal::Int(1)) = &right.kind {
-                                return Some(name.clone());
-                            }
-                        }
-                    }
-                }
-            }
+        if let StmtKind::Assign { name, value } = &stmt.kind
+            && let ExprKind::Binary { left, op, right } = &value.kind
+            && matches!(op, BinaryOp::Add)
+            && let ExprKind::Ident(n) = &left.kind
+            && n == name
+            && let ExprKind::Literal(Literal::Int(1)) = &right.kind
+        {
+            return Some(name.clone());
         }
 
         None

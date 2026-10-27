@@ -1295,8 +1295,6 @@ name = "pleno-cli"
 version = "0.3.0"
 dependencies = [
  "chrono",
- "env_logger",
- "log",
  "notify",
  "pleno-ast",
  "pleno-bytecode",
@@ -1349,8 +1347,6 @@ name = "pleno-dap"
 version = "0.3.0"
 dependencies = [
  "anyhow",
- "log",
- "pleno-bytecode",
  "pleno-compiler",
  "pleno-lexer",
  "pleno-parser",
@@ -1359,7 +1355,6 @@ dependencies = [
  "pleno-vm",
  "serde",
  "serde_json",
- "thiserror",
  "winresource",
 ]
 
@@ -1427,13 +1422,9 @@ dependencies = [
 name = "pleno-optimizer"
 version = "0.3.0"
 dependencies = [
- "indexmap",
  "pleno-ast",
- "pleno-common",
  "pleno-lexer",
  "pleno-parser",
- "pleno-value",
- "serde",
 ]
 
 [[package]]
@@ -1499,7 +1490,6 @@ dependencies = [
  "indexmap",
  "log",
  "mio",
- "pleno-bytecode",
  "pleno-common",
  "pleno-value",
  "quick-xml",
@@ -1530,7 +1520,6 @@ dependencies = [
 name = "pleno-vm"
 version = "0.3.0"
 dependencies = [
- "chrono",
  "env_logger",
  "hex",
  "indexmap",
@@ -1540,17 +1529,12 @@ dependencies = [
  "pleno-bytecode",
  "pleno-common",
  "pleno-compiler",
- "pleno-diagnostics",
  "pleno-lexer",
  "pleno-parser",
  "pleno-stdlib",
  "pleno-value",
  "proptest",
- "rand",
  "regex",
- "reqwest",
- "serde_json",
- "sha2",
  "toml",
 ]
 
@@ -1560,9 +1544,7 @@ version = "0.3.0"
 dependencies = [
  "console_error_panic_hook",
  "getrandom 0.4.3",
- "pleno-ast",
  "pleno-bytecode",
- "pleno-common",
  "pleno-compiler",
  "pleno-diagnostics",
  "pleno-lexer",
@@ -1570,7 +1552,6 @@ dependencies = [
  "pleno-stdlib",
  "pleno-value",
  "pleno-vm",
- "serde",
  "serde_json",
  "uuid",
  "wasm-bindgen",

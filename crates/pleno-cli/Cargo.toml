@@ -53,8 +53,6 @@ pleno-doc = { workspace = true }
 pleno-dap = { workspace = true }
 pleno-value = { workspace = true }
 serde_json = { workspace = true }
-log = { workspace = true }
-env_logger = { workspace = true }
 notify = "8"
 pleno-bytecode = { workspace = true }
 chrono = { workspace = true }
