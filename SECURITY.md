@@ -20,7 +20,9 @@ If you discover a security vulnerability, report it privately through GitHub:
 
 **[Report a vulnerability](https://github.com/otabekoff/pleno/security/advisories/new)**
 
-Only the maintainers can see the report.
+Only the maintainers can see the report. If you cannot use GitHub, email
+[sadiridinovotabek@gmail.com](mailto:sadiridinovotabek@gmail.com) with "Pleno security" in the
+subject.
 
 Please include the following in your report:
 
