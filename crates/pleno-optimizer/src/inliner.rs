@@ -36,43 +36,64 @@ impl Inliner {
                 annotations,
                 generics,
                 params,
+                return_ty,
+                is_async,
                 ..
             } = &stmt.kind
             {
-                if annotations.iter().any(|a| a.name == "inline") {
-                    // Only inline simple functions for now (single return statement)
-                    if self.is_simple_function(body) {
-                        let decl = FunctionDecl {
-                            span: stmt.span,
-                            name: name.clone(),
-                            name_span: Span::new(0, 0),
-                            generics: generics.clone(),
-                            params: params.clone(),
-                            return_ty: None,
-                            body: body.clone(),
-                            is_static: false,
-                            is_abstract: false,
-                            is_async: false,
-                            visibility: None,
-                            kind: FunctionKind::Method,
-                            annotations: annotations.clone(),
-                            doc: None,
-                        };
-                        self.inlinable_functions.insert(name.clone(), decl);
-                    }
+                // Only a function whose body is `return <expr>` over its
+                // parameters is substituted here; one with checked
+                // annotations or anything else is left to the compiler, which
+                // inlines it with its checks (see `compile_inlined_call`).
+                let checked = |ty: &Option<String>| ty.as_deref().is_some_and(|ty| ty != "Any");
+                if annotations.iter().any(|a| a.name == "inline")
+                    && generics.is_empty()
+                    && !is_async
+                    && !checked(return_ty)
+                    && params.iter().all(|p| {
+                        !checked(&p.ty)
+                            && p.default.is_none()
+                            && !p.is_variadic
+                            && !p.is_keyword_only
+                            && p.ownership == Ownership::None
+                    })
+                    && self.is_simple_function(body, params)
+                {
+                    let decl = FunctionDecl {
+                        span: stmt.span,
+                        name: name.clone(),
+                        name_span: Span::new(0, 0),
+                        generics: generics.clone(),
+                        params: params.clone(),
+                        return_ty: None,
+                        body: body.clone(),
+                        is_static: false,
+                        is_abstract: false,
+                        is_async: false,
+                        visibility: None,
+                        kind: FunctionKind::Method,
+                        annotations: annotations.clone(),
+                        doc: None,
+                    };
+                    self.inlinable_functions.insert(name.clone(), decl);
                 }
             }
         }
     }
 
-    fn is_simple_function(&self, body: &Stmt) -> bool {
-        match &body.kind {
-            StmtKind::Block(stmts) if stmts.len() == 1 => {
-                matches!(&stmts[0].kind, StmtKind::Return(Some(_)))
-            }
-            StmtKind::Return(Some(_)) => true,
-            _ => false,
-        }
+    /// Whether `body` is `return <expr>` where the expression reads nothing
+    /// but `params`: any other name could mean something else where the call
+    /// is (a local of the caller).
+    fn is_simple_function(&self, body: &Stmt, params: &[Param]) -> bool {
+        let expr = match &body.kind {
+            StmtKind::Block(stmts) if stmts.len() == 1 => match &stmts[0].kind {
+                StmtKind::Return(Some(expr)) => expr,
+                _ => return false,
+            },
+            StmtKind::Return(Some(expr)) => expr,
+            _ => return false,
+        };
+        reads_only_params(expr, params)
     }
 
     fn inline_stmt(&mut self, stmt: &mut Stmt) {
@@ -237,12 +258,20 @@ impl Inliner {
             return None;
         }
 
+        // Arguments are substituted where the parameters are read, so each
+        // must give the same value however often it is evaluated, and none.
         let mut arg_map = HashMap::new();
         for (i, param) in decl.params.iter().enumerate() {
-            if let CallArg::Positional(arg_expr) = &args[i] {
-                arg_map.insert(param.name.clone(), arg_expr.clone());
-            } else {
-                return None;
+            match &args[i] {
+                CallArg::Positional(
+                    arg_expr @ Expr {
+                        kind: ExprKind::Literal(_) | ExprKind::Ident(_),
+                        ..
+                    },
+                ) => {
+                    arg_map.insert(param.name.clone(), arg_expr.clone());
+                }
+                _ => return None,
             }
         }
 
@@ -317,5 +346,34 @@ impl Inliner {
             }
             _ => {}
         }
+    }
+}
+
+/// Whether `expr` is made of literals, operators and the names of `params`.
+fn reads_only_params(expr: &Expr, params: &[Param]) -> bool {
+    match &expr.kind {
+        ExprKind::Literal(_) => true,
+        ExprKind::Ident(name) => params.iter().any(|p| p.name == *name),
+        ExprKind::Binary { left, right, .. } => {
+            reads_only_params(left, params) && reads_only_params(right, params)
+        }
+        ExprKind::Unary { expr: inner, .. } | ExprKind::Paren(inner) => {
+            reads_only_params(inner, params)
+        }
+        ExprKind::ArrayLiteral(items) | ExprKind::TupleLiteral(items) => {
+            items.iter().all(|item| reads_only_params(item, params))
+        }
+        ExprKind::If {
+            condition,
+            then_branch,
+            else_branch,
+        } => {
+            reads_only_params(condition, params)
+                && reads_only_params(then_branch, params)
+                && else_branch
+                    .as_deref()
+                    .is_none_or(|branch| reads_only_params(branch, params))
+        }
+        _ => false,
     }
 }

@@ -131,3 +131,14 @@ fn native_callbacks_return_what_the_callback_returns() {
     ";
     assert_eq!(eval(source), Value::Int(4800 + 90 + 6));
 }
+
+#[test]
+fn many_expression_statements_in_a_row() {
+    // Each statement's value used to keep its register until the end of the
+    // script, so a few hundred calls ran out of registers.
+    let mut source = String::from("fn g(a) { return a; }\n");
+    for i in 0..600 {
+        source.push_str(&format!("g({i});\n"));
+    }
+    assert_eq!(eval(&source), Value::Int(599));
+}

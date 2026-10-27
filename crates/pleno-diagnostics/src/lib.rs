@@ -96,6 +96,11 @@ impl SourceMap {
         }
     }
 
+    /// The whole source text.
+    pub fn source(&self) -> &str {
+        &self.source
+    }
+
     pub fn get_line_col(&self, offset: usize) -> (usize, usize) {
         // Binary search to find the line
         let line = match self.line_starts.binary_search(&offset) {

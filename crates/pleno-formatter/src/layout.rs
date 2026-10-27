@@ -211,7 +211,15 @@ impl Formatter {
         let mut out = String::new();
         while let Some(comment) = self.comments.get(self.comment_index) {
             let start = comment.span.start;
-            if start < after || start >= before || !self.same_line(after, start) {
+            // A block comment after the comma and on the line of what
+            // follows (`a, /* b */ b`) goes with that instead.
+            let leads_next = comment.kind == CommentKind::Block
+                && self.same_line(comment.span.end, before)
+                && self
+                    .source
+                    .get(after..start)
+                    .is_some_and(|gap| gap.contains(','));
+            if start < after || start >= before || !self.same_line(after, start) || leads_next {
                 break;
             }
             out.push(' ');
@@ -591,9 +599,13 @@ impl Formatter {
                 let args = self.list("(", &items, ")", true, region, indent, col + 2, suffix);
                 format!("?.{args}")
             }
-            ExprKind::Index { index, .. } => format!("[{}]", self.format_expression(index, indent)),
-            ExprKind::SafeIndex { index, .. } => {
-                format!("?.[{}]", self.format_expression(index, indent))
+            ExprKind::Index { collection, index } => {
+                let region = Span::new(collection.span.end, node.span.end);
+                self.index_text("[", index, region, indent)
+            }
+            ExprKind::SafeIndex { collection, index } => {
+                let region = Span::new(collection.span.end, node.span.end);
+                self.index_text("?.[", index, region, indent)
             }
             ExprKind::AssertNotNull(_) => "!".to_string(),
             _ => String::new(),

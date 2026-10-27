@@ -51,6 +51,7 @@ proptest! {
                 type_params: Vec::new(),
                 type_constraints: indexmap::IndexMap::new(),
                 annotations: Vec::new(),
+                captured_type_params: Vec::new(),
             });
         }
 

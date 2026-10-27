@@ -197,6 +197,86 @@ fn comments_in_chains_and_match_arms_stay_in_place() {
 }
 
 #[test]
+fn comments_inside_an_index_stay_in_the_brackets() {
+    // A block comment stays on the line, next to the index.
+    assert_eq!(
+        fmt("let x = arr[ /* c */ 1 ];\n", 100),
+        "let x = arr[/* c */ 1];\n"
+    );
+    assert_eq!(
+        fmt("let x = arr[i /* after */];\n", 100),
+        "let x = arr[i /* after */];\n"
+    );
+    assert_eq!(
+        fmt("let q = m?.[ /* key */ \"k\" ];\n", 100),
+        "let q = m?.[/* key */ \"k\"];\n"
+    );
+    // A line comment puts the index on a line of its own.
+    assert_eq!(
+        fmt("let y = arr[1 // c\n];\n", 100),
+        "let y = arr[\n    1 // c\n];\n"
+    );
+    assert_eq!(
+        fmt("let p = f(arr[1 // first\n], 2);\n", 100),
+        "let p = f(\n    arr[\n        1 // first\n    ],\n    2,\n);\n"
+    );
+    assert_eq!(
+        fmt(
+            "let r = items.filter((i) => i > 0)[ /* first */ 0 ].name;\n",
+            100
+        ),
+        "let r = items.filter((i) => i > 0)[/* first */ 0].name;\n"
+    );
+}
+
+#[test]
+fn block_comments_in_slices_parentheses_and_unary_operators_stay() {
+    assert_eq!(
+        fmt("let a = xs[1: /* to */ 2];\n", 100),
+        "let a = xs[1:/* to */ 2];\n"
+    );
+    assert_eq!(
+        fmt("let a = xs[/* from */ 1:2 /* end */];\n", 100),
+        "let a = xs[/* from */ 1:2 /* end */];\n"
+    );
+    assert_eq!(
+        fmt("let c = (/* paren */ 1 + 2 /* sum */);\n", 100),
+        "let c = (/* paren */ 1 + 2 /* sum */);\n"
+    );
+    assert_eq!(
+        fmt("let e = - /* neg */ 1;\n", 100),
+        "let e = -/* neg */ 1;\n"
+    );
+}
+
+#[test]
+fn comments_inside_import_and_export_lists_stay_with_their_name() {
+    assert_eq!(
+        fmt("import { a, /* the b */ b } from \"./m\";\n", 100),
+        "import {\n    a,\n    /* the b */ b,\n} from \"./m\";\n"
+    );
+    assert_eq!(
+        fmt("import { a as x /* the x */, b } from \"./m\";\n", 100),
+        "import {\n    a as x, /* the x */\n    b,\n} from \"./m\";\n"
+    );
+    let source = "import {\n    c, // the c\n    d,\n} from \"./n\";\n";
+    assert_eq!(fmt(source, 100), source);
+    assert_eq!(
+        fmt("import {\n    c, // the c\n    d\n} from \"./n\";\n", 100),
+        source
+    );
+    assert_eq!(
+        fmt("export { x, /* exported */ b };\n", 100),
+        "export {\n    x,\n    /* exported */ b,\n};\n"
+    );
+    // A name that also appears in a comment is found where it is written.
+    assert_eq!(
+        fmt("import { b /* not a */, a } from \"./m\";\n", 100),
+        "import {\n    b, /* not a */\n    a,\n} from \"./m\";\n"
+    );
+}
+
+#[test]
 fn strings_and_comments_are_never_split() {
     let long = "\"a string that is much longer than the limit allows\"";
     let source = format!("print({long});\n");
