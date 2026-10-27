@@ -59,6 +59,7 @@ The changes below were made in the 1.0 review of the reference, because the comp
 
 ### Fixed
 
+- `pleno format`, and so format-on-save in VS Code, changed what programs computed: it wrote `n *= 3 + 1` as `n = n * 3 + 1` and `out += a == b ? x : y` as `out = out + a == b ? x : y`. A compound assignment is now written as it was (`+=`, `-=`, `*=`, `/=`, `%=`), and its value keeps its grouping in the syntax tree. The formatter also wrote the documented `s[..2]` as `s[:2]`; it now writes `[..b]`.
 - `assert.equal`, `assert.notEqual` and `assert.contains` now decide equality the way `==` does. Tuples (also inside arrays) and sets compared by their debug text, so `assert.equal((1, "b"), (1, "b"))` and `assert.equal(Set([1, 2]), Set([2, 1]))` failed; a class's `operator ==` was ignored; and Floats were compared with a tolerance, so `assert.equal(0.1 + 0.2, 0.3)` passed although `0.1 + 0.2 == 0.3` is false.
 - `a ?? b` evaluated `b` even when `a` was not null, and twice when it was, so a call on the right ran (and could throw) every time: `status ?? args.next()` consumed an argument it did not use. The right side now runs only when the left side is null. `??` and `x is T?` also test for null without calling a class's `operator ==`.
 - The Linux release programs needed glibc 2.39, the version on the build machine, so they failed with `version 'GLIBC_2.39' not found` on Ubuntu 22.04, Debian 12, RHEL 9 and older. They are now built against glibc 2.17, and CI checks this and runs `pleno` on CentOS 7.

@@ -76,6 +76,36 @@ impl Formatter {
         self
     }
 
+    /// The operator and value to write for an assignment: `+=` and `y` when the
+    /// source says `x += y` (which the parser reads as `x = x + (y)`), and `=`
+    /// and the value otherwise. Without the source, the value is written whole
+    /// and keeps its parentheses: `x = x + (y)`.
+    fn assignment_parts<'e>(&self, value: &'e Expr) -> (String, &'e Expr) {
+        if let ExprKind::Binary { left, op, right } = &value.kind {
+            let symbol = match op {
+                BinaryOp::Add => Some("+"),
+                BinaryOp::Subtract => Some("-"),
+                BinaryOp::Multiply => Some("*"),
+                BinaryOp::Divide => Some("/"),
+                BinaryOp::Modulo => Some("%"),
+                _ => None,
+            };
+            if let Some(symbol) = symbol
+                && let Some(between) = self.source.get(left.span.end..right.span.start)
+                && between.trim() == format!("{symbol}=")
+            {
+                // The parser's own parentheses (spanning just the value) go;
+                // ones the author wrote stay.
+                let right = match &right.kind {
+                    ExprKind::Paren(inner) if inner.span == right.span => inner,
+                    _ => right,
+                };
+                return (format!("{symbol}="), right);
+            }
+        }
+        ("=".to_string(), value)
+    }
+
     /// Gives the formatter the source the AST was parsed from, so blank lines
     /// between statements are kept.
     pub fn with_source(mut self, source: &str) -> Self {
@@ -330,7 +360,8 @@ impl Formatter {
                 self.fit_line(&result, value, ";\n", indent_level, offset)
             }
             StmtKind::Assign { name, value } => {
-                let prefix = format!("{current_indent}{name} = ");
+                let (op, value) = self.assignment_parts(value);
+                let prefix = format!("{current_indent}{name} {op} ");
                 self.fit_line(&prefix, value, ";\n", indent_level, offset)
             }
             StmtKind::AssignProperty {
@@ -339,7 +370,8 @@ impl Formatter {
                 value,
             } => {
                 let object = self.format_expression(object, indent_level);
-                let prefix = format!("{current_indent}{object}.{name} = ");
+                let (op, value) = self.assignment_parts(value);
+                let prefix = format!("{current_indent}{object}.{name} {op} ");
                 self.fit_line(&prefix, value, ";\n", indent_level, offset)
             }
             StmtKind::AssignIndex {
@@ -349,7 +381,8 @@ impl Formatter {
             } => {
                 let collection = self.format_expression(collection, indent_level);
                 let index = self.format_expression(index, indent_level);
-                let prefix = format!("{current_indent}{collection}[{index}] = ");
+                let (op, value) = self.assignment_parts(value);
+                let prefix = format!("{current_indent}{collection}[{index}] {op} ");
                 self.fit_line(&prefix, value, ";\n", indent_level, offset)
             }
             StmtKind::If {
@@ -1122,14 +1155,20 @@ impl Formatter {
                 let start_str = part(self, start);
                 let end_str = part(self, end);
                 let trail = self.block_comments_after(collection.span.end, expr.span.end);
-                // `[a:b]` has no inclusive form; `[a..=b]` keeps its meaning.
+                // `[..b]` and `[..]` in the documented form, also when written
+                // `[:b]` and `[:]`. With a start, only `[a:b]` (and `[a:]`)
+                // make a slice (`[a..b]` is an index with a range), so it
+                // stays as written; `[a..=b]` keeps its meaning.
+                let separator = if *inclusive {
+                    "..="
+                } else if start.is_none() {
+                    ".."
+                } else {
+                    ":"
+                };
                 format!(
                     "{}[{}{}{}{}]",
-                    collection_str,
-                    start_str,
-                    if *inclusive { "..=" } else { ":" },
-                    end_str,
-                    trail
+                    collection_str, start_str, separator, end_str, trail
                 )
             }
             ExprKind::SetLiteral(items) => {
