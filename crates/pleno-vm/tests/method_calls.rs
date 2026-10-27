@@ -224,3 +224,28 @@ fn method_calls_survive_collections() {
     vm.execute(chunk).unwrap();
     assert_eq!(vm.output.unwrap(), "125250 500\n");
 }
+
+#[test]
+fn static_method_arguments_are_bound_like_any_call() {
+    let class = r#"
+class Point {
+    static at(x, y = 5) { return x + y; }
+    static all(...xs) { return xs; }
+    static async later(x) { return x; }
+}
+"#;
+    assert_eq!(
+        output(&format!(
+            "{class}print(Point.at(1)); print(Point.at(1, 2)); print(Point.all(1, 2));"
+        )),
+        "6\n3\n[1, 2]\n"
+    );
+    assert_eq!(
+        output(&format!(
+            "{class}async fn main() {{ print(await Point.later(3)); }}\nmain();"
+        )),
+        "3\n"
+    );
+    assert!(error(&format!("{class}Point.at();")).contains("missing required argument"));
+    assert!(error(&format!("{class}Point.at(1, 2, 3);")).contains("too many positional arguments"));
+}
