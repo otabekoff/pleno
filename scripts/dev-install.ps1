@@ -1,6 +1,7 @@
 # Installs Pleno from this checkout: builds the release binaries (pleno, plm,
-# pleno-lsp, pleno-dap, pleno-repl) into ~/.pleno/bin, the same folder the
-# release installer uses, and installs the VS Code extension from ide/vscode.
+# pleno-lsp, pleno-dap, pleno-repl) into $env:PLENO_HOME\bin (~\.pleno\bin by
+# default), the same folder the release installer uses, and installs the VS Code
+# extension from ide/vscode.
 # Run it again after pulling to update.
 #
 # A toolchain that the extension's "Install Toolchain" command downloaded is
@@ -17,7 +18,8 @@ param(
 
 $ErrorActionPreference = "Stop"
 $Root = Split-Path -Parent $PSScriptRoot
-$InstallDir = "$HOME\.pleno\bin"
+$PlenoDir = if ($env:PLENO_HOME) { $env:PLENO_HOME } else { Join-Path $HOME ".pleno" }
+$InstallDir = Join-Path $PlenoDir "bin"
 $Tools = @("pleno", "plm", "pleno-lsp", "pleno-dap", "pleno-repl")
 $ExtensionToolchain = "$env:APPDATA\Code\User\globalStorage\pleno.pleno-language\toolchain"
 
