@@ -19,8 +19,8 @@ checksums here too (from `SHA256SUMS.txt`), so the copies and the published pack
 
 ## Release workflow setup
 
-`.github/workflows/release.yml` publishes to Homebrew, Scoop and WinGet when a `vX.Y.Z` tag is
-pushed. It skips each one whose secret is missing, and it skips prereleases (`v1.0.0-rc.1`). Add
+`.github/workflows/release.yml` publishes to Homebrew, Scoop and WinGet, and the VS Code
+extension to its two stores, when a `vX.Y.Z` tag is pushed. It skips each one whose secret is missing, and it skips prereleases (`v1.0.0-rc.1`). Add
 the secrets under **Settings → Secrets and variables → Actions** in `otabekoff/pleno`.
 
 | Secret               | Used for | Token |
@@ -28,10 +28,58 @@ the secrets under **Settings → Secrets and variables → Actions** in `otabeko
 | `HOMEBREW_TAP_TOKEN` | Pushing `Formula/pleno.rb` to `otabekoff/homebrew-tap` | Fine-grained token, repository `homebrew-tap`, **Contents: Read and write** |
 | `SCOOP_BUCKET_TOKEN` | Pushing `bucket/pleno.json` to `otabekoff/scoop-bucket` | Fine-grained token, repository `scoop-bucket`, **Contents: Read and write** |
 | `WINGET_TOKEN`       | `wingetcreate update --submit`: pushes a branch to your `winget-pkgs` fork and opens the pull request | Classic token with the **public_repo** scope (fine-grained tokens cannot open pull requests in another owner's repository) |
+| `VSCE_PAT`           | Publishing the `.vsix` to the VS Code Marketplace | Azure DevOps token, **Marketplace: Manage** ([`ide/vscode/PUBLISHING.md`](../ide/vscode/PUBLISHING.md)) |
+| `OVSX_PAT`           | Publishing the `.vsix` to Open VSX | Open VSX access token ([`ide/vscode/PUBLISHING.md`](../ide/vscode/PUBLISHING.md)) |
 
-Create the tokens at [github.com/settings/tokens](https://github.com/settings/tokens), with a
-reminder to renew them before they expire. One fine-grained token can cover both `homebrew-tap`
-and `scoop-bucket`; save it under both names.
+GitHub has two kinds of personal access token. A **fine-grained** token is limited to the
+repositories and permissions you pick; it can last at most a year. A **classic** token applies to
+every repository you can access, with broad scopes; it can be set to never expire. Use
+fine-grained wherever it works. WinGet needs a classic token, because `wingetcreate` pushes to your
+fork and opens a pull request in `microsoft/winget-pkgs`, which a fine-grained token cannot do for
+another owner's repository.
+
+### `SCOOP_BUCKET_TOKEN` (fine-grained)
+
+1. Open [github.com/settings/personal-access-tokens/new](https://github.com/settings/personal-access-tokens/new).
+2. **Token name:** `pleno release: scoop-bucket`. **Expiration:** the longest offered (custom, up
+   to a year). Set a calendar reminder for that date.
+3. **Resource owner:** `otabekoff`.
+4. **Repository access:** **Only select repositories** → `otabekoff/scoop-bucket`.
+5. **Permissions → Repository permissions → Contents: Read and write.** Metadata: Read-only is
+   added by itself. Leave everything else at No access.
+6. **Generate token** and copy it. GitHub shows it only once.
+7. Open [github.com/otabekoff/pleno/settings/secrets/actions/new](https://github.com/otabekoff/pleno/settings/secrets/actions/new),
+   **Name:** `SCOOP_BUCKET_TOKEN`, **Secret:** the token, then **Add secret**.
+
+`HOMEBREW_TAP_TOKEN` is the same kind of token for `otabekoff/homebrew-tap`. To use one token for
+both, edit it at [github.com/settings/personal-access-tokens](https://github.com/settings/personal-access-tokens),
+add `scoop-bucket` under **Repository access**, regenerate it, and save the new value under both
+secret names.
+
+### `WINGET_TOKEN` (classic)
+
+1. Fork [microsoft/winget-pkgs](https://github.com/microsoft/winget-pkgs) to your account, if
+   `otabekoff/winget-pkgs` does not exist yet. It exists already.
+2. Open [github.com/settings/tokens/new?scopes=public_repo&description=pleno%20release%3A%20winget](https://github.com/settings/tokens/new?scopes=public_repo&description=pleno%20release%3A%20winget).
+   The link fills in the note and ticks **public_repo** (under **repo**). Tick nothing else.
+3. **Expiration:** a year, or **No expiration** if you prefer not to renew it. Then
+   **Generate token** and copy it.
+4. Open [github.com/otabekoff/pleno/settings/secrets/actions/new](https://github.com/otabekoff/pleno/settings/secrets/actions/new),
+   **Name:** `WINGET_TOKEN`, **Secret:** the token, then **Add secret**.
+
+### From the command line instead
+
+With the [GitHub CLI](https://cli.github.com/), `gh secret set` asks for the value without echoing
+it, so the token never lands in your shell history:
+
+```sh
+gh secret set SCOOP_BUCKET_TOKEN --repo otabekoff/pleno
+gh secret set WINGET_TOKEN --repo otabekoff/pleno
+gh secret list --repo otabekoff/pleno     # shows the names, never the values
+```
+
+When a token expires, its job fails with an authentication error on the next release. Generate a
+new token the same way and replace the secret.
 
 ## Homebrew
 
@@ -48,6 +96,10 @@ runs it and pushes the result.
 scoop bucket add pleno https://github.com/otabekoff/scoop-bucket
 scoop install pleno
 ```
+
+`scoop install pleno` without the `bucket add` line fails with `Couldn't find manifest for
+'pleno'`, because Pleno is in its own bucket, not in Scoop's main bucket. `scoop update pleno`
+picks up new versions.
 
 `scripts/scoop-manifest.sh <version> SHA256SUMS.txt` writes the manifest from `scoop/pleno.json`.
 The release workflow runs it and pushes the result. Its `autoupdate` section also lets Scoop's own

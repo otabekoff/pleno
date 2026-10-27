@@ -25,11 +25,16 @@ the extension again, so claim both before the first release.
 
 1. Sign in to [Azure DevOps](https://dev.azure.com/) with a Microsoft account and create an
    organization if you have none. The token below comes from there.
-2. Create a personal access token: **User settings → Personal access tokens → New Token**.
-   - Organization: **All accessible organizations**. A token for a single organization does not
-     work for the Marketplace.
-   - Scopes: **Custom defined → Marketplace → Manage**.
-   - Expiration: the longest allowed, with a reminder to renew it.
+2. Create a personal access token at `https://dev.azure.com/<your organization>/_usersSettings/tokens`.
+   You can also reach it from the person icon at the top right, then **Personal access tokens →
+   New Token**.
+   - **Name:** `pleno marketplace`.
+   - **Organization: All accessible organizations.** A token for a single organization is
+     rejected by the Marketplace.
+   - **Expiration:** custom, the longest allowed (Azure DevOps allows at most a year). Set a
+     reminder to renew it.
+   - **Scopes: Custom defined → Show all scopes → Marketplace → Manage.** Nothing else.
+   - **Create**, then copy the token. Azure DevOps shows it only once.
 3. Create the publisher at
    [marketplace.visualstudio.com/manage](https://marketplace.visualstudio.com/manage/createpublisher)
    with the same Microsoft account. **ID: `pleno`**, which must match `publisher` in
@@ -55,11 +60,14 @@ extension's page usually appears within minutes, after an automatic scan.
 ### Once
 
 1. Sign in at [open-vsx.org](https://open-vsx.org/) with your GitHub account.
-2. Link an Eclipse Foundation account and sign the **Open VSX Publisher Agreement**: **Settings →
-   Profile → Log in with Eclipse**. Create the Eclipse account at
+2. Link an Eclipse Foundation account and sign the **Open VSX Publisher Agreement** at
+   [open-vsx.org/user-settings/profile](https://open-vsx.org/user-settings/profile) → **Log in
+   with Eclipse**, then **Show Publisher Agreement → Agree**. Create the Eclipse account at
    [accounts.eclipse.org](https://accounts.eclipse.org/user/register) with the same email address
    as your GitHub account. Publishing fails until the agreement is signed.
-3. Create an access token: **Settings → Access Tokens → Generate New Token**.
+3. Create an access token at [open-vsx.org/user-settings/tokens](https://open-vsx.org/user-settings/tokens):
+   **Generate New Token**, with the description `pleno release`. Copy it; Open VSX shows it only
+   once. It stays valid until you delete it there.
 4. Create the namespace once:
 
    ```sh
@@ -78,11 +86,19 @@ npx ovsx publish pleno-language-v0.3.0.vsix --pat <token>
 
 ## Publishing from the release workflow
 
-Once both stores have the extension, the release workflow can publish it on every tag like the
-Homebrew formula. Save the tokens as repository secrets (**Settings → Secrets and variables →
-Actions**): `VSCE_PAT` for the Marketplace and `OVSX_PAT` for Open VSX. A job then runs the two
-`publish` commands above with the release's `.vsix`. Ask for the job when the secrets are in place.
-Until then, publish by hand.
+The release workflow's **Publish the VS Code extension** job uploads the release's `.vsix` to both
+stores on every `vX.Y.Z` tag (not on prereleases). It needs two repository secrets, which you add
+at [github.com/otabekoff/pleno/settings/secrets/actions](https://github.com/otabekoff/pleno/settings/secrets/actions)
+with **New repository secret**:
+
+| Secret     | Value |
+| ---------- | ----- |
+| `VSCE_PAT` | The Azure DevOps token from "VS Code Marketplace → Once" |
+| `OVSX_PAT` | The Open VSX token from "Open VSX → Once" |
+
+Each store is skipped while its secret is missing. Do the first upload of each store by hand, as
+above: it checks that the publisher, the namespace and the agreement are in place. When a token
+expires, the job fails at that step. Make a new token and replace the secret.
 
 ## After publishing
 

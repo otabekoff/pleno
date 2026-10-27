@@ -7,6 +7,7 @@ Notable changes to Pleno. The format follows [Keep a Changelog](https://keepacha
 ### Added
 
 - The release workflow publishes Scoop and WinGet updates along with Homebrew: it writes the Scoop manifest (`scripts/scoop-manifest.sh`) and pushes it to `otabekoff/scoop-bucket`, and opens the WinGet pull request with `wingetcreate update --submit` once winget has a first version. Each step needs its own token secret (`SCOOP_BUCKET_TOKEN`, `WINGET_TOKEN`) and is skipped without it. `packaging/README.md` describes the tokens and how to publish to Chocolatey and the AUR by hand, and `ide/vscode/PUBLISHING.md` how to publish the extension to the VS Code Marketplace and Open VSX.
+- The release workflow publishes the extension's `.vsix` to the VS Code Marketplace and Open VSX when the `VSCE_PAT` and `OVSX_PAT` secrets are set.
 
 ### Changed
 
