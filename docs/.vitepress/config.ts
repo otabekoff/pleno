@@ -252,6 +252,8 @@ export default defineConfig({
           items: [
             { text: 'Reflect', link: '/stdlib/reflect' },
             { text: 'Regex', link: '/stdlib/regex' },
+            { text: 'DB', link: '/stdlib/db' },
+            { text: 'GC', link: '/stdlib/gc' },
           ]
         }
       ],

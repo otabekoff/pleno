@@ -38,8 +38,8 @@ Behavior a page calls unspecified (for example the order of `Directory.list`) is
 | [`std:reflect`](reflect.md)             | stable       | `vmStats` is experimental: its numbers depend on the VM's internals.                                                                         |
 | [`std:regex`](regex.md)                 | stable       |                                                                                                                                              |
 | [`std:security`](../specs/security-features.md) | experimental | `Sandbox`, described under [Security features](../specs/security-features.md).                                                     |
-| `std:gc`                                | experimental | `collect`, `heapSize`, `isEnabled`, `report`, `stats`: views of the VM's memory manager. Not documented further.                            |
-| `std:db`                                | experimental | `Database.connect("sqlite:path")` with `execute`, `query` and `close`. Not documented further.                                               |
+| [`std:gc`](gc.md)                       | experimental | `collect`, `heapSize`, `isEnabled`, `report`, `stats`: views of the VM's memory manager; the numbers depend on its internals.            |
+| [`std:db`](db.md)                       | experimental | SQLite only: `Database.connect("sqlite:path")` with `execute`, `query` and `close`.                                                            |
 
 ## Categories
 
@@ -109,3 +109,5 @@ Behavior a page calls unspecified (for example the order of `Directory.list`) is
 | --------------------- | ------------------- |
 | [reflect](reflect.md) | Runtime reflection  |
 | [regex](regex.md)     | Regular expressions |
+| [db](db.md)           | SQLite databases (experimental) |
+| [gc](gc.md)           | Memory manager statistics (experimental) |
