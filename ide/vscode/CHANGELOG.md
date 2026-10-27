@@ -8,6 +8,8 @@ All notable changes to the Pleno extension for VS Code. The format follows
 ### Added
 
 - Highlighting of the `with` keyword and a `with` snippet.
+- The toolchain is also found in `$PLENO_HOME/bin` when `PLENO_HOME` is set, as the install
+  scripts use it.
 
 ## [0.3.0] - 2026-10-27
 

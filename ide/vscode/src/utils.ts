@@ -67,7 +67,7 @@ function findOnPath(name: string): string | undefined {
 
 /**
  * Finds a Pleno tool: its setting, then the toolchain installed by this
- * extension, then PATH, then `~/.pleno/bin` (where the install scripts put
+ * extension, then PATH, then `$PLENO_HOME/bin` or `~/.pleno/bin` (where the install scripts put
  * it, for when VS Code was started before PATH was updated), then a build in
  * the Pleno repository (when the extension runs from `ide/vscode`).
  */
@@ -105,7 +105,9 @@ function locate(context: vscode.ExtensionContext, tool: Tool): ToolLocation {
         return { path: onPath, found: true, source: 'path' };
     }
 
-    const home = path.join(os.homedir(), '.pleno', 'bin', executableName(tool));
+    // The install scripts use PLENO_HOME when it is set.
+    const plenoHome = process.env.PLENO_HOME?.trim() || path.join(os.homedir(), '.pleno');
+    const home = path.join(plenoHome, 'bin', executableName(tool));
     if (isFile(home)) {
         return { path: home, found: true, source: 'home' };
     }
