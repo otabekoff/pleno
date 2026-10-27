@@ -351,61 +351,21 @@ jobs:
 
 ---
 
-## 6. Package Registry (PLM - Pleno Module Manager)
+## 6. Packages (PLM - Pleno Module Manager)
 
-### **Central Package Registry**
-
-```
-https://packages.pleno-lang.org/
-```
-
-**Like npm, crates.io, PyPI:**
-- Searchable package index
-- Package versioning (SemVer)
-- Dependency resolution
-- Package statistics
-- Documentation hosting
-
-### **Publishing Packages**
+Pleno has no central registry and runs no package server. A package is a Git repository, and a version is a Git tag `vX.Y.Z`, as with Go modules and the Swift Package Manager:
 
 ```bash
-# Point plm at the registry
-export PLENO_REGISTRY=https://registry.example.com
+# Depend on a package
+plm add github:ada/http-client@^2.0
 
-# Publish package
+# Publish a version of your own package: check it, then push a tag
 plm publish
-
-# Search packages
-plm search http-client
-
-# Install package
-plm install http-client@2.0.0
+git tag -a v2.1.0 -m "http-client v2.1.0"
+git push origin v2.1.0
 ```
 
-### **pleno.toml Format**
-
-```json
-{
-  "name": "my-package",
-  "version": "1.0.0",
-  "description": "A sample Pleno package",
-  "author": "Your Name <you@example.com>",
-  "license": "MIT",
-  "repository": "https://github.com/yourusername/my-package",
-  "keywords": ["http", "client", "api"],
-  "dependencies": {
-    "json-parser": "^1.5.0"
-  },
-  "devDependencies": {
-    "test-framework": "^3.0.0"
-  },
-  "main": "src/index.pln",
-  "scripts": {
-    "test": "pleno test",
-    "build": "pleno build"
-  }
-}
-```
+Packages are found through the GitHub topic `pleno-package`. See the [package manager reference](/specs/package-manager).
 
 ---
 
@@ -460,7 +420,6 @@ https://pleno-lang.org/
 │   ├── /guide         # Getting started
 │   ├── /specs         # Language specification
 │   └── /api           # API docs
-├── /packages          # Package registry
 ├── /playground        # Online REPL
 ├── /blog              # News & updates
 └── /community         # Forums, Discord, etc.
@@ -565,14 +524,14 @@ pleno install nightly     # Bleeding edge
 5. Homebrew (macOS)
 6. Docker images
 7. VS Code extension
-8. PLM package registry (basic)
+8. PLM packages from Git repositories
 
 ### **Phase 3: Broader Adoption (Month 7-12)**
 9. Debian/Ubuntu packages
 10. Chocolatey (Windows)
 11. Snap/Flatpak
 12. AUR (Arch Linux)
-13. Full PLM registry with search
+13. Optional package index (a plain Git repository)
 
 ### **Phase 4: Ecosystem Growth (Year 2+)**
 14. All major package managers
@@ -631,7 +590,7 @@ git push origin main --tags
 3. Chocolatey (Windows)
 4. Docker Hub
 5. VS Code extension
-6. PLM package registry
+6. PLM packages from Git repositories
 7. Comprehensive documentation
 
 ### **Post v1.0.0**

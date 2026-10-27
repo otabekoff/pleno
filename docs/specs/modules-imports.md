@@ -123,18 +123,18 @@ version = "0.1.0"
 main = "src/main.pln"
 
 [dependencies]
-greet = { path = "../greet" }
-http-utils = { git = "https://github.com/user/http-utils", tag = "v1.2.0" }
+greet = { git = "https://github.com/ada/greet", version = "^1.2" }
+local = { path = "../local" }
 ```
 
-`plm install` puts dependencies into `packages/`. Import them by name:
+A package is a Git repository and a version is a tag `vX.Y.Z`; there is no central registry. `plm add` and `plm install` put dependencies into `packages/`. Import them by name:
 
 ```pleno norun
 import { hello } from "greet";
 print(hello("Ada"));
 ```
 
-There is no public package registry yet. See [Packages](/guide/packages).
+See [Packages](/guide/packages) and the [package manager reference](/specs/package-manager).
 
 ## Standard Library Imports
 

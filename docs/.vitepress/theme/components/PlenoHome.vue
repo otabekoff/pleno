@@ -115,7 +115,7 @@ const status = [
   {
     label: 'After 1.0',
     tone: 'later',
-    items: ['A JIT compiler', 'A generational garbage collector', 'A public package registry', 'A self-hosted compiler'],
+    items: ['A JIT compiler', 'A generational garbage collector', 'A self-hosted compiler'],
   },
 ]
 </script>

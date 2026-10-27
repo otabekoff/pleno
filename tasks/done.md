@@ -3,6 +3,7 @@
 What was finished, newest first. Open work is in `v1.md`, `distribution.md` and `later.md`.
 
 ## 2026-10-27
+- [x] Package registry decision: no central registry. Packages are Git repositories and versions are tags `vX.Y.Z`; `plm add`, `install`, `update`, `remove`, `tree` and `publish` work over Git, with `pleno.lock` recording each commit and a SHA-256 checksum, a shared cache and `--offline`. `crates/pleno-registry` and `PLENO_REGISTRY` are gone; the protocol is in `docs/specs/package-manager.md`
 - [x] Memory after a run (#60): dropping a VM frees every value it allocated, reference cycles included (#147), also cycles stored on the `Error` class (#149). Fuzzing runs with leak detection again (#155).
 - [x] `==` compares arrays, tuples, maps and sets by contents, as `assert.equal` already did (#159)
 - [x] Release 0.3.0: six targets, `.deb`, `.vsix` and Docker image, signed with cosign; the Homebrew tap updates itself; Scoop bucket at 0.3.0; package manifests in `packaging/` point at 0.3.0 (#146, #151)

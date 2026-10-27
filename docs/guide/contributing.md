@@ -134,7 +134,7 @@ cargo run --bin pleno-cli -- plm run dev
 # Build package
 cargo run --bin pleno-cli -- plm build
 
-# Publish package
+# Check the package and print the tag commands that publish it
 cargo run --bin pleno-cli -- plm publish
 ```
 

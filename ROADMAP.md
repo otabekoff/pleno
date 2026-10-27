@@ -39,8 +39,6 @@ Status as of 2026-10-27. The latest release is [0.3.0](https://github.com/otabek
 - [ ] **Web framework**: middleware, static files and cookies for `std:http`, so `Router` and
   `Server` can become stable.
 - [ ] **`with` statement** for resources that close themselves.
-- [ ] **Packages**: decide between a hosted registry and Git-based dependencies for 1.0, and
-  document the protocol.
 - [ ] **Error suggestions** in the places not covered yet (enclosing functions' locals, other
   modules' exports, type names).
 - [ ] **Formatter**: comments inside an index or an import list stay in place.

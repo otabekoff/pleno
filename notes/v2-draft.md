@@ -118,7 +118,7 @@ Status: `std:security` is experimental. Planned: a time limit. (Path rules norma
 - `pleno check` on a folder.
 - `pleno doc --serve`.
 - Workspaces in `pleno.toml` (`[workspace] members = [...]`).
-- A public package registry or a documented Git-only answer (`crates/pleno-registry` exists, none is deployed).
+- Packages are Git repositories with tags (decided for 1.0; see `docs/specs/package-manager.md`). Later, optionally: a package index as a plain Git repository.
 - `plm test --fuzz` and property-based testing.
 - Language server: workspace symbol search, compile errors and undefined names while typing.
 
