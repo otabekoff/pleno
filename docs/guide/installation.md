@@ -48,8 +48,11 @@ The script downloads the latest release from GitHub into `~/.pleno/bin` (Windows
    | Windows (x64) | `pleno-vX.Y.Z-x86_64-pc-windows-msvc.zip` |
    | Linux (x64) | `pleno-vX.Y.Z-x86_64-unknown-linux-gnu.tar.gz` |
    | Linux (ARM64) | `pleno-vX.Y.Z-aarch64-unknown-linux-gnu.tar.gz` |
+   | Linux (x86, 32-bit) | `pleno-vX.Y.Z-i686-unknown-linux-gnu.tar.gz` |
    | macOS (Intel) | `pleno-vX.Y.Z-x86_64-apple-darwin.tar.gz` |
    | macOS (Apple silicon) | `pleno-vX.Y.Z-aarch64-apple-darwin.tar.gz` |
+
+   The Linux programs need glibc 2.17 or newer, so they run on any distribution from 2014 on (CentOS 7, Ubuntu 14.04, Debian 8 and later). They do not run on musl distributions such as Alpine.
 
 2. Check it against the `.sha256` file next to it.
 3. Extract it and put the programs in a folder on your `PATH`.
