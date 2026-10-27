@@ -80,7 +80,7 @@ These names are handled by the compiler instead of being called:
 | Annotation     | Effect                                                                                                 |
 | -------------- | ------------------------------------------------------------------------------------------------------ |
 | `@pure`        | Checks some side effects at runtime; experimental, see [Pure functions](./functional-programming.md) |
-| `@inline`      | Lets the optimizer inline calls to the function; its return annotation is not checked                  |
+| `@inline`      | Lets the optimizer inline calls to the function; its annotations are checked as in a call              |
 | `@no_optimize` | Keeps the optimizer (constant folding, dead code removal) away from the function                      |
 | `@hot`         | Recorded on the function; no effect                                                                   |
 | `@deprecated`  | Warns when the function or method is used; see below                                                   |

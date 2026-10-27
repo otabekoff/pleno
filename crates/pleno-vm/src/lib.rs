@@ -126,6 +126,9 @@ pub struct Function {
     pub type_params: Vec<pleno_value::GenericParamMetadata>,
     pub type_constraints: IndexMap<String, Vec<String>>,
     pub annotations: Vec<pleno_value::RuntimeAnnotation>,
+    /// Type parameters of an enclosing function or class that this closure
+    /// mentions, with the capture that holds each one's binding.
+    pub captured_type_params: Vec<(String, u8)>,
     /// The argument counts a call can pass straight into the parameters
     /// (see `plain_params`), worked out once from `params` and `arity`.
     plain_args: (usize, usize),
@@ -987,6 +990,7 @@ impl VM {
             annotations: Vec::new(),
             plain_args: (0, 0),
             deprecation: None,
+            captured_type_params: Vec::new(),
         };
 
         self.functions.push(function);
@@ -2105,6 +2109,7 @@ impl VM {
                         annotations: proto.annotations.clone(),
                         plain_args: plain_arg_range(&proto.params, proto.arity as usize),
                         deprecation: deprecation_note(&proto.annotations),
+                        captured_type_params: proto.captured_type_params.clone(),
                     });
                     let captures = vec![Value::Null; c];
                     let state = self.gc.allocate(ClosureState::new(func_index, captures))?;
@@ -2132,6 +2137,7 @@ impl VM {
                         annotations: proto.annotations.clone(),
                         plain_args: plain_arg_range(&proto.params, proto.arity as usize),
                         deprecation: deprecation_note(&proto.annotations),
+                        captured_type_params: proto.captured_type_params.clone(),
                     });
                     self.registers[base + a] = NanValue::from_value(&Value::Function(func_index));
                 }
@@ -2157,6 +2163,7 @@ impl VM {
                         annotations: proto.annotations.clone(),
                         plain_args: plain_arg_range(&proto.params, proto.arity as usize),
                         deprecation: deprecation_note(&proto.annotations),
+                        captured_type_params: proto.captured_type_params.clone(),
                     });
                     self.registers[base + a] = NanValue::from_value(&Value::Function(func_index));
                 }
@@ -2469,7 +2476,7 @@ impl VM {
                                 let ty_name = class.borrow().field_types.get(&name).cloned();
                                 if let Some(Some(ty_name)) = ty_name {
                                     let ty_val = Value::String(Rc::new(ty_name));
-                                    if !self.is_instance(&value, &ty_val) {
+                                    if !self.field_value_fits(&object, &class, &ty_val, &value) {
                                         let actual_type_name = value.type_name();
                                         let msg = format!(
                                             "TypeError: field '{}' expected {}, got {}",
@@ -2860,7 +2867,12 @@ impl VM {
                                 let ty_name = class.borrow().field_types.get(&name).cloned();
                                 if let Some(Some(ty_name)) = ty_name {
                                     let ty_val = Value::String(Rc::new(ty_name));
-                                    if !self.is_instance(&value.to_value(), &ty_val) {
+                                    if !self.field_value_fits(
+                                        &object,
+                                        class,
+                                        &ty_val,
+                                        &value.to_value(),
+                                    ) {
                                         let actual_type_name = value.type_name();
                                         let msg = format!(
                                             "TypeError: field '{}' expected {}, got {}",
@@ -3963,7 +3975,9 @@ impl VM {
                     };
                     // The cache indexes the shared globals, so it serves only code
                     // outside modules: a module's own top-level names come first.
-                    if function.module_path.is_none() {
+                    // A type parameter (`c >= 2`) comes before any global of
+                    // the same name, so it skips the cache.
+                    if c < 2 && function.module_path.is_none() {
                         let func_index = frame.function_index;
                         let cached = self
                             .global_slots
@@ -4004,13 +4018,19 @@ impl VM {
                         }
                     }
                     let name = Rc::clone(name);
-                    let mut value = lookup_global_in(
-                        &self.globals,
-                        &self.module_globals,
-                        &self.program_globals,
-                        function.module_path.as_deref(),
-                        &name,
-                    );
+                    // `c = 2` and `c = 3`: the compiler looks up a type parameter in
+                    // scope; it comes before a global of the same name.
+                    let mut value = if c >= 2 {
+                        None
+                    } else {
+                        lookup_global_in(
+                            &self.globals,
+                            &self.module_globals,
+                            &self.program_globals,
+                            function.module_path.as_deref(),
+                            &name,
+                        )
+                    };
 
                     // An unspecialized type parameter (e.g. `T` in `Box(3)`) accepts any type.
                     let mut is_type_param = false;
@@ -4057,12 +4077,40 @@ impl VM {
                         }
                     }
 
+                    // A type parameter of an enclosing function or class, which a
+                    // closure captured where it was created.
+                    if value.is_none()
+                        && !is_type_param
+                        && let Some(&(_, idx)) = function
+                            .captured_type_params
+                            .iter()
+                            .find(|(param, _)| param.as_str() == name.as_str())
+                    {
+                        is_type_param = true;
+                        value = frame
+                            .closure_state
+                            .as_ref()
+                            .and_then(|state| state.borrow().captures.get(idx as usize).cloned());
+                    }
+                    if value.is_none() && !is_type_param && c >= 2 {
+                        value = lookup_global_in(
+                            &self.globals,
+                            &self.module_globals,
+                            &self.program_globals,
+                            function.module_path.as_deref(),
+                            &name,
+                        );
+                    }
+
                     // `c = 1` marks a name read by the program, which must exist;
                     // the compiler's own type lookups use `c = 0` and get null.
                     // An inferred type parameter with constraints (`T: Named`,
-                    // `T: A & B`) stands for them, so `greet(Rock())` is checked too.
+                    // `T: A & B`) stands for them, so `greet(Rock())` is checked too;
+                    // as a type argument (`c = 3`, the `T` of `Box<T>`) it accepts any
+                    // type, since `Box<Named>` would not match a `Box<Rock>`.
                     if value.is_none()
                         && is_type_param
+                        && c != 3
                         && let Some(constraints) = function.type_constraints.get(name.as_str())
                     {
                         value = match constraints.as_slice() {
@@ -4073,7 +4121,7 @@ impl VM {
                     }
                     let value = match value {
                         Some(value) => value,
-                        None if is_type_param => Value::String(Rc::new("Any".to_string())),
+                        None if is_type_param => any_type(),
                         None if c == 1 => {
                             let hint = self.suggest_variable(&name, ip);
                             return Err(self.throw_runtime_error(&format!(
@@ -5546,8 +5594,23 @@ impl VM {
                     return Some(frame.type_args[i].clone());
                 }
                 // Declared but not specialized: any type is accepted.
-                return Some(Value::String(Rc::new("Any".to_string())));
+                return Some(any_type());
             }
+        }
+
+        // A type parameter captured by a closure where it was created.
+        if let Some(&(_, idx)) = function
+            .captured_type_params
+            .iter()
+            .find(|(param, _)| param == name)
+        {
+            return Some(
+                frame
+                    .closure_state
+                    .as_ref()
+                    .and_then(|state| state.borrow().captures.get(idx as usize).cloned())
+                    .unwrap_or_else(any_type),
+            );
         }
 
         // Check class type parameters
@@ -5569,7 +5632,7 @@ impl VM {
                     if function.type_params.is_empty() && i < frame.type_args.len() {
                         return Some(frame.type_args[i].clone());
                     }
-                    return Some(Value::String(Rc::new("Any".to_string())));
+                    return Some(any_type());
                 }
             }
         }
@@ -5592,6 +5655,7 @@ impl VM {
                 }
                 _ => false,
             },
+            Value::String(s) if s.as_str() == "Any" => true,
             Value::String(s) => {
                 let s = s.as_str().trim();
                 if s.starts_with('{') && s.ends_with('}') {
@@ -5716,10 +5780,14 @@ impl VM {
                         if !found {
                             return false;
                         }
-                        if let Some(instance_args) = &borrowed.type_args {
-                            self.type_args_compatible(target_class, instance_args, target_args)
-                        } else {
-                            false
+                        // An instance made without type arguments (`Box(1)`)
+                        // has them inferred: what its fields hold is all
+                        // that is known.
+                        match &borrowed.type_args {
+                            Some(instance_args) => {
+                                self.type_args_compatible(target_class, instance_args, target_args)
+                            }
+                            None => self.fields_fit_type_args(&borrowed, target_class, target_args),
                         }
                     } else {
                         false
@@ -5784,6 +5852,90 @@ impl VM {
         }
     }
 
+    /// Whether `value` may be stored in a field of `object` annotated `ty`.
+    /// A field annotated with a type parameter of the class (`value: T`,
+    /// `items: T[]`) is checked against the instance's type arguments; an
+    /// instance made without them (`Box(1)`) has them inferred, so any value
+    /// fits. Other annotations are checked as written.
+    fn field_value_fits(
+        &self,
+        object: &pleno_value::gc::GcRc<Object>,
+        class: &pleno_value::gc::GcRc<Class>,
+        ty: &Value,
+        value: &Value,
+    ) -> bool {
+        let Value::String(text) = ty else {
+            return self.is_instance(value, ty);
+        };
+        let mut params = Vec::new();
+        let mut current = Some(class.clone());
+        while let Some(cls) = current {
+            params.extend(cls.borrow().type_params.iter().map(|p| p.name.clone()));
+            current = cls.borrow().superclass.clone();
+        }
+        if !mentions_word(text, &params) {
+            return self.is_instance(value, ty);
+        }
+        let own: Vec<String> = class
+            .borrow()
+            .type_params
+            .iter()
+            .map(|p| p.name.clone())
+            .collect();
+        let object = object.borrow();
+        let Some(args) = object
+            .type_args
+            .as_ref()
+            .filter(|args| args.len() == own.len())
+        else {
+            return true;
+        };
+        if let Some(i) = own.iter().position(|p| p == text.as_str()) {
+            return self.is_instance(value, &args[i]);
+        }
+        // Inherited parameters, or arguments that have no name, are unknown.
+        let names: Option<Vec<String>> = args.iter().map(type_arg_name).collect();
+        let Some(names) = names else {
+            return true;
+        };
+        let inherited: Vec<String> = params
+            .iter()
+            .filter(|p| !own.contains(p))
+            .cloned()
+            .collect();
+        if mentions_word(text, &inherited) {
+            return true;
+        }
+        let substituted = substitute_words(text, &own, &names);
+        self.is_instance(value, &Value::String(Rc::new(substituted)))
+    }
+
+    /// Whether `object`, made without type arguments, could be an instance
+    /// of `class` with `args`: each field annotated with one of the class's
+    /// type parameters holds `null` or a value of the matching argument.
+    fn fields_fit_type_args(
+        &self,
+        object: &Object,
+        class: &pleno_value::gc::GcRc<Class>,
+        args: &[Value],
+    ) -> bool {
+        let class = class.borrow();
+        class.field_types.iter().all(|(field, ty)| {
+            let Some(i) = ty
+                .as_deref()
+                .and_then(|ty| class.type_params.iter().position(|p| p.name == ty))
+            else {
+                return true;
+            };
+            match (object.fields.get(field), args.get(i)) {
+                (Some(value), Some(arg)) if !matches!(value, Value::Null) => {
+                    self.is_instance(value, arg)
+                }
+                _ => true,
+            }
+        })
+    }
+
     #[allow(clippy::cognitive_complexity, clippy::single_match)]
     /// Whether `actual` type arguments satisfy `expected` ones for `class`,
     /// honoring each parameter's variance: `out T` accepts subtypes, `in T`
@@ -5837,6 +5989,10 @@ impl VM {
             return false;
         }
         actual.iter().zip(expected).enumerate().all(|(i, (a, e))| {
+            // `Any`, also an inferred type parameter, matches every type.
+            if is_any_type(a) || is_any_type(e) {
+                return true;
+            }
             let variance = params
                 .get(i)
                 .map(|p| p.variance)
@@ -5852,7 +6008,9 @@ impl VM {
     }
 
     fn check_type_compatible(&self, val_type: &Value, target_type: &Value) -> bool {
-        if val_type == target_type {
+        // `Any`, also what an inferred type parameter is bound to, fits every
+        // type (and every constraint).
+        if val_type == target_type || is_any_type(val_type) {
             return true;
         }
 
@@ -7421,6 +7579,7 @@ impl VM {
             annotations: Vec::new(),
             plain_args: (0, 0),
             deprecation: None,
+            captured_type_params: Vec::new(),
         };
         let func_index = self.functions.len();
         self.functions.push(function);
@@ -8047,4 +8206,67 @@ fn split_top_level(text: &str, sep: char) -> Option<Vec<String>> {
     }
     parts.push(current.trim().to_string());
     Some(parts)
+}
+
+thread_local! {
+    static ANY_TYPE: Value = Value::String(Rc::new("Any".to_string()));
+}
+
+/// `Any` as a type value, which an unbound type parameter stands for; shared,
+/// so a check against it allocates nothing.
+fn any_type() -> Value {
+    ANY_TYPE.with(Value::clone)
+}
+
+/// Whether a type argument is `Any`, which an inferred type parameter is bound to.
+fn is_any_type(ty: &Value) -> bool {
+    matches!(ty, Value::String(name) if name.as_str() == "Any")
+}
+
+/// The name of a type argument as an annotation would write it, or `None`
+/// when it has none (a specialized class, a function type).
+fn type_arg_name(arg: &Value) -> Option<String> {
+    match arg {
+        Value::String(name) => Some(name.to_string()),
+        Value::Class(class) => Some(class.borrow().name.to_string()),
+        Value::Interface(interface) => Some(interface.borrow().name.to_string()),
+        Value::Enum(enum_type) => Some(enum_type.borrow().name.to_string()),
+        // `Int`, `Float` and the other built-in types.
+        Value::Map(map) => match map.borrow().entries.get("__native_type") {
+            Some(Value::String(name)) => Some(name.to_string()),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+/// Whether the annotation `ty` mentions one of `names` as a whole word.
+fn mentions_word(ty: &str, names: &[String]) -> bool {
+    !names.is_empty()
+        && ty
+            .split(|c: char| !(c.is_alphanumeric() || c == '_'))
+            .any(|word| names.iter().any(|name| name == word))
+}
+
+/// `ty` with each whole word found in `names` replaced by the matching entry of `values`.
+fn substitute_words(ty: &str, names: &[String], values: &[String]) -> String {
+    let mut out = String::new();
+    let mut word = String::new();
+    let flush = |word: &mut String, out: &mut String| {
+        match names.iter().position(|name| name == word) {
+            Some(i) => out.push_str(&values[i]),
+            None => out.push_str(word),
+        }
+        word.clear();
+    };
+    for ch in ty.chars() {
+        if ch.is_alphanumeric() || ch == '_' {
+            word.push(ch);
+        } else {
+            flush(&mut word, &mut out);
+            out.push(ch);
+        }
+    }
+    flush(&mut word, &mut out);
+    out
 }

@@ -312,6 +312,12 @@ pub struct FunctionProto {
     pub type_constraints: indexmap::IndexMap<String, Vec<String>>,
     #[serde(default)]
     pub annotations: Vec<pleno_value::RuntimeAnnotation>,
+    /// Type parameters of an enclosing function or class that a closure's
+    /// annotations mention, each with the index of the capture holding its
+    /// binding where the closure was created (see `captured_type_params` on
+    /// the VM's `Function`).
+    #[serde(default)]
+    pub captured_type_params: Vec<(String, u8)>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
