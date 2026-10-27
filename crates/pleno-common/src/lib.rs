@@ -1,4 +1,5 @@
 pub mod logging;
+pub mod paths;
 pub mod style;
 
 use serde::{Deserialize, Serialize};

@@ -12,7 +12,7 @@ main();
 
 ## Web Server
 
-The server keeps running until you stop it. `Router` and `Server` are experimental; see [std:http](/stdlib/http).
+The server keeps running until you stop it. Middleware, static files and cookies are described in [std:http](/stdlib/http); `examples/web_app/app.pln` uses all three.
 
 ```pleno norun
 import { Server, Router } from "std:http";

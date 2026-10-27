@@ -19,7 +19,7 @@ Behavior a page calls unspecified (for example the order of `Directory.list`) is
 | [`std:os`](os.md)                       | stable       |                                                                                                                                              |
 | [`std:process`](process.md)             | stable       |                                                                                                                                              |
 | [`std:dotenv`](dotenv.md)               | stable       |                                                                                                                                              |
-| [`std:http`](http.md)                   | stable       | The client (`get`, `post`, `request`, ...) is stable. `Router` and `Server` are experimental: middleware, static files and cookies are still to come and may change `req` and `res`. |
+| [`std:http`](http.md)                   | stable       | The client (`get`, `post`, `request`, ...) and the server: `Router` with routes, middleware (`use`), static files and cookies, and `Server`. |
 | [`std:net`](net.md)                     | stable       | TCP sockets with `async`/`await`. Text only (UTF-8) until Pleno has a bytes type.                                                           |
 | [`std:url`](url.md)                     | stable       |                                                                                                                                              |
 | [`std:json`](json.md)                   | stable       |                                                                                                                                             |
