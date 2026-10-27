@@ -633,6 +633,9 @@ pub enum ArrayOpKind {
 pub struct StackFrame {
     pub function_name: String,
     pub span: Option<pleno_common::Span>,
+    /// The module file the function is in; `None` for the main program.
+    #[serde(default)]
+    pub file: Option<String>,
 }
 
 impl StackFrame {
@@ -641,6 +644,7 @@ impl StackFrame {
         Self {
             function_name: format!("... {count} more frames"),
             span: None,
+            file: None,
         }
     }
 
@@ -674,6 +678,10 @@ pub struct RuntimeError {
     /// process with the code).
     #[serde(default)]
     pub exit_code: Option<i32>,
+    /// The module file `span` is in; `None` for the main program, whose
+    /// source the host already has.
+    #[serde(default)]
+    pub file: Option<String>,
 }
 
 impl RuntimeError {
@@ -685,6 +693,7 @@ impl RuntimeError {
             handled: false,
             fatal: false,
             exit_code: None,
+            file: None,
         }
     }
 
@@ -696,6 +705,7 @@ impl RuntimeError {
             handled: true,
             fatal: false,
             exit_code: None,
+            file: None,
         }
     }
 
