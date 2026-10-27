@@ -4,6 +4,10 @@ Notable changes to Pleno. The format follows [Keep a Changelog](https://keepacha
 
 ## Unreleased
 
+## 0.4.0 - 2026-10-27
+
+Upgrading from 0.3: `with` is now a keyword, `exit()` throws `SystemExit`, the HTTP server listens on `127.0.0.1` by default, and the changes in bold under "Changed" alter what existing programs print or accept. Compiled `.plc` files must be compiled again (bytecode format 7).
+
 ### Added
 
 - Middleware for the HTTP server: `router.use(fn(req, res, next) { ... })` and `router.use("/api", ...)` run before the route, in the order they were registered. `next()` runs the rest of the chain and returns its promise, so an `async fn` middleware can `await next()` and change the response afterwards; errors from the rest of the chain come out of `next()`; `next(err)` fails the request. A middleware that returns without calling `next()` or sending a response gets a 500 and a message on stderr naming it, instead of a hanging client.
@@ -55,6 +59,7 @@ The changes below were made in the 1.0 review of the reference, because the comp
 
 ### Fixed
 
+- The Linux release programs needed glibc 2.39, the version on the build machine, so they failed with `version 'GLIBC_2.39' not found` on Ubuntu 22.04, Debian 12, RHEL 9 and older. They are now built against glibc 2.17, and CI checks this and runs `pleno` on CentOS 7.
 - The instruction limit (`--max-instructions`, the playground and other sandboxes) could fail to stop a loop. It was checked only when the instruction count was a multiple of 100, and loops of fused instructions add two or three at a time, so `let mut i = 0; while (i < 2) { }` could step past every check and run forever. The limit is now checked against a threshold, and so is the collector's check of the string and big-integer tables. Found by fuzzing.
 - `super(...)` crashed the VM (`internal error: entered unreachable code: expected function`) when the parent's constructor used a variable from outside its class, such as a top-level `let`. Found by fuzzing.
 - A class declared in a function could not extend another class declared in the same function (`superclass must be class`), because the superclass was looked up only among globals.

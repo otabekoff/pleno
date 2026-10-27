@@ -9,8 +9,8 @@ that series; update to it rather than expecting a patch for an older one.
 
 | Version | Supported       |
 | ------- | --------------- |
-| 0.3.x   | ✅ Yes (Active) |
-| < 0.3.0 | ❌ No           |
+| 0.4.x   | ✅ Yes (Active) |
+| < 0.4.0 | ❌ No           |
 
 ## 📝 Reporting a Vulnerability
 

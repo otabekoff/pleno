@@ -12,7 +12,7 @@ const plenoGrammar = JSON.parse(
 const BASE = '/'
 
 // Pleno's version, read from the workspace's Cargo.toml so the site never shows a stale one:
-// `v0.3` in the nav, `0.3.0` for the home page (through themeConfig.plenoVersion).
+// `v0.4` in the nav, `0.4.0` for the home page (through themeConfig.plenoVersion).
 const PLENO_VERSION =
   fs
     .readFileSync(path.resolve(__dirname, '../../Cargo.toml'), 'utf-8')
@@ -26,7 +26,7 @@ const PLAY_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4.5v1
 
 // Hides the announcement bar before the first paint when it was dismissed
 // (see theme/components/AnnouncementBar.vue), so the layout does not jump.
-const BANNER_SCRIPT = `try{if(localStorage.getItem('pleno-announcement-0.3.0')==='dismissed')document.documentElement.classList.add('pl-banner-dismissed')}catch(e){}`
+const BANNER_SCRIPT = `try{if(localStorage.getItem('pleno-announcement-0.4.0')==='dismissed')document.documentElement.classList.add('pl-banner-dismissed')}catch(e){}`
 
 // Pleno code blocks get a "Run" link to the playground carrying their source.
 // ```pleno norun marks a fragment that cannot run by itself (see

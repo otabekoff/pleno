@@ -5,6 +5,8 @@ All notable changes to the Pleno extension for VS Code. The format follows
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-10-27
+
 ### Added
 
 - Highlighting of the `with` keyword and a `with` snippet.
