@@ -75,10 +75,47 @@ fn router_rejects_bad_registrations() {
 /// the port once it accepts connections. `setup` is Pleno code that registers
 /// handlers on `router`. The thread runs until the test exits.
 fn serve_with(setup: String, config: Option<SandboxConfig>) -> u16 {
-    let port = std::net::TcpListener::bind("127.0.0.1:0")
-        .and_then(|l| l.local_addr())
-        .expect("free port")
-        .port();
+    start_server(
+        &format!(
+            "let router = Router();
+{setup}
+let server = Server(router);"
+        ),
+        "",
+        config,
+    )
+}
+
+std::thread_local! {
+    /// Where the server thread's `reportPort` sends the port it listens on.
+    static PORT_REPORT: std::cell::RefCell<Option<std::sync::mpsc::Sender<u16>>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+fn report_port(
+    _vm: &mut dyn pleno_value::VMProvider,
+    args: &[Value],
+) -> Result<Value, pleno_value::RuntimeError> {
+    if let Some(Value::Int(port)) = args.first() {
+        PORT_REPORT.with(|tx| {
+            if let Some(tx) = tx.borrow().as_ref() {
+                let _ = tx.send(*port as u16);
+            }
+        });
+    }
+    Ok(Value::Null)
+}
+
+/// Runs `setup` (Pleno code that ends with a `server` variable) in a thread
+/// of its own and starts `server` on a port the OS picks (`listen(0)`), with
+/// `listen_args` after the port. Returns the port once the server listens.
+/// Choosing a free port here and handing it to the server raced with the
+/// other tests, which run in parallel: two servers could get the same port,
+/// and a test then talked to another test's server.
+fn start_server(setup: &str, listen_args: &str, config: Option<SandboxConfig>) -> u16 {
+    let (tx, rx) = std::sync::mpsc::channel();
+    let setup = setup.to_string();
+    let listen_args = listen_args.to_string();
     std::thread::spawn(move || {
         let source = format!(
             r#"
@@ -86,18 +123,26 @@ fn serve_with(setup: String, config: Option<SandboxConfig>) -> u16 {
             import {{ JSON }} from "std:json";
             import {{ sleep }} from "std:time";
             import {{ collect }} from "std:gc";
-            let router = Router();
             {setup}
-            Server(router).listen({port});
+            server.listen(0{listen_args}, fn() {{ reportPort(server.port); }});
             "#
         );
+        PORT_REPORT.with(|slot| *slot.borrow_mut() = Some(tx));
         let mut vm = VM::new();
         pleno_stdlib::register(&mut vm);
+        pleno_value::VMProvider::register_global(
+            &mut vm,
+            "reportPort".to_string(),
+            Value::NativeFunction(report_port),
+        );
         if let Some(config) = config {
             vm.apply_config(config);
         }
         vm.execute(compile(&source)).expect("server failed");
     });
+    let port = rx
+        .recv_timeout(std::time::Duration::from_secs(30))
+        .expect("the server did not start");
     for _ in 0..200 {
         if std::net::TcpStream::connect(("127.0.0.1", port)).is_ok() {
             return port;
@@ -840,32 +885,13 @@ fn a_server_listens_on_this_machine_only_unless_asked() {
     // `listen(port)` binds 127.0.0.1, so tests and examples are not exposed to
     // the network (and Windows asks no firewall question); `host:` chooses.
     for (host_arg, expected) in [("", "127.0.0.1"), (", host: \"localhost\"", "localhost")] {
-        let port = std::net::TcpListener::bind("127.0.0.1:0")
-            .and_then(|l| l.local_addr())
-            .expect("free port")
-            .port();
-        let source = format!(
-            "import {{ Router, Server }} from \"std:http\";
-             let r = Router();
-             let s = Server(r);
-             r.get(\"/host\", fn(req, res) => s.host);
-             s.listen({port}{host_arg});"
+        let port = start_server(
+            "let r = Router();
+let server = Server(r);
+r.get(\"/host\", fn(req, res) => server.host);",
+            host_arg,
+            None,
         );
-        std::thread::spawn(move || {
-            let mut vm = VM::new();
-            pleno_stdlib::register(&mut vm);
-            vm.output = Some(String::new());
-            let _ = vm.execute(compile(&source));
-        });
-        let mut ready = false;
-        for _ in 0..200 {
-            if std::net::TcpStream::connect(("127.0.0.1", port)).is_ok() {
-                ready = true;
-                break;
-            }
-            std::thread::sleep(std::time::Duration::from_millis(25));
-        }
-        assert!(ready, "the server never accepted connections on 127.0.0.1");
         assert_eq!(body(&get(port, "/host")), expected);
     }
 }
