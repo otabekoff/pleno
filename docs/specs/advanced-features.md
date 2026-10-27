@@ -101,7 +101,7 @@ print(v1 == v2);           // false
 print(v1[0]);              // 1
 ```
 
-Each operator is overloaded on its own, with one exception: without an `operator !=`, `a != b` is `!(a == b)`, so defining `operator ==` is enough for both. A class can still define `operator !=` itself.
+Each operator is overloaded on its own, with one exception: without an `operator !=`, `a != b` is `!(a == b)`, so defining `operator ==` is enough for both. A class can still define `operator !=` itself. `operator ==` also decides when instances are compared inside arrays, tuples and maps (`[v1] == [v2]`); a class without it compares by identity.
 
 ## Extension Methods
 

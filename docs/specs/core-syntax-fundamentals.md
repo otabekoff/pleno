@@ -79,6 +79,16 @@ print(5.5 != 5);              // true
 print(Set([5, 5.0]).size());  // 1
 ```
 
+Arrays, tuples, maps and sets compare by contents. Arrays and tuples are equal when they have the same elements in the same order (a named tuple's names must match too), maps when they have the same keys with equal values in any order, and sets when they have the same elements. Nested values compare the same way, and values that contain themselves compare without looping. Class instances are equal only to themselves, unless their class defines `operator ==` (see [Operator overloading](./advanced-features.md)), which is also used for instances inside arrays, tuples and maps. `contains` and `indexOf` use the same rules.
+
+```pleno
+print([1, [2, 3]] == [1, [2, 3]]);       // true
+print({"a": 1, "b": 2} == {"b": 2, "a": 1}); // true
+print((1, "x") == (1, "x"));             // true
+print([1, 2] == [2, 1]);                 // false
+print([[1]].contains([1]));              // true
+```
+
 #### Type Annotations
 ```pleno
 let age: Int = 25;

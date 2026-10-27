@@ -1833,15 +1833,138 @@ pub fn int_equals_float(int: i64, float: f64) -> bool {
     float.fract() == 0.0 && (-LIMIT..LIMIT).contains(&float) && float as i64 == int
 }
 
-/// `==` as programs see it: like `Value`'s `PartialEq`, except that an Int and
-/// a Float are equal when they are the same number (`5 == 5.0`).
+/// Decides `==` for two different objects (see `values_equal_by`): `Some`
+/// with a class's `operator ==` result, `None` to compare them by identity.
+pub type ObjectEquality<'a> = dyn FnMut(&Value, &Value) -> Result<Option<bool>, RuntimeError> + 'a;
+
+/// `==` as programs see it, for values without a class `operator ==` (see
+/// `values_equal_by`).
 pub fn values_equal(a: &Value, b: &Value) -> bool {
-    match (a, b) {
-        (Value::Int(int), Value::Float(float)) | (Value::Float(float), Value::Int(int)) => {
-            int_equals_float(*int, *float)
-        }
-        _ => a == b,
+    values_equal_by(a, b, &mut |_, _| Ok(None)).unwrap_or(false)
+}
+
+/// `==` as programs see it. Numbers compare by value across Int and Float
+/// (`5 == 5.0`). Arrays, tuples, maps and sets compare by contents: arrays
+/// and tuples element by element (a named tuple's names too), maps by their
+/// keys and values in any order, sets by their elements. Other values,
+/// class instances among them, are equal when they are the same value.
+///
+/// `objects` is asked first about two different objects, inside containers
+/// too, and returns `Some` when a class's `operator ==` decides. The walk
+/// uses a worklist, so deep nesting cannot overflow the stack, and treats a
+/// pair of containers it is already comparing as equal, so values that
+/// contain themselves compare without looping.
+pub fn values_equal_by(
+    a: &Value,
+    b: &Value,
+    objects: &mut ObjectEquality<'_>,
+) -> Result<bool, RuntimeError> {
+    // Most comparisons are of two plain values: no worklist for those.
+    let containers = matches!(
+        (a, b),
+        (Value::Array(_), Value::Array(_))
+            | (Value::Tuple(_), Value::Tuple(_))
+            | (Value::Map(_), Value::Map(_))
+    );
+    if !containers {
+        return match (a, b) {
+            (Value::Int(int), Value::Float(float)) | (Value::Float(float), Value::Int(int)) => {
+                Ok(int_equals_float(*int, *float))
+            }
+            (Value::Set(x), Value::Set(y)) => {
+                let x = x.borrow();
+                let y = y.borrow();
+                Ok(x.elements.len() == y.elements.len()
+                    && x.elements.iter().all(|key| y.elements.contains(key)))
+            }
+            (Value::Object(x), Value::Object(y)) if x.as_ptr() != y.as_ptr() => {
+                Ok(objects(a, b)?.unwrap_or(false))
+            }
+            _ => Ok(a == b),
+        };
     }
+    let mut pending = vec![(a.clone(), b.clone())];
+    let mut seen = std::collections::HashSet::new();
+    while let Some((a, b)) = pending.pop() {
+        let pair = match (&a, &b) {
+            (Value::Array(x), Value::Array(y)) => Some((x.as_ptr() as usize, y.as_ptr() as usize)),
+            (Value::Tuple(x), Value::Tuple(y)) => Some((x.as_ptr() as usize, y.as_ptr() as usize)),
+            (Value::Map(x), Value::Map(y)) => Some((x.as_ptr() as usize, y.as_ptr() as usize)),
+            _ => None,
+        };
+        if let Some((x, y)) = pair
+            && (x == y || !seen.insert((x, y)))
+        {
+            continue;
+        }
+        match (&a, &b) {
+            (Value::Int(int), Value::Float(float)) | (Value::Float(float), Value::Int(int)) => {
+                if !int_equals_float(*int, *float) {
+                    return Ok(false);
+                }
+            }
+            (Value::Array(x), Value::Array(y)) => {
+                // Copied out first: an `operator ==` may change either array.
+                let xs = x.borrow().elements.clone();
+                let ys = y.borrow().elements.clone();
+                if xs.len() != ys.len() {
+                    return Ok(false);
+                }
+                pending.extend(xs.into_iter().zip(ys).rev());
+            }
+            (Value::Tuple(x), Value::Tuple(y)) => {
+                let (xs, x_names) = {
+                    let x = x.borrow();
+                    (x.elements.clone(), x.names.clone())
+                };
+                let (ys, y_names) = {
+                    let y = y.borrow();
+                    (y.elements.clone(), y.names.clone())
+                };
+                if xs.len() != ys.len() || x_names != y_names {
+                    return Ok(false);
+                }
+                pending.extend(xs.into_iter().zip(ys).rev());
+            }
+            (Value::Map(x), Value::Map(y)) => {
+                let xs = x.borrow().entries.clone();
+                let y = y.borrow();
+                if xs.len() != y.entries.len() {
+                    return Ok(false);
+                }
+                let mut pairs = Vec::with_capacity(xs.len());
+                for (key, value) in xs {
+                    let Some(other) = y.entries.get(&key) else {
+                        return Ok(false);
+                    };
+                    pairs.push((value, other.clone()));
+                }
+                pending.extend(pairs.into_iter().rev());
+            }
+            (Value::Set(x), Value::Set(y)) => {
+                if x.as_ptr() != y.as_ptr() {
+                    let x = x.borrow();
+                    let y = y.borrow();
+                    if x.elements.len() != y.elements.len()
+                        || !x.elements.iter().all(|key| y.elements.contains(key))
+                    {
+                        return Ok(false);
+                    }
+                }
+            }
+            (Value::Object(x), Value::Object(y)) if x.as_ptr() != y.as_ptr() => {
+                if !objects(&a, &b)?.unwrap_or(false) {
+                    return Ok(false);
+                }
+            }
+            _ => {
+                if a != b {
+                    return Ok(false);
+                }
+            }
+        }
+    }
+    Ok(true)
 }
 
 /// A Set element. Numbers compare by value, as with `==`: a Float with an

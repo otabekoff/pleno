@@ -3776,8 +3776,10 @@ impl VM {
                     )? {
                         continue;
                     }
-                    self.registers[base + a] =
-                        NanValue::from_bool(pleno_value::values_equal(&left, &right));
+                    let equal = pleno_value::values_equal_by(&left, &right, &mut |x, y| {
+                        self.call_equality_operator(x, y)
+                    })?;
+                    self.registers[base + a] = NanValue::from_bool(equal);
                 }
                 Opcode::Ne => {
                     let left_nan = self.registers[base + b];
@@ -3805,8 +3807,12 @@ impl VM {
                         self.registers[base + a] = NanValue::from_bool(!equal);
                         continue;
                     }
-                    self.registers[base + a] =
-                        NanValue::from_bool(!pleno_value::values_equal(&left, &right));
+                    self.registers[base + a] = {
+                        let equal = pleno_value::values_equal_by(&left, &right, &mut |x, y| {
+                            self.call_equality_operator(x, y)
+                        })?;
+                        NanValue::from_bool(!equal)
+                    };
                 }
                 Opcode::Lt | Opcode::Le | Opcode::Gt | Opcode::Ge => {
                     let left_nan = self.registers[base + b];

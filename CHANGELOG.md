@@ -4,6 +4,10 @@ Notable changes to Pleno. The format follows [Keep a Changelog](https://keepacha
 
 ## Unreleased
 
+### Changed
+
+- `==` and `!=` compare arrays, tuples, maps and sets by contents, as in Python: `[1, [2]] == [1, [2]]`, `(1, "x") == (1, "x")` and `{"a": 1, "b": 2} == {"b": 2, "a": 1}` are `true` (before, only the same array, tuple or map was equal to itself). Maps ignore key order, numbers compare across Int and Float, a class's `operator ==` decides for its instances inside containers, and values that contain themselves compare without looping. `contains` and `indexOf` follow the same rules, so `[[1]].contains([1])` is `true`. Class instances without `operator ==` still compare by identity.
+
 ### Fixed
 
 - Two kinds of deeply nested code could overflow the stack while compiling (found by a long `fuzz_compile` run): calls on calls (`f(1)(1)(1)...`), `f<T>`, `x!`, `x++` and macro calls did not count toward the limit of 1,000 operators and calls per statement, and each `${...}` in a string started its own nesting count, so `"${"${...}"}"` 2,000 deep crashed. Both are now parse errors (`expression too long`, `Recursion limit exceeded`), and an error in a nested interpolation says `Parse error in interpolation` once instead of once per level.
