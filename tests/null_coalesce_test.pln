@@ -1,0 +1,49 @@
+// `a ?? b` evaluates `b` only when `a` is null, and tests for null without
+// calling a class's `operator ==`.
+import { assert } from "std:test";
+
+let mut calls = 0;
+fn fallback(): String {
+    calls += 1;
+    return "fallback";
+}
+
+// A present value: the right side does not run at all.
+let given: String? = "given";
+assert.equal(given ?? fallback(), "given");
+assert.equal(calls, 0);
+
+// A null value: the right side runs once.
+let missing: String? = null;
+assert.equal(missing ?? fallback(), "fallback");
+assert.equal(calls, 1);
+
+// A right side that would throw is never reached when the left has a value.
+fn fail(): String {
+    throw Error("the right side ran");
+}
+assert.equal(given ?? fail(), "given");
+
+// Only null counts as missing.
+assert.equal(0 ?? 1, 0);
+assert.equal(false ?? true, false);
+assert.equal("" ?? "x", "");
+assert.equal(null ?? null ?? 2, 2);
+
+// The null test does not call `operator ==`.
+let mut compared = false;
+class Point {
+    x: Int;
+    constructor(x: Int) { this.x = x; }
+    operator ==(other) {
+        compared = true;
+        return other is Point && other.x == this.x;
+    }
+}
+let p = Point(1);
+assert.equal((p ?? Point(2)).x, 1);
+assert.isTrue(p is Point?);
+assert.isTrue(null is Point?);
+assert.isFalse(compared);
+
+print("null coalescing ok");
