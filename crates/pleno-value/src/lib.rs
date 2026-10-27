@@ -159,29 +159,6 @@ impl GcObject for MultiWaiter {
 pub type NativeFunction =
     fn(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError>;
 
-// Helper to provide default for Skipped Fields
-#[allow(dead_code)]
-fn default_native_function() -> Option<NativeFunction> {
-    None
-}
-
-#[allow(dead_code)]
-fn skip_native_function<S>(_nf: &Option<NativeFunction>, serializer: S) -> Result<S::Ok, S::Error>
-where
-    S: serde::Serializer,
-{
-    serializer.serialize_none()
-}
-
-#[allow(dead_code)]
-fn deserialize_native_function<'de, D>(deserializer: D) -> Result<Option<NativeFunction>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    let _ = Option::<()>::deserialize(deserializer)?;
-    Ok(None)
-}
-
 fn dummy_native_function(_: &mut dyn VMProvider, _: &[Value]) -> Result<Value, RuntimeError> {
     Err(RuntimeError::new(
         "deserialized native function calls are not supported",

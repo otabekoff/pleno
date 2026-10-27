@@ -18,24 +18,6 @@ pub enum Node<'a> {
     EnumVariant(&'a EnumVariant),
 }
 
-/*
-impl<'a> Node<'a> {
-    pub fn span(&self) -> Span {
-        match self {
-            Node::Stmt(s) => s.span,
-            Node::Expr(e) => e.span,
-            Node::Pattern(p) => p.span,
-            Node::Param(p) => p.span,
-            Node::Field(f) => f.span,
-            Node::Function(f) => f.span,
-            Node::Property(p) => p.span,
-            Node::Enum(e) => e.span,
-            Node::EnumVariant(v) => v.span,
-        }
-    }
-}
-*/
-
 pub struct NodeFinder<'a> {
     offset: usize,
     pub innermost_node: Option<Node<'a>>,

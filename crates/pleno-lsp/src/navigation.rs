@@ -315,7 +315,7 @@ pub fn workspace_symbols(state: &crate::ServerState, query: &str) -> Vec<Value> 
         let Ok(uri) = url::Url::from_file_path(&path) else {
             continue;
         };
-        let symbols = extract_symbols(&program, &path);
+        let symbols = extract_symbols(&program);
         push_symbols(&mut out, &symbols, &text, uri.as_str(), query, None);
     }
     out
