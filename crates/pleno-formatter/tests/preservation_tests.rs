@@ -46,3 +46,38 @@ fn test_preserves_comments_between_with_resources() {
     let result = format_code(input, &FormatOptions::default()).unwrap();
     assert_eq!(result, input);
 }
+
+// `x op= value` was written as `x = x op value` without parentheses, which
+// changed what the program computed: `n *= 3 + 1` became `n = n * 3 + 1`.
+#[test]
+fn compound_assignments_are_kept_as_written() {
+    let input = "\
+out += i == 1 ? \"a\" : \"b\";
+n *= 3 + 1;
+n -= 1 - 1;
+n += (2);
+n /= a ?? b;
+n %= 3;
+m[\"k\"] *= 2 + 3;
+o.v -= 4 - 1;
+x = x + 1;
+";
+    let result = format_code(input, &FormatOptions::default()).unwrap();
+    assert_eq!(result, input);
+}
+
+// Parsed without the formatter, the value keeps its grouping, so any printer
+// of the tree gets it right.
+#[test]
+fn a_compound_assignment_value_keeps_its_grouping() {
+    let source = "n *= 3 + 1;";
+    let tokens = pleno_lexer::lex(source).unwrap();
+    let program = pleno_parser::Parser::new(tokens, source)
+        .parse_program()
+        .unwrap();
+    let dump = format!("{:?}", program.statements[0].kind);
+    assert!(
+        dump.contains("op: Multiply, right: Expr { kind: Paren("),
+        "{dump}"
+    );
+}

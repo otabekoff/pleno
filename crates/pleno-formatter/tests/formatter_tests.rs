@@ -432,7 +432,17 @@ fn parameters_keep_markers_types_and_ownership() {
 fn inclusive_slices_stay_inclusive() {
     assert_round_trip(
         "let a = s[..=1]; let b = s[..1]; let c = s[0..=1];",
-        "let a = s[..=1];\nlet b = s[:1];\nlet c = s[0..=1];\n",
+        "let a = s[..=1];\nlet b = s[..1];\nlet c = s[0..=1];\n",
+    );
+}
+
+// The formatter writes `[..b]`, the documented form, for `[:b]`, and keeps a
+// slice with a start as written: it wrote `s[..2]` as `s[:2]`.
+#[test]
+fn slices_without_a_start_are_written_with_dots() {
+    assert_round_trip(
+        "let a = s[..2]; let b = s[:2]; let c = s[..]; let d = s[:]; let e = s[1:3]; let f = s[1..3];",
+        "let a = s[..2];\nlet b = s[..2];\nlet c = s[..];\nlet d = s[..];\nlet e = s[1:3];\nlet f = s[1..3];\n",
     );
 }
 
