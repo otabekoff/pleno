@@ -11,7 +11,7 @@ Notable changes to Pleno. The format follows [Keep a Changelog](https://keepacha
 
 ### Changed
 
-- `==` and `!=` compare arrays, tuples, maps and sets by contents, as in Python: `[1, [2]] == [1, [2]]`, `(1, "x") == (1, "x")` and `{"a": 1, "b": 2} == {"b": 2, "a": 1}` are `true` (before, only the same array, tuple or map was equal to itself). Maps ignore key order, numbers compare across Int and Float, a class's `operator ==` decides for its instances inside containers, and values that contain themselves compare without looping. `contains` and `indexOf` follow the same rules, so `[[1]].contains([1])` is `true`. Class instances without `operator ==` still compare by identity.
+- `==` and `!=` compare arrays, tuples, maps and sets by contents, as in Python: `[1, [2]] == [1, [2]]`, `(1, "x") == (1, "x")` and `{"a": 1, "b": 2} == {"b": 2, "a": 1}` are `true` (before, only the same array, tuple or map was equal to itself). Maps ignore key order, numbers compare across Int and Float, a class's `operator ==` decides for its instances inside containers, and values that contain themselves compare without looping. `contains` and `indexOf` follow the same rules, so `[[1]].contains([1])` is `true`. Class instances without `operator ==` still compare by identity. This makes `==` agree with `assert.equal`, which already compared contents, and is made before 1.0 because the compatibility promise would forbid it later. Code that used `==` to ask whether two arrays or maps are the same object gets `true` for equal copies now; there is no identity operator yet.
 
 ### Fixed
 
