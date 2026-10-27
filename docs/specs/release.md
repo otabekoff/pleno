@@ -1,7 +1,7 @@
 # Release Plan
 
 ::: info Planning notes
-This page is an early brainstorm of ways to package and distribute Pleno. Most of it is not available: the repository has packaging templates (`packaging/` for Homebrew, Scoop, winget, Chocolatey, AUR, Snap, Flatpak and asdf; `scripts/plenovm.sh`; `Dockerfile.release`), but none of these packages is published, and names such as `pleno-lang.org` are placeholders. It is not part of the language reference or the [compatibility promise](./compatibility.md). For what you can install today, see [Installation](/guide/installation); for what 1.0 still needs, see the [1.0 plan](https://github.com/otabekoff/pleno/blob/main/tasks/v1.md).
+This page is an early brainstorm of ways to package and distribute Pleno. Most of it is not available: the repository has packaging templates (`packaging/` for Homebrew, Scoop, winget, Chocolatey, AUR, Snap, Flatpak and asdf; `scripts/plenovm.sh`; `Dockerfile.release`), but only Homebrew (`brew install otabekoff/tap/pleno`) and Scoop (the `otabekoff/scoop-bucket` bucket) are published, and names such as `pleno-lang.org` are placeholders; the site is at `pleno.mohirlab.uz`. It is not part of the language reference or the [compatibility promise](./compatibility.md). For what you can install today, see [Installation](/guide/installation); for what 1.0 still needs, see the [1.0 plan](https://github.com/otabekoff/pleno/blob/main/tasks/v1.md).
 :::
 
 ## Distribution Strategy for Pleno
@@ -373,7 +373,7 @@ Packages are found through the GitHub topic `pleno-package`. See the [package ma
 
 ### **VS Code Extension**
 
-The extension is not on the VS Code Marketplace. Each GitHub release has a `.vsix` file:
+The extension is not in the VS Code Marketplace or on Open VSX yet. Each GitHub release has a `.vsix` file:
 
 ```bash
 # Download pleno-language-<version>.vsix from the release, then:

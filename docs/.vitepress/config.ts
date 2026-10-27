@@ -26,7 +26,7 @@ const PLAY_ICON = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 4.5v1
 
 // Hides the announcement bar before the first paint when it was dismissed
 // (see theme/components/AnnouncementBar.vue), so the layout does not jump.
-const BANNER_SCRIPT = `try{if(localStorage.getItem('pleno-announcement-1.0-road')==='dismissed')document.documentElement.classList.add('pl-banner-dismissed')}catch(e){}`
+const BANNER_SCRIPT = `try{if(localStorage.getItem('pleno-announcement-0.3.0')==='dismissed')document.documentElement.classList.add('pl-banner-dismissed')}catch(e){}`
 
 // Pleno code blocks get a "Run" link to the playground carrying their source.
 // ```pleno norun marks a fragment that cannot run by itself (see
@@ -108,6 +108,7 @@ export default defineConfig({
             items: [
               { text: 'Showcase', link: '/showcase' },
               { text: 'Community', link: '/community' },
+              { text: 'Team and contributors', link: '/team' },
               { text: 'Contributing', link: '/guide/contributing' },
               { text: 'Code signing policy', link: '/code-signing-policy' },
             ]
@@ -138,6 +139,7 @@ export default defineConfig({
           text: 'Project',
           items: [
             { text: 'Contributing', link: '/guide/contributing' },
+            { text: 'Team and contributors', link: '/team' },
           ]
         }
       ],

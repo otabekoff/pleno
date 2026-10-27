@@ -110,12 +110,24 @@ const status = [
   {
     label: 'Works today',
     tone: 'done',
-    items: ['Gradual types, classes, enums, generics', 'async and await, channels, mutexes', 'A standard library of 25 modules', 'Formatter, linter, tests, language server, debugger'],
+    items: [
+      'Gradual types, classes, enums, generics',
+      'async and await, channels, mutexes, TCP sockets',
+      'A standard library of 27 stable modules',
+      'Formatter, linter, tests, language server, debugger',
+      "Faster than CPython 3.14 on the repository's benchmarks",
+      'Packages from Git repositories, with a lockfile',
+      'A language reference frozen for 1.x',
+    ],
   },
   {
     label: 'Before 1.0',
     tone: 'next',
-    items: ['A frozen language specification', 'Faster execution', 'One error shape', 'Signed releases in package managers'],
+    items: [
+      'A day of fuzzing that finds nothing',
+      'Signed Windows binaries',
+      'WinGet, the VS Code Marketplace and Open VSX',
+    ],
   },
   {
     label: 'After 1.0',
@@ -225,7 +237,7 @@ math
 <span class="ok">PASSED</span>
 
 <span class="prompt">$</span> pleno check src/main.pln
-src/main.pln:3:5: <span class="err">error:</span> undefined variable 'prnt'</pre>
+src/main.pln:3:5: <span class="err">error:</span> undefined variable 'prnt'; did you mean 'print'?</pre>
       </div>
     </section>
 
@@ -233,7 +245,7 @@ src/main.pln:3:5: <span class="err">error:</span> undefined variable 'prnt'</pre
       <header class="section-head">
         <h2 class="pl-display">Where Pleno is</h2>
         <p>
-          Pleno is at 0.2. It runs real programs today; the
+          Pleno is at {{ version }}, the last release before 1.0. It runs real programs today; the
           <a href="https://github.com/otabekoff/pleno/blob/main/tasks/v1.md">plan for 1.0</a>
           lists what is left.
         </p>

@@ -6,6 +6,23 @@ Pleno ships as five programs: `pleno` (run, check, format, test), `plm` (package
 
 Install the [VS Code extension](./editor), then run **Pleno: Install or Update Toolchain** from the Command Palette. It downloads the latest release for your system, checks its SHA-256 checksum, and makes the tools available in VS Code's terminals.
 
+## With a package manager
+
+::: code-group
+
+```sh [Homebrew (macOS, Linux)]
+brew install otabekoff/tap/pleno
+```
+
+```powershell [Scoop (Windows)]
+scoop bucket add pleno https://github.com/otabekoff/scoop-bucket
+scoop install pleno
+```
+
+:::
+
+Both install the release archives from GitHub, with their checksums, and are updated with each release. `brew upgrade pleno` and `scoop update pleno` get a newer version. WinGet, Chocolatey and the AUR are not available yet.
+
 ## With the install script
 
 ::: code-group
