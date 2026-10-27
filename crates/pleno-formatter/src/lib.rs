@@ -1251,16 +1251,16 @@ impl Formatter {
     fn format_literal(&self, literal: &Literal) -> String {
         match literal {
             Literal::Int(i) => i.to_string(),
-            // Keep the decimal point: `1.0` is a Float, `1` an Int.
-            Literal::Float(f) if f.is_finite() && f.fract() == 0.0 && f.abs() < 1e16 => {
-                format!("{:.1}", f)
-            }
-            Literal::Float(f) => f.to_string(),
+            // `{:?}` keeps the literal a Float: `1.0` (not `1`, an Int), and an
+            // exponent for large and small values (`1e21`, not 22 digits that
+            // read back as an Int, or overflow).
+            Literal::Float(f) => format!("{:?}", f),
             Literal::String(s) => format!("\"{}\"", escape_string(s)),
             Literal::Char(c) => match c {
                 '\n' => "'\\n'".to_string(),
                 '\r' => "'\\r'".to_string(),
                 '\t' => "'\\t'".to_string(),
+                '\0' => "'\\0'".to_string(),
                 '\\' => "'\\\\'".to_string(),
                 '\'' => "'\\''".to_string(),
                 _ => format!("'{}'", c),
@@ -1792,6 +1792,7 @@ fn escape_string(s: &str) -> String {
             '\n' => out.push_str("\\n"),
             '\r' => out.push_str("\\r"),
             '\t' => out.push_str("\\t"),
+            '\0' => out.push_str("\\0"),
             '$' if chars.peek() == Some(&'{') => out.push_str("\\$"),
             other => out.push(other),
         }

@@ -30,6 +30,21 @@ greet("Alice");              // "Hello, Alice"
 greet("Bob", "Hi");          // "Hi, Bob"
 ```
 
+A default is evaluated each time the function is called without that argument, not once when the function is defined, so a default `[]` gives every call a new array (unlike Python). A default can use the parameters before it.
+
+```pleno
+fn addTo(item: Int, list: Int[] = []): Int[] {
+    list.push(item);
+    return list;
+}
+print(addTo(1), addTo(2));   // [1] [2]
+
+fn rect(width: Int, height: Int = width): Int => width * height;
+print(rect(3));              // 9
+```
+
+Calling a function with too few arguments throws `missing required argument`, and with too many `too many positional arguments`. This holds for named functions, lambdas and methods alike.
+
 ### 3.3 Named Parameters
 ```pleno
 fn createUser(name: String, age: Int, active: Bool = true) {
@@ -91,6 +106,27 @@ fn makeCounter(): () => Int {
 let counter = makeCounter();
 print(counter());  // 1
 print(counter());  // 2
+```
+
+A closure, a nested `fn` and a method share the variables they use with the code around them; they do not copy them. An assignment made after the closure was created is visible inside it, and an assignment made inside it is visible outside. The same holds for parameters of the enclosing function.
+
+```pleno
+let mut verbose = false;
+fn log(message: String) {
+    if (verbose) { print(message); }
+}
+verbose = true;
+log("now visible");      // now visible
+```
+
+Each iteration of a loop has its own loop variable, so closures created in different iterations keep different values. This holds for `for (x in ...)`, for the C-style `for (let i = 0; ...; i++)` and for destructuring patterns.
+
+```pleno
+let callbacks = [];
+for (let i = 0; i < 3; i++) {
+    callbacks.push(fn() => i);
+}
+print(callbacks.map(|f| => f()));   // [0, 1, 2]
 ```
 
 ### 3.7 Anonymous Functions & Lambdas

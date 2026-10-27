@@ -12,8 +12,8 @@ Import the `Math` namespace, or import single names:
 import { Math } from "std:math";
 import { sqrt, PI } from "std:math";
 
-print(Math.sqrt(9));  // 3
-print(sqrt(16));      // 4
+print(Math.sqrt(9));  // 3.0
+print(sqrt(16));      // 4.0
 print(PI);            // 3.141592653589793
 ```
 
@@ -132,7 +132,7 @@ Returns the square root of `x`.
 ```pleno
 import { Math } from "std:math";
 
-print(Math.sqrt(16));  // 4
+print(Math.sqrt(16));  // 4.0
 print(Math.sqrt(2));   // 1.4142135623730951
 ```
 
@@ -143,7 +143,7 @@ Returns `base` raised to the power of `exp`.
 ```pleno
 import { Math } from "std:math";
 
-print(Math.pow(2, 10));   // 1024
+print(Math.pow(2, 10));   // 1024.0
 print(Math.pow(3, 0.5));  // 1.7320508075688772
 ```
 
@@ -154,7 +154,7 @@ Returns e raised to the power of `x`.
 ```pleno
 import { Math } from "std:math";
 
-print(Math.exp(0));  // 1
+print(Math.exp(0));  // 1.0
 ```
 
 ### `sin(x: Float): Float`
@@ -164,7 +164,7 @@ Returns the sine of `x` (in radians).
 ```pleno
 import { Math } from "std:math";
 
-print(Math.sin(Math.PI / 2));  // 1
+print(Math.sin(Math.PI / 2));  // 1.0
 ```
 
 ### `cos(x: Float): Float`
@@ -174,8 +174,8 @@ Returns the cosine of `x` (in radians).
 ```pleno
 import { Math } from "std:math";
 
-print(Math.cos(0));        // 1
-print(Math.cos(Math.PI));  // -1
+print(Math.cos(0));        // 1.0
+print(Math.cos(Math.PI));  // -1.0
 ```
 
 ### `tan(x: Float): Float`
@@ -205,7 +205,7 @@ Returns the natural logarithm (base e) of `x`.
 ```pleno
 import { Math } from "std:math";
 
-print(Math.log(Math.E));  // 1
+print(Math.log(Math.E));  // 1.0
 print(Math.log(10));      // 2.302585092994046
 ```
 
@@ -216,27 +216,30 @@ Returns the base-10 logarithm of `x`.
 ```pleno
 import { Math } from "std:math";
 
-print(Math.log10(100));  // 2
+print(Math.log10(100));  // 2.0
 ```
 
-### `max(a: Float, b: Float): Float`
+### `max(...values: Float): Float`
 
-Returns the larger of `a` and `b`. The result is always a `Float`.
+Returns the largest of its arguments, or of the numbers in one array argument. The result is the argument itself, so it stays an `Int` when it was one. A `NaN` argument gives `NaN`. With no numbers it throws `Math.max needs at least one number`, and with a value that is not a number it throws.
 
 ```pleno
 import { Math } from "std:math";
 
-print(Math.max(5, 10));  // 10
+print(Math.max(5, 10));       // 10
+print(Math.max(1, 5, 3));     // 5
+print(Math.max([2.5, 1]));    // 2.5
 ```
 
-### `min(a: Float, b: Float): Float`
+### `min(...values: Float): Float`
 
-Returns the smaller of `a` and `b`. The result is always a `Float`.
+Returns the smallest of its arguments, or of the numbers in one array argument, the same way as `max`.
 
 ```pleno
 import { Math } from "std:math";
 
-print(Math.min(5, 10));  // 5
+print(Math.min(5, 10));       // 5
+print(Math.min(4, 2.5, 9));   // 2.5
 ```
 
 ### `random(): Float`

@@ -485,12 +485,17 @@ fn division_by_zero_is_an_error_for_ints_and_floats() {
 }
 
 #[test]
-fn integer_negation_and_modulo_report_overflow() {
+fn integer_negation_reports_overflow_and_modulo_does_not() {
     let min = "let m = -9223372036854775807 - 1;";
     let err = eval_result(&format!("{min} -m;")).unwrap_err();
     assert!(err.contains("integer overflow in negation"), "{err}");
-    let err = eval_result(&format!("{min} m % -1;")).unwrap_err();
-    assert!(err.contains("integer overflow in modulo"), "{err}");
+    // The remainder of `i64::MIN / -1` is 0, which fits; the constant folder
+    // used to panic on it.
+    assert_eq!(eval(&format!("{min} m % -1;")), pleno_value::Value::Int(0));
+    assert_eq!(
+        eval("(-9223372036854775807 - 1) % -1;"),
+        pleno_value::Value::Int(0)
+    );
 }
 
 #[test]

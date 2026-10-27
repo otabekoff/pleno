@@ -40,6 +40,24 @@ and an experimental function inside a stable module starts its description with 
 
 Pages in the "Implementation notes" group of this reference (performance features, bytecode VM, distribution plan, release plan) describe the current implementation or plans. They are not part of the promise.
 
+## The 1.x reference is frozen
+
+As of 2026-10-27, the language reference is frozen for 1.x. The reference is every page in this section except the "Implementation notes" group, together with the [standard library pages](/stdlib/) of the modules marked stable. Each claim on those pages was checked against the implementation before the freeze, and every code example on them runs in CI.
+
+Frozen means:
+
+- **Additions are allowed.** A minor release can add syntax, built-in functions, methods, standard library functions, optional parameters and fields on returned maps. Code that was an error before (a compile error, or a runtime error such as `type 'String' is not iterable`) can start to work. The [reserved words](./core-syntax-fundamentals.md#_1-7-reserved-words) of 1.0 stay the only reserved words: a new keyword is added only where it cannot break a program that uses the word as a name.
+- **Documented behavior does not change.** What a page says a program prints, returns or throws stays true in every 1.x release, including the results of operators, the order of map keys, how values print, slice and index rules, and which errors are thrown with which `name`.
+- **Unspecified behavior can become specified.** Where a page says the result is unspecified, a later release can define it; it does not change documented behavior to do so.
+
+Errata are handled this way. When a page and the implementation disagree, or a page is wrong, unclear or silent on something a program relies on, the difference is recorded as a bug in the [issue tracker](https://github.com/otabekoff/pleno/issues):
+
+- If the page describes the better behavior, the implementation is fixed in a patch release (see "Bug fixes" above).
+- If the implementation's behavior is the one to keep, the page is corrected instead, and the behavior does not change.
+- Either way, the changelog lists the erratum under **Fixed** with the page it concerns, and the corrected page says what changed if a program could notice.
+
+Not frozen, as described above: experimental modules and functions (`std:net`, `std:security`, `std:gc`, `std:db`, `Router` and `Server` in `std:http`, `vmStats` in `std:reflect`), `@pure` and its checks, the wording of error messages, compile errors and warnings (the error `name` is frozen), output meant for people, the pages under "Implementation notes", bytecode, and performance.
+
 ## Not yet in 1.0
 
 Features that are designed but not implemented are collected in the [version 2 draft](https://github.com/otabekoff/pleno/blob/main/notes/v2-draft.md). They are not part of the 1.0 reference, and a program that uses them is not valid 1.0 code.

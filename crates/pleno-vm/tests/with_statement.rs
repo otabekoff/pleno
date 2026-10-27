@@ -61,7 +61,7 @@ fn closes_after_the_body() {
         }
         log;
     "#;
-    assert_eq!(eval(source), "[open a, body a, close a]");
+    assert_eq!(eval(source), "[\"open a\", \"body a\", \"close a\"]");
 }
 
 #[test]
@@ -74,7 +74,7 @@ fn several_resources_close_in_reverse_order() {
     "#;
     assert_eq!(
         eval(source),
-        "[open a, open b, open c, body, close c, close b, close a]"
+        "[\"open a\", \"open b\", \"open c\", \"body\", \"close c\", \"close b\", \"close a\"]"
     );
 }
 
@@ -86,7 +86,10 @@ fn later_resources_see_earlier_names() {
         }
         log;
     "#;
-    assert_eq!(eval(source), "[open a, open a2, a2, close a2, close a]");
+    assert_eq!(
+        eval(source),
+        "[\"open a\", \"open a2\", \"a2\", \"close a2\", \"close a\"]"
+    );
 }
 
 #[test]
@@ -104,7 +107,7 @@ fn closes_when_the_body_throws_and_the_error_propagates() {
     "#;
     assert_eq!(
         eval(source),
-        "(body failed, [open a, open b, close b, close a])"
+        "(\"body failed\", [\"open a\", \"open b\", \"close b\", \"close a\"])"
     );
 }
 
@@ -133,7 +136,7 @@ fn body_error_wins_over_close_errors_which_are_suppressed() {
     "#;
     assert_eq!(
         eval(source),
-        "(body failed, [close b failed, close a failed], [open a, open b, close b, close a])"
+        "(\"body failed\", [\"close b failed\", \"close a failed\"], [\"open a\", \"open b\", \"close b\", \"close a\"])"
     );
 }
 
@@ -152,7 +155,7 @@ fn a_close_error_after_a_normal_body_propagates_and_outer_resources_still_close(
     "#;
     assert_eq!(
         eval(source),
-        "(close b failed, [close a failed], [open a, open b, body, close b, close a])"
+        "(\"close b failed\", [\"close a failed\"], [\"open a\", \"open b\", \"body\", \"close b\", \"close a\"])"
     );
 }
 
@@ -169,7 +172,7 @@ fn a_thrown_non_error_value_propagates_unchanged() {
         }
         (caught, log);
     "#;
-    assert_eq!(eval(source), "(plain, [open a, close a])");
+    assert_eq!(eval(source), "(\"plain\", [\"open a\", \"close a\"])");
 }
 
 #[test]
@@ -186,7 +189,7 @@ fn a_failing_resource_closes_the_ones_before_it() {
         }
         (message, log);
     "#;
-    assert_eq!(eval(source), "(cannot open, [open a, close a])");
+    assert_eq!(eval(source), "(\"cannot open\", [\"open a\", \"close a\"])");
 }
 
 #[test]
@@ -200,7 +203,10 @@ fn return_closes() {
         let value = first();
         (value, log);
     "#;
-    assert_eq!(eval(source), "(ab, [open a, open b, close b, close a])");
+    assert_eq!(
+        eval(source),
+        "(\"ab\", [\"open a\", \"open b\", \"close b\", \"close a\"])"
+    );
 }
 
 #[test]
@@ -215,7 +221,10 @@ fn break_and_continue_close() {
         }
         log;
     "#;
-    assert_eq!(eval(source), "[open 1, close 1, open 2, close 2]");
+    assert_eq!(
+        eval(source),
+        "[\"open 1\", \"close 1\", \"open 2\", \"close 2\"]"
+    );
 }
 
 #[test]
@@ -234,7 +243,7 @@ fn labeled_continue_closes_every_resource_it_leaves() {
     "#;
     assert_eq!(
         eval(source),
-        "[open a1, open b1, close b1, close a1, open a2, open b1, close b1, close a2]"
+        "[\"open a1\", \"open b1\", \"close b1\", \"close a1\", \"open a2\", \"open b1\", \"close b1\", \"close a2\"]"
     );
 }
 
@@ -251,7 +260,10 @@ fn a_loop_inside_the_body_does_not_close_early() {
         }
         log;
     "#;
-    assert_eq!(eval(source), "[open r, i2, after loop, close r]");
+    assert_eq!(
+        eval(source),
+        "[\"open r\", \"i2\", \"after loop\", \"close r\"]"
+    );
 }
 
 #[test]
@@ -267,7 +279,7 @@ fn nested_with_statements_close_inner_first() {
     "#;
     assert_eq!(
         eval(source),
-        "[open outer, open inner, outer+inner, close inner, between, close outer]"
+        "[\"open outer\", \"open inner\", \"outer+inner\", \"close inner\", \"between\", \"close outer\"]"
     );
 }
 
@@ -281,7 +293,7 @@ fn closures_in_the_body_can_capture_the_resource() {
         }
         (f(), log);
     "#;
-    assert_eq!(eval(source), "(r, [open r, r, close r])");
+    assert_eq!(eval(source), "(\"r\", [\"open r\", \"r\", \"close r\"])");
 }
 
 #[test]
@@ -298,7 +310,7 @@ fn try_finally_inside_with_runs_before_close() {
         }
         (f(), log);
     "#;
-    assert_eq!(eval(source), "(1, [open r, finally, close r])");
+    assert_eq!(eval(source), "(1, [\"open r\", \"finally\", \"close r\"])");
 }
 
 #[test]
@@ -341,11 +353,11 @@ fn a_value_without_close_is_an_error_before_the_body_runs() {
     "#;
     assert_eq!(
         eval(source),
-        "[TypeError: 'with' needs a value with a close() method, got Int, \
-         TypeError: 'with' needs a value with a close() method, got String, \
-         TypeError: 'with' needs a value with a close() method, got Map, \
-         TypeError: 'with' needs a value with a close() method, got Array, \
-         TypeError: 'with' needs a value with a close() method, got Null]"
+        "[\"TypeError: 'with' needs a value with a close() method, got Int\", \
+         \"TypeError: 'with' needs a value with a close() method, got String\", \
+         \"TypeError: 'with' needs a value with a close() method, got Map\", \
+         \"TypeError: 'with' needs a value with a close() method, got Array\", \
+         \"TypeError: 'with' needs a value with a close() method, got Null\"]"
     );
 }
 
@@ -357,7 +369,7 @@ fn a_map_with_a_close_function_is_a_resource() {
         }
         log;
     "#;
-    assert_eq!(eval(source), "[body, map closed]");
+    assert_eq!(eval(source), "[\"body\", \"map closed\"]");
 }
 
 #[test]
@@ -384,7 +396,7 @@ fn files_close() {
     );
     assert_eq!(
         eval(&source),
-        "(hello, file is closed or not open for reading)"
+        "(\"hello\", \"file is closed or not open for reading\")"
     );
 }
 
@@ -403,7 +415,7 @@ fn databases_close() {
         try { kept.query("SELECT 1"); } catch (e) { after = "closed"; }
         (log, after);
     "#;
-    assert_eq!(eval(source), "([7], closed)");
+    assert_eq!(eval(source), "([7], \"closed\")");
 }
 
 #[test]
@@ -420,7 +432,7 @@ fn async_functions_close_across_await() {
         log;
     "#;
     let out = eval(source);
-    assert!(out.starts_with("[open r"), "{out}");
+    assert!(out.starts_with("[\"open r"), "{out}");
 }
 
 #[test]
@@ -443,7 +455,7 @@ fn break_out_of_try_pops_its_handler() {
         try { run(); } catch (e) { message = e.message; }
         (hits, message);
     "#;
-    assert_eq!(eval(source), "(0, later)");
+    assert_eq!(eval(source), "(0, \"later\")");
 }
 
 #[test]
@@ -459,7 +471,7 @@ fn break_and_continue_run_finally() {
         }
         log;
     "#;
-    assert_eq!(eval(source), "[finally 1, finally 2]");
+    assert_eq!(eval(source), "[\"finally 1\", \"finally 2\"]");
 }
 
 #[test]
@@ -480,5 +492,5 @@ fn inline_functions_close_and_return_their_value() {
         }
         (pick(5), pick(-5), opened(), log);
     "#;
-    assert_eq!(eval(source), "(1, 2, r, [open r, close r])");
+    assert_eq!(eval(source), "(1, 2, \"r\", [\"open r\", \"close r\"])");
 }

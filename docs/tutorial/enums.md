@@ -16,7 +16,7 @@ code: |
   }
 
   print(area(Shape.Circle(1.0)));
-  print(area(Shape.Triangle(4.0, 3.0)));   // should be 6
+  print(area(Shape.Triangle(4.0, 3.0)));   // should be 6.0
 solution: |
   enum Shape {
       Circle(radius),
@@ -31,7 +31,7 @@ solution: |
   }
 
   print(area(Shape.Circle(1.0)));
-  print(area(Shape.Triangle(4.0, 3.0)));   // should be 6
+  print(area(Shape.Triangle(4.0, 3.0)));   // should be 6.0
 ---
 
 <TutorialStep>

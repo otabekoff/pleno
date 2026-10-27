@@ -86,7 +86,9 @@ for (i in 0..=3) {    // 0, 1, 2, 3
 }
 ```
 
-A string cannot be iterated directly (`type 'String' is not iterable`); index it in a loop instead. `for (key, value in map)` gives a map's keys and values.
+A string cannot be iterated directly (`type 'String' is not iterable`); loop over `s.split("")`, which gives its characters, or index it. `for (key, value in map)` gives a map's keys and values.
+
+Each iteration gets a new loop variable, so a closure created in the loop keeps the value of its own iteration (see [Closures](./functions.md#_3-6-closures)). Reassigning the loop variable in the body does not change which item comes next. The variable of a loop written directly over a range literal, `for (i in 0..n)`, cannot be reassigned at all (`cannot assign to immutable binding`).
 
 #### Destructuring each item
 

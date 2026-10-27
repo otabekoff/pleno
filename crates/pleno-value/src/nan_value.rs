@@ -1043,7 +1043,7 @@ impl std::fmt::Debug for NanValue {
 impl std::fmt::Display for NanValue {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if self.is_f64() {
-            write!(f, "{}", self.as_f64())
+            write!(f, "{:?}", self.as_f64())
         } else {
             match self.tag() {
                 TAG_INT => write!(f, "{}", self.as_int().unwrap()),

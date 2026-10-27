@@ -59,7 +59,7 @@ class Temperature {
     }
 }
 
-print(Temperature(20.0).fahrenheit());   // 68
+print(Temperature(20.0).fahrenheit());   // 68.0
 ```
 
 A class can `extend` another and reuse its methods, and `implements` an interface that lists the methods it must have.

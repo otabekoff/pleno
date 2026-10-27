@@ -18,8 +18,8 @@ let user = User();
 
 // Get class info
 print(Reflect.getTypeName(user));  // User
-print(Reflect.getFields(user));    // [age, name]
-print(Reflect.getMethods(user));   // [constructor, greet]
+print(Reflect.getFields(user));    // ["age", "name"]
+print(Reflect.getMethods(user));   // ["constructor", "greet"]
 
 // Get/set field values dynamically
 Reflect.setField(user, "name", "Alice");
@@ -96,9 +96,9 @@ let v1 = Vector(1.0, 2.0);
 let v2 = Vector(3.0, 4.0);
 let v3 = v1 + v2;          // Vector(4.0, 6.0)
 let v4 = v1 * 2.0;         // Vector(2.0, 4.0)
-print(v3[0], v3[1]);       // 4 6
+print(v3[0], v3[1]);       // 4.0 6.0
 print(v1 == v2);           // false
-print(v1[0]);              // 1
+print(v1[0]);              // 1.0
 ```
 
 Each operator is overloaded on its own, with one exception: without an `operator !=`, `a != b` is `!(a == b)`, so defining `operator ==` is enough for both. A class can still define `operator !=` itself. `operator ==` also decides when instances are compared inside arrays, tuples and maps (`[v1] == [v2]`); a class without it compares by identity.
