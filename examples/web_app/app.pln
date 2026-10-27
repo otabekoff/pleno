@@ -1,0 +1,84 @@
+// skip: starts a server; covered by scripts/test_http_server.sh
+//
+// A small web app: middleware, static files, cookies and an error handler.
+// Run it from this folder, as static folders are relative to the working directory:
+//
+//     cd examples/web_app
+//     pleno run app.pln
+//
+// Then open http://localhost:8081/.
+import { Router, Server } from "std:http";
+import { JSON } from "std:json";
+import { Math } from "std:math";
+import { now, sleep } from "std:time";
+
+let app = Router();
+let notes = [{ "id": 1, "text": "Buy milk" }];
+
+// 1. Logging: runs first for every request, and again after the rest of the
+//    chain has finished, so it can add a header to any response.
+app.use(async fn(req, res, next) {
+    let started = now();
+    await next();
+    let micros = Math.round((now() - started) * 1000000);
+    res.header("X-Response-Time", `${micros}us`);
+    print(`${req.method} ${req.path} ${res.statusCode}`);
+});
+
+// 2. Static files: public/index.html at "/", public/css/style.css at "/css/style.css".
+app.static("/", "./public");
+
+// 3. A "user" cookie: everything under /api needs one. It is not signed, so a
+//    client can set any name; a real app would store a random session id instead.
+app.use("/api", fn(req, res, next) {
+    if (req.cookies.user == null) {
+        res.status(401).json({ "error": "log in first: POST /login with a name" });
+        return;
+    }
+    next();
+});
+
+app.post("/login", fn(req, res) {
+    let name = req.body.trim();
+    if (name == "") {
+        res.status(400).send("send your name in the body");
+        return;
+    }
+    res.cookie("user", name, { "maxAge": 3600 }).send("Hello, " + name);
+});
+
+app.post("/logout", fn(req, res) {
+    res.clearCookie("user").send("Bye");
+});
+
+app.get("/api/notes", fn(req, res) {
+    res.json({ "user": req.cookies.user, "notes": notes });
+});
+
+app.post("/api/notes", fn(req, res) {
+    // JSON.parse throws on bad input; the error handler below answers it.
+    let note = JSON.parse(req.body);
+    let created = { "id": notes.length + 1, "text": note.text };
+    notes.push(created);
+    res.status(201).json(created);
+});
+
+app.get("/api/slow", async fn(req, res) {
+    await sleep(5);
+    return "slow but fine";
+});
+
+// 4. Errors: any handler that throws ends up here, instead of the default
+//    plain 500 page. Details stay in the server's log.
+app.onError(fn(err, req, res) {
+    print(`error in ${req.method} ${req.path}: ${err.message}`);
+    if (err.message.startsWith("JSON parse error")) {
+        res.status(400).json({ "error": "the body is not valid JSON" });
+    } else {
+        res.status(500).json({ "error": "something went wrong" });
+    }
+});
+
+Server(app).listen(8081, fn() {
+    print("Notes app on http://localhost:8081");
+});

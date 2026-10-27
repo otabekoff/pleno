@@ -74,6 +74,15 @@ pub trait VMProvider {
         token: mio::Token,
     ) -> Result<(), RuntimeError>;
     fn check_is_instance(&self, value: &Value, type_val: &Value) -> bool;
+    /// The value a Pleno `catch` would see for `error`: an `Error` instance
+    /// in the VM, the message as a string otherwise.
+    fn error_value(&mut self, error: RuntimeError) -> Value {
+        let message = error.message;
+        let message = message
+            .strip_prefix("uncaught exception: ")
+            .unwrap_or(&message);
+        Value::String(Rc::new(message.to_string()))
+    }
     fn get_named_args(&self) -> &IndexMap<String, Value>;
     fn is_io_allowed(&self) -> bool {
         true

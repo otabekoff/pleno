@@ -3,6 +3,7 @@
 What was finished, newest first. Open work is in `v1.md`, `distribution.md` and `later.md`.
 
 ## 2026-10-27
+- [x] Web framework: `Router` and `Server` are stable. Middleware (`use`, with path prefixes, async, `next(err)`), `onError`, static files (`static`, with content types, `index.html`, `ETag`/`Last-Modified` and 304, no path traversal, sandbox read rule), cookies (`req.cookies`, `res.cookie`, `res.clearCookie`), `res.redirect`; header injection refused; errors no longer sent to the client; query strings and parameters decoded; 400/405/413/431 answers; chunked bodies. Example app in `examples/web_app`.
 - [x] Memory after a run (#60): dropping a VM frees every value it allocated, reference cycles included (#147), also cycles stored on the `Error` class (#149). Fuzzing runs with leak detection again (#155).
 - [x] `==` compares arrays, tuples, maps and sets by contents, as `assert.equal` already did (#159)
 - [x] Release 0.3.0: six targets, `.deb`, `.vsix` and Docker image, signed with cosign; the Homebrew tap updates itself; Scoop bucket at 0.3.0; package manifests in `packaging/` point at 0.3.0 (#146, #151)

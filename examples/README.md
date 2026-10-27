@@ -43,6 +43,8 @@ pleno run examples/hello_world.pln
 
 - **file_io.pln** - File reading and writing
 - **http_client.pln** - Making HTTP requests
+- **http_server.pln** - A REST API with `Router` and `Server`
+- **web_app/app.pln** - A web app with middleware, static files, cookies and an error handler (run it from `examples/web_app`)
 - **json_parsing.pln** - JSON encoding and decoding
 - **regex.pln** - Regular expression usage
 
