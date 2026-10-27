@@ -303,3 +303,304 @@ fn literals_that_may_match_are_not_reported() {
     assert_clean("let x: Int = 1 + 2; let y: String = name;");
     assert_clean("let lazy z: Int = 1;");
 }
+
+const POINT: &str = "class Point {\n  x; y;\n  constructor(x, y) { this.x = x; this.y = y; }\n  fn shift(dx, dy) { return Point(this.x + dx, this.y + dy); }\n}\n";
+
+#[test]
+fn methods_called_on_a_value_of_a_known_class() {
+    let found = check(&format!("{POINT}let p = Point(1, 2);\np.shfit(1, 1);"));
+    assert_eq!(
+        found,
+        vec![(
+            Severity::Warning,
+            "Point has no method 'shfit'; did you mean 'shift'?".to_string(),
+            "p.shfit".to_string()
+        )]
+    );
+    assert_eq!(
+        messages(&format!("{POINT}let p = Point(1, 2);\np.shift(1);")),
+        ["Point.shift expects 2 arguments, got 1"]
+    );
+    assert_eq!(
+        messages(&format!("{POINT}Point(1, 2).shift(1, 2, 3);")),
+        ["Point.shift expects 2 arguments, got 3"]
+    );
+    // In a function declared after the `let`, and through a second name.
+    assert_eq!(
+        messages(&format!(
+            "{POINT}let p = Point(1, 2);\nlet q = p;\nfn f() {{ q.shift(); }}"
+        )),
+        ["Point.shift expects 2 arguments, got 0"]
+    );
+    // Inherited methods are found.
+    assert_eq!(
+        messages(
+            "class A { fn base(a) {} }\nclass B extends A {}\nlet b = B();\nb.base(); b.nope();"
+        ),
+        ["B.base expects 1 argument, got 0", "B has no method 'nope'"]
+    );
+    // A private method is not suggested outside its class.
+    assert_eq!(
+        messages("class A { private fn hidden() {} }\nlet a = A();\na.hiden();"),
+        ["A has no method 'hiden'"]
+    );
+}
+
+#[test]
+fn methods_on_values_that_may_have_them_are_not_reported() {
+    // Fields, getters and properties assigned anywhere may hold functions.
+    assert_clean("class A { cb; constructor(cb) { this.cb = cb; } }\nlet a = A(fn() {});\na.cb();");
+    assert_clean("class A { get handler() { return fn() {}; } }\nlet a = A();\na.handler();");
+    assert_clean("class A {}\nlet a = A();\na.later = fn() {};\na.later();");
+    // `extend`, decorators, interfaces, exports and reflection may add methods.
+    assert_clean("class A {}\nextend A { fn later() {} }\nlet a = A();\na.later();");
+    assert_clean("fn deco(c) { return c; }\n@deco\nclass A {}\nlet a = A();\na.added();");
+    assert_clean(
+        "interface I { fn m(); }\nclass A implements I { fn m() {} }\nlet a = A();\na.x();",
+    );
+    assert_clean("export class A {}\nlet a = A();\na.added();");
+    assert_clean("class A {}\nlet a = A();\nreflect.setField(a, \"dyn\", fn() {});\na.dyn();");
+    // A class from elsewhere, or a name bound more than once or with `mut`.
+    assert_clean("class A extends Imported {}\nlet a = A();\na.inherited();");
+    assert_clean("class A {}\nlet a = A();\nfn f(a) { a.other(); }");
+    assert_clean("class A {}\nlet mut a = A();\na.other();");
+    // Out of the block that bound it, the name means something else.
+    assert_clean("class A {}\nif (true) { let a = A(); }\na.other();");
+    // A partial application makes a function, not an instance.
+    assert_clean("class A { constructor(x, y) {} }\nlet make = A(1, _);\nmake.other();");
+}
+
+#[test]
+fn static_methods() {
+    let class = "class Point {\n  static fn origin() { return 1; }\n  static fn at(x, y = 0) { return 1; }\n}\n";
+    assert_eq!(
+        messages(&format!("{class}Point.origin(1);")),
+        ["Point.origin expects no arguments, got 1"]
+    );
+    assert_eq!(
+        messages(&format!("{class}Point.at();")),
+        ["Point.at expects 1 to 2 arguments, got 0"]
+    );
+    let found = check(&format!("{class}Point.orgin();"));
+    assert_eq!(
+        found,
+        vec![(
+            Severity::Warning,
+            "Point has no static method 'orgin'; did you mean 'origin'?".to_string(),
+            "Point.orgin".to_string()
+        )]
+    );
+    // Static methods are inherited.
+    assert_eq!(
+        messages("class A { static fn make(a) {} }\nclass B extends A {}\nB.make();"),
+        ["B.make expects 1 argument, got 0"]
+    );
+    assert_clean(&format!(
+        "{class}Point.origin(); Point.at(1); Point.at(1, 2);"
+    ));
+    // A static field may hold a function; other members are left to the VM.
+    assert_clean("class A { static handler = fn(x) { return x; }; }\nA.handler(1, 2);");
+    assert_clean("class A { fn inst() {} }\nA.inst();");
+    assert_clean("class A {}\nextend A { static later() {} }\nA.later();");
+}
+
+#[test]
+fn lambdas_bound_with_let() {
+    assert_eq!(
+        messages("let f = (x) => x;\nf(1, 2);"),
+        ["f expects 1 argument, got 2"]
+    );
+    assert_eq!(
+        messages("let g = fn(a, b = 1) { return a; };\ng();"),
+        ["g expects 1 to 2 arguments, got 0"]
+    );
+    assert_eq!(
+        messages("let h = (n: Int) => n;\nh(\"s\");"),
+        ["h expects Int for 'n', found a String literal"]
+    );
+    assert_clean("let f = (x) => x;\nf(1); 1 |> f; f(x: 2);");
+    assert_clean("let f = fn(...xs) { return xs; };\nf(); f(1, 2, 3);");
+    assert_clean("let mut f = (x) => x;\nf = (x, y) => x;\nf(1, 2);");
+}
+
+#[test]
+fn values_of_a_known_type_that_cannot_match() {
+    assert_eq!(
+        messages("class P {}\nlet n: Int = P();"),
+        ["'n' is declared Int but given a P instance"]
+    );
+    assert_eq!(
+        messages("let s = \"hi\";\nfn f(n: Int) {}\nf(s);"),
+        ["f expects Int for 'n', found a String value"]
+    );
+    assert_eq!(
+        messages("fn count(): Int { return 1; }\nlet s: String = count();"),
+        ["'s' is declared String but given an Int value"]
+    );
+    assert_eq!(
+        messages("let x: Float = 1;\nfn f(): Int { return x; }"),
+        ["f is declared to return Int but returns a Float value"]
+    );
+    assert_eq!(
+        messages("let n = null;\nlet m: Int = n;"),
+        ["'m' is declared Int but given null"]
+    );
+}
+
+#[test]
+fn values_that_may_match_are_not_reported() {
+    // An Int widens to a Float; `Number`, unions, optionals and `Any` accept more.
+    assert_clean("fn count(): Int { return 1; }\nlet f: Float = count(); let g: Int? = count();");
+    assert_clean("let n = 1;\nlet a: Number = n; let b: Int | String = n; let c: Any = n;");
+    // A class's own name, a superclass or an interface may match an instance.
+    assert_clean("class A {}\nclass B extends A {}\nlet a: A = B(); let b: Shape = B();");
+    // An annotation other than Int, Float, String or Bool guarantees nothing.
+    assert_clean("let n: Number = 1;\nlet i: Int = n;");
+    assert_clean("let c: Char = 'a';\nlet s: String = c;");
+    // `@inline`, async and decorated functions are not trusted.
+    assert_clean("@inline\nfn f(): Int { return 1; }\nlet s: String = f();");
+    assert_clean("async fn f(): Int { return 1; }\nlet s: String = f();");
+    assert_clean("fn d(g) { return g; }\n@d\nfn f(): Int { return 1; }\nlet s: String = f();");
+    // A class replaced by a decorator, or one that extends a built-in type.
+    assert_clean("fn d(c) { return c; }\n@d\nclass A {}\nlet n: Int = A();");
+    assert_clean("class E extends Error {}\nlet s: String = E();");
+    // A type that shadows a built-in name.
+    assert_clean("type Int = String;\nfn f(): Int { return \"s\"; }\nlet s: String = f();");
+}
+
+/// A folder with `files` in it, removed on drop.
+struct Folder(std::path::PathBuf);
+
+impl Folder {
+    fn new(name: &str, files: &[(&str, &str)]) -> Self {
+        let dir = std::env::temp_dir().join(format!("pleno-static-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        for (file, text) in files {
+            let path = dir.join(file);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, text).unwrap();
+        }
+        std::fs::create_dir_all(&dir).unwrap();
+        Folder(dir)
+    }
+
+    /// The messages for `source`, as if read from `main.pln` in the folder.
+    fn messages(&self, source: &str) -> Vec<String> {
+        let tokens = pleno_lexer::lex(source).expect("lex");
+        let program = pleno_parser::Parser::new(tokens, source)
+            .parse_program()
+            .expect("parse");
+        pleno_compiler::check::check_program_in(&program, Some(&self.0.join("main.pln")))
+            .into_iter()
+            .map(|d| d.message)
+            .collect()
+    }
+}
+
+impl Drop for Folder {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.0);
+    }
+}
+
+#[test]
+fn imported_functions_and_names() {
+    let folder = Folder::new(
+        "imports",
+        &[(
+            "lib/m.pln",
+            "export fn helper(a, b = 2) { return a; }\nfn other() {}\nexport { other as renamed };\nexport let name = 1;\nexport let twice = (x) => x * 2;\n",
+        )],
+    );
+    assert_eq!(
+        folder.messages("import { helper, nmae } from \"./lib/m.pln\";\nhelper();"),
+        [
+            "'./lib/m.pln' does not export 'nmae'; did you mean 'name'?",
+            "helper expects 1 to 2 arguments, got 0"
+        ]
+    );
+    // Without the extension, with aliases, and through the module object.
+    assert_eq!(
+        folder.messages(
+            "import { renamed as r, twice } from \"./lib/m\";\nimport m from \"./lib/m.pln\";\nr(1); twice(); m.helper(1, 2, 3);"
+        ),
+        [
+            "r expects no arguments, got 1",
+            "twice expects 1 argument, got 0",
+            "m.helper expects 1 to 2 arguments, got 3"
+        ]
+    );
+    assert!(
+        folder
+            .messages(
+                "import { helper, renamed, name } from \"./lib/m.pln\";\nhelper(1); renamed();"
+            )
+            .is_empty()
+    );
+    // Missing files and packages are not read.
+    assert!(
+        folder
+            .messages("import { x } from \"./missing.pln\";\nx(1, 2);")
+            .is_empty()
+    );
+    assert!(
+        folder
+            .messages("import { x } from \"pkg\";\nx(1, 2);")
+            .is_empty()
+    );
+    // Without a file, nothing is read.
+    assert_clean("import { nmae } from \"./lib/m.pln\";");
+}
+
+#[test]
+fn modules_whose_exports_are_not_all_known() {
+    let folder = Folder::new(
+        "partial",
+        &[
+            ("broken.pln", "export fn thing( {\n"),
+            (
+                "nested.pln",
+                "module inner {\n  export fn hidden() {}\n}\nexport fn shown() {}\n",
+            ),
+            (
+                "deco.pln",
+                "fn d(f) { return f; }\n@d\nexport fn wrapped(a) {}\n",
+            ),
+            (
+                "renames.pln",
+                "type Int = String;\nexport fn f(n: Int) {}\n",
+            ),
+        ],
+    );
+    assert!(
+        folder
+            .messages("import { anything } from \"./broken.pln\";")
+            .is_empty()
+    );
+    assert!(
+        folder
+            .messages("import { hidden } from \"./nested.pln\";")
+            .is_empty()
+    );
+    assert!(
+        folder
+            .messages("import { wrapped } from \"./deco.pln\";\nwrapped(1, 2);")
+            .is_empty()
+    );
+    assert!(
+        folder
+            .messages("import { f } from \"./renames.pln\";\nf(\"s\");")
+            .is_empty()
+    );
+}
+
+#[test]
+fn functions_that_catch_what_they_call_expect_failures() {
+    assert_clean(
+        "fn errorOf(f) { try { f(); } catch (e) { return e; } return null; }\nfn g(n: Int) {}\nerrorOf(() => g(\"s\"));",
+    );
+    assert_eq!(
+        messages("fn run(f) { f(); }\nfn g(n: Int) {}\nrun(() => g(\"s\"));"),
+        ["g expects Int for 'n', found a String literal"]
+    );
+}

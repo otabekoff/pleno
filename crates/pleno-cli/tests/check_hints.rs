@@ -119,3 +119,95 @@ fn std_imports() {
         "{output}"
     );
 }
+
+/// What `pleno check` prints for `main.pln` holding `source`, next to `others`.
+fn check_with(name: &str, source: &str, others: &[(&str, &str)]) -> String {
+    let dir: PathBuf =
+        std::env::temp_dir().join(format!("pleno-check-files-{name}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    for (file, text) in others {
+        std::fs::write(dir.join(file), text).unwrap();
+    }
+    let file = dir.join("main.pln");
+    std::fs::write(&file, source).unwrap();
+    let output = Command::new(PLENO)
+        .args(["check", file.to_str().unwrap()])
+        .output()
+        .unwrap();
+    let _ = std::fs::remove_dir_all(&dir);
+    format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    )
+}
+
+#[test]
+fn names_and_calls_from_other_files() {
+    let module = (
+        "m.pln",
+        "export fn helper(a) { return a; }\nexport let name = 1;\n",
+    );
+    let output = check_with(
+        "imports",
+        "import { helper, nmae } from \"./m.pln\";\nprint(helper(1, 2), nmae);\n",
+        &[module],
+    );
+    for expected in [
+        "main.pln:1:1: warning: './m.pln' does not export 'nmae'; did you mean 'name'?",
+        "main.pln:2:7: error: helper expects 1 argument, got 2",
+    ] {
+        assert!(
+            output.contains(expected),
+            "expected {expected:?} in:\n{output}"
+        );
+    }
+    let output = check_with(
+        "imports-fine",
+        "import { helper, name } from \"./m.pln\";\nprint(helper(name));\n",
+        &[module],
+    );
+    assert!(output.contains("Type check passed"), "{output}");
+}
+
+#[test]
+fn a_file_that_exports_is_checked_as_a_module() {
+    let output = check_with(
+        "module",
+        "module shapes;\nexport fn area(w, h) { return w * h; }\nexport { area as size };\n",
+        &[],
+    );
+    assert!(output.contains("Type check passed"), "{output}");
+}
+
+#[test]
+fn calls_on_known_classes_and_lambdas() {
+    let output = check_with(
+        "classes",
+        "class Point {\n  fn shift(dx) { return dx; }\n  static origin() { return Point(); }\n}\n\
+         let p = Point();\np.shfit(1);\nPoint.origin(1);\nlet twice = (x) => x * 2;\nprint(twice(1, 2));\n",
+        &[],
+    );
+    for expected in [
+        "main.pln:6:1: warning: Point has no method 'shfit'; did you mean 'shift'?",
+        "main.pln:7:1: error: Point.origin expects no arguments, got 1",
+        "main.pln:9:7: error: twice expects 1 argument, got 2",
+    ] {
+        assert!(
+            output.contains(expected),
+            "expected {expected:?} in:\n{output}"
+        );
+    }
+}
+
+#[test]
+fn a_compile_error_does_not_hide_the_other_problems() {
+    // Before, `pleno check` stopped at the compile error and reported nothing else.
+    let out = check(
+        "compile-error-and-more",
+        "fn helper(a) { return a; }\nhelper(1, 2);\nlet total = 1;\ntotal = 2;\n",
+    );
+    assert!(out.contains("helper expects 1 argument, got 2"), "{out}");
+    assert!(out.contains("cannot assign to immutable binding"), "{out}");
+}

@@ -1047,7 +1047,7 @@ fn check_file(path: &str, json_output: bool) {
         }
     };
 
-    let problems = check_source(&source);
+    let problems = check_source(&source, Some(Path::new(path)));
     let has_errors = problems.iter().any(|p| p.severity == Severity::Error);
     if json_output {
         let problems: Vec<serde_json::Value> = problems
@@ -1117,11 +1117,12 @@ impl Problem {
     }
 }
 
-/// The problems in `source`: a lex, parse or compile error, or else every
-/// name read but never defined and what the static checks find (wrong
-/// argument counts, unknown methods on `this`, literals that do not match
-/// their annotation), in source order.
-fn check_source(source: &str) -> Vec<Problem> {
+/// The problems in `source`, read from `file`: a lex, parse or compile
+/// error, or else every name read but never defined and what the static
+/// checks find (wrong argument counts, unknown methods, names a `.pln` file
+/// does not export, values that do not match their annotation), in source
+/// order.
+fn check_source(source: &str, file: Option<&Path>) -> Vec<Problem> {
     let tokens = match pleno_lexer::lex(source) {
         Ok(tokens) => tokens,
         Err(err) => return vec![Problem::error(err.message, err.span.start, err.span.end)],
@@ -1132,35 +1133,42 @@ fn check_source(source: &str) -> Vec<Problem> {
         Err(err) => return vec![Problem::error(err.message, err.span.start, err.span.end)],
     };
     // Compiling may change the program in place, so check it first.
-    let static_problems = pleno_compiler::check::check_program(&program);
+    let static_problems = pleno_compiler::check::check_program_in(&program, file);
     let imports = std_imports(&program);
     // Unused functions and code after a `return` are checked too.
     let mut compiler = pleno_compiler::Compiler::new(source.to_string()).keeping_unused_code();
-    if let Err(err) = compiler.compile(&mut program) {
-        let span = err
-            .diagnostic
-            .labels
-            .first()
-            .map(|label| (label.span.start, label.span.end))
-            .unwrap_or((0, 0));
-        return vec![Problem::error(err.diagnostic.message, span.0, span.1)];
-    }
+    let compiled = compiler.compile_file(&mut program);
 
     // Built-in globals are whatever the standard library registers.
     let mut vm = pleno_vm::VM::new();
     pleno_stdlib::register(&mut vm);
-    let builtins = vm.globals.keys().map(String::as_str);
-    let mut problems: Vec<Problem> = compiler
-        .undefined_globals_with_hints(|name| vm.globals.contains_key(name), builtins)
-        .into_iter()
-        .map(|(name, span, hint)| {
-            Problem::error(
-                format!("undefined variable '{name}'{hint}"),
-                span.start,
-                span.end,
-            )
-        })
-        .collect();
+    let mut problems: Vec<Problem> = match compiled {
+        // A compile error stops the compiler, but not the other checks: they
+        // ran on the parsed program, so report everything found at once.
+        Err(err) => {
+            let span = err
+                .diagnostic
+                .labels
+                .first()
+                .map(|label| (label.span.start, label.span.end))
+                .unwrap_or((0, 0));
+            vec![Problem::error(err.diagnostic.message, span.0, span.1)]
+        }
+        Ok(_) => {
+            let builtins = vm.globals.keys().map(String::as_str);
+            compiler
+                .undefined_globals_with_hints(|name| vm.globals.contains_key(name), builtins)
+                .into_iter()
+                .map(|(name, span, hint)| {
+                    Problem::error(
+                        format!("undefined variable '{name}'{hint}"),
+                        span.start,
+                        span.end,
+                    )
+                })
+                .collect()
+        }
+    };
     problems.extend(std_import_problems(&imports, &vm));
     problems.extend(static_problems.into_iter().map(|d| Problem {
         message: d.message,
@@ -2635,7 +2643,7 @@ mod check_tests {
     use super::*;
 
     fn summary(source: &str) -> Vec<(Severity, String, (usize, usize))> {
-        check_source(source)
+        check_source(source, None)
             .into_iter()
             .map(|p| (p.severity, p.message, line_and_column(source, p.start)))
             .collect()
