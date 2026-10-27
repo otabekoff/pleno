@@ -4,6 +4,10 @@ Notable changes to Pleno. The format follows [Keep a Changelog](https://keepacha
 
 ## Unreleased
 
+### Added
+
+- The release workflow publishes Scoop and WinGet updates along with Homebrew: it writes the Scoop manifest (`scripts/scoop-manifest.sh`) and pushes it to `otabekoff/scoop-bucket`, and opens the WinGet pull request with `wingetcreate update --submit` once winget has a first version. Each step needs its own token secret (`SCOOP_BUCKET_TOKEN`, `WINGET_TOKEN`) and is skipped without it. `packaging/README.md` describes the tokens and how to publish to Chocolatey and the AUR by hand, and `ide/vscode/PUBLISHING.md` how to publish the extension to the VS Code Marketplace and Open VSX.
+
 ### Changed
 
 - `==` and `!=` compare arrays, tuples, maps and sets by contents, as in Python: `[1, [2]] == [1, [2]]`, `(1, "x") == (1, "x")` and `{"a": 1, "b": 2} == {"b": 2, "a": 1}` are `true` (before, only the same array, tuple or map was equal to itself). Maps ignore key order, numbers compare across Int and Float, a class's `operator ==` decides for its instances inside containers, and values that contain themselves compare without looping. `contains` and `indexOf` follow the same rules, so `[[1]].contains([1])` is `true`. Class instances without `operator ==` still compare by identity.

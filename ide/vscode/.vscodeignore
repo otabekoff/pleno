@@ -11,3 +11,4 @@ esbuild.js
 out/**
 !out/extension.js
 resources/icon.svg
+PUBLISHING.md
