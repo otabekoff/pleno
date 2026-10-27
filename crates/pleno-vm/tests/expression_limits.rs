@@ -96,7 +96,7 @@ fn nested_interpolations_share_the_depth_limit() {
     let err = run(&nested).unwrap_err();
     assert_eq!(
         err,
-        "Parse error in interpolation: Recursion limit exceeded"
+        "Parse error in interpolation: code nested too deeply: split it into smaller expressions or functions"
     );
     assert_eq!(
         run("let n = 3;\nprint(\"a ${\"b ${n + 1} c\"} d\");").as_deref(),

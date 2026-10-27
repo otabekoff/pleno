@@ -44,7 +44,7 @@ fn aliases_keep_the_old_string() {
     "#;
     assert_eq!(
         output(source),
-        "ab abx\n[abx] abxy\n{\"k\": m} m3 (t, 1) tt\nc c2\n"
+        "ab abx\n[\"abx\"] abxy\n{\"k\": \"m\"} m3 (\"t\", 1) tt\nc c2\n"
     );
 }
 
@@ -79,7 +79,7 @@ fn appending_operands_of_every_kind() {
     "#;
     assert_eq!(
         output(source),
-        "dd12.5trueznull 01234 [0, 012, 01234] 4000\n"
+        "dd12.5trueznull 01234 [\"0\", \"012\", \"01234\"] 4000\n"
     );
 }
 

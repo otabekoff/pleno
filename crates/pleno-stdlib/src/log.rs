@@ -14,29 +14,9 @@ const OFF: u8 = LEVELS.len() as u8;
 /// Messages below this level are dropped. Starts at `info`.
 static MIN_LEVEL: AtomicU8 = AtomicU8::new(2);
 
+/// A logged value reads the way `print` shows it.
 fn format_value(value: &Value) -> String {
-    match value {
-        Value::String(s) => s.to_string(),
-        Value::Int(i) => i.to_string(),
-        Value::Float(f) => f.to_string(),
-        Value::Bool(b) => b.to_string(),
-        Value::Null => "null".to_string(),
-        Value::Array(arr) => {
-            let borrowed = arr.borrow();
-            let items: Vec<String> = borrowed.elements.iter().map(format_value).collect();
-            format!("[{}]", items.join(", "))
-        }
-        Value::Map(map) => {
-            let borrowed = map.borrow();
-            let items: Vec<String> = borrowed
-                .entries
-                .iter()
-                .map(|(k, v)| format!("{}: {}", k, format_value(v)))
-                .collect();
-            format!("{{{}}}", items.join(", "))
-        }
-        _ => format!("{:?}", value),
-    }
+    value.to_string()
 }
 
 fn emit(level: u8, prefix: Option<&str>, args: &[Value]) {

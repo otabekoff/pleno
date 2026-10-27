@@ -114,7 +114,7 @@ fn getters_run_before_the_arguments() {
         g.fun(log.push("arg"));
         print(log);
     "#;
-    assert_eq!(output(source), "[get, arg]\n");
+    assert_eq!(output(source), "[\"get\", \"arg\"]\n");
 }
 
 #[test]
