@@ -1,166 +1,42 @@
-# Community & Maintainers
+# Community
 
-Pleno is an ambitious, modern programming language project, but it is also intentionally **minimalistic** in how it is built and maintained.
+Pleno is an open-source language, built in the open on [GitHub](https://github.com/otabekoff/pleno). It is maintained by one person, [Otabek Ismoilov](https://github.com/otabekoff), in his own time, so the project is kept small on purpose: it avoids anything that costs money or needs constant care, and spends the time on the language.
 
-The first thing I want to say is
+Help is welcome if you are interested in:
 
-> Yes, I am escaping from taking risks and responsibility, spending money and my precious time.
+- programming language design;
+- virtual machines, compilers and runtimes;
+- tools: the language server, debugger, formatter and linter;
+- documentation, examples and lessons;
+- writing programs and libraries in Pleno.
 
-I am looking for **curious, skilled, and thoughtful people** who want to help build something meaningful in the open-source world — not just another tool, but a language with long-term vision.
+## Where to talk
 
-If you are interested in:
+- **Questions, bugs and ideas:** [GitHub issues](https://github.com/otabekoff/pleno/issues). Search first, then open a new one. For a bug, include `pleno --version`, your operating system and the smallest program that shows the problem.
+- **Security problems:** do not open a public issue; follow [SECURITY.md](https://github.com/otabekoff/pleno/blob/main/SECURITY.md).
+- **News:** the [blog](/blog/) and the [releases](https://github.com/otabekoff/pleno/releases).
 
-- Programming language design
-- Virtual machines, compilers, or runtimes
-- Tooling (LSP, debugger, formatter)
-- Documentation and learning materials
-- Or simply helping an open-source ecosystem grow
+Pleno has no chat server, forum or social media accounts yet. Answers can take a few days.
 
-You are very welcome here.
+## How the project is run
 
----
+The maintainer reviews and merges every change and makes the releases. Language changes start as an issue, so they can be discussed before code is written. [GOVERNANCE.md](https://github.com/otabekoff/pleno/blob/main/GOVERNANCE.md) has the details, and everyone follows the [Code of Conduct](https://github.com/otabekoff/pleno/blob/main/CODE_OF_CONDUCT.md).
 
-## Philosophy
+Things Pleno does not have, by design:
 
-Pleno is built with a very clear philosophy:
+- **A package registry.** Packages are Git repositories, and a version is a Git tag. Anyone can publish, host or fork a package without an account or a server. See [Packages](/guide/packages).
+- **Paid infrastructure.** The site, the releases and the package taps run on free services (GitHub Pages, GitHub Releases, GitHub Actions).
 
-> **Focus on the language itself.  
-> Not on surrounding bureaucracy.**
+Pleno installs with an install script, Homebrew, Scoop or from the release page (see [Installation](/guide/installation)). WinGet is waiting for its first version to be accepted.
 
-I deliberately avoid building and maintaining things that create:
+## The VS Code extension
 
-- financial overhead
-- infrastructure burden
-- long-term operational cost
-- or large time sinks unrelated to language design
+The extension is ready to use: download the `.vsix` file from the [latest release](https://github.com/otabekoff/pleno/releases) and install it as described in [Editor setup](/guide/editor). It is not in the VS Code Marketplace or on Open VSX yet. Publishing it there is part of the 1.0 release.
 
-This is why Pleno does **not** have:
+## Get involved
 
-- A central package registry (packages are Git repositories, versioned with tags)
-- Winget, Scoop, Brew, Apt, or similar installers
-- Complex cloud infrastructure
-- Paid hosting requirements
+- Fix a bug or add a test: the [contributing guide](/guide/contributing) explains how to build and check Pleno.
+- Improve these docs: every page has an **Edit this page on GitHub** link.
+- Build something with Pleno and add it to the [showcase](/showcase).
 
-All of those systems require constant money, time, legal, and operational effort — and they distract from the actual goal:
-
-> **Making Pleno a great programming language.**
-
----
-
-## Why this approach
-
-Most language projects fail not because of bad design, but because of:
-
-- infrastructure burnout
-- funding pressure
-- maintenance overload
-
-Pleno is designed to survive **without money**.
-
-By keeping everything simple, Git-based, and decentralized:
-
-- Anyone can contribute
-- Anyone can host
-- Anyone can fork
-- Nobody is blocked by payments or servers
-
-This keeps Pleno free, open, and sustainable.
-
----
-
-## VS Code Extension (Status)
-
-You can download Pleno Language Support extension and install it manually. But later I will publish it officially.
-
-Yes, Pleno has a VS Code extension, but I want to be clear about the current direction:
-
-- I **do not plan to officially publish** the VS Code extension marketplace release right now.
-- I want to avoid extra overhead like release cycles, marketplace maintenance, support requests, and constant compatibility work while the language itself is still evolving.
-
-For now, the priority is simple:
-
-> **Make Pleno stable and solid first.**
-
-That said, this is not a “never”.
-
-If Pleno reaches a stable stage, I may return to tooling and distribution **step by step**, such as:
-
-- publishing the VS Code extension officially
-- improving editor support
-- adding better installation options
-- and other ecosystem pieces
-
-But only after the core language is strong enough to justify that effort.
-
----
-
-## Sponsorship & Support
-
-While Pleno is designed to run without cost, support is always appreciated.
-
-If you are:
-
-- a sponsor
-- a developer
-- a maintainer
-- a teacher
-- or just someone who believes in this idea
-
-You are welcome to help in any way you can.
-
-This can be:
-
-- contributing code
-- improving documentation
-- testing
-- building tools
-- or providing financial support
-
-There is no obligation — only shared curiosity and respect for good engineering.
-
----
-
-## Join the journey
-
-Pleno is not a product.  
-It is a **craft**.
-
-If you enjoy building things that are:
-
-- elegant
-- deep
-- long-lasting
-- and truly useful
-
-Then you are already part of the kind of community this project wants.
-
-Welcome.
-
-## Community
-
-Join the growing Pleno community! Whether you're a beginner or an experienced language enthusiast, there are many ways to get involved.
-
-### Communication Channels
-
-- **Discord**: [Join our Discord server](https://discord.gg/pleno) to chat with the team and other developers.
-- **GitHub Discussions**: [Ask questions and share ideas](https://github.com/otabekoff/pleno/discussions) on our GitHub repository.
-- **Twitter/X**: Follow [@PlenoLang](https://twitter.com/PlenoLang) for the latest updates.
-
-### Contributing
-
-Pleno is an open-source project and we love contributions! Check out our [Contributing Guide](/guide/contributing) to get started.
-
-- **Report Bugs**: [Open an issue](https://github.com/otabekoff/pleno/issues) on GitHub.
-- **Source Code**: Explore the codebase on [GitHub](https://github.com/otabekoff/pleno).
-
-### Built with Pleno
-
-A showcase of projects created by our community.
-
-- **[VS Code extension](/guide/editor)**: Highlighting, language server, debugger and toolchain install.
-- **[Pleno LSP](/specs/tooling-cli)**: High-performance language server.
-- **[GitHub Releases](https://github.com/otabekoff/pleno/releases)**: Download binaries and VS Code extension.
-
----
-
-_Want to add your project here? [Submit a pull request!](https://github.com/otabekoff/pleno)_
+Everyone with a merged change is listed on the [team and contributors](/team) page.
