@@ -4815,9 +4815,10 @@ impl Compiler {
         self.free_temp(static_setters_reg);
         self.free_temp(operators_reg);
         if let Some(superclass) = superclass {
-            let super_reg = self.registers.allocate()?;
-            let super_idx = self.add_constant(Value::String(superclass.clone().into()));
-            self.emit(Opcode::GetGlobal, super_reg, super_idx, 0);
+            // Read like any other name, so a class declared in a function can
+            // extend another declared there.
+            let super_reg =
+                self.compile_expr(&Expr::new(ExprKind::Ident(superclass.clone()), stmt.span))?;
             self.emit(Opcode::SetSuper, class_reg, super_reg, 0);
             self.free_temp(super_reg);
         }

@@ -249,3 +249,54 @@ class Point {
     assert!(error(&format!("{class}Point.at();")).contains("missing required argument"));
     assert!(error(&format!("{class}Point.at(1, 2, 3);")).contains("too many positional arguments"));
 }
+
+// A constructor that uses a variable from around its class is a closure;
+// `super(...)` into it panicked with "expected function".
+#[test]
+fn super_calls_a_constructor_that_captures_a_variable() {
+    assert_eq!(
+        output(
+            r#"
+            let offset = 1;
+            class A {
+                constructor(n: Int) { this.n = n + offset; }
+            }
+            class B extends A {
+                constructor(n: Int) { super(n * 10); }
+            }
+            class C extends B {}
+            print(B(2).n);
+            print(C(3).n);
+            "#
+        ),
+        "21\n31\n"
+    );
+}
+
+// The superclass was looked up as a global, so a class declared in a function
+// could not extend another class declared there.
+#[test]
+fn a_class_in_a_function_extends_a_class_declared_there() {
+    assert_eq!(
+        output(
+            r#"
+            fn make(k: Int) {
+                class A {
+                    constructor() { this.k = k; }
+                    fn hi(): String { return "hi " + this.k; }
+                }
+                class B extends A {
+                    constructor() { super(); }
+                }
+                return B();
+            }
+            print(make(7).hi());
+            "#
+        ),
+        "hi 7\n"
+    );
+    assert!(
+        error("fn f(x) { class B extends x {} return B(); } f(3);")
+            .contains("superclass must be class")
+    );
+}
