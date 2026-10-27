@@ -487,7 +487,7 @@ impl Formatter {
                     }
                 }
                 ImportKind::Names(items) => {
-                    let names: Vec<Item> = items
+                    let mut names: Vec<Item> = items
                         .iter()
                         .map(|item| {
                             Item::text(
@@ -503,7 +503,7 @@ impl Formatter {
                     let tail = format!(" from \"{path}\";\n");
                     let col = offset + self.width(&prefix);
                     let suffix = self.width(tail.trim_end());
-                    let list = self.name_list(&names, stmt.span, indent_level, col, suffix);
+                    let list = self.name_list(&mut names, stmt.span, indent_level, col, suffix);
                     format!("{prefix}{list}{tail}")
                 }
                 ImportKind::Star { alias } => {
@@ -520,7 +520,7 @@ impl Formatter {
                 format!("{}export {}", current_indent, inner.trim_start())
             }
             StmtKind::ExportList(items) => {
-                let names: Vec<Item> = items
+                let mut names: Vec<Item> = items
                     .iter()
                     .map(|item| {
                         Item::text(
@@ -534,7 +534,7 @@ impl Formatter {
                     .collect();
                 let prefix = format!("{current_indent}export ");
                 let col = offset + self.width(&prefix);
-                let list = self.name_list(&names, stmt.span, indent_level, col, 1);
+                let list = self.name_list(&mut names, stmt.span, indent_level, col, 1);
                 format!("{prefix}{list};\n")
             }
             StmtKind::Class {
@@ -923,8 +923,9 @@ impl Formatter {
             ExprKind::Ident(name) => name.clone(),
             ExprKind::This => "this".to_string(),
             ExprKind::Super => "super".to_string(),
-            ExprKind::Unary { op, expr } => {
-                let inner = self.format_expression(expr, indent_level);
+            ExprKind::Unary { op, expr: operand } => {
+                let lead = self.block_comments_before(expr.span.start, operand.span.start);
+                let inner = lead + &self.format_expression(operand, indent_level);
                 match op {
                     UnaryOp::Negate => format!("-{}", inner),
                     UnaryOp::Not => format!("!{}", inner),
@@ -1006,8 +1007,11 @@ impl Formatter {
             ExprKind::Spread(expr) => {
                 format!("...{}", self.format_expression(expr, indent_level))
             }
-            ExprKind::Paren(expr) => {
-                format!("({})", self.format_expression(expr, indent_level))
+            ExprKind::Paren(inner) => {
+                let lead = self.block_comments_before(expr.span.start, inner.span.start);
+                let text = self.format_expression(inner, indent_level);
+                let trail = self.block_comments_after(inner.span.end, expr.span.end);
+                format!("({lead}{text}{trail})")
             }
             ExprKind::NamedTupleLiteral(entries) => {
                 let items = Self::named_tuple_items(entries);
@@ -1072,18 +1076,14 @@ impl Formatter {
             }
             ExprKind::Underscore => "_".to_string(),
             ExprKind::Index { collection, index } => {
-                format!(
-                    "{}[{}]",
-                    self.format_expression(collection, indent_level),
-                    self.format_expression(index, indent_level)
-                )
+                let collection_text = self.format_expression(collection, indent_level);
+                let region = Span::new(collection.span.end, expr.span.end);
+                collection_text + &self.index_text("[", index, region, indent_level)
             }
             ExprKind::SafeIndex { collection, index } => {
-                format!(
-                    "{}?.[{}]",
-                    self.format_expression(collection, indent_level),
-                    self.format_expression(index, indent_level)
-                )
+                let collection_text = self.format_expression(collection, indent_level);
+                let region = Span::new(collection.span.end, expr.span.end);
+                collection_text + &self.index_text("?.[", index, region, indent_level)
             }
             ExprKind::Slice {
                 collection,
@@ -1091,21 +1091,27 @@ impl Formatter {
                 end,
                 inclusive,
             } => {
-                let start_str = match start {
-                    Some(expr) => self.format_expression(expr, indent_level),
-                    None => "".to_string(),
+                let collection_str = self.format_expression(collection, indent_level);
+                // Block comments in the brackets stay next to the bound
+                // they precede.
+                let part = |this: &mut Self, bound: &Option<Box<Expr>>| match bound {
+                    Some(bound) => {
+                        this.block_comments_before(collection.span.end, bound.span.start)
+                            + &this.format_expression(bound, indent_level)
+                    }
+                    None => String::new(),
                 };
-                let end_str = match end {
-                    Some(expr) => self.format_expression(expr, indent_level),
-                    None => "".to_string(),
-                };
+                let start_str = part(self, start);
+                let end_str = part(self, end);
+                let trail = self.block_comments_after(collection.span.end, expr.span.end);
                 // `[a:b]` has no inclusive form; `[a..=b]` keeps its meaning.
                 format!(
-                    "{}[{}{}{}]",
-                    self.format_expression(collection, indent_level),
+                    "{}[{}{}{}{}]",
+                    collection_str,
                     start_str,
                     if *inclusive { "..=" } else { ":" },
-                    end_str
+                    end_str,
+                    trail
                 )
             }
             ExprKind::SetLiteral(items) => {
@@ -1315,17 +1321,161 @@ impl Formatter {
     /// The `{ a, b as c }` list of an import or export.
     fn name_list(
         &mut self,
-        items: &[Item],
+        items: &mut [Item],
         region: Span,
         indent_level: usize,
         col: usize,
         suffix: usize,
     ) -> String {
+        // A comment among the names keeps its place next to them, so the
+        // list is broken one name per line.
+        if self.pending_comment_in(region) {
+            self.find_name_spans(items, region);
+            if self.has_loose_comment(region, items) {
+                return self.broken_list("{", items, "}", true, region.end, indent_level);
+            }
+        }
         let flat = format!("{{ {} }}", self.flat_items(items, indent_level));
         if self.fits(&flat, col, suffix) {
             return flat;
         }
         self.broken_list("{", items, "}", true, region.end, indent_level)
+    }
+
+    /// The block comments not yet written that start in `from..limit`, each
+    /// followed by a space, to go in front of what starts there. A line
+    /// comment stops it, since it cannot stay on the line.
+    fn block_comments_before(&mut self, from: usize, limit: usize) -> String {
+        let mut out = String::new();
+        while let Some(comment) = self.comments.get(self.comment_index) {
+            if comment.span.start < from
+                || comment.span.start >= limit
+                || comment.kind != CommentKind::Block
+                || comment.content.contains('\n')
+            {
+                break;
+            }
+            out.push_str(&comment_text(comment));
+            out.push(' ');
+            self.comment_index += 1;
+        }
+        out
+    }
+
+    /// `block_comments_before`, for comments that end a construct: each
+    /// preceded by a space.
+    fn block_comments_after(&mut self, from: usize, limit: usize) -> String {
+        let text = self.block_comments_before(from, limit);
+        match text.strip_suffix(' ') {
+            Some(text) => format!(" {text}"),
+            None => text,
+        }
+    }
+
+    /// Whether a comment not yet written starts in `region`.
+    fn pending_comment_in(&self, region: Span) -> bool {
+        self.comments[self.comment_index.min(self.comments.len())..]
+            .iter()
+            .take_while(|comment| comment.span.start < region.end)
+            .any(|comment| comment.span.start >= region.start)
+    }
+
+    /// Sets the span of each name in an import or export list (which the
+    /// parser does not record) from the source of `region`, the statement:
+    /// the next place each name is written, outside comments.
+    fn find_name_spans(&self, items: &mut [Item], region: Span) {
+        let Some(text) = self.source.get(region.start..region.end) else {
+            return;
+        };
+        let Some(open) = text.find('{') else {
+            return;
+        };
+        let in_comment = |offset: usize| {
+            self.comments
+                .iter()
+                .any(|c| c.span.start <= offset && offset < c.span.end)
+        };
+        let find_word = |from: usize, word: &str| -> Option<usize> {
+            let mut at = from;
+            while let Some(found) = text.get(at..)?.find(word) {
+                let start = at + found;
+                let end = start + word.len();
+                let boundary =
+                    |c: Option<char>| !c.is_some_and(|c| c.is_alphanumeric() || c == '_');
+                if boundary(text[..start].chars().next_back())
+                    && boundary(text[end..].chars().next())
+                    && !in_comment(region.start + start)
+                {
+                    return Some(start);
+                }
+                at = end;
+            }
+            None
+        };
+        let mut at = open + 1;
+        for item in items.iter_mut() {
+            let mut words = item.text.split(" as ");
+            let Some(name) = words.next() else {
+                return;
+            };
+            let Some(start) = find_word(at, name) else {
+                return;
+            };
+            let mut end = start + name.len();
+            if let Some(alias) = words.next()
+                && let Some(alias_start) = find_word(end, alias)
+            {
+                end = alias_start + alias.len();
+            }
+            item.span = Some(Span::new(region.start + start, region.start + end));
+            at = end;
+        }
+    }
+
+    /// The `[index]` of an index expression whose brackets span `region`.
+    /// Comments in the brackets stay there: block comments on the line, a
+    /// line comment with the index on a line of its own.
+    fn index_text(
+        &mut self,
+        open: &str,
+        index: &Expr,
+        region: Span,
+        indent_level: usize,
+    ) -> String {
+        let items = [Item::expr("", index)];
+        if !self.has_loose_comment(region, &items) {
+            return format!("{open}{}]", self.format_expression(index, indent_level));
+        }
+        let only_blocks = self.comments[self.comment_index.min(self.comments.len())..]
+            .iter()
+            .take_while(|comment| comment.span.start < region.end)
+            .filter(|comment| comment.span.start >= region.start)
+            .all(|comment| comment.kind == CommentKind::Block && !comment.content.contains('\n'));
+        if !only_blocks {
+            // An enclosing line cannot be printed flat either.
+            self.flat_failed = true;
+            return self.broken_list(open, &items, "]", false, region.end, indent_level);
+        }
+        let mut out = open.to_string();
+        while let Some(comment) = self.comments.get(self.comment_index) {
+            if comment.span.start >= index.span.start {
+                break;
+            }
+            out.push_str(&comment_text(comment));
+            out.push(' ');
+            self.comment_index += 1;
+        }
+        out.push_str(&self.format_expression(index, indent_level));
+        while let Some(comment) = self.comments.get(self.comment_index) {
+            if comment.span.start >= region.end {
+                break;
+            }
+            out.push(' ');
+            out.push_str(&comment_text(comment));
+            self.comment_index += 1;
+        }
+        out.push(']');
+        out
     }
 
     /// Items joined with `, `, noting a comment between them that keeps the
