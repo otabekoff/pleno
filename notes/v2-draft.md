@@ -32,6 +32,10 @@ Status: not started. There are no byte APIs (`bytes()`, `byteLength`). Every str
 
 Status: map keys are strings. Number and Bool literal keys are converted to strings (`{1: "a"}` is `{"1": "a"}`), and so are number and Bool indexes (`m[1]`). Not started: maps keyed by other values (numbers that stay numbers, tuples, objects), which would change `keys()` and iteration.
 
+### Identity comparison
+
+Status: `==` compares arrays, tuples, maps and sets by contents (decided before 1.0, so `==` agrees with `assert.equal`), and class instances by identity unless their class defines `operator ==`. There is no way to ask whether two arrays or maps are the same object. Planned: an identity check, such as a `same(a, b)` function in `std:reflect` or an `===` operator, so code that needs identity does not depend on `==`.
+
 ### Purity checked by the compiler
 
 Status: `@pure` has an incomplete runtime check (experimental in 1.0). Planned: a compile-time check that rejects side effects (I/O natives, assignments outside the function, calls to non-pure functions and mutating methods on values the function does not own) and accepts building new arrays and maps.
