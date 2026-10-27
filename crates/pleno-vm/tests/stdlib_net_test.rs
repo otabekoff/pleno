@@ -4,7 +4,7 @@
 //! and closing when the VM goes away.
 
 use pleno_compiler::Compiler;
-use pleno_value::{SandboxConfig, VMProvider, Value};
+use pleno_value::{RuntimeError, SandboxConfig, VMProvider, Value};
 use pleno_vm::VM;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
@@ -36,7 +36,10 @@ fn new_vm(allow_network: bool) -> VM {
 
 /// Runs `source` and returns what it printed.
 fn run(source: &str) -> String {
-    let mut vm = new_vm(true);
+    run_in(new_vm(true), source)
+}
+
+fn run_in(mut vm: VM, source: &str) -> String {
     let chunk = compile(source);
     if let Err(error) = vm.execute(chunk) {
         panic!(
@@ -46,6 +49,43 @@ fn run(source: &str) -> String {
         );
     }
     vm.output.take().unwrap_or_default()
+}
+
+thread_local! {
+    static PORT_REPORT: std::cell::RefCell<Option<std::sync::mpsc::Sender<u16>>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+fn report_port(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    if let Some(Value::Int(port)) = args.first() {
+        PORT_REPORT.with(|tx| {
+            if let Some(tx) = tx.borrow().as_ref() {
+                let _ = tx.send(*port as u16);
+            }
+        });
+    }
+    Ok(Value::Null)
+}
+
+/// Runs `source` in a thread of its own, with a `reportPort(port)` function,
+/// and returns the reported port and the thread. A server that listens on
+/// port 0 and reports it is listening before the test connects. Choosing a
+/// free port first and retrying the connection until the server bound it
+/// could connect the client to itself: a socket whose own ephemeral port is
+/// the target port, with nothing listening there yet, reads back what it
+/// writes.
+fn spawn_reporting_port(source: String) -> (u16, std::thread::JoinHandle<String>) {
+    let (tx, rx) = std::sync::mpsc::channel();
+    let thread = std::thread::spawn(move || {
+        PORT_REPORT.with(|slot| *slot.borrow_mut() = Some(tx));
+        let mut vm = new_vm(true);
+        vm.register_global("reportPort".to_string(), Value::NativeFunction(report_port));
+        run_in(vm, &source)
+    });
+    let port = rx
+        .recv_timeout(Duration::from_secs(30))
+        .expect("the server did not report its port");
+    (port, thread)
 }
 
 /// A port nothing listens on.
@@ -87,32 +127,25 @@ fn echo_server_and_client_in_one_program() {
 
 #[test]
 fn pleno_server_serves_a_rust_client() {
-    let port = closed_port();
-    let server = std::thread::spawn(move || {
-        run(&format!(
-            r#"
-            import {{ Net }} from "std:net";
-            let listener = Net.listen("127.0.0.1", {port});
-            let conn = await listener.accept();
-            let mut line = await conn.readLine();
-            while (line != null) {{
-                await conn.write("echo: " + line + "\n");
-                line = await conn.readLine();
-            }}
-            conn.close();
-            listener.close();
-            print("served");
-            "#
-        ))
-    });
-    let mut stream = (0..200)
-        .find_map(|_| {
-            TcpStream::connect(("127.0.0.1", port)).ok().or_else(|| {
-                std::thread::sleep(Duration::from_millis(25));
-                None
-            })
-        })
-        .expect("server did not start");
+    let (port, server) = spawn_reporting_port(
+        r#"
+        import { Net } from "std:net";
+        let listener = Net.listen("127.0.0.1", 0);
+        reportPort(listener.port);
+        let conn = await listener.accept();
+        let mut line = await conn.readLine();
+        while (line != null) {
+            await conn.write("echo: " + line + "
+");
+            line = await conn.readLine();
+        }
+        conn.close();
+        listener.close();
+        print("served");
+        "#
+        .to_string(),
+    );
+    let mut stream = TcpStream::connect(("127.0.0.1", port)).expect("cannot connect");
     stream
         .set_read_timeout(Some(Duration::from_secs(10)))
         .unwrap();
