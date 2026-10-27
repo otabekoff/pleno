@@ -195,9 +195,54 @@ pub fn run_pleno() {
             handle_dap(&mut args);
         }
         _ => {
+            // `pleno main.pln` runs the file; a word that is neither a `.pln`
+            // file nor an existing path is a mistyped command.
+            if !command.ends_with(".pln") && !std::path::Path::new(&command).exists() {
+                report_unknown_command(&command);
+            }
             run_file(&command, None, BuildProfile::Debug);
         }
     }
+}
+
+/// `pleno tree`: names the commands it could mean (`plm` ones as `pleno plm`)
+/// and exits with status 2, instead of trying to run a file called `tree`.
+fn report_unknown_command(command: &str) -> ! {
+    const COMMANDS: &[&str] = &[
+        "add",
+        "build",
+        "check",
+        "compile",
+        "dap",
+        "debug-ast",
+        "doc",
+        "fmt",
+        "format",
+        "init",
+        "install",
+        "lint",
+        "lsp",
+        "new",
+        "plm",
+        "remove",
+        "repl",
+        "run",
+        "test",
+        "update",
+        "watch",
+    ];
+    const PLM_COMMANDS: &[&str] = &["info", "list", "publish", "search", "tree"];
+    let hint = if PLM_COMMANDS.contains(&command) {
+        format!("; did you mean 'pleno plm {command}'?")
+    } else {
+        pleno_value::suggest::did_you_mean(command, COMMANDS.iter().copied())
+    };
+    eprintln!(
+        "{} unknown command '{command}'{hint}
+Run `pleno --help` for the commands, or `pleno file.pln` to run a file.",
+        style::red(Stream::Stderr, "Error:")
+    );
+    process::exit(2);
 }
 
 /// The arguments of a subcommand: its paths, the flags it accepts and the

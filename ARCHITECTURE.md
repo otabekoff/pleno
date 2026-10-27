@@ -4,7 +4,7 @@ This document describes the high-level architecture of the Pleno programming lan
 
 ## 🏗️ System Overview
 
-Pleno is a stack-based virtual machine with a multi-stage compilation pipeline. It is designed for safety, performance, and modern language features like async/await and true encapsulation.
+Pleno is a register-based virtual machine with a multi-stage compilation pipeline. It is designed for safety, performance, and modern language features like async/await and true encapsulation.
 
 ```mermaid
 graph TD
@@ -12,7 +12,8 @@ graph TD
     Lexer --> Tokens[Token Stream]
     Tokens --> Parser
     Parser --> AST[Abstract Syntax Tree]
-    AST --> Compiler
+    AST --> Optimizer
+    Optimizer --> Compiler
     Compiler --> Bytecode[Opcode Stream]
     Bytecode --> VM[Virtual Machine]
     VM --> Native[Runtime/Stdlib]
@@ -34,7 +35,15 @@ A hand-written recursive descent parser that transforms tokens into an **AST**.
 
 - **Gradual Typing**: Supports optional type annotations and union types.
 - **Modern Syntax**: Implements classes, interfaces, match expressions, and async syntax.
-- **DCE (Dead Code Elimination)**: Basic static analysis to remove unreachable blocks during parsing where possible.
+
+### Optimization (`pleno-optimizer`)
+
+Before compiling, the AST goes through four passes, in this order (`pleno_optimizer::optimize`):
+
+- **Inlining** of `@inline` functions, where the call behaves like the inlined body.
+- **Constant Folding**: Pre-calculates constant expressions to reduce runtime overhead.
+- **Loop Unrolling** of small loops with constant bounds, within a size budget.
+- **DCE (Dead Code Elimination)**: Removes unused declarations and unreachable statements.
 
 ### Compilation (`pleno-compiler`)
 
@@ -42,7 +51,7 @@ The compiler transforms the AST into a `Chunk` of bytecode instructions.
 
 - **Register Allocation**: Maps variables to local registers.
 - **Closure Analysis**: Identifies captured variables and generates `Opcode::Capture` instructions.
-- **Constant Folding**: Pre-calculates constant expressions to reduce runtime overhead.
+- **Static Checks**: `pleno check` and the language server run the checks in `pleno_compiler::check` (undefined names, argument counts, type mismatches) without running the program.
 
 ## 2. Virtual Machine (`pleno-vm`)
 
@@ -93,14 +102,14 @@ Pleno enforces true encapsulation at the VM level.
 
 ### Generics & Variance
 
-Pleno V2 supports advanced generic types with variance annotations.
+Pleno supports generic types with variance annotations.
 
 - **Covariance (`out`)**: Allows a type to be replaced by its subtype (e.g., `List<out Animal>` can accept `List<Dog>`).
 - **Contravariance (`in`)**: Allows a type to be replaced by its supertype (e.g., `Comparable<in Dog>` can accept `Comparable<Animal>`).
 - **Invariance (default)**: Types must match exactly.
 - **VM Verification**: The VM uses `GenericParamMetadata` in bytecode to verify variance during type checks and assignments.
 
-## 4. Garbage Collection (`pleno-gc`)
+## 4. Garbage Collection (`pleno-value/src/gc.rs`)
 
 Pleno uses a hybrid memory management strategy:
 

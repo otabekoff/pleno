@@ -2,7 +2,8 @@
 set -e
 
 # Pleno Release Build Script
-# This script builds optimized binaries and packages them for distribution.
+# Builds the release binaries for this machine and packs them as release.yml
+# does (Linux and macOS; on Windows the binaries end in .exe).
 
 VERSION=$(grep '^version' Cargo.toml | head -n 1 | cut -d '"' -f 2)
 TARGET_DIR="target/release"
@@ -11,20 +12,20 @@ DIST_DIR="dist"
 echo "Building Pleno v$VERSION..."
 
 # Build workspace in release mode
-cargo build --release --workspace
+cargo build --release --locked --workspace
 
 # Create distribution directory
 rm -rf "$DIST_DIR"
 mkdir -p "$DIST_DIR"
 
-# Copy binaries
-cp "$TARGET_DIR/pleno" "$DIST_DIR/"
-cp "$TARGET_DIR/plm" "$DIST_DIR/"
+# Copy every tool a release archive has
+for tool in pleno plm pleno-lsp pleno-dap pleno-repl; do
+    cp "$TARGET_DIR/$tool" "$DIST_DIR/"
+done
 
-# Create tarball
-PLATFORM=$(uname -s | tr '[:upper:]' '[:lower:]')
-ARCH=$(uname -m)
-TARBALL="pleno-v$VERSION-$ARCH-$PLATFORM.tar.gz"
+# Name it as release.yml does: pleno-vX.Y.Z-<Rust target>.tar.gz
+HOST=$(rustc -vV | sed -n 's/^host: //p')
+TARBALL="pleno-v$VERSION-$HOST.tar.gz"
 
 echo "Packaging into $TARBALL..."
 tar -czf "$TARBALL" -C "$DIST_DIR" .

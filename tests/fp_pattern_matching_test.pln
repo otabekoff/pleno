@@ -1,4 +1,5 @@
 // Test 6.6: Pattern Matching on Data
+import { exit } from "std:process";
 print("Testing Pattern Matching...");
 
 fn assert(condition: Bool, message: String) {

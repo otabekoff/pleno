@@ -193,12 +193,11 @@ impl Inliner {
                     }
                 }
 
-                if let ExprKind::Ident(name) = &callee.kind {
-                    if let Some(decl) = self.inlinable_functions.get(name).cloned() {
-                        if let Some(inlined) = self.try_inline(&decl, args) {
-                            expr.kind = inlined;
-                        }
-                    }
+                if let ExprKind::Ident(name) = &callee.kind
+                    && let Some(decl) = self.inlinable_functions.get(name).cloned()
+                    && let Some(inlined) = self.try_inline(&decl, args)
+                {
+                    expr.kind = inlined;
                 }
             }
             ExprKind::Binary { left, right, .. } => {

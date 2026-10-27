@@ -1,7 +1,7 @@
 #!/bin/sh
 # Installs Pleno from this checkout: builds the release binaries (pleno, plm,
-# pleno-lsp, pleno-dap, pleno-repl) into ~/.pleno/bin, the same folder the
-# release installer uses, and installs the VS Code extension from ide/vscode.
+# pleno-lsp, pleno-dap, pleno-repl) into $PLENO_HOME/bin (~/.pleno/bin by
+# default), the same folder the release installer uses, and installs the VS Code extension from ide/vscode.
 # Run it again after pulling to update.
 #
 # A toolchain that the extension's "Install Toolchain" command downloaded is
@@ -12,7 +12,7 @@
 set -e
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-INSTALL_DIR="$HOME/.pleno/bin"
+INSTALL_DIR="${PLENO_HOME:-$HOME/.pleno}/bin"
 TOOLS="pleno plm pleno-lsp pleno-dap pleno-repl"
 SKIP_TOOLS=0
 SKIP_EXTENSION=0

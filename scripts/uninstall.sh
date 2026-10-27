@@ -2,10 +2,11 @@
 set -e
 
 # Pleno Uninstaller
-# Reverses scripts/install.sh: removes ~/.pleno and the PATH line it added
-# to your shell profile.
+# Reverses scripts/install.sh: removes $PLENO_HOME (~/.pleno by default),
+# with the installed tools and plm's package cache, and the PATH line the
+# installer added to your shell profile.
 
-PLENO_DIR="$HOME/.pleno"
+PLENO_DIR="${PLENO_HOME:-$HOME/.pleno}"
 PATH_LINE="export PATH=\"\$PATH:$PLENO_DIR/bin\""
 
 if [ -d "$PLENO_DIR" ]; then

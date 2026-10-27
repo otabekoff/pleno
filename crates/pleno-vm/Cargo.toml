@@ -11,17 +11,11 @@ pleno-lexer = { workspace = true }
 pleno-parser = { workspace = true }
 pleno-compiler = { workspace = true }
 pleno-common = { workspace = true }
-serde_json = { workspace = true }
 toml = { workspace = true }
-reqwest = { workspace = true }
 indexmap = { workspace = true }
 log = { workspace = true }
-rand = { workspace = true }
 regex = { workspace = true }
-chrono = { workspace = true }
-pleno-diagnostics = { workspace = true }
 mio = { workspace = true, optional = true }
-sha2 = { workspace = true }
 hex = { workspace = true }
 
 [features]

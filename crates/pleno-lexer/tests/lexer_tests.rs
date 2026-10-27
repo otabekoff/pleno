@@ -915,3 +915,12 @@ fn test_unicode_identifier() {
     assert_eq!(tokens.len(), 2);
     assert!(matches!(&tokens[0].kind, TokenKind::Ident(name) if name == "πValue"));
 }
+
+#[test]
+fn a_leading_byte_order_mark_is_ignored() {
+    // Windows editors (Notepad, PowerShell's Out-File) can start a file with one.
+    let tokens = pleno_lexer::lex("\u{feff}let x = 1;").unwrap();
+    assert!(matches!(tokens[0].kind, pleno_lexer::TokenKind::KeywordLet));
+    // Only at the start: elsewhere it is still an unexpected character.
+    assert!(pleno_lexer::lex("let x = \u{feff}1;").is_err());
+}

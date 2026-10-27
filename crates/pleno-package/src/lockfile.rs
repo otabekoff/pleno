@@ -84,7 +84,8 @@ impl Lockfile {
             return Ok(Self::default());
         }
         let content = std::fs::read_to_string(path)?;
-        toml::from_str(&content).map_err(|e| {
+        let content = content.strip_prefix('\u{feff}').unwrap_or(&content);
+        toml::from_str(content).map_err(|e| {
             PackageError::Lockfile(format!(
                 "{} is not a valid lockfile ({e}). Delete it and run `plm install` to write a new one",
                 path.display()

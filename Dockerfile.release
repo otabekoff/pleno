@@ -1,36 +1,30 @@
-# Optimized Dockerfile for Releases
-# This image expects pre-built binaries in the context.
-FROM debian:bookworm-slim
+# The release image, made by release.yml from the prebuilt Linux binaries in
+# binaries/<arch>/. They are built on ubuntu-latest (Ubuntu 24.04, glibc 2.39),
+# so the base must have glibc 2.39 or newer: Debian 12 (bookworm) has 2.36 and
+# cannot run them.
+FROM debian:trixie-slim
 
-# Install runtime dependencies
-RUN apt-get update && apt-get install -y \
+# HTTPS (std:http, plm over Git) needs the CA certificates; plm runs git.
+RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
-    libssl3 \
+    git \
     && rm -rf /var/lib/apt/lists/*
 
-# Create non-root user
 RUN useradd -m -s /bin/bash pleno
 
-# Create workspace directory
 WORKDIR /workspace
 RUN chown pleno:pleno /workspace
 
-# Set binary path
 ARG TARGETARCH
-COPY binaries/${TARGETARCH}/pleno /usr/local/bin/pleno
-COPY binaries/${TARGETARCH}/plm /usr/local/bin/plm
-COPY binaries/${TARGETARCH}/pleno-lsp /usr/local/bin/pleno-lsp
-COPY binaries/${TARGETARCH}/pleno-repl /usr/local/bin/pleno-repl
-RUN chmod +x /usr/local/bin/pleno /usr/local/bin/plm /usr/local/bin/pleno-lsp /usr/local/bin/pleno-repl && \
-    chown pleno:pleno /usr/local/bin/pleno /usr/local/bin/plm /usr/local/bin/pleno-lsp /usr/local/bin/pleno-repl
+COPY --chmod=755 binaries/${TARGETARCH}/pleno binaries/${TARGETARCH}/plm \
+    binaries/${TARGETARCH}/pleno-lsp binaries/${TARGETARCH}/pleno-dap \
+    binaries/${TARGETARCH}/pleno-repl /usr/local/bin/
 
-# Switch to non-root user
 USER pleno
 
-# Default command: start REPL
+# Default command: start the REPL
 CMD ["pleno", "repl"]
 
-# Labels for container metadata
 LABEL org.opencontainers.image.title="Pleno"
 LABEL org.opencontainers.image.description="Pleno Programming Language Runtime"
 LABEL org.opencontainers.image.source="https://github.com/otabekoff/pleno"

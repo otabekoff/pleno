@@ -1,15 +1,26 @@
 #!/usr/bin/env python3
+"""Copies the version and license year from pleno.json into the files that repeat them.
+
+Run by `make sync` (and so by `make build` and `make check`). The places it updates:
+
+- the workspace version in Cargo.toml (every crate inherits it);
+- the version of the VS Code extension in ide/vscode/package.json;
+- the supported versions in SECURITY.md;
+- the copyright years in LICENSE.
+
+Package manifests (pleno.toml) are left alone: a package's version is its own.
+"""
 import json
 import re
-import os
 from pathlib import Path
 
-# Base directory
-BASE_DIR = Path(__file__).parent.parent.absolute()
+BASE_DIR = Path(__file__).resolve().parent.parent
+
 
 def load_metadata():
-    with open(BASE_DIR / "pleno.json", "r") as f:
+    with open(BASE_DIR / "pleno.json", encoding="utf-8") as f:
         return json.load(f)
+
 
 def update_file(path, pattern, replacement):
     full_path = BASE_DIR / path
@@ -17,82 +28,55 @@ def update_file(path, pattern, replacement):
         print(f"Warning: {path} not found.")
         return
 
-    with open(full_path, "r") as f:
+    # newline="" keeps each file's line endings as they are.
+    with open(full_path, encoding="utf-8", newline="") as f:
         content = f.read()
 
     new_content = re.sub(pattern, replacement, content, flags=re.MULTILINE)
-    
+
     if new_content != content:
-        with open(full_path, "w") as f:
+        with open(full_path, "w", encoding="utf-8", newline="") as f:
             f.write(new_content)
-        print(f"✓ Updated {path}")
+        print(f"Updated {path}")
     else:
-        print(f"– No changes for {path}")
+        print(f"No changes for {path}")
+
 
 def main():
     metadata = load_metadata()
     version = metadata["version"]
     year = metadata["license_year"]
-    
-    print(f"Syncing Pleno project metadata (Version: {version}, Year: {year})...")
+    series = ".".join(version.split(".")[:2])
 
-    # 1. Cargo.toml files (Workspace root and all crates)
-    cargo_toml_pattern = r'(^\[(?:workspace\.)?package\]\n(?:.*\n)*?version\s*=\s*")[^"]+(")'
-    update_file("Cargo.toml", cargo_toml_pattern, rf'\g<1>{version}\g<2>')
-    for cargo_toml in BASE_DIR.glob("crates/*/Cargo.toml"):
-        update_file(cargo_toml.relative_to(BASE_DIR), cargo_toml_pattern, rf'\g<1>{version}\g<2>')
+    print(f"Syncing Pleno project metadata (version {version}, years {year})...")
 
-    # 2. ide/vscode/package.json
+    # 1. The workspace version, which every crate inherits.
+    update_file(
+        "Cargo.toml",
+        r'(^\[workspace\.package\]\r?\n(?:.*\r?\n)*?version\s*=\s*")[^"]+(")',
+        rf"\g<1>{version}\g<2>",
+    )
+
+    # 2. The extension's own version (the top-level key, indented by two spaces).
     update_file(
         "ide/vscode/package.json",
-        r'("version"\s*:\s*")[^"]+(")',
-        rf'\g<1>{version}\g<2>'
+        r'^(  "version"\s*:\s*")[^"]+(")',
+        rf"\g<1>{version}\g<2>",
     )
 
-    # 3. pleno.toml files
-    pleno_toml_pattern = r'(^version\s*=\s*")[^"]+(")'
-    for pleno_toml in BASE_DIR.glob("**/pleno.toml"):
-        if "node_modules" in str(pleno_toml) or "target" in str(pleno_toml):
-            continue
-        update_file(pleno_toml.relative_to(BASE_DIR), pleno_toml_pattern, rf'\g<1>{version}\g<2>')
+    # 3. SECURITY.md: the supported series (such as 0.3.x) and the versions before it.
+    update_file("SECURITY.md", r"^(\| )[0-9]+\.[0-9]+\.x( )", rf"\g<1>{series}.x\g<2>")
+    update_file("SECURITY.md", r"^(\| < )[0-9.]+( )", rf"\g<1>{series}.0\g<2>")
 
-    # 4. SECURITY.md
-    update_file(
-        "SECURITY.md",
-        r'(\| < )[^ ]+( \|)',
-        rf'\g<1>{version}\g<2>'
-    )
-
-    # 5. README files (README.dev.md, tests/README.md)
-    readme_files = ["README.dev.md", "tests/README.md"]
-    for readme in readme_files:
-        # Tag examples v0.1.0
-        update_file(readme, r'(tag: "v)[^"]+(")', rf'\g<1>{version}\g<2>')
-        update_file(readme, r'([- ]v)[0-9]+\.[0-9]+\.[0-9]+', rf'\g<1>{version}')
-        update_file(readme, r'(:refs/tags/v)[^ \n]+', rf'\g<1>{version}')
-
-    # 6. LICENSE
+    # 4. LICENSE
     update_file(
         "LICENSE",
-        r'(Copyright \(c\) )[0-9-]+( Pleno Contributors)',
-        rf'\g<1>{year}\g<2>'
-    )
-
-    # 7. specs.md
-    update_file(
-        "specs.md",
-        r'(^## Complete Language Specification v)[^ \n]+',
-        rf'\g<1>{version}'
-    )
-
-    # 8. ide/vscode/src/dashboard.ts (if exists)
-    update_file(
-        "ide/vscode/src/dashboard.ts",
-        r'(Pleno v)[^ ]+',
-        rf'\g<1>{version}'
+        r"(Copyright \(c\) )[0-9-]+( Pleno Contributors)",
+        rf"\g<1>{year}\g<2>",
     )
 
     print("Synchronization complete.")
+
 
 if __name__ == "__main__":
     main()

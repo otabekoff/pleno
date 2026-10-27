@@ -19,8 +19,8 @@ All release archives, on every platform, are also signed with [Sigstore](https:/
 
 | Role | Members |
 | --- | --- |
-| Committers and reviewers | [Otabek Ismoilov (@otabekoff)](https://github.com/otabekoff) |
-| Approvers | [Otabek Ismoilov (@otabekoff)](https://github.com/otabekoff) |
+| Committers and reviewers | [Otabek Sadiridinov (@otabekoff)](https://github.com/otabekoff) |
+| Approvers | [Otabek Sadiridinov (@otabekoff)](https://github.com/otabekoff) |
 
 Changes from contributors without commit access are reviewed by a committer before they are merged. All team members use multi-factor authentication for GitHub and SignPath.
 

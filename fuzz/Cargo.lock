@@ -1067,11 +1067,7 @@ dependencies = [
 name = "pleno-optimizer"
 version = "0.3.0"
 dependencies = [
- "indexmap",
  "pleno-ast",
- "pleno-common",
- "pleno-value",
- "serde",
 ]
 
 [[package]]
@@ -1097,7 +1093,6 @@ dependencies = [
  "indexmap",
  "log",
  "mio",
- "pleno-bytecode",
  "pleno-common",
  "pleno-value",
  "quick-xml",
@@ -1128,7 +1123,6 @@ dependencies = [
 name = "pleno-vm"
 version = "0.3.0"
 dependencies = [
- "chrono",
  "hex",
  "indexmap",
  "log",
@@ -1136,15 +1130,10 @@ dependencies = [
  "pleno-bytecode",
  "pleno-common",
  "pleno-compiler",
- "pleno-diagnostics",
  "pleno-lexer",
  "pleno-parser",
  "pleno-value",
- "rand",
  "regex",
- "reqwest",
- "serde_json",
- "sha2",
  "toml",
 ]
 

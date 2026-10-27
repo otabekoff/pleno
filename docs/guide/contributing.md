@@ -2,7 +2,7 @@
 
 This page explains how to build Pleno from source, run the same checks as CI, and send a change. Changes of every size are welcome: a typo in these docs, a test, a bug fix or a new feature. Everyone with a merged change is listed on the [team and contributors](/team) page.
 
-For a change to the language or the standard library, open an [issue](https://github.com/otabekoff/pleno/issues) first that describes the problem and the behavior you propose, so it can be discussed before you write the code. The 1.x language reference is frozen: additions are possible, changes to documented behavior are not (see the [compatibility promise](/specs/compatibility)).
+For a change to the language or the standard library, start a [discussion](https://github.com/otabekoff/pleno/discussions) or open an [issue](https://github.com/otabekoff/pleno/issues) first that describes the problem and the behavior you propose, so it can be discussed before you write the code. The 1.x language reference is frozen: additions are possible, changes to documented behavior are not (see the [compatibility promise](/specs/compatibility)).
 
 ## What you need
 
@@ -30,7 +30,7 @@ target/release/pleno run examples/hello.pln
 | --- | --- |
 | `crates/pleno-lexer`, `pleno-parser`, `pleno-ast` | Source text to tokens to a syntax tree. |
 | `crates/pleno-compiler`, `pleno-optimizer`, `pleno-bytecode` | The syntax tree to bytecode, and the bytecode format. |
-| `crates/pleno-vm`, `pleno-value`, `pleno-runtime` | The register-based virtual machine, its values, the garbage collector and the event loop. |
+| `crates/pleno-vm`, `pleno-value` | The register-based virtual machine, its values, the garbage collector and the event loop. |
 | `crates/pleno-stdlib` | The `std:*` modules. |
 | `crates/pleno-cli` | The `pleno` and `plm` commands. |
 | `crates/pleno-package` | Packages: `pleno.toml`, `pleno.lock`, fetching from Git. |

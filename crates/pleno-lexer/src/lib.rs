@@ -218,7 +218,9 @@ pub fn lex(source: &str) -> Result<Vec<Token>, LexError> {
     let mut chars = source.char_indices().peekable();
 
     while let Some((start, ch)) = chars.next() {
-        if ch.is_whitespace() {
+        // A UTF-8 byte order mark that some Windows editors (Notepad,
+        // PowerShell's `Out-File`) put at the start of a file is not code.
+        if ch.is_whitespace() || (start == 0 && ch == '\u{feff}') {
             continue;
         }
 

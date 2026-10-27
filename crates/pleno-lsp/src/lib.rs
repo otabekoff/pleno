@@ -7,7 +7,7 @@ use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::fs;
 use std::io::{self, BufRead, Read, Write};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 mod lint;
@@ -22,8 +22,6 @@ struct Symbol {
     kind: SymbolKind,
     span: Span,
     detail: Option<String>,
-    #[allow(dead_code)]
-    file_path: PathBuf,
     children: Vec<Symbol>,
 }
 
@@ -118,8 +116,8 @@ impl ServerState {
                 let mut duplicates = Vec::new();
 
                 // Index symbols
-                if let Some(path) = path {
-                    let symbols = extract_symbols(&program, &path);
+                if path.is_some() {
+                    let symbols = extract_symbols(&program);
 
                     // Check for re-definitions in this file
                     let mut seen_names: std::collections::HashMap<String, Symbol> =
@@ -1421,7 +1419,7 @@ pub fn start() -> io::Result<()> {
 
 // --- Helpers ---
 
-fn extract_symbols(program: &Program, file_path: &Path) -> Vec<Symbol> {
+fn extract_symbols(program: &Program) -> Vec<Symbol> {
     let mut symbols = Vec::new();
 
     for stmt in &program.statements {
@@ -1448,7 +1446,6 @@ fn extract_symbols(program: &Program, file_path: &Path) -> Vec<Symbol> {
                     kind: SymbolKind::Function,
                     span: *name_span,
                     detail: Some(detail),
-                    file_path: file_path.to_path_buf(),
                     children: vec![],
                 });
             }
@@ -1475,7 +1472,6 @@ fn extract_symbols(program: &Program, file_path: &Path) -> Vec<Symbol> {
                         kind: SymbolKind::Method,
                         span: method.name_span,
                         detail: Some(detail),
-                        file_path: file_path.to_path_buf(),
                         children: vec![],
                     });
                 }
@@ -1487,7 +1483,6 @@ fn extract_symbols(program: &Program, file_path: &Path) -> Vec<Symbol> {
                         kind: SymbolKind::Field,
                         span: field.name_span, // Assuming FieldDecl has name_span now (verified in parser)
                         detail: Some(format!("field {}", field.name)),
-                        file_path: file_path.to_path_buf(),
                         children: vec![],
                     });
                 }
@@ -1497,7 +1492,6 @@ fn extract_symbols(program: &Program, file_path: &Path) -> Vec<Symbol> {
                     kind: SymbolKind::Class,
                     span: *name_span,
                     detail: Some(format!("class {}", name)),
-                    file_path: file_path.to_path_buf(),
                     children: class_children,
                 });
             }
@@ -1509,7 +1503,6 @@ fn extract_symbols(program: &Program, file_path: &Path) -> Vec<Symbol> {
                     kind: SymbolKind::Interface,
                     span: *name_span,
                     detail: Some(format!("interface {}", name)),
-                    file_path: file_path.to_path_buf(),
                     children: vec![],
                 });
             }
@@ -1525,7 +1518,6 @@ fn extract_symbols(program: &Program, file_path: &Path) -> Vec<Symbol> {
                     kind: SymbolKind::Variable,
                     span: *name_span,
                     detail: Some(format!("let {}: {}", name, t)),
-                    file_path: file_path.to_path_buf(),
                     children: vec![],
                 });
             }
@@ -1536,7 +1528,6 @@ fn extract_symbols(program: &Program, file_path: &Path) -> Vec<Symbol> {
                         kind: SymbolKind::Variable,
                         span,
                         detail: Some(format!("let {name}")),
-                        file_path: file_path.to_path_buf(),
                         children: vec![],
                     });
                 }

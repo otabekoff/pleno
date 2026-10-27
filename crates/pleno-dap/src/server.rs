@@ -158,13 +158,20 @@ impl<R: BufRead, W: Write> DapServer<R, W> {
                 )?;
             }
             "setBreakpoints" => {
-                let args = request.arguments.as_ref().unwrap();
+                let args = request
+                    .arguments
+                    .as_ref()
+                    .unwrap_or(&serde_json::Value::Null);
                 let source = args
                     .get("source")
                     .and_then(|s| s.get("path"))
                     .and_then(|v| v.as_str())
                     .unwrap_or("");
-                let bps_json = args.get("breakpoints").and_then(|v| v.as_array()).unwrap();
+                let bps_json = args
+                    .get("breakpoints")
+                    .and_then(|v| v.as_array())
+                    .map(Vec::as_slice)
+                    .unwrap_or(&[]);
 
                 let mut vm_bps = Vec::new();
                 for bp_j in bps_json {
@@ -208,7 +215,10 @@ impl<R: BufRead, W: Write> DapServer<R, W> {
                 )?;
             }
             "dataBreakpointInfo" => {
-                let args = request.arguments.as_ref().unwrap();
+                let args = request
+                    .arguments
+                    .as_ref()
+                    .unwrap_or(&serde_json::Value::Null);
                 let name = args.get("name").and_then(|v| v.as_str()).unwrap_or("");
 
                 self.send_response(
@@ -224,8 +234,15 @@ impl<R: BufRead, W: Write> DapServer<R, W> {
                 )?;
             }
             "setDataBreakpoints" => {
-                let args = request.arguments.as_ref().unwrap();
-                let bps_json = args.get("breakpoints").and_then(|v| v.as_array()).unwrap();
+                let args = request
+                    .arguments
+                    .as_ref()
+                    .unwrap_or(&serde_json::Value::Null);
+                let bps_json = args
+                    .get("breakpoints")
+                    .and_then(|v| v.as_array())
+                    .map(Vec::as_slice)
+                    .unwrap_or(&[]);
 
                 // Clear or maintain a separate data_breakpoints list in DapServer?
                 // For now, just a placeholder if needed, but VM will hold the active ones.
@@ -443,14 +460,20 @@ impl<R: BufRead, W: Write> DapServer<R, W> {
                                 )?;
                             }
                             "setBreakpoints" => {
-                                let args = request.arguments.as_ref().unwrap();
+                                let args = request
+                                    .arguments
+                                    .as_ref()
+                                    .unwrap_or(&serde_json::Value::Null);
                                 let source = args
                                     .get("source")
                                     .and_then(|s| s.get("path"))
                                     .and_then(|v| v.as_str())
                                     .unwrap_or("");
-                                let bps_json =
-                                    args.get("breakpoints").and_then(|v| v.as_array()).unwrap();
+                                let bps_json = args
+                                    .get("breakpoints")
+                                    .and_then(|v| v.as_array())
+                                    .map(Vec::as_slice)
+                                    .unwrap_or(&[]);
 
                                 let mut vm_bps = Vec::new();
                                 for bp_j in bps_json {
@@ -497,7 +520,10 @@ impl<R: BufRead, W: Write> DapServer<R, W> {
                                 )?;
                             }
                             "dataBreakpointInfo" => {
-                                let args = request.arguments.as_ref().unwrap();
+                                let args = request
+                                    .arguments
+                                    .as_ref()
+                                    .unwrap_or(&serde_json::Value::Null);
                                 let name = args.get("name").and_then(|v| v.as_str()).unwrap_or("");
 
                                 self.send_response(
@@ -513,9 +539,15 @@ impl<R: BufRead, W: Write> DapServer<R, W> {
                                 )?;
                             }
                             "setDataBreakpoints" => {
-                                let args = request.arguments.as_ref().unwrap();
-                                let bps_json =
-                                    args.get("breakpoints").and_then(|v| v.as_array()).unwrap();
+                                let args = request
+                                    .arguments
+                                    .as_ref()
+                                    .unwrap_or(&serde_json::Value::Null);
+                                let bps_json = args
+                                    .get("breakpoints")
+                                    .and_then(|v| v.as_array())
+                                    .map(Vec::as_slice)
+                                    .unwrap_or(&[]);
 
                                 vm.debug_context.data_breakpoints.clear();
                                 let mut response_bps = Vec::new();
@@ -688,7 +720,10 @@ impl<R: BufRead, W: Write> DapServer<R, W> {
                                 )?;
                             }
                             "evaluate" => {
-                                let args = request.arguments.as_ref().unwrap();
+                                let args = request
+                                    .arguments
+                                    .as_ref()
+                                    .unwrap_or(&serde_json::Value::Null);
                                 let expression = args
                                     .get("expression")
                                     .and_then(|v| v.as_str())
