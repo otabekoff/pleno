@@ -49,6 +49,10 @@ struct Local {
 struct OwnerContext {
     name: String,
     generics: Vec<String>,
+    /// Whether a method finds the bindings of `generics` through its
+    /// receiver: true for a class, false for an extension, whose type
+    /// parameters are not the target's.
+    binds_generics: bool,
 }
 
 impl OwnerContext {
@@ -56,6 +60,7 @@ impl OwnerContext {
         Self {
             name: name.to_string(),
             generics: generics.iter().map(|g| g.name.clone()).collect(),
+            binds_generics: true,
         }
     }
 }
@@ -69,6 +74,8 @@ struct ReturnCheck {
     prefix: String,
     /// ", expected <annotation>".
     suffix: String,
+    /// `Void`: a value left by the last statement is not returned, `null` is.
+    is_void: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -80,6 +87,10 @@ struct CaptureInfo {
     mutable: bool,
     /// A captured `&mut` parameter: reassigning it would not reach the caller.
     borrow_mut: bool,
+    /// A type parameter of the enclosing function or class that the closure
+    /// mentions: the capture holds its binding (see
+    /// `FunctionProto::captured_type_params`).
+    type_param: bool,
 }
 
 #[derive(Clone)]
@@ -170,9 +181,12 @@ pub struct Compiler {
     ownership_states: HashMap<u8, OwnershipState>,
     fn_signatures: Vec<HashMap<String, Vec<ParamOwnership>>>,
     inline_functions: Vec<HashMap<String, FunctionDecl>>,
-    /// For each `@inline` call being compiled: its `return` jumps, how many
-    /// cleanups were open when it started, and the register for its result.
+    /// For each `@inline` call being compiled: its `return` jumps (patched
+    /// to the end of the inlined body), how many cleanups were open when it
+    /// started, and the register its value goes to.
     inline_return_stack: Vec<(Vec<usize>, usize, u8)>,
+    /// The names of the functions being inlined, so one never inlines itself.
+    inlining: Vec<String>,
     referenced_entities: HashSet<String>,
     /// Compile every declaration and statement as written: no optimizer pass
     /// and no skipping of unused functions and classes. Used to find the
@@ -209,6 +223,10 @@ pub struct Compiler {
     owner_context: Option<OwnerContext>,
     /// Type parameters in scope (of enclosing functions and classes).
     generic_names: Vec<String>,
+    /// Those of `generic_names` this function's frame cannot resolve at run
+    /// time (an enclosing function's, in a method of a class declared inside
+    /// it): annotations that mention them are not checked.
+    unbound_generics: Vec<String>,
     /// The return annotation checked at each `return` of this function.
     return_check: Option<ReturnCheck>,
     pub is_async: bool,
@@ -263,6 +281,7 @@ impl Compiler {
             fn_signatures: vec![HashMap::new()],
             inline_functions: vec![HashMap::new()],
             inline_return_stack: Vec::new(),
+            inlining: Vec::new(),
             referenced_entities: HashSet::new(),
             keep_unused_code: false,
             declaration_kinds: HashMap::new(),
@@ -287,6 +306,7 @@ impl Compiler {
             jump_targets_end: 0,
             owner_context: None,
             generic_names: Vec::new(),
+            unbound_generics: Vec::new(),
             return_check: None,
             is_async: false,
             profile: BuildProfile::Debug,
@@ -515,6 +535,15 @@ impl Compiler {
                 Ok(())
             }
             StmtKind::Expr(expr) => {
+                // The value of the previous expression statement is no longer
+                // the last one, so its register can be reused; otherwise a
+                // few hundred calls in a row ran out of registers. Inside an
+                // expression (a block value), it may still be in use.
+                if self.expr_depth == 0
+                    && let Some(previous) = self.last_expr_register.take()
+                {
+                    self.free_temp(previous);
+                }
                 let reg = self.compile_expr(expr)?;
                 self.last_expr_register = Some(reg);
                 Ok(())
@@ -999,6 +1028,8 @@ impl Compiler {
                 Ok(())
             }
             StmtKind::Return(expr) => {
+                // `return;` in a `Void` function needs no check.
+                let unchecked = expr.is_none() && self.returns_void();
                 let reg = match expr {
                     Some(expr) => self.compile_expr(expr)?,
                     None => {
@@ -1008,17 +1039,31 @@ impl Compiler {
                     }
                 };
                 if let Some(&(_, depth, dest)) = self.inline_return_stack.last() {
-                    // A `return` in an inlined body stores the result, leaves
-                    // the `try` and `with` regions opened inside that body and
-                    // jumps past its end.
-                    self.emit(Opcode::Move, dest, reg, 0);
+                    // A `return` in an inlined body is checked like the
+                    // function's own, stores the result, leaves the `try` and
+                    // `with` regions opened inside that body and jumps past
+                    // its end.
+                    let value = if unchecked {
+                        reg
+                    } else {
+                        self.emit_return_check(reg)?
+                    };
+                    self.emit(Opcode::Move, dest, value, 0);
+                    self.free_temp(value);
+                    if value != reg {
+                        self.free_temp(reg);
+                    }
                     self.emit_cleanups(depth)?;
                     let jump = self.emit_jump(Opcode::Jump, 0);
                     if let Some((jumps, _, _)) = self.inline_return_stack.last_mut() {
                         jumps.push(jump);
                     }
                 } else {
-                    let reg = self.emit_return_check(reg)?;
+                    let reg = if unchecked {
+                        reg
+                    } else {
+                        self.emit_return_check(reg)?
+                    };
                     // Run every open `finally` and `with` close, innermost first.
                     self.emit_cleanups(0)?;
                     self.emit(Opcode::Return, reg, 0, 0);
@@ -1630,8 +1675,10 @@ impl Compiler {
                 let args_reg = self.registers.allocate()?;
                 self.emit(Opcode::NewArray, args_reg, 0, 0);
 
+                // An inferred type parameter passed on (`inner<T>(x)`) stands
+                // for any type, like in an annotation's type arguments.
                 for ty_name in type_args {
-                    let type_reg = self.emit_reified_type(ty_name)?;
+                    let type_reg = self.emit_reified_type_as(ty_name, true)?;
                     self.emit(Opcode::ArrayAppend, args_reg, type_reg, 0);
                     self.free_temp(type_reg);
                 }
@@ -1781,6 +1828,7 @@ impl Compiler {
             ExprKind::Call { callee, args } => {
                 if let ExprKind::Ident(name) = &callee.kind
                     && let Some(decl) = self.resolve_inline_function(name).cloned()
+                    && self.can_inline(&decl, args)
                 {
                     let dest = self.registers.allocate()?;
                     self.compile_inlined_call(&decl, args, dest, expr.span)?;
@@ -3584,7 +3632,7 @@ impl Compiler {
             .map(|(idx, info)| (info.name.clone(), (idx, info.clone())))
             .collect();
         compiler.current_super = current_super;
-        self.setup_return_check(&mut compiler, decl);
+        self.setup_return_check(&mut compiler, decl, &captures);
         let mut params = Vec::new();
         if is_method {
             params.push("this".to_string());
@@ -3661,15 +3709,7 @@ impl Compiler {
         }
 
         compiler.compile_stmt(&decl.body)?;
-        let return_reg = match compiler.last_expr_register {
-            Some(reg) => reg,
-            None => {
-                let reg = compiler.registers.allocate()?;
-                compiler.emit(Opcode::LoadNull, reg, 0, 0);
-                reg
-            }
-        };
-        let return_reg = compiler.emit_return_check(return_reg)?;
+        let (_, return_reg) = compiler.emit_fallthrough_value()?;
         compiler.emit(Opcode::Return, return_reg, 0, 0);
         compiler.check_constants()?;
         compiler.record_open_locals();
@@ -3748,6 +3788,7 @@ impl Compiler {
                 .collect(),
             type_constraints,
             annotations: runtime_annotations,
+            captured_type_params: Self::captured_type_params(&captures),
         });
         let dest = self.registers.allocate()?;
         if store_as_function && captures.is_empty() {
@@ -3761,15 +3802,7 @@ impl Compiler {
             );
             self.emit(Opcode::Closure, dest, func_index as u8, capture_count);
             for (idx, info) in captures.iter().enumerate() {
-                let reg = if let Some(local) = self.resolve_local(&info.name) {
-                    local.reg
-                } else if let Some((capture_idx, _)) = self.captures.get(&info.name) {
-                    let temp = self.registers.allocate()?;
-                    self.emit(Opcode::LoadCapture, temp, *capture_idx as u8, 0);
-                    temp
-                } else {
-                    return Err(self.error("unknown capture", self.current_span));
-                };
+                let reg = self.capture_source(info)?;
                 log::trace!("Emitting Capture: dest={}, reg={}, idx={}", dest, reg, idx);
                 self.emit(Opcode::Capture, dest, reg, idx as u8);
                 if !self.is_local_reg(reg) {
@@ -3909,6 +3942,9 @@ impl Compiler {
         let Some(ty_name) = param.ty.as_deref().filter(|ty| *ty != "Any") else {
             return Ok(());
         };
+        if self.mentions_unbound_generic(ty_name) {
+            return Ok(());
+        }
         let param_reg = self
             .resolve_local(&param.name)
             .ok_or_else(|| self.error("unknown parameter", span))?
@@ -3987,6 +4023,18 @@ impl Compiler {
                 leading_blank_lines: 0,
                 trailing_comment: None,
             },
+            // `(x): Void => list.push(x)`: the body's value is not returned.
+            _ if return_ty.is_some_and(|ty| ty.trim() == "Void") => Stmt {
+                kind: StmtKind::Block(vec![Stmt {
+                    kind: StmtKind::Expr((*body).clone()),
+                    span: body.span,
+                    leading_blank_lines: 0,
+                    trailing_comment: None,
+                }]),
+                span: body.span,
+                leading_blank_lines: 0,
+                trailing_comment: None,
+            },
             _ => Stmt {
                 kind: StmtKind::Return(Some((*body).clone())),
                 span: body.span,
@@ -4032,7 +4080,7 @@ impl Compiler {
             .map(|(idx, info)| (info.name.clone(), (idx, info.clone())))
             .collect();
         // Before the parameter checks: they need the type parameters in scope.
-        self.setup_return_check(&mut compiler, &decl);
+        self.setup_return_check(&mut compiler, &decl, &captures);
 
         for param in params {
             let reg = compiler.registers.allocate()?;
@@ -4058,29 +4106,13 @@ impl Compiler {
                 compiler.free_temp(value_reg);
                 compiler.patch_jump(skip_jump)?;
             }
-            // A type parameter of an enclosing function is not known in the
-            // lambda's own frame, so such an annotation is left unchecked.
-            let mentions_generic = param.ty.as_deref().is_some_and(|ty| {
-                mentions_any(
-                    &compiler.expand_type_aliases_deep(ty),
-                    &compiler.generic_names,
-                )
-            });
-            if !mentions_generic {
-                compiler.emit_param_type_check(param, &[], param.span)?;
-            }
+            // A type parameter of an enclosing function or class is
+            // captured, so annotations that mention it are checked too.
+            compiler.emit_param_type_check(param, &[], param.span)?;
         }
 
         compiler.compile_stmt(&decl.body)?;
-        let return_reg = match compiler.last_expr_register {
-            Some(reg) => reg,
-            None => {
-                let reg = compiler.registers.allocate()?;
-                compiler.emit(Opcode::LoadNull, reg, 0, 0);
-                reg
-            }
-        };
-        let return_reg = compiler.emit_return_check(return_reg)?;
+        let (_, return_reg) = compiler.emit_fallthrough_value()?;
         compiler.emit(Opcode::Return, return_reg, 0, 0);
         compiler.check_constants()?;
         compiler.record_open_locals();
@@ -4124,6 +4156,7 @@ impl Compiler {
             type_params: Vec::new(),
             type_constraints: IndexMap::new(),
             annotations: runtime_annotations,
+            captured_type_params: Self::captured_type_params(&captures),
         });
 
         let dest = self.registers.allocate()?;
@@ -4135,15 +4168,7 @@ impl Compiler {
         );
         self.emit(Opcode::Closure, dest, func_index as u8, capture_count);
         for (idx, info) in captures.iter().enumerate() {
-            let reg = if let Some(local) = self.resolve_local(&info.name) {
-                local.reg
-            } else if let Some((capture_idx, _)) = self.captures.get(&info.name) {
-                let temp = self.registers.allocate()?;
-                self.emit(Opcode::LoadCapture, temp, *capture_idx as u8, 0);
-                temp
-            } else {
-                return Err(self.error("unknown capture", self.current_span));
-            };
+            let reg = self.capture_source(info)?;
             log::trace!("Emitting Capture: dest={}, reg={}, idx={}", dest, reg, idx);
             self.emit(Opcode::Capture, dest, reg, idx as u8);
             if !self.is_local_reg(reg) {
@@ -4212,6 +4237,7 @@ impl Compiler {
                         ty: local.ty.clone(),
                         mutable: local.mutable,
                         borrow_mut: local.borrow_mut,
+                        type_param: false,
                     });
                 } else if let Some((_, info)) = self.captures.get(name) {
                     captures.push(CaptureInfo {
@@ -4220,11 +4246,104 @@ impl Compiler {
                         ty: info.ty.clone(),
                         mutable: info.mutable,
                         borrow_mut: info.borrow_mut,
+                        type_param: info.type_param,
                     });
                 }
             }
         }
+        // The type parameters in scope here that a closure mentions are
+        // captured too, so its checks can use their bindings. A method finds
+        // its class's own through its receiver instead.
+        if !is_method {
+            for name in self.bound_generics() {
+                if decl.generics.iter().any(|g| g.name == name)
+                    || !self.closure_mentions(decl, &name)
+                {
+                    continue;
+                }
+                match captures.iter_mut().find(|c| c.name == name) {
+                    Some(existing) => existing.type_param = true,
+                    None => captures.push(CaptureInfo {
+                        name,
+                        is_boxed: false,
+                        ty: None,
+                        mutable: false,
+                        borrow_mut: false,
+                        type_param: true,
+                    }),
+                }
+            }
+        }
         captures
+    }
+
+    /// The type parameters in scope that this function's frame can resolve.
+    fn bound_generics(&self) -> Vec<String> {
+        self.generic_names
+            .iter()
+            .filter(|name| !self.unbound_generics.contains(name))
+            .cloned()
+            .collect()
+    }
+
+    /// Whether the closure `decl` mentions the type name `name` in an
+    /// annotation or anywhere in its body; when its source is unknown, it may.
+    fn closure_mentions(&self, decl: &FunctionDecl, name: &str) -> bool {
+        let names = [name.to_string()];
+        let mut annotations = decl
+            .params
+            .iter()
+            .filter_map(|p| p.ty.as_deref())
+            .chain(decl.return_ty.as_deref());
+        if annotations.any(|ty| mentions_any(ty, &names)) {
+            return true;
+        }
+        let spans = std::iter::once(decl.body.span).chain(
+            decl.params
+                .iter()
+                .filter(|p| p.default.is_some())
+                .map(|p| p.span),
+        );
+        for span in spans {
+            match self.source_map.source().get(span.start..span.end) {
+                Some(text) if !text.is_empty() => {
+                    if mentions_any(text, &names) {
+                        return true;
+                    }
+                }
+                _ => return true,
+            }
+        }
+        false
+    }
+
+    /// The `captured_type_params` of a closure with `captures`.
+    fn captured_type_params(captures: &[CaptureInfo]) -> Vec<(String, u8)> {
+        captures
+            .iter()
+            .enumerate()
+            .filter(|(_, info)| info.type_param)
+            .map(|(idx, info)| (info.name.clone(), idx as u8))
+            .collect()
+    }
+
+    /// Loads the value captured as `info` into a register, for `Capture`.
+    fn capture_source(&mut self, info: &CaptureInfo) -> Result<u8, CompileError> {
+        if let Some(local) = self.resolve_local(&info.name) {
+            Ok(local.reg)
+        } else if let Some((capture_idx, _)) = self.captures.get(&info.name) {
+            let temp = self.registers.allocate()?;
+            self.emit(Opcode::LoadCapture, temp, *capture_idx as u8, 0);
+            Ok(temp)
+        } else if info.type_param {
+            // `c = 3`: the type argument, or `Any` when it was inferred.
+            let temp = self.registers.allocate()?;
+            let name_idx = self.add_constant(Value::String(Rc::new(info.name.clone())));
+            self.emit(Opcode::GetGlobal, temp, name_idx, 3);
+            Ok(temp)
+        } else {
+            Err(self.error("unknown capture", self.current_span))
+        }
     }
 
     fn compile_extend_stmt(
@@ -4233,9 +4352,10 @@ impl Compiler {
         generics: &[pleno_ast::GenericParam],
         methods: &[pleno_ast::FunctionDecl],
     ) -> Result<(), CompileError> {
-        let saved_owner = self
-            .owner_context
-            .replace(OwnerContext::new(target, generics));
+        let saved_owner = self.owner_context.replace(OwnerContext {
+            binds_generics: false,
+            ..OwnerContext::new(target, generics)
+        });
         let class_reg = self.registers.allocate()?;
 
         // Resolve target class; built-in types are passed by name.
@@ -5703,6 +5823,78 @@ impl Compiler {
         None
     }
 
+    /// Whether a call of the `@inline` function `decl` with `args` can be
+    /// compiled in place and behave as the call would: positional arguments
+    /// only, no generics, `async`, ownership modes, variadic or keyword-only
+    /// parameters, nothing in the body that needs a frame of its own
+    /// (closures, declarations, `try`), and no name in it or in its
+    /// annotations that means something else here (a local or a type
+    /// parameter of the caller). Otherwise the function is called.
+    fn can_inline(&self, decl: &FunctionDecl, args: &[pleno_ast::CallArg]) -> bool {
+        if self.inlining.contains(&decl.name)
+            || self.resolve_local(&decl.name).is_some()
+            || self.captures.contains_key(&decl.name)
+            || !decl.generics.is_empty()
+            || decl.is_async
+            || args.len() > decl.params.len()
+            || !args
+                .iter()
+                .all(|arg| matches!(arg, pleno_ast::CallArg::Positional(_)))
+        {
+            return false;
+        }
+        let params_ok = decl.params.iter().enumerate().all(|(i, p)| {
+            !p.is_variadic
+                && !p.is_keyword_only
+                && p.ownership == pleno_ast::Ownership::None
+                && (i < args.len() || p.default.is_some())
+        });
+        if !params_ok {
+            return false;
+        }
+        let mut blocker = InlineBlocker::default();
+        pleno_ast::visitor::Visitor::visit_stmt(&mut blocker, &decl.body);
+        for param in &decl.params {
+            if let Some(default) = &param.default {
+                pleno_ast::visitor::Visitor::visit_expr(&mut blocker, default);
+            }
+        }
+        if blocker.blocked {
+            return false;
+        }
+        let mut collector = prelude::ReferenceCollector::default();
+        pleno_ast::visitor::Visitor::visit_stmt(&mut collector, &decl.body);
+        for param in &decl.params {
+            if let Some(default) = &param.default {
+                pleno_ast::visitor::Visitor::visit_expr(&mut collector, default);
+            }
+        }
+        let annotations: Vec<&str> = decl
+            .params
+            .iter()
+            .filter_map(|p| p.ty.as_deref())
+            .chain(decl.return_ty.as_deref())
+            .collect();
+        let mut names = collector.names;
+        for ty in &annotations {
+            names.extend(
+                ty.split(|c: char| !(c.is_alphanumeric() || c == '_'))
+                    .filter(|word| !word.is_empty())
+                    .map(str::to_string),
+            );
+        }
+        !names.iter().any(|name| {
+            !decl.params.iter().any(|p| p.name == *name)
+                && (self.resolve_local(name).is_some()
+                    || self.captures.contains_key(name)
+                    || self.generic_names.contains(name))
+        })
+    }
+
+    /// Compiles a call of the `@inline` function `decl` in place (see
+    /// `can_inline`), with the checks a call would make: each annotated
+    /// parameter and each value returned, as `emit_param_type_check` and
+    /// `emit_return_check` do in the function itself.
     fn compile_inlined_call(
         &mut self,
         decl: &FunctionDecl,
@@ -5710,49 +5902,69 @@ impl Compiler {
         dest: u8,
         _span: Span,
     ) -> Result<(), CompileError> {
+        // The arguments are evaluated where the call is, before any
+        // parameter hides a name they read; each gets a register of its own,
+        // since the body may assign the parameter.
+        let mut arg_regs = Vec::new();
+        for arg in args {
+            if let pleno_ast::CallArg::Positional(expr) = arg {
+                let mut reg = self.compile_expr(expr)?;
+                if self.is_local_reg(reg) {
+                    let copy = self.registers.allocate()?;
+                    self.emit(Opcode::Move, copy, reg, 0);
+                    reg = copy;
+                }
+                arg_regs.push(reg);
+            }
+        }
+
+        let old_last_expr = self.last_expr_register.take();
+        let old_top_level = std::mem::replace(&mut self.is_top_level, false);
+        // The messages name the function alone, also inside a method.
+        let old_owner = self.owner_context.take();
+        let check = self.return_check_for(decl, &[]);
+        let old_check = std::mem::replace(&mut self.return_check, check);
+        self.owner_context = old_owner;
+        self.inlining.push(decl.name.clone());
         self.push_scope();
 
-        // Map arguments to parameters
-        for (i, param) in decl.params.iter().enumerate() {
-            let arg_reg = if i < args.len() {
-                match &args[i] {
-                    pleno_ast::CallArg::Positional(expr) => self.compile_expr(expr)?,
-                    _ => {
-                        return Err(self.error(
-                            "Inlining only supported for positional arguments",
-                            self.current_span,
-                        ));
-                    }
-                }
-            } else if let Some(default) = &param.default {
-                self.compile_expr(default)?
-            } else {
-                let r = self.registers.allocate()?;
-                self.emit(Opcode::LoadNull, r, 0, 0);
-                r
+        for (param, reg) in decl.params.iter().zip(&arg_regs) {
+            self.insert_local(param.name.clone(), *reg, true, param.ty.clone())?;
+        }
+        for param in decl.params.iter().skip(arg_regs.len()) {
+            let Some(default) = &param.default else {
+                return Err(self.error("missing argument", self.current_span));
             };
-            self.insert_local(param.name.clone(), arg_reg, true, param.ty.clone())?;
+            let mut reg = self.compile_expr(default)?;
+            if self.is_local_reg(reg) {
+                let copy = self.registers.allocate()?;
+                self.emit(Opcode::Move, copy, reg, 0);
+                reg = copy;
+            }
+            self.insert_local(param.name.clone(), reg, true, param.ty.clone())?;
+        }
+        for param in &decl.params {
+            self.emit_param_type_check(param, &[], param.span)?;
         }
 
-        let old_last_expr = self.last_expr_register;
         self.inline_return_stack
             .push((Vec::new(), self.cleanup_stack.len(), dest));
-
         self.compile_stmt(&decl.body)?;
+        // The end of the body without `return`, as in `compile_function`.
+        let (value, checked) = self.emit_fallthrough_value()?;
+        self.emit(Opcode::Move, dest, checked, 0);
+        let (return_jumps, _, _) = self.inline_return_stack.pop().unwrap_or_default();
 
-        if let Some(reg) = self.last_expr_register {
-            self.emit(Opcode::Move, dest, reg, 0);
-        } else {
-            self.emit(Opcode::LoadNull, dest, 0, 0);
+        self.last_expr_register = None;
+        self.free_temp(checked);
+        if value != checked {
+            self.free_temp(value);
         }
-
-        let return_jumps = self
-            .inline_return_stack
-            .pop()
-            .map(|(jumps, _, _)| jumps)
-            .unwrap_or_default();
-        self.last_expr_register = old_last_expr;
         self.pop_scope();
+        self.inlining.pop();
+        self.return_check = old_check;
+        self.is_top_level = old_top_level;
+        self.last_expr_register = old_last_expr;
 
         let end_pos = self.chunk.code.len();
         for jump in return_jumps {
@@ -5845,27 +6057,53 @@ impl Compiler {
     }
 
     /// Sets up `child`, the compiler of `decl`'s body: the type parameters in
-    /// scope and the check of its return annotation.
-    fn setup_return_check(&self, child: &mut Compiler, decl: &FunctionDecl) {
+    /// scope and the check of its return annotation. The child's frame
+    /// resolves its own type parameters, its class's (through the receiver)
+    /// and those it captures; the others in scope are unbound there.
+    fn setup_return_check(
+        &self,
+        child: &mut Compiler,
+        decl: &FunctionDecl,
+        captures: &[CaptureInfo],
+    ) {
         let mut generic_names = self.generic_names.clone();
+        let mut bound: Vec<String> = decl.generics.iter().map(|g| g.name.clone()).collect();
         if let Some(owner) = &self.owner_context {
             generic_names.extend(owner.generics.iter().cloned());
+            if owner.binds_generics {
+                bound.extend(owner.generics.iter().cloned());
+            }
         }
+        bound.extend(
+            captures
+                .iter()
+                .filter(|c| c.type_param)
+                .map(|c| c.name.clone()),
+        );
         generic_names.extend(decl.generics.iter().map(|g| g.name.clone()));
-        child.return_check = self.return_check_for(decl, &generic_names);
+        child.unbound_generics = generic_names
+            .iter()
+            .filter(|name| !bound.contains(name))
+            .cloned()
+            .collect();
+        child.return_check = self.return_check_for(decl, &child.unbound_generics);
         child.generic_names = generic_names;
     }
 
+    /// Whether the annotation `ty` mentions a type parameter this frame
+    /// cannot resolve, so that checking it could reject a right value.
+    fn mentions_unbound_generic(&self, ty: &str) -> bool {
+        !self.unbound_generics.is_empty()
+            && mentions_any(&self.expand_type_aliases_deep(ty), &self.unbound_generics)
+    }
+
     /// The check of `decl`'s return annotation, or `None` when there is
-    /// nothing this can check reliably: no annotation, `Any`, `Void`, a type
-    /// that mentions a type parameter, setters, constructors and abstract
-    /// methods. For an `async` function the annotation describes the resolved
-    /// value, so `Promise<Int>` checks for an `Int`.
-    fn return_check_for(
-        &self,
-        decl: &FunctionDecl,
-        generic_names: &[String],
-    ) -> Option<ReturnCheck> {
+    /// nothing this can check reliably: no annotation, `Any`, a type that
+    /// mentions a type parameter the function's frame cannot resolve
+    /// (`unbound`), `Self`, setters, constructors and abstract methods. For an
+    /// `async` function the annotation describes the resolved value, so
+    /// `Promise<Int>` checks for an `Int`. `Void` accepts only `null`.
+    fn return_check_for(&self, decl: &FunctionDecl, unbound: &[String]) -> Option<ReturnCheck> {
         let declared = decl.return_ty.as_deref()?.trim();
         if decl.is_abstract || decl.name == "constructor" || decl.kind == FunctionKind::Setter {
             return None;
@@ -5884,26 +6122,36 @@ impl Compiler {
         let core = ty.strip_suffix('?').unwrap_or(ty).trim();
         let expanded = self.expand_type_aliases_deep(core);
         if ty.is_empty()
-            || matches!(expanded.trim(), "Any" | "Void")
-            || mentions_any(&expanded, generic_names)
+            || expanded.trim() == "Any"
+            || mentions_any(&expanded, unbound)
             || mentions_any(&expanded, &["Self".to_string(), "This".to_string()])
         {
             return None;
         }
-        // A user generic such as `Box<Int>` is checked by its class alone, which
-        // needs no allocation; anything else with type arguments that the VM does
-        // not read from text is skipped.
+        let is_void = expanded.trim() == "Void" && !ty.ends_with('?');
+        // A class of this file with type arguments, such as `Box<Int>`, is
+        // checked with them, like a parameter; `Box<Int>?` and anything else
+        // with type arguments that the VM does not read from text is checked by
+        // its class alone, or skipped.
         let mut checked = ty.to_string();
         if !expanded.starts_with('(')
             && let Some((base, _)) = expanded.split_once('<')
             && !matches!(base.trim(), "Array" | "Map" | "Set" | "Result" | "Option")
         {
-            let simple = expanded.ends_with('>')
-                && base.trim().chars().all(|c| c.is_alphanumeric() || c == '_');
-            if !simple || ty.ends_with('?') {
+            let base = base.trim();
+            let simple =
+                expanded.ends_with('>') && base.chars().all(|c| c.is_alphanumeric() || c == '_');
+            if !simple {
                 return None;
             }
-            checked = base.trim().to_string();
+            let own_class = self.declaration_kinds.get(base) == Some(&"class");
+            checked = if ty.ends_with('?') {
+                format!("{base}?")
+            } else if own_class {
+                expanded.trim().to_string()
+            } else {
+                base.to_string()
+            };
         }
         let name = if decl.name == "anonymous" {
             "lambda".to_string()
@@ -5921,7 +6169,34 @@ impl Compiler {
             ty: checked,
             prefix: format!("TypeError: {name} returned "),
             suffix: format!(", expected {ty}"),
+            is_void,
         })
+    }
+
+    /// Whether the function is annotated `Void`, so `null` needs no check.
+    fn returns_void(&self) -> bool {
+        self.return_check
+            .as_ref()
+            .is_some_and(|check| check.is_void)
+    }
+
+    /// What a function returns when its body ends without `return`: the
+    /// last expression's value, or `null`, which a `Void` function always
+    /// returns. Gives the register of the value and that of the checked
+    /// value (see `emit_return_check`).
+    fn emit_fallthrough_value(&mut self) -> Result<(u8, u8), CompileError> {
+        let value = match self.last_expr_register.filter(|_| !self.returns_void()) {
+            Some(reg) => reg,
+            None => {
+                let reg = self.registers.allocate()?;
+                self.emit(Opcode::LoadNull, reg, 0, 0);
+                if self.returns_void() {
+                    return Ok((reg, reg));
+                }
+                reg
+            }
+        };
+        Ok((value, self.emit_return_check(value)?))
     }
 
     /// Checks a value about to be returned against the function's return
@@ -5973,6 +6248,9 @@ impl Compiler {
     }
 
     fn emit_type_check_only(&mut self, reg: u8, ty_name: &str) -> Result<(), CompileError> {
+        if self.mentions_unbound_generic(ty_name) {
+            return Ok(());
+        }
         // Parse the type string to handle optional and union types
         let (base_types, is_optional) = self.parse_type_string(ty_name);
 
@@ -6134,8 +6412,45 @@ impl Compiler {
     }
 
     fn emit_reified_type(&mut self, ty_name: &str) -> Result<u8, CompileError> {
+        self.emit_reified_type_as(ty_name, false)
+    }
+
+    /// `emit_reified_type`, for a type argument when `as_arg` (the `T` of
+    /// `Box<T>`). A type parameter is looked up before any global of the same
+    /// name; as a type argument an inferred one stands for any type, as does
+    /// an argument that only mentions one (`Box<T[]>`).
+    fn emit_reified_type_as(&mut self, ty_name: &str, as_arg: bool) -> Result<u8, CompileError> {
         let expanded = self.expand_type_aliases_deep(ty_name);
-        let ty_name = expanded.as_str();
+        let ty_name = expanded.as_str().trim();
+        let is_generic = self.generic_names.iter().any(|g| g == ty_name);
+        if is_generic || (as_arg && mentions_any(ty_name, &self.generic_names)) {
+            let type_reg = self.registers.allocate()?;
+            if !is_generic {
+                let any_idx = self.add_constant(Value::String(Rc::new("Any".to_string())));
+                self.emit(Opcode::LoadConst, type_reg, any_idx, 0);
+                return Ok(type_reg);
+            }
+            if let Some((idx, _)) = self.captures.get(ty_name) {
+                self.emit(Opcode::LoadCapture, type_reg, *idx as u8, 0);
+                return Ok(type_reg);
+            }
+            // `c = 2` (`3` for a type argument): a type parameter in scope.
+            let name_idx = self.add_constant(Value::String(Rc::new(ty_name.to_string())));
+            self.emit(
+                Opcode::GetGlobal,
+                type_reg,
+                name_idx,
+                if as_arg { 3 } else { 2 },
+            );
+            let is_null_reg = self.registers.allocate()?;
+            self.emit(Opcode::LoadNull, is_null_reg, 0, 0);
+            self.emit(Opcode::Eq, is_null_reg, type_reg, is_null_reg);
+            let skip = self.emit_jump(Opcode::JumpIfNot, is_null_reg);
+            self.emit(Opcode::LoadConst, type_reg, name_idx, 0);
+            self.patch_jump(skip)?;
+            self.free_temp(is_null_reg);
+            return Ok(type_reg);
+        }
         // Built-in generic collections, `Result` and `Option` are checked from
         // the annotation text by the VM.
         let builtin_generic = ty_name.split_once('<').is_some_and(|(base, _)| {
@@ -6167,7 +6482,7 @@ impl Compiler {
             let args_reg = self.registers.allocate()?;
             self.emit(Opcode::NewArray, args_reg, 0, 0);
             for arg_name in args {
-                let arg_type_reg = self.emit_reified_type(&arg_name)?;
+                let arg_type_reg = self.emit_reified_type_as(&arg_name, true)?;
                 self.emit(Opcode::ArrayAppend, args_reg, arg_type_reg, 0);
                 self.free_temp(arg_type_reg);
             }
@@ -7018,6 +7333,46 @@ fn mut_param_assign_message(name: &str) -> String {
         "cannot assign to '&mut' parameter '{name}': the caller's variable would not change; \
          mutate the value in place or return the new value"
     )
+}
+
+/// Finds what keeps a function body from being inlined: anything that needs
+/// a frame of its own (closures, declarations, `try`).
+#[derive(Default)]
+struct InlineBlocker {
+    blocked: bool,
+}
+
+impl<'ast> pleno_ast::visitor::Visitor<'ast> for InlineBlocker {
+    fn visit_stmt(&mut self, stmt: &'ast Stmt) {
+        match &stmt.kind {
+            StmtKind::Fn { .. }
+            | StmtKind::Class { .. }
+            | StmtKind::Interface { .. }
+            | StmtKind::Enum(_)
+            | StmtKind::Try { .. }
+            | StmtKind::Import { .. }
+            | StmtKind::Export(_)
+            | StmtKind::ExportList(_)
+            | StmtKind::Module { .. }
+            | StmtKind::MacroDecl { .. }
+            | StmtKind::TypeAlias { .. }
+            | StmtKind::Extend { .. }
+            | StmtKind::Labeled { .. } => self.blocked = true,
+            _ => pleno_ast::visitor::walk_stmt(self, stmt),
+        }
+    }
+
+    fn visit_expr(&mut self, expr: &'ast Expr) {
+        match &expr.kind {
+            ExprKind::Lambda { .. }
+            | ExprKind::This
+            | ExprKind::Super
+            | ExprKind::Await { .. }
+            | ExprKind::MacroCall { .. }
+            | ExprKind::MacroSplice(_) => self.blocked = true,
+            _ => pleno_ast::visitor::walk_expr(self, expr),
+        }
+    }
 }
 
 /// Whether the annotation `ty` mentions one of `names` as a whole word.

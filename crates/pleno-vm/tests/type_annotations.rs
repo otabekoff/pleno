@@ -218,7 +218,7 @@ fn method_and_lambda_returns_are_checked() {
 }
 
 #[test]
-fn generic_returns_are_not_second_guessed() {
+fn inferred_generic_returns_are_accepted() {
     let source = r#"
         fn id<T>(x: T): T { return x; }
         class Box<T> {

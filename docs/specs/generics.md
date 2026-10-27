@@ -12,7 +12,11 @@ let str = identity<String>("hello");
 let inferred = identity(3.14);  // No type argument: T is not checked
 ```
 
-With explicit type arguments, parameters annotated with the type parameter are checked: `identity<Int>("s")` throws `TypeError: parameter 'value' expected T, got String`. Without them, a type parameter accepts any value.
+With explicit type arguments, annotations that mention the type parameter are checked: `identity<Int>("s")` throws `TypeError: parameter 'value' expected T, got String`, and a function declared `: T` that returns something else throws `TypeError: identity returned String, expected T`. Without them, a type parameter accepts any value (or, with a constraint, any value that satisfies it), so inferring a type argument never rejects a right program.
+
+A lambda or nested function inside a generic function sees the function's type parameters: in `fn apply<T>(x: T, y) { let g = (z: T) => z; return g(y); }`, `apply<Int>(1, "s")` throws `TypeError: parameter 'z' expected T, got String`. The lambda keeps the binding of `T` from where it was created; when `T` was inferred there, it accepts any value, also with a constraint. The same holds for a lambda in a method of a generic class, bound to the instance's type arguments. A method of a class declared inside a generic function does not see the function's type parameters, so annotations in it that mention them are not checked.
+
+A type parameter comes before any global of the same name: in `fn id<T>(x: T): T`, `T` means the type argument even if the program also declares a class `T`.
 
 ### 10.2 Generic Classes
 
@@ -37,7 +41,9 @@ let intBox = Box<Int>(42);
 let strBox = Box<String>("hello");
 ```
 
-An instance remembers the type arguments it was created with, or the types of the constructor arguments when none are given, and an annotation such as `Box<Int>` checks them: `let b: Box<Int> = Box("s");` throws `TypeError: expected Box<Int>, found Box`.
+An instance remembers the type arguments it was created with, and an annotation such as `Box<Int>` (of a parameter, a `let`, a field or a return) checks them: `Box<String>("s")` does not match it. An instance made without type arguments has them inferred, so it matches when each field annotated with a type parameter holds `null` or a value of the matching type argument: `Box(1)` matches `Box<Int>`, while `let b: Box<Int> = Box("s");` throws `TypeError: expected Box<Int>, found Box`. A type argument that is `Any`, or an inferred type parameter of the enclosing function (`fn f<T>(b: Box<T>)` called as `f(Box<Int>(1))`), matches any type argument.
+
+The constructor and the methods check their parameters against the instance's type arguments: `Box<Int>("s")` throws `TypeError: parameter 'value' expected T, got String`. A field annotated with a type parameter is checked against them too when it is set from outside the class: after `let b = Box<Int>(1);`, `b.value = "s"` throws `TypeError: field 'value' expected T, got String`, and a field `items: T[]` of a `Stack<Int>` accepts only `Int` elements. The fields of an instance made without type arguments accept any value.
 
 ### 10.3 Generic Constraints
 
