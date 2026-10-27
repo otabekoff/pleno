@@ -690,9 +690,11 @@ pub struct RuntimeError {
     pub handled: bool,
     /// Ends the program and cannot be caught: a sandbox limit was reached.
     pub fatal: bool,
-    /// Set by `exit(code)`: the program asked to end with this status. The
-    /// error is fatal, so it unwinds the whole program; the host decides what
-    /// ending means (the `pleno` CLI exits the process with the code).
+    /// Set by `exit(code)`: the program asked to end with this status. It
+    /// unwinds as a `SystemExit` error, which runs `finally` blocks and `with`
+    /// closes but which an untyped `catch` lets through; when nothing catches
+    /// it, the host decides what ending means (the `pleno` CLI exits the
+    /// process with the code).
     #[serde(default)]
     pub exit_code: Option<i32>,
 }
@@ -729,12 +731,28 @@ impl RuntimeError {
         }
     }
 
-    /// `exit(code)`: ends the program with `code` (see `exit_code`).
+    /// `exit(code)`: ends the program with `code` (see `exit_code`). The
+    /// message is what a `SystemExit` error is made from wherever the error
+    /// becomes a Pleno exception (`split_error_message` gives its name).
     pub fn exit(code: i32) -> Self {
         Self {
             exit_code: Some(code),
-            ..Self::fatal(format!("program exited with code {code}"))
+            ..Self::new(format!("{SYSTEM_EXIT_CLASS}: exit({code})"))
         }
+    }
+
+    /// The status `exit(code)` asked for, if this error is an exit: its
+    /// `exit_code`, or the code in a message that went through a promise or
+    /// a callback as text.
+    pub fn exit_status(&self) -> Option<i32> {
+        self.exit_code.or_else(|| Self::exit_code_in(&self.message))
+    }
+
+    /// The code of a `SystemExit: exit(N)` message, also after it was wrapped
+    /// (`uncaught exception: SystemExit: exit(N)`).
+    pub fn exit_code_in(message: &str) -> Option<i32> {
+        let rest = message.split("SystemExit: exit(").nth(1)?;
+        rest.split(')').next()?.parse().ok()
     }
 
     pub fn with_span(mut self, span: pleno_common::Span) -> Self {
@@ -1837,6 +1855,8 @@ impl Object {
 
 /// The name of the class every error extends.
 pub const ERROR_CLASS: &str = "Error";
+/// The built-in subclass of `Error` that `exit(code)` throws.
+pub const SYSTEM_EXIT_CLASS: &str = "SystemExit";
 
 impl Class {
     /// A class named `name` without members, as `class Name {}` declares.
@@ -1887,6 +1907,20 @@ impl Class {
         class
     }
 
+    /// The built-in `SystemExit` class, a subclass of `error` with an Int
+    /// `code` field.
+    pub fn system_exit(error: GcRc<Class>) -> Self {
+        let mut class = Self::empty(SYSTEM_EXIT_CLASS);
+        class.superclass = Some(error);
+        class
+            .fields
+            .insert("code".to_string(), MethodVisibility::Public);
+        class
+            .field_types
+            .insert("code".to_string(), Some("Int".to_string()));
+        class
+    }
+
     /// Whether this is the built-in `Error` class (not a subclass or a
     /// user class that happens to share its name).
     pub fn is_builtin_error(&self) -> bool {
@@ -1929,6 +1963,13 @@ impl Class {
 /// Splits a runtime error message such as `TypeError: expected Int` into its
 /// name (`TypeError`) and the rest; messages without such a prefix are `Error`s.
 pub fn split_error_message(message: &str) -> (&str, &str) {
+    // `exit(code)` (see `RuntimeError::exit`) is the one name not ending in Error.
+    if let Some(rest) = message
+        .strip_prefix(SYSTEM_EXIT_CLASS)
+        .and_then(|rest| rest.strip_prefix(": "))
+    {
+        return (SYSTEM_EXIT_CLASS, rest);
+    }
     if let Some((name, rest)) = message.split_once(": ")
         && name.len() > ERROR_CLASS.len()
         && name.ends_with(ERROR_CLASS)

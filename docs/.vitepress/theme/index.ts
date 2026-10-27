@@ -16,6 +16,7 @@ import HomeInstall from './components/HomeInstall.vue'
 import PlaygroundPage from './components/PlaygroundPage.vue'
 import PlenoHome from './components/PlenoHome.vue'
 import SiteFooter from './components/SiteFooter.vue'
+import TeamContributors from './components/TeamContributors.vue'
 import TutorialStep from './components/TutorialStep.vue'
 
 export default {
@@ -34,6 +35,7 @@ export default {
     app.component('HomeInstall', HomeInstall)
     app.component('PlaygroundPage', PlaygroundPage)
     app.component('PlenoHome', PlenoHome)
+    app.component('TeamContributors', TeamContributors)
     app.component('TutorialStep', TutorialStep)
   },
 } satisfies Theme

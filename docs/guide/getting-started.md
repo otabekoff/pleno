@@ -140,12 +140,15 @@ try {
 ### Async code
 
 ```pleno
-import { HTTP } from "std:http";
+import { sleep } from "std:time";
 
-async fn fetchTitle(url: String): String {
-    let response = await HTTP.get(url);
-    return response.body.substring(0, 60);
+// Stands in for a slow operation, such as reading a file or a socket.
+async fn double(n: Int): Int {
+    await sleep(10);
+    return n * 2;
 }
+
+print(await double(21));   // 42
 
 let task = spawn(fn() => 6 * 7);
 print(await task);   // 42

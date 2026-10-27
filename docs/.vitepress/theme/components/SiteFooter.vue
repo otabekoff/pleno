@@ -39,6 +39,7 @@ const columns = [
   {
     title: 'Community',
     links: [
+      { text: 'Team and contributors', href: '/team' },
       { text: 'Contributing', href: '/guide/contributing' },
       { text: 'Report an issue', href: 'https://github.com/otabekoff/pleno/issues' },
       { text: 'Code signing policy', href: '/code-signing-policy' },
@@ -46,14 +47,15 @@ const columns = [
   },
 ]
 
-// The Telegram and Instagram accounts do not exist yet.
+// Only accounts that exist. Pleno has no Telegram or Instagram account yet.
 const socials: { label: string; icon: IconName; href: string }[] = [
   { label: 'GitHub', icon: 'github', href: 'https://github.com/otabekoff/pleno' },
-  { label: 'Telegram', icon: 'telegram', href: '#' },
-  { label: 'Instagram', icon: 'instagram', href: '#' },
 ]
 
-const href = (link: string) => (link.startsWith('http') || link === '#' ? link : withBase(link))
+const REPO = 'https://github.com/otabekoff/pleno'
+const LICENSE = `${REPO}/blob/main/LICENSE`
+
+const href = (link: string) => (link.startsWith('http') ? link : withBase(link))
 </script>
 
 <template>
@@ -87,8 +89,11 @@ const href = (link: string) => (link.startsWith('http') || link === '#' ? link :
     </div>
     <div class="bottom pl-container">
       <div class="bottom-inner">
-        <p>Released under the MIT License.</p>
-        <p>© 2026 Otabek and Pleno contributors</p>
+        <p>Released under the <a :href="LICENSE" target="_blank" rel="noopener">MIT License</a>.</p>
+        <p>
+          <a :href="LICENSE" target="_blank" rel="noopener">© 2024–2026 Pleno contributors</a>
+          · <a :href="REPO" target="_blank" rel="noopener">otabekoff/pleno</a>
+        </p>
       </div>
     </div>
   </footer>
@@ -199,6 +204,19 @@ const href = (link: string) => (link.startsWith('http') || link === '#' ? link :
 
 .bottom p {
   margin: 0;
+}
+
+.bottom a {
+  color: var(--vp-c-text-2);
+  text-decoration: underline;
+  text-decoration-color: var(--vp-c-divider);
+  text-underline-offset: 3px;
+  transition: color 0.15s, text-decoration-color 0.15s;
+}
+
+.bottom a:hover {
+  color: var(--vp-c-text-1);
+  text-decoration-color: currentColor;
 }
 
 @media (min-width: 960px) {

@@ -70,3 +70,37 @@ fn exit_in_a_sandbox_ends_only_the_sandbox() {
         (0, "program exited with code 9\nhost continues\n")
     );
 }
+
+#[test]
+fn exit_runs_finally_blocks_and_with_closes() {
+    // Before, `exit` skipped them: a file written inside `with` was not closed.
+    let (code, out) = run(
+        "cleanup",
+        &format!(
+            "{IMPORT}class R {{ close() {{ print(\"closed\"); }} }}\n\
+             try {{\n\
+                 with (r = R()) {{ print(\"body\"); exit(6); }}\n\
+             }} finally {{ print(\"finally\"); }}\n\
+             print(\"never\");\n"
+        ),
+    );
+    assert_eq!((code, out.as_str()), (6, "body\nclosed\nfinally\n"));
+}
+
+#[test]
+fn only_a_catch_for_system_exit_stops_exit() {
+    let (code, out) = run(
+        "untyped-catch",
+        &format!(
+            "{IMPORT}try {{ exit(4); }} catch (e) {{ print(\"caught\"); }}\nprint(\"after\");\n"
+        ),
+    );
+    assert_eq!((code, out.as_str()), (4, ""));
+    let (code, out) = run(
+        "typed-catch",
+        &format!(
+            "{IMPORT}try {{ exit(4); }} catch (e: SystemExit) {{ print(e.name, e.code); }}\nprint(\"after\");\n"
+        ),
+    );
+    assert_eq!((code, out.as_str()), (0, "SystemExit 4\nafter\n"));
+}

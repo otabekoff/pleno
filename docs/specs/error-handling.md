@@ -41,7 +41,7 @@ An error that nothing catches stops the program with exit status 1. It prints th
 
 ## Closing resources with `with`
 
-`with` opens one or more resources, runs a block, and then calls `close()` on each resource, however the block ends: at its closing brace, through `return`, `break` or `continue`, or with an error.
+`with` opens one or more resources, runs a block, and then calls `close()` on each resource, however the block ends: at its closing brace, through `return`, `break` or `continue`, with an error, or with `exit()`. A sandbox limit (`SandboxError`) is the one exception: it ends the program at once, without running `finally` or `with` closes.
 
 ```pleno
 import { File } from "std:io";

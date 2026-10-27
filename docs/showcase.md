@@ -1,26 +1,29 @@
-# Showcase: Built with Pleno
+# Showcase
 
-Explore projects, tools, and applications built using the Pleno programming language.
+Programs and tools built with Pleno, and the tools built for it.
 
-## Official Tools
+## Programs in the repository
 
-| Project              | Description                                           | Link                                             |
-| -------------------- | ----------------------------------------------------- | ------------------------------------------------ |
-| **VS Code extension** | Highlighting, language server, debugger and toolchain install. | [/guide/editor](/guide/editor) |
-| **Plm**              | The Pleno Package Manager for ecosystem control.      | [/specs/package-manager](/specs/package-manager) |
-| **Pleno LSP**        | Professional Language Server Protocol implementation. | [/specs/tooling-cli](/specs/tooling-cli)         |
+These run with `pleno run` and are tested in CI.
 
-## Community Projects
+| Program | What it shows |
+| --- | --- |
+| [`examples/web_app/app.pln`](https://github.com/otabekoff/pleno/blob/main/examples/web_app/app.pln) | A web app with `std:http`: middleware, static files, cookies and an error handler. |
+| [`examples/net_echo.pln`](https://github.com/otabekoff/pleno/blob/main/examples/net_echo.pln) | A TCP echo server and its client in one program, with `std:net` and `async`/`await`. |
+| [`examples/todo_app.pln`](https://github.com/otabekoff/pleno/blob/main/examples/todo_app.pln) | A command-line todo list that saves its tasks as JSON. |
+| [`examples/concurrency.pln`](https://github.com/otabekoff/pleno/blob/main/examples/concurrency.pln) | Tasks, channels and mutexes. |
 
-_Coming soon! We're just getting started. If you've built something with Pleno, [submit a PR](https://github.com/otabekoff/pleno/pulls) to add it here._
+The [examples page](/examples) has shorter programs you can run in the browser.
 
-### Featured Ideas
+## Tools for Pleno
 
-- **Pleno Raytracer**: High-performance CPU raytracer built entirely in Pleno. (In development)
-- **Pleno Web Framework**: A lightweight, async-first web framework for Pleno. (Concept)
+| Tool | What it does | Docs |
+| --- | --- | --- |
+| VS Code extension | Highlighting, the language server, the debugger, a test view, and installing the toolchain. | [Editor setup](/guide/editor) |
+| `plm` | Creates projects and installs their dependencies from Git repositories. | [Packages](/guide/packages) |
+| `pleno-lsp` | The language server: errors as you type, completion, go to definition, rename. | [CLI and tools](/specs/tooling-cli) |
+| `pleno-dap` | The debugger, over the Debug Adapter Protocol. | [CLI and tools](/specs/tooling-cli) |
 
----
+## Community projects
 
-### How to get featured?
-
-If you have a project built with Pleno, please share it with us on [Discord](https://discord.gg/pleno) or open a Pull Request. We'd love to showcase your work!
+None are listed yet. If you have built a program or a library with Pleno, add it to this page: edit [`docs/showcase.md`](https://github.com/otabekoff/pleno/edit/main/docs/showcase.md) and open a pull request with a link and one line about what it does. Libraries can also use the GitHub topic [`pleno-package`](https://github.com/topics/pleno-package), which `plm search` points to.

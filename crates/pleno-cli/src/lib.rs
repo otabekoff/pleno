@@ -706,7 +706,7 @@ fn run_single_test(
     let result = vm
         .execute(chunk)
         // `exit(0)` ends a test file successfully; another code fails it.
-        .or_else(|err| match err.exit_code {
+        .or_else(|err| match err.exit_status() {
             Some(0) => Ok(pleno_value::Value::Null),
             _ => Err(err),
         })
@@ -900,11 +900,11 @@ fn execute_main_chunk(
                 process::exit(1);
             }
         }
-        Ok(Err(err)) if err.exit_code.is_some() => {
+        Ok(Err(err)) if err.exit_status().is_some() => {
             // `exit(code)`: the program ended itself.
             use std::io::Write;
             let _ = std::io::stdout().flush();
-            process::exit(err.exit_code.unwrap_or(0));
+            process::exit(err.exit_status().unwrap_or(0));
         }
         Ok(Err(err)) => {
             match source {
