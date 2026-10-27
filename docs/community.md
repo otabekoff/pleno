@@ -1,6 +1,6 @@
 # Community
 
-Pleno is an open-source language, built in the open on [GitHub](https://github.com/otabekoff/pleno). It is maintained by one person, [Otabek Ismoilov](https://github.com/otabekoff), in his own time, so the project is kept small on purpose: it avoids anything that costs money or needs constant care, and spends the time on the language.
+Pleno is an open-source language, built in the open on [GitHub](https://github.com/otabekoff/pleno). It is maintained by one person, [Otabek Ismoilov](https://github.com/otabekoff), in spare time, so the project is kept small on purpose: it avoids anything that costs money or needs constant care, and spends the time on the language.
 
 Help is welcome if you are interested in:
 

@@ -7,7 +7,7 @@ aside: false
 
 ## Maintainer
 
-Pleno is written and maintained by **Otabek Ismoilov** ([@otabekoff](https://github.com/otabekoff)). He reviews and merges changes, makes the releases and approves signing requests (see the [code signing policy](./code-signing-policy#team-roles)).
+Pleno is written and maintained by **Otabek Ismoilov** ([@otabekoff](https://github.com/otabekoff)), who reviews and merges changes, makes the releases and approves signing requests (see the [code signing policy](./code-signing-policy#team-roles)).
 
 ## Contributors
 
