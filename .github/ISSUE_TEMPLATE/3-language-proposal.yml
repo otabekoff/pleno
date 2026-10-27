@@ -1,0 +1,38 @@
+name: Language proposal
+description: Propose a change to the language itself — syntax, semantics, keywords or the type checks.
+labels: [enhancement, proposal]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        The language is specified in the [specification](https://pleno.mohirlab.uz/specs/). A change to it is held to a higher bar than a library addition: code written for Pleno 1.0 must keep working, so every new rule has to be worth carrying forever.
+
+  - type: textarea
+    id: motivation
+    attributes:
+      label: Motivation
+      description: The problem this solves, with a real program that is awkward, slow or error-prone today.
+    validations:
+      required: true
+
+  - type: textarea
+    id: design
+    attributes:
+      label: The proposed change
+      description: The new syntax or behavior, with examples of programs that use it and what they do.
+    validations:
+      required: true
+
+  - type: textarea
+    id: compatibility
+    attributes:
+      label: Compatibility
+      description: Does any program that runs today stop working or change meaning? Does it reserve a new keyword?
+    validations:
+      required: true
+
+  - type: textarea
+    id: prior-art
+    attributes:
+      label: Prior art and alternatives
+      description: How Python, Rust, Kotlin, Swift or other languages handle this, and designs you rejected.
