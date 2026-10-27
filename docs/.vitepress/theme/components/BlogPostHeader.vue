@@ -3,14 +3,14 @@
 // (the `doc-before` slot) on pages under /blog/.
 import { computed } from 'vue'
 import { useData, withBase } from 'vitepress'
-import { formatDate } from '../format-date'
+import { formatDate, postDay } from '../format-date'
 import PlIcon from './PlIcon.vue'
 
 const { frontmatter, page } = useData()
 const isPost = computed(() => page.value.relativePath.startsWith('blog/') && page.value.relativePath !== 'blog/index.md')
 const date = computed(() => {
   const value = frontmatter.value.date
-  return value ? new Date(value).toISOString().slice(0, 10) : ''
+  return value ? postDay(value) : ''
 })
 </script>
 

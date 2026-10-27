@@ -9,7 +9,7 @@ import PlIcon from './PlIcon.vue'
   <div class="blog pl-container">
     <header class="head">
       <h1 class="pl-display">Blog</h1>
-      <p>News about Pleno and the work toward 1.0.</p>
+      <p>News about Pleno and the work toward 1.0. <a :href="withBase('/feed.xml')">Subscribe with RSS</a>.</p>
     </header>
     <ol class="posts">
       <li v-for="post in posts" :key="post.url">

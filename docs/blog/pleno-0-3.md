@@ -1,6 +1,6 @@
 ---
 title: "Pleno 0.3.0: faster than CPython, and saying what it means"
-date: 2026-10-27
+date: 2026-10-27T02:12:00+05:00
 author: Otabek
 description: Pleno now beats CPython 3.14 on every benchmark, the language reference and the implementation agree, and it installs with Homebrew and Scoop.
 ---

@@ -7,3 +7,13 @@ export function formatDate(isoDate: string): string {
     timeZone: 'UTC',
   })
 }
+
+/**
+ * The day a post's frontmatter `date` falls on, as "2026-10-27". A date may
+ * carry a time (`2026-10-27T22:30:00+05:00`) to order posts of the same day;
+ * the day is counted in the maintainer's time zone, so the time never moves
+ * the date a reader sees.
+ */
+export function postDay(value: string | Date): string {
+  return new Date(value).toLocaleDateString('en-CA', { timeZone: 'Asia/Tashkent' })
+}

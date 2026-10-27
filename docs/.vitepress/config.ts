@@ -1,4 +1,4 @@
-import { defineConfig } from 'vitepress'
+import { createContentLoader, defineConfig } from 'vitepress'
 import fs from 'fs'
 import path from 'path'
 
@@ -10,6 +10,46 @@ const plenoGrammar = JSON.parse(
 )
 
 const BASE = '/'
+const SITE = 'https://pleno.mohirlab.uz'
+
+function escapeXml(text: string): string {
+  return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+}
+
+// An RSS feed of the blog at /feed.xml, newest post first.
+async function writeFeed(outDir: string) {
+  const posts = await createContentLoader('blog/*.md').load()
+  const items = posts
+    .filter((post) => post.frontmatter.date)
+    .sort((a, b) => new Date(b.frontmatter.date).getTime() - new Date(a.frontmatter.date).getTime())
+    .map((post) => {
+      const link = `${SITE}${post.url}`
+      return [
+        '    <item>',
+        `      <title>${escapeXml(post.frontmatter.title)}</title>`,
+        `      <link>${link}</link>`,
+        `      <guid>${link}</guid>`,
+        `      <pubDate>${new Date(post.frontmatter.date).toUTCString()}</pubDate>`,
+        `      <description>${escapeXml(post.frontmatter.description ?? '')}</description>`,
+        '    </item>',
+      ].join('\n')
+    })
+  const feed = [
+    '<?xml version="1.0" encoding="UTF-8"?>',
+    '<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">',
+    '  <channel>',
+    '    <title>Pleno blog</title>',
+    `    <link>${SITE}/blog/</link>`,
+    `    <atom:link href="${SITE}/feed.xml" rel="self" type="application/rss+xml" />`,
+    '    <description>News about Pleno and the work toward 1.0.</description>',
+    '    <language>en</language>',
+    ...items,
+    '  </channel>',
+    '</rss>',
+    '',
+  ].join('\n')
+  fs.writeFileSync(path.join(outDir, 'feed.xml'), feed)
+}
 
 // Pleno's version, read from the workspace's Cargo.toml so the site never shows a stale one:
 // `v0.4` in the nav, `0.4.0` for the home page (through themeConfig.plenoVersion).
@@ -57,6 +97,11 @@ export default defineConfig({
   // Broken internal links fail the build.
   ignoreDeadLinks: [/^https?:\/\/localhost/],
   lastUpdated: true,
+  // sitemap.xml lists every page for search engines; feed.xml carries the blog.
+  sitemap: { hostname: `${SITE}/` },
+  async buildEnd(siteConfig) {
+    await writeFeed(siteConfig.outDir)
+  },
   appearance: 'dark',
   // Blog posts read as articles: no sidebars and no prev/next links.
   transformPageData(pageData) {
@@ -67,6 +112,7 @@ export default defineConfig({
   },
   head: [
     ['link', { rel: 'icon', href: `${BASE}logo.svg` }],
+    ['link', { rel: 'alternate', type: 'application/rss+xml', title: 'Pleno blog', href: `${BASE}feed.xml` }],
     ['script', {}, BANNER_SCRIPT],
   ],
   themeConfig: {
