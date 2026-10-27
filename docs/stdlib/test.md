@@ -97,7 +97,7 @@ Each assertion throws an error when it fails.
 
 ### `assert.equal(actual, expected)`
 
-Asserts deep equality. Arrays and maps are compared element by element, and numbers by value: an Int equals a Float of the same value.
+Asserts that the two values are equal the way `==` decides it: arrays, tuples, maps and sets by their contents, numbers by value (an Int equals a Float of the same value, and Floats compare exactly), and class instances by their class's `operator ==`, or by identity when it has none. `assert.notEqual` and `assert.contains` use the same equality.
 
 ```pleno
 import { assert } from "std:test";

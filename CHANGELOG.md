@@ -59,6 +59,7 @@ The changes below were made in the 1.0 review of the reference, because the comp
 
 ### Fixed
 
+- `assert.equal`, `assert.notEqual` and `assert.contains` now decide equality the way `==` does. Tuples (also inside arrays) and sets compared by their debug text, so `assert.equal((1, "b"), (1, "b"))` and `assert.equal(Set([1, 2]), Set([2, 1]))` failed; a class's `operator ==` was ignored; and Floats were compared with a tolerance, so `assert.equal(0.1 + 0.2, 0.3)` passed although `0.1 + 0.2 == 0.3` is false.
 - The Linux release programs needed glibc 2.39, the version on the build machine, so they failed with `version 'GLIBC_2.39' not found` on Ubuntu 22.04, Debian 12, RHEL 9 and older. They are now built against glibc 2.17, and CI checks this and runs `pleno` on CentOS 7.
 - The instruction limit (`--max-instructions`, the playground and other sandboxes) could fail to stop a loop. It was checked only when the instruction count was a multiple of 100, and loops of fused instructions add two or three at a time, so `let mut i = 0; while (i < 2) { }` could step past every check and run forever. The limit is now checked against a threshold, and so is the collector's check of the string and big-integer tables. Found by fuzzing.
 - `super(...)` crashed the VM (`internal error: entered unreachable code: expected function`) when the parent's constructor used a variable from outside its class, such as a top-level `let`. Found by fuzzing.

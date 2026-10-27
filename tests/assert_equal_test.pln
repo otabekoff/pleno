@@ -1,0 +1,51 @@
+// `assert.equal` decides equality the way `==` does.
+import { assert } from "std:test";
+
+fn fails(f: Function): Bool {
+    try {
+        f();
+    } catch (e) {
+        return true;
+    }
+    return false;
+}
+
+// Tuples, nested in arrays too (they compared by their debug text).
+assert.equal((1, "b"), (1, "b"));
+assert.equal([(2, "a"), (1, "b")], [(2, "a"), (1, "b")]);
+assert.equal((x: 1, y: 2), (x: 1, y: 2));
+assert.isTrue(fails(fn() => assert.equal((1, 2), (2, 1))));
+
+// Sets compare by their elements, in any order.
+assert.equal(Set([1, 2, 3]), Set([3, 2, 1]));
+assert.isTrue(fails(fn() => assert.equal(Set([1]), Set([1, 2]))));
+
+// Numbers as `==` compares them: exactly, an Int equal to a Float of its value.
+assert.equal(10 / 2, 5);
+assert.equal(0.5 + 0.25, 0.75);
+assert.isTrue(fails(fn() => assert.equal(0.1 + 0.2, 0.3)));
+
+// A class's `operator ==` decides for its instances; without one, an instance
+// equals only itself.
+class Money {
+    cents: Int;
+    constructor(cents: Int) { this.cents = cents; }
+    operator ==(other) {
+        return other is Money && other.cents == this.cents;
+    }
+}
+class Plain {
+    constructor() {}
+}
+assert.equal(Money(150), Money(150));
+assert.equal([Money(1)], [Money(1)]);
+assert.notEqual(Money(1), Money(2));
+let plain = Plain();
+assert.equal(plain, plain);
+assert.notEqual(Plain(), Plain());
+
+// `contains` uses the same equality.
+assert.contains([(1, 2), (3, 4)], (3, 4));
+assert.contains([Money(5)], Money(5));
+
+print("assert.equal ok");

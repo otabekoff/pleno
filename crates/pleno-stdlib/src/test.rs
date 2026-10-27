@@ -1,6 +1,9 @@
 use indexmap::IndexMap;
 use pleno_common::style::{self, Stream};
-use pleno_value::{BoundNativeMethodState, MapState, RuntimeError, VMProvider, Value};
+use pleno_value::{
+    BoundMethodState, BoundNativeMethodState, CallOptions, MapState, RuntimeError, VMProvider,
+    Value,
+};
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -235,11 +238,11 @@ pub fn test_after_each(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value
 
 // Assertions
 
-pub fn assert_equal(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+pub fn assert_equal(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
     if args.len() < 2 {
         return Err(RuntimeError::new("assert.equal expects 2 arguments"));
     }
-    if !deep_equal(&args[0], &args[1]) {
+    if !deep_equal(vm, &args[0], &args[1])? {
         return Err(RuntimeError::new(format!(
             "Assertion failed: expected equal, got {} and {}",
             args[0], args[1]
@@ -248,11 +251,11 @@ pub fn assert_equal(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, R
     Ok(Value::Null)
 }
 
-pub fn assert_not_equal(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+pub fn assert_not_equal(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
     if args.len() < 2 {
         return Err(RuntimeError::new("assert.notEqual expects 2 arguments"));
     }
-    if deep_equal(&args[0], &args[1]) {
+    if deep_equal(vm, &args[0], &args[1])? {
         return Err(RuntimeError::new(format!(
             "Assertion failed: expected not equal, got {} and {}",
             args[0], args[1]
@@ -326,7 +329,7 @@ pub fn assert_throws(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, R
     }
 }
 
-pub fn assert_contains(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+pub fn assert_contains(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
     if args.len() < 2 {
         return Err(RuntimeError::new(
             "assert.contains expects 2 arguments: collection, item",
@@ -342,7 +345,18 @@ pub fn assert_contains(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value
             })?;
             s.contains(item_s)
         }
-        Value::Array(a) => a.borrow().iter().any(|v| deep_equal(v, item)),
+        Value::Array(a) => {
+            // Copied out first: an `operator ==` may change the array.
+            let elements = a.borrow().elements.clone();
+            let mut found = false;
+            for element in &elements {
+                if deep_equal(vm, element, item)? {
+                    found = true;
+                    break;
+                }
+            }
+            found
+        }
         Value::Map(m) => {
             let m = m.borrow();
             if m.entries.contains_key(&format!("{:?}", item)) {
@@ -402,45 +416,32 @@ pub fn assert_length_of(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Valu
     }
 }
 
-fn deep_equal(a: &Value, b: &Value) -> bool {
-    match (a, b) {
-        (Value::Null, Value::Null) => true,
-        (Value::Bool(a), Value::Bool(b)) => a == b,
-        (Value::Int(a), Value::Int(b)) => a == b,
-        (Value::Float(a), Value::Float(b)) => (a - b).abs() < f64::EPSILON,
-        // `assert.equal(10 / 2, 5)`: numbers are equal across Int and Float.
-        (Value::Int(_), Value::Float(_)) | (Value::Float(_), Value::Int(_)) => {
-            pleno_value::values_equal(a, b)
-        }
-        (Value::String(a), Value::String(b)) => a == b,
-        (Value::Char(a), Value::Char(b)) => a == b,
-        (Value::Array(a), Value::Array(b)) => {
-            let a = a.borrow();
-            let b = b.borrow();
-            if a.len() != b.len() {
-                return false;
-            }
-            a.iter().zip(b.iter()).all(|(v1, v2)| deep_equal(v1, v2))
-        }
-        (Value::Map(a), Value::Map(b)) => {
-            let a = a.borrow();
-            let b = b.borrow();
-            if a.entries.len() != b.entries.len() {
-                return false;
-            }
-            // Simple check: compare stringified keys and values
-            // This is still an MVP level check but better than before
-            for (k, v) in &a.entries {
-                if let Some(v2) = b.entries.get(k) {
-                    if !deep_equal(v, v2) {
-                        return false;
-                    }
-                } else {
-                    return false;
-                }
-            }
-            true
-        }
-        _ => format!("{:?}", a) == format!("{:?}", b), // Fallback for complex types
-    }
+/// Equality as `==` decides it: numbers by value across Int and Float,
+/// arrays, tuples, maps and sets by their contents, and instances by their
+/// class's `operator ==` (or by identity when it has none).
+fn deep_equal(vm: &mut dyn VMProvider, a: &Value, b: &Value) -> Result<bool, RuntimeError> {
+    pleno_value::values_equal_by(a, b, &mut |x, y| {
+        let Value::Object(object) = x else {
+            return Ok(None);
+        };
+        let operator = object
+            .borrow()
+            .class
+            .as_ref()
+            .and_then(|class| class.borrow().operators.get("==").cloned());
+        let Some(operator) = operator else {
+            return Ok(None);
+        };
+        let method = Value::BoundMethod(vm.get_gc().allocate(BoundMethodState {
+            receiver: x.clone(),
+            function: operator.function.clone(),
+            owner: operator.owner.clone(),
+            visibility: operator.visibility,
+        })?);
+        let result = vm.call_ext_with(method, std::slice::from_ref(y), CallOptions::default())?;
+        Ok(Some(!matches!(
+            result,
+            Value::Null | Value::Missing | Value::Bool(false)
+        )))
+    })
 }
