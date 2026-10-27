@@ -58,6 +58,11 @@ fn router_rejects_bad_registrations() {
         (r#"r.onError(1);"#, "onError() expects a function"),
         (r#"Server(1);"#, "expects a Router"),
         (r#"Server(r).listen(70000);"#, "port from 0 to 65535"),
+        (r#"Server(r).listen(0, host: 5);"#, "host must be a String"),
+        (
+            r#"Server(r).listen(0, host: "not a host!");"#,
+            "is not an address or host name",
+        ),
     ] {
         let source =
             format!("import {{ Router, Server }} from \"std:http\";\nlet r = Router();\n{code}");
@@ -827,5 +832,40 @@ fn a_server_survives_garbage_collection() {
     );
     for _ in 0..3 {
         assert_eq!(body(&get(port, "/")), "still here");
+    }
+}
+
+#[test]
+fn a_server_listens_on_this_machine_only_unless_asked() {
+    // `listen(port)` binds 127.0.0.1, so tests and examples are not exposed to
+    // the network (and Windows asks no firewall question); `host:` chooses.
+    for (host_arg, expected) in [("", "127.0.0.1"), (", host: \"localhost\"", "localhost")] {
+        let port = std::net::TcpListener::bind("127.0.0.1:0")
+            .and_then(|l| l.local_addr())
+            .expect("free port")
+            .port();
+        let source = format!(
+            "import {{ Router, Server }} from \"std:http\";
+             let r = Router();
+             let s = Server(r);
+             r.get(\"/host\", fn(req, res) => s.host);
+             s.listen({port}{host_arg});"
+        );
+        std::thread::spawn(move || {
+            let mut vm = VM::new();
+            pleno_stdlib::register(&mut vm);
+            vm.output = Some(String::new());
+            let _ = vm.execute(compile(&source));
+        });
+        let mut ready = false;
+        for _ in 0..200 {
+            if std::net::TcpStream::connect(("127.0.0.1", port)).is_ok() {
+                ready = true;
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(25));
+        }
+        assert!(ready, "the server never accepted connections on 127.0.0.1");
+        assert_eq!(body(&get(port, "/host")), expected);
     }
 }
