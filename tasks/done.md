@@ -3,6 +3,7 @@
 What was finished, newest first. Open work is in `v1.md`, `distribution.md` and `later.md`.
 
 ## 2026-10-27
+- [x] Static checks: compile errors in the language server; calls on values of a known class, static methods, lambdas bound with `let` and functions imported from `.pln` files; names a `.pln` file does not export; type mismatches for instances and checked return types. Files that export are checked as modules. Static method calls bind their arguments like other calls, and compiling a large file is no longer quadratic.
 - [x] Memory after a run (#60): dropping a VM frees every value it allocated, reference cycles included (#147), also cycles stored on the `Error` class (#149). Fuzzing runs with leak detection again (#155).
 - [x] `==` compares arrays, tuples, maps and sets by contents, as `assert.equal` already did (#159)
 - [x] Release 0.3.0: six targets, `.deb`, `.vsix` and Docker image, signed with cosign; the Homebrew tap updates itself; Scoop bucket at 0.3.0; package manifests in `packaging/` point at 0.3.0 (#146, #151)

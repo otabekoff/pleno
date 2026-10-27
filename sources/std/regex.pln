@@ -10,7 +10,7 @@ export class Match {
         this.groups = groups;
     }
 
-    public fn group(index: Int): String {
+    public fn group(index: Int): String? {
         if (index < 0 || index >= this.groups.length) {
             return null;
         }

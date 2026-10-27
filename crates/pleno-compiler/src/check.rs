@@ -3,23 +3,35 @@
 //!
 //! - calls with the wrong number of arguments (or unknown, repeated or missing
 //!   named arguments) to functions and classes declared at the top level of
-//!   the file, and to methods called on `this`;
-//! - calls to methods on `this` that the class and its superclasses never
-//!   declare (a warning);
-//! - literals that cannot match a type annotation, as in `let x: Int = "hi";`
-//!   or `f(1)` for `fn f(s: String)`.
+//!   the file, to methods called on `this` or on a value of a known class, to
+//!   static methods, to lambdas bound with `let`, and to functions imported
+//!   from other `.pln` files;
+//! - calls to methods that the class and its superclasses never declare, on
+//!   `this`, on a value of a known class, or on the class itself (a warning);
+//! - names imported from a `.pln` file that the file does not export (a
+//!   warning: the import gives `null`);
+//! - values that cannot match a type annotation, as in `let x: Int = "hi";`,
+//!   or `f(p)` for `fn f(s: String)` when `p` holds an instance of a class.
 //!
 //! Every check is conservative: when a name may be rebound, a declaration may
 //! be changed by a decorator, an `extend` block or another module, or a type is
 //! anything but a built-in primitive, nothing is reported.
+//!
+//! A value's type is known only when it cannot be anything else: a literal, a
+//! call of a class declared here (an instance of exactly that class), a call
+//! of a function declared here whose `Int`, `Float`, `String` or `Bool` return
+//! annotation is checked when it returns, or a name bound once in the file, by
+//! a `let` without `mut`, to one of these.
 
 use pleno_ast::visitor::{self, Visitor};
 use pleno_ast::{
-    CallArg, CatchBlock, Expr, ExprKind, FunctionDecl, FunctionKind, ImportKind, Literal, Param,
-    Pattern, PatternKind, Program, Span, Stmt, StmtKind, UnaryOp, Visibility,
+    BindingPattern, BindingPatternKind, CallArg, CatchBlock, Expr, ExprKind, FunctionDecl,
+    FunctionKind, ImportKind, Literal, Param, Pattern, PatternKind, Program, Span, Stmt, StmtKind,
+    UnaryOp, Visibility,
 };
 use pleno_value::suggest::did_you_mean;
 use std::collections::{HashMap, HashSet};
+use std::path::Path;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Severity {
@@ -34,19 +46,38 @@ pub struct StaticDiagnostic {
     pub severity: Severity,
 }
 
-/// The problems the static checks find in `program`, in source order.
+/// The problems the static checks find in `program`, in source order. Calls
+/// to imported functions are not checked: see [`check_program_in`].
 pub fn check_program(program: &Program) -> Vec<StaticDiagnostic> {
+    check_program_in(program, None)
+}
+
+/// The problems the static checks find in `program`, read from `file`, in
+/// source order. The `.pln` files it imports with a relative path (`./m.pln`,
+/// `../lib/m`) are read from beside `file`, as running it would, so that the
+/// names it imports and the calls to their functions are checked too.
+pub fn check_program_in(program: &Program, file: Option<&Path>) -> Vec<StaticDiagnostic> {
+    let loaded = match file {
+        Some(file) => load_modules(program, file),
+        None => Vec::new(),
+    };
     let mut facts = Facts::default();
     facts.visit_program(program);
-    let tables = Tables::build(program, &facts);
+    let modules: HashMap<&str, ModuleInfo> = loaded
+        .iter()
+        .map(|(path, module)| (path.as_str(), ModuleInfo::build(module)))
+        .collect();
+    let tables = Tables::build(program, &facts, modules);
     let mut checker = Checker {
         facts: &facts,
         tables: &tables,
         class: None,
         in_try: 0,
         returns: Vec::new(),
+        scopes: vec![HashMap::new()],
         diagnostics: Vec::new(),
     };
+    checker.check_imports(program);
     checker.visit_program(program);
     let mut diagnostics = checker.diagnostics;
     diagnostics.sort_by_key(|d| (d.span.start, d.span.end));
@@ -57,6 +88,153 @@ pub fn check_program(program: &Program) -> Vec<StaticDiagnostic> {
 /// Annotations that never change a function's signature; any other one may be
 /// a decorator that replaces the function.
 const SIGNATURE_PRESERVING: &[&str] = &["pure", "inline", "hot", "no_optimize", "deprecated"];
+
+fn preserves_signature(annotations: &[pleno_ast::Annotation]) -> bool {
+    annotations
+        .iter()
+        .all(|a| SIGNATURE_PRESERVING.contains(&a.name.as_str()))
+}
+
+/// Whether `path` names a file relative to the importing one, which is the
+/// only kind of import the checks follow.
+fn is_relative(path: &str) -> bool {
+    path.starts_with("./") || path.starts_with("../")
+}
+
+/// The name `import "path"` binds when it gives no alias: the file's stem.
+fn module_stem(path: &str) -> &str {
+    path.rsplit(['/', '\\', ':', '.'])
+        .find(|part| !part.is_empty() && *part != "pln")
+        .unwrap_or(path)
+}
+
+/// Reads and parses the `.pln` files that `program`, read from `file`,
+/// imports at its top level with a relative path, as the VM resolves them:
+/// `path` beside `file`, else `path.pln`. Files that cannot be read or parsed
+/// are left out, so nothing is checked against them.
+fn load_modules(program: &Program, file: &Path) -> Vec<(String, Program)> {
+    let dir = file.parent().unwrap_or(Path::new(""));
+    let mut loaded: Vec<(String, Program)> = Vec::new();
+    for stmt in &program.statements {
+        let StmtKind::Import { path, .. } = &stmt.kind else {
+            continue;
+        };
+        if !is_relative(path) || loaded.iter().any(|(p, _)| p == path) {
+            continue;
+        }
+        let mut candidates = vec![dir.join(path)];
+        if !path.ends_with(".pln") {
+            candidates.push(dir.join(format!("{path}.pln")));
+        }
+        let Some(source) = candidates
+            .iter()
+            .filter(|candidate| candidate.is_file())
+            .find_map(|candidate| std::fs::read_to_string(candidate).ok())
+        else {
+            continue;
+        };
+        let Ok(tokens) = pleno_lexer::lex(&source) else {
+            continue;
+        };
+        if let Ok(module) = pleno_parser::Parser::new(tokens, &source).parse_program() {
+            loaded.push((path.clone(), module));
+        }
+    }
+    loaded
+}
+
+/// What an imported file exports.
+struct ModuleInfo<'ast> {
+    /// Each exported name, with its parameters when it is a function whose
+    /// signature is known.
+    exports: HashMap<&'ast str, Option<&'ast [Param]>>,
+    /// Every `export` is at the top level, so `exports` lists every name.
+    complete: bool,
+}
+
+impl<'ast> ModuleInfo<'ast> {
+    fn build(program: &'ast Program) -> Self {
+        let mut facts = Facts::default();
+        facts.visit_program(program);
+        // The checks read annotations as the importing file means them; a
+        // module that gives a built-in type's name to its own type means
+        // something else by them.
+        let renames_builtin = ["Int", "Float", "Number", "String", "Char", "Bool", "Null"]
+            .iter()
+            .any(|name| facts.type_names.contains(*name));
+        let mut functions: HashMap<&str, &[Param]> = HashMap::new();
+        for stmt in &program.statements {
+            let stmt = match &stmt.kind {
+                StmtKind::Export(inner) => inner.as_ref(),
+                _ => stmt,
+            };
+            if let StmtKind::Fn {
+                name,
+                params,
+                annotations,
+                ..
+            } = &stmt.kind
+                && facts.is_unique(name)
+                && preserves_signature(annotations)
+                && !renames_builtin
+            {
+                functions.insert(name, params);
+            }
+        }
+        let mut exports = HashMap::new();
+        let mut top_level = 0;
+        for stmt in &program.statements {
+            match &stmt.kind {
+                StmtKind::Export(inner) => {
+                    top_level += 1;
+                    match &inner.kind {
+                        StmtKind::Fn { name, .. } => {
+                            exports.insert(name.as_str(), functions.get(name.as_str()).copied());
+                        }
+                        StmtKind::Let {
+                            name,
+                            mutable,
+                            value,
+                            ..
+                        } => {
+                            let params = match value.as_ref().map(|v| &v.kind) {
+                                Some(ExprKind::Lambda {
+                                    params,
+                                    annotations,
+                                    ..
+                                }) if !mutable
+                                    && !renames_builtin
+                                    && facts.is_unique(name)
+                                    && preserves_signature(annotations) =>
+                                {
+                                    Some(params.as_slice())
+                                }
+                                _ => None,
+                            };
+                            exports.insert(name.as_str(), params);
+                        }
+                        StmtKind::Class { name, .. } => {
+                            exports.insert(name.as_str(), None);
+                        }
+                        _ => {}
+                    }
+                }
+                StmtKind::ExportList(items) => {
+                    top_level += 1;
+                    for item in items {
+                        let export = item.alias.as_deref().unwrap_or(&item.name);
+                        exports.insert(export, functions.get(item.name.as_str()).copied());
+                    }
+                }
+                _ => {}
+            }
+        }
+        ModuleInfo {
+            exports,
+            complete: top_level == facts.export_statements,
+        }
+    }
+}
 
 /// What the whole file says about names, gathered before checking.
 #[derive(Default)]
@@ -78,6 +256,8 @@ struct Facts {
     type_names: HashSet<String>,
     /// The file uses reflection or assigns to `this[...]`.
     dynamic_members: bool,
+    /// `export` statements anywhere, at the top level or not.
+    export_statements: usize,
 }
 
 impl Facts {
@@ -87,6 +267,23 @@ impl Facts {
 
     fn is_unique(&self, name: &str) -> bool {
         self.bindings.get(name).copied() == Some(1)
+    }
+
+    fn bind_pattern(&mut self, pattern: &BindingPattern) {
+        match &pattern.kind {
+            BindingPatternKind::Name(name) => self.bind(name),
+            BindingPatternKind::Ignore => {}
+            BindingPatternKind::Tuple(items) => {
+                for item in items {
+                    self.bind_pattern(item);
+                }
+            }
+            BindingPatternKind::Array { elements, rest } => {
+                for item in elements.iter().chain(rest.as_deref()) {
+                    self.bind_pattern(item);
+                }
+            }
+        }
     }
 }
 
@@ -99,6 +296,7 @@ impl<'ast> Visitor<'ast> for Facts {
     fn visit_stmt(&mut self, stmt: &'ast Stmt) {
         match &stmt.kind {
             StmtKind::Let { name, .. } | StmtKind::Assign { name, .. } => self.bind(name),
+            StmtKind::LetPattern { pattern, .. } => self.bind_pattern(pattern),
             StmtKind::MacroDecl { name, params, .. } => {
                 self.bind(name);
                 for param in params {
@@ -124,11 +322,7 @@ impl<'ast> Visitor<'ast> for Facts {
                 }
                 match kind {
                     ImportKind::Module { alias } => {
-                        let stem = path
-                            .rsplit(['/', '\\', ':', '.'])
-                            .find(|part| !part.is_empty() && *part != "pln")
-                            .unwrap_or(path);
-                        self.bind(alias.as_deref().unwrap_or(stem));
+                        self.bind(alias.as_deref().unwrap_or(module_stem(path)));
                     }
                     ImportKind::Star { alias } => self.bind(alias),
                     ImportKind::Names(items) => {
@@ -139,6 +333,7 @@ impl<'ast> Visitor<'ast> for Facts {
                 }
             }
             StmtKind::Export(inner) => {
+                self.export_statements += 1;
                 if let StmtKind::Let { name, .. }
                 | StmtKind::Fn { name, .. }
                 | StmtKind::Class { name, .. } = &inner.kind
@@ -147,6 +342,7 @@ impl<'ast> Visitor<'ast> for Facts {
                 }
             }
             StmtKind::ExportList(items) => {
+                self.export_statements += 1;
                 for item in items {
                     self.exported.insert(item.name.clone());
                 }
@@ -261,29 +457,178 @@ struct ClassInfo<'ast> {
     private: HashSet<&'ast str>,
     /// No decorator, `implements` or `extend` can change its members.
     plain: bool,
+    /// No decorator can replace the class.
+    undecorated: bool,
+    static_fields: Vec<&'ast str>,
     is_abstract: bool,
 }
 
 /// What a name a call can resolve to.
 struct Tables<'ast> {
     functions: HashMap<&'ast str, &'ast [Param]>,
+    /// Top-level functions whose result has a known built-in type: their
+    /// return annotation is `Int`, `Float`, `String` or `Bool`, and the VM
+    /// checks it on every return.
+    returns: HashMap<&'ast str, ValueType<'ast>>,
     classes: HashMap<&'ast str, ClassInfo<'ast>>,
     /// Top-level functions marked `@deprecated`, with the note it gives.
     deprecated: HashMap<&'ast str, Option<&'ast str>>,
+    /// Top-level functions that call one of their parameters inside a `try`
+    /// with a `catch`: a function given to them may be meant to fail.
+    catching: HashSet<&'ast str>,
+    /// The files imported with a relative path, by that path.
+    modules: HashMap<&'ast str, ModuleInfo<'ast>>,
+    /// Functions imported by name from those files: the local name, and the
+    /// function's parameters.
+    imported: HashMap<&'ast str, &'ast [Param]>,
+    /// Names bound to the exports of one of those files (`import m from
+    /// "./m.pln"`, `import * as m from ...`), with the file's path.
+    module_names: HashMap<&'ast str, &'ast str>,
+}
+
+/// Finds a call of one of `params` inside the body of a `try` with a `catch`.
+struct CallsInTry<'ast> {
+    params: HashSet<&'ast str>,
+    in_try: usize,
+    found: bool,
+}
+
+impl<'ast> Visitor<'ast> for CallsInTry<'ast> {
+    fn visit_stmt(&mut self, stmt: &'ast Stmt) {
+        match &stmt.kind {
+            StmtKind::Try {
+                try_branch,
+                catch_branches,
+                ..
+            } if !catch_branches.is_empty() => {
+                self.in_try += 1;
+                self.visit_stmt(try_branch);
+                self.in_try -= 1;
+                for catch in catch_branches {
+                    self.visit_catch_block(catch);
+                }
+            }
+            _ => visitor::walk_stmt(self, stmt),
+        }
+    }
+
+    fn visit_expr(&mut self, expr: &'ast Expr) {
+        if self.in_try > 0
+            && let ExprKind::Call { callee, .. } = &expr.kind
+            && let ExprKind::Ident(name) = &callee.kind
+            && self.params.contains(name.as_str())
+        {
+            self.found = true;
+        }
+        visitor::walk_expr(self, expr);
+    }
+}
+
+/// The type of a value: a built-in one (its name and its family, see
+/// [`literal_type`]) or an instance of a class declared in the file.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ValueType<'ast> {
+    Builtin(&'static str, &'static str),
+    Instance(&'ast str),
+}
+
+impl ValueType<'_> {
+    fn family(self) -> &'static str {
+        match self {
+            ValueType::Builtin(_, family) => family,
+            ValueType::Instance(_) => "instance",
+        }
+    }
+
+    /// The built-in type an annotation guarantees once the VM has checked a
+    /// value against it: `Float` also holds an `Int` given to it, since the
+    /// check widens it. Any other annotation guarantees nothing here.
+    fn of_annotation(ty: &str, facts: &Facts) -> Option<Self> {
+        let ty = ty.trim();
+        if facts.type_names.contains(ty) {
+            return None;
+        }
+        match ty {
+            "Int" => Some(ValueType::Builtin("Int", "int")),
+            "Float" => Some(ValueType::Builtin("Float", "float")),
+            "String" => Some(ValueType::Builtin("String", "text")),
+            "Bool" => Some(ValueType::Builtin("Bool", "bool")),
+            _ => None,
+        }
+    }
+}
+
+/// What a name bound by a `let` is known to hold.
+#[derive(Debug, Clone, Copy)]
+enum Known<'ast> {
+    Value(ValueType<'ast>),
+    /// A lambda, with its parameters.
+    Lambda(&'ast [Param]),
 }
 
 impl<'ast> Tables<'ast> {
-    fn build(program: &'ast Program, facts: &Facts) -> Self {
+    fn build(
+        program: &'ast Program,
+        facts: &Facts,
+        modules: HashMap<&'ast str, ModuleInfo<'ast>>,
+    ) -> Self {
         let mut tables = Tables {
             functions: HashMap::new(),
+            returns: HashMap::new(),
             classes: HashMap::new(),
             deprecated: HashMap::new(),
+            catching: HashSet::new(),
+            modules,
+            imported: HashMap::new(),
+            module_names: HashMap::new(),
         };
         for stmt in &program.statements {
+            if let StmtKind::Import { path, kind } = &stmt.kind
+                && let Some(module) = tables.modules.get(path.as_str())
+            {
+                match kind {
+                    ImportKind::Names(items) => {
+                        for item in items {
+                            let local = item.alias.as_deref().unwrap_or(&item.name);
+                            if facts.is_unique(local)
+                                && let Some(Some(params)) = module.exports.get(item.name.as_str())
+                            {
+                                tables.imported.insert(local, params);
+                            }
+                        }
+                    }
+                    ImportKind::Module { alias } => {
+                        let local = alias.as_deref().unwrap_or(module_stem(path));
+                        if facts.is_unique(local) {
+                            tables.module_names.insert(local, path);
+                        }
+                    }
+                    ImportKind::Star { alias } => {
+                        if facts.is_unique(alias) {
+                            tables.module_names.insert(alias, path);
+                        }
+                    }
+                }
+            }
             let stmt = match &stmt.kind {
                 StmtKind::Export(inner) => inner.as_ref(),
                 _ => stmt,
             };
+            if let StmtKind::Fn {
+                name,
+                return_ty: Some(return_ty),
+                annotations,
+                is_async: false,
+                ..
+            } = &stmt.kind
+                && facts.is_unique(name)
+                && preserves_signature(annotations)
+                // An `@inline` function's returns are not checked.
+                && !annotations.iter().any(|a| a.name == "inline")
+                && let Some(ty) = ValueType::of_annotation(return_ty, facts)
+            {
+                tables.returns.insert(name, ty);
+            }
             if let StmtKind::Fn {
                 name, annotations, ..
             } = &stmt.kind
@@ -296,17 +641,27 @@ impl<'ast> Tables<'ast> {
                 });
                 tables.deprecated.insert(name, note);
             }
+            if let StmtKind::Fn {
+                name, params, body, ..
+            } = &stmt.kind
+            {
+                let mut finder = CallsInTry {
+                    params: params.iter().map(|p| p.name.as_str()).collect(),
+                    in_try: 0,
+                    found: false,
+                };
+                finder.visit_stmt(body);
+                if finder.found {
+                    tables.catching.insert(name);
+                }
+            }
             match &stmt.kind {
                 StmtKind::Fn {
                     name,
                     params,
                     annotations,
                     ..
-                } if facts.is_unique(name)
-                    && annotations
-                        .iter()
-                        .all(|a| SIGNATURE_PRESERVING.contains(&a.name.as_str())) =>
-                {
+                } if facts.is_unique(name) && preserves_signature(annotations) => {
                     tables.functions.insert(name, params);
                 }
                 StmtKind::Class {
@@ -350,10 +705,16 @@ impl<'ast> Tables<'ast> {
                         ClassInfo {
                             superclass: superclass.as_deref().map(base_name),
                             fields: fields.iter().map(|f| f.name.as_str()).collect(),
+                            static_fields: fields
+                                .iter()
+                                .filter(|f| f.is_static)
+                                .map(|f| f.name.as_str())
+                                .collect(),
                             methods,
                             properties: properties.iter().map(|p| p.name.as_str()).collect(),
                             nested,
                             private,
+                            undecorated: annotations.is_empty(),
                             plain: annotations.is_empty()
                                 && implements.is_empty()
                                 && !facts.extended.contains(name.as_str()),
@@ -390,12 +751,44 @@ impl<'ast> Tables<'ast> {
         None
     }
 
+    /// `class` when a call of it makes an instance of exactly that class:
+    /// it is declared here without a decorator, is not abstract, and it and
+    /// its superclasses are all declared here (so none is a built-in type).
+    fn instance_class(&self, class: &'ast str) -> Option<&'ast str> {
+        let info = self.classes.get(class)?;
+        if info.is_abstract {
+            return None;
+        }
+        let mut current = info;
+        for _ in 0..64 {
+            if !current.undecorated {
+                return None;
+            }
+            match current.superclass {
+                Some(superclass) => current = self.classes.get(superclass)?,
+                None => return Some(class),
+            }
+        }
+        None
+    }
+
     /// The chain of classes `this` may be in a method of `class`, when every
     /// member of every instance is known: the class and its superclasses are
     /// all declared here, unchanged by decorators or `extend`, and nothing else
     /// can subclass or extend them.
     fn closed_chain(&self, class: &str, facts: &Facts) -> Option<Vec<&ClassInfo<'ast>>> {
-        if facts.dynamic_members || facts.subclassed.contains(class) {
+        if facts.subclassed.contains(class) {
+            return None;
+        }
+        self.member_chain(class, facts)
+    }
+
+    /// `class` and its superclasses, when every member of an instance of
+    /// exactly `class`, and of `class` itself, is known: they are all declared
+    /// here, unchanged by decorators or `extend`, and not exported (an
+    /// importer could extend them).
+    fn member_chain(&self, class: &str, facts: &Facts) -> Option<Vec<&ClassInfo<'ast>>> {
+        if facts.dynamic_members {
             return None;
         }
         let mut chain = Vec::new();
@@ -425,6 +818,10 @@ struct Checker<'a, 'ast> {
     /// For each enclosing function, its name and the return annotation its
     /// `return` literals are checked against (`None` when not checked).
     returns: Vec<Option<(String, String)>>,
+    /// For each enclosing block, what the names its `let`s bound so far are
+    /// known to hold. Only names bound once in the file are entered, so a
+    /// name found here can mean nothing else.
+    scopes: Vec<HashMap<&'ast str, Known<'ast>>>,
     diagnostics: Vec<StaticDiagnostic>,
 }
 
@@ -528,25 +925,109 @@ impl<'a, 'ast> Checker<'a, 'ast> {
         });
     }
 
-    fn check_literal(&mut self, ty: &str, value: &Expr, describe: impl FnOnce(&str) -> String) {
-        if let Some((literal, family)) = literal_type(value)
-            && literal_matches(ty, family, self.facts) == Some(false)
+    /// Reports `value` when its type is known and cannot match the annotation
+    /// `ty`. `describe` makes the message from what was found ("a String
+    /// literal", "a Point instance").
+    fn check_value(&mut self, ty: &str, value: &Expr, describe: impl FnOnce(&str) -> String) {
+        if let Some((found, literal)) = self.value_type(value)
+            && literal_matches(ty, found.family(), self.facts) == Some(false)
         {
-            let message = describe(literal);
+            let message = describe(&describe_value(found, literal));
             self.report(Severity::Error, message, value.span);
         }
     }
 
+    /// What the innermost `let` that bound `name` is known to hold.
+    fn lookup(&self, name: &str) -> Option<Known<'ast>> {
+        self.scopes
+            .iter()
+            .rev()
+            .find_map(|scope| scope.get(name).copied())
+    }
+
+    /// The type `expr` has whenever it gives a value, and whether it is a
+    /// literal.
+    fn value_type(&self, expr: &'ast Expr) -> Option<(ValueType<'ast>, bool)> {
+        if let Some((name, family)) = literal_type(expr) {
+            return Some((ValueType::Builtin(name, family), true));
+        }
+        match &expr.kind {
+            ExprKind::Paren(inner) => self.value_type(inner),
+            ExprKind::Ident(name) => match self.lookup(name)? {
+                Known::Value(ty) => Some((ty, false)),
+                Known::Lambda(_) => None,
+            },
+            // `f(1, _)` makes a function.
+            ExprKind::Call { callee, args }
+                if !args.iter().any(|a| matches!(a, CallArg::Placeholder)) =>
+            {
+                let ExprKind::Ident(name) = &callee.kind else {
+                    return None;
+                };
+                if let Some(class) = self.tables.instance_class(name) {
+                    Some((ValueType::Instance(class), false))
+                } else {
+                    Some((*self.tables.returns.get(name.as_str())?, false))
+                }
+            }
+            _ => None,
+        }
+    }
+
+    /// What `let name = value` (with the annotation `ty`, without `mut`)
+    /// makes `name` hold.
+    fn known_let(&self, ty: Option<&str>, value: &'ast Expr) -> Option<Known<'ast>> {
+        if let Some(ty) = ty {
+            // The VM checks the value against the annotation.
+            return ValueType::of_annotation(ty, self.facts).map(Known::Value);
+        }
+        match &value.kind {
+            ExprKind::Lambda {
+                params,
+                annotations,
+                ..
+            } if preserves_signature(annotations) => Some(Known::Lambda(params)),
+            _ => self.value_type(value).map(|(ty, _)| Known::Value(ty)),
+        }
+    }
+
+    /// Names imported from a file that does not export them.
+    fn check_imports(&mut self, program: &'ast Program) {
+        for stmt in &program.statements {
+            let StmtKind::Import {
+                path,
+                kind: ImportKind::Names(items),
+            } = &stmt.kind
+            else {
+                continue;
+            };
+            let Some(module) = self.tables.modules.get(path.as_str()) else {
+                continue;
+            };
+            if !module.complete {
+                continue;
+            }
+            for item in items {
+                if module.exports.contains_key(item.name.as_str()) {
+                    continue;
+                }
+                let hint = did_you_mean(&item.name, module.exports.keys().copied());
+                let message = format!("'{path}' does not export '{}'{hint}", item.name);
+                self.report(Severity::Warning, message, stmt.span);
+            }
+        }
+    }
+
     /// Checks `args` against `params` the way the VM binds them.
-    fn check_call(&mut self, callee: &str, params: &[Param], args: &[Arg], span: Span) {
-        let positional: Vec<&Expr> = args
+    fn check_call(&mut self, callee: &str, params: &[Param], args: &[Arg<'ast>], span: Span) {
+        let positional: Vec<&'ast Expr> = args
             .iter()
             .filter_map(|arg| match arg {
                 Arg::Positional(expr) => Some(*expr),
                 Arg::Named(..) => None,
             })
             .collect();
-        let named: Vec<(&str, &Expr)> = args
+        let named: Vec<(&str, &'ast Expr)> = args
             .iter()
             .filter_map(|arg| match arg {
                 Arg::Named(name, expr) => Some((*name, *expr)),
@@ -597,7 +1078,7 @@ impl<'a, 'ast> Checker<'a, 'ast> {
             format!("{callee} expects {range}, got {got}")
         };
 
-        let mut bound: Vec<(&Param, &Expr)> = Vec::new();
+        let mut bound: Vec<(&Param, &'ast Expr)> = Vec::new();
         let mut next = 0;
         for param in params {
             if param.is_variadic {
@@ -639,12 +1120,8 @@ impl<'a, 'ast> Checker<'a, 'ast> {
 
         for (param, expr) in bound {
             if let Some(ty) = &param.ty {
-                self.check_literal(ty, expr, |literal| {
-                    format!(
-                        "{callee} expects {ty} for '{}', found {}",
-                        param.name,
-                        describe_literal(literal)
-                    )
+                self.check_value(ty, expr, |found| {
+                    format!("{callee} expects {ty} for '{}', found {found}", param.name)
                 });
             }
         }
@@ -695,26 +1172,74 @@ impl<'a, 'ast> Checker<'a, 'ast> {
                     && let Some(params) = self.tables.constructor(name)
                 {
                     self.check_call(name, params, &effective, span);
+                } else if let Some(params) = self.tables.imported.get(name.as_str()) {
+                    self.check_call(name, params, &effective, span);
+                } else if let Some(Known::Lambda(params)) = self.lookup(name) {
+                    self.check_call(name, params, &effective, span);
                 }
             }
             ExprKind::Property { object, name } if matches!(object.kind, ExprKind::This) => {
                 self.check_this_call(name, &effective, callee.span, span);
             }
+            ExprKind::Property { object, name } => {
+                if let Some((ValueType::Instance(class), _)) = self.value_type(object) {
+                    if let Some(chain) = self.tables.member_chain(class, self.facts) {
+                        let inside = self.class.as_ref().is_some_and(|(c, _)| *c == class);
+                        self.check_method_call(
+                            class,
+                            &chain,
+                            name,
+                            &effective,
+                            (callee.span, span),
+                            inside,
+                        );
+                    }
+                    return;
+                }
+                let ExprKind::Ident(object) = &object.kind else {
+                    return;
+                };
+                if self.tables.classes.contains_key(object.as_str()) {
+                    if let Some(chain) = self.tables.member_chain(object, self.facts) {
+                        self.check_static_call(object, &chain, name, &effective, callee.span, span);
+                    }
+                } else if let Some(path) = self.tables.module_names.get(object.as_str())
+                    && let Some(Some(params)) = self.tables.modules[path].exports.get(name.as_str())
+                {
+                    // The exports win over a map's own methods.
+                    self.check_call(&format!("{object}.{name}"), params, &effective, span);
+                }
+            }
             _ => {}
         }
     }
 
-    fn check_this_call(&mut self, method: &str, args: &[Arg], callee_span: Span, span: Span) {
+    fn check_this_call(&mut self, method: &str, args: &[Arg<'ast>], callee_span: Span, span: Span) {
         let Some((class, chain)) = &self.class else {
             return;
         };
+        let (class, chain) = (*class, chain.clone());
+        self.check_method_call(class, &chain, method, args, (callee_span, span), true);
+    }
+
+    /// `receiver.method(args)` on an instance of `class`, whose class and
+    /// superclasses are `chain`. `inside` is true in a method of `class`,
+    /// where its private members can be used.
+    fn check_method_call(
+        &mut self,
+        class: &str,
+        chain: &[&ClassInfo<'ast>],
+        method: &str,
+        args: &[Arg<'ast>],
+        (callee_span, span): (Span, Span),
+        inside: bool,
+    ) {
         if method == "constructor"
             || self.facts.assigned_properties.contains(method)
             || self.facts.strings.contains(method)
         {
             return;
         }
-        let class = *class;
         let mut found = None;
         for info in chain {
             if info.fields.contains(&method)
@@ -744,7 +1269,7 @@ impl<'a, 'ast> Checker<'a, 'ast> {
                                 .filter(|m| m.name != "constructor")
                                 .map(|m| m.name.as_str()),
                         )
-                        .filter(move |name| depth == 0 || !info.private.contains(name))
+                        .filter(move |name| (inside && depth == 0) || !info.private.contains(name))
                 });
                 let hint = did_you_mean(method, members);
                 let message = format!("{class} has no method '{method}'{hint}");
@@ -753,15 +1278,65 @@ impl<'a, 'ast> Checker<'a, 'ast> {
             Some(decl)
                 if decl.kind == FunctionKind::Method
                     && !decl.is_static
-                    && decl
-                        .annotations
-                        .iter()
-                        .all(|a| SIGNATURE_PRESERVING.contains(&a.name.as_str())) =>
+                    && preserves_signature(&decl.annotations) =>
             {
                 let name = format!("{class}.{method}");
                 self.check_call(&name, &decl.params, args, span);
             }
             Some(_) => {}
+        }
+    }
+
+    /// `Class.method(args)`, `chain` being `class` and its superclasses.
+    fn check_static_call(
+        &mut self,
+        class: &str,
+        chain: &[&ClassInfo<'ast>],
+        method: &str,
+        args: &[Arg<'ast>],
+        callee_span: Span,
+        span: Span,
+    ) {
+        if self.facts.assigned_properties.contains(method) || self.facts.strings.contains(method) {
+            return;
+        }
+        // Static methods are looked up through the superclasses, like the VM.
+        let found = chain.iter().find_map(|info| {
+            info.methods
+                .iter()
+                .find(|m| m.is_static && m.name == method)
+        });
+        match found {
+            Some(decl) => {
+                if decl.kind == FunctionKind::Method && preserves_signature(&decl.annotations) {
+                    let name = format!("{class}.{method}");
+                    self.check_call(&name, &decl.params, args, span);
+                }
+            }
+            None => {
+                // Any other member of that name may be what was meant, or a
+                // static field holding a function: leave it to the VM.
+                let declared = chain.iter().any(|info| {
+                    info.fields.contains(&method)
+                        || info.properties.contains(&method)
+                        || info.nested.contains(&method)
+                        || info.methods.iter().any(|m| m.name == method)
+                });
+                if declared {
+                    return;
+                }
+                let statics = chain.iter().flat_map(|info| {
+                    info.methods
+                        .iter()
+                        .filter(|m| m.is_static && !info.private.contains(m.name.as_str()))
+                        .map(|m| m.name.as_str())
+                        .chain(info.static_fields.iter().copied())
+                        .chain(info.nested.iter().copied())
+                });
+                let hint = did_you_mean(method, statics);
+                let message = format!("{class} has no static method '{method}'{hint}");
+                self.report(Severity::Warning, message, callee_span);
+            }
         }
     }
 
@@ -772,13 +1347,16 @@ impl<'a, 'ast> Checker<'a, 'ast> {
     }
 }
 
-/// "an Int literal", "a String literal", "null".
-fn describe_literal(type_name: &str) -> String {
-    if type_name == "Null" {
-        return "null".to_string();
-    }
-    let an = matches!(type_name.chars().next(), Some('A' | 'E' | 'I' | 'O' | 'U'));
-    format!("{} {type_name} literal", if an { "an" } else { "a" })
+/// "an Int literal", "a String value", "a Point instance", "null".
+fn describe_value(ty: ValueType, literal: bool) -> String {
+    let (name, what) = match ty {
+        ValueType::Builtin("Null", _) => return "null".to_string(),
+        ValueType::Builtin(name, _) if literal => (name, "literal"),
+        ValueType::Builtin(name, _) => (name, "value"),
+        ValueType::Instance(class) => (class, "instance"),
+    };
+    let an = matches!(name.chars().next(), Some('A' | 'E' | 'I' | 'O' | 'U'));
+    format!("{} {name} {what}", if an { "an" } else { "a" })
 }
 
 impl<'a, 'ast> Visitor<'ast> for Checker<'a, 'ast> {
@@ -804,18 +1382,40 @@ impl<'a, 'ast> Visitor<'ast> for Checker<'a, 'ast> {
         match &stmt.kind {
             StmtKind::Let {
                 name,
-                ty: Some(ty),
+                ty,
                 value: Some(value),
                 is_lazy: false,
+                mutable,
                 ..
             } => {
-                self.check_literal(ty, value, |literal| {
-                    format!(
-                        "'{name}' is declared {ty} but given {}",
-                        describe_literal(literal)
-                    )
-                });
+                if let Some(ty) = ty {
+                    self.check_value(ty, value, |found| {
+                        format!("'{name}' is declared {ty} but given {found}")
+                    });
+                }
                 visitor::walk_stmt(self, stmt);
+                // A name bound once, without `mut`, holds this value wherever
+                // it is in scope.
+                if !mutable
+                    && self.facts.is_unique(name)
+                    && let Some(known) = self.known_let(ty.as_deref(), value)
+                    && let Some(scope) = self.scopes.last_mut()
+                {
+                    scope.insert(name, known);
+                }
+            }
+            // A `let` is in scope until the end of the statement that holds it.
+            StmtKind::Block(_)
+            | StmtKind::CFor { .. }
+            | StmtKind::Module { .. }
+            | StmtKind::If { .. }
+            | StmtKind::While { .. }
+            | StmtKind::For { .. }
+            | StmtKind::DoWhile { .. }
+            | StmtKind::Labeled { .. } => {
+                self.scopes.push(HashMap::new());
+                visitor::walk_stmt(self, stmt);
+                self.scopes.pop();
             }
             StmtKind::Class {
                 name,
@@ -877,11 +1477,8 @@ impl<'a, 'ast> Visitor<'ast> for Checker<'a, 'ast> {
             }
             StmtKind::Return(Some(value)) => {
                 if let Some(Some((name, ty))) = self.returns.last().cloned() {
-                    self.check_literal(&ty, value, |literal| {
-                        format!(
-                            "{name} is declared to return {ty} but returns {}",
-                            describe_literal(literal)
-                        )
+                    self.check_value(&ty, value, |found| {
+                        format!("{name} is declared to return {ty} but returns {found}")
                     });
                 }
                 visitor::walk_stmt(self, stmt);
@@ -911,12 +1508,18 @@ impl<'a, 'ast> Visitor<'ast> for Checker<'a, 'ast> {
             ExprKind::Call { callee, args } => {
                 self.check_callee(callee, args, None, expr.span);
                 self.visit_expr(callee);
-                // `assert.throws(fn() { f(1, 2); })` expects the failure.
+                // `assert.throws(fn() { f(1, 2); })` expects the failure, and so
+                // does `errorOf(fn() { f(1, 2); })` when `errorOf` calls its
+                // argument in a `try`.
                 let callee_name = match &callee.kind {
                     ExprKind::Ident(name) | ExprKind::Property { name, .. } => name.as_str(),
                     _ => "",
                 };
-                let expects_failure = usize::from(callee_name.to_lowercase().contains("throw"));
+                let expects_failure = usize::from(
+                    callee_name.to_lowercase().contains("throw")
+                        || (matches!(callee.kind, ExprKind::Ident(_))
+                            && self.tables.catching.contains(callee_name)),
+                );
                 self.in_try += expects_failure;
                 self.visit_args(args);
                 self.in_try -= expects_failure;
@@ -945,11 +1548,8 @@ impl<'a, 'ast> Visitor<'ast> for Checker<'a, 'ast> {
                 if let Some(ty) = &checked
                     && !matches!(body.kind, ExprKind::Block(_))
                 {
-                    self.check_literal(ty, body, |literal| {
-                        format!(
-                            "lambda is declared to return {ty} but returns {}",
-                            describe_literal(literal)
-                        )
+                    self.check_value(ty, body, |found| {
+                        format!("lambda is declared to return {ty} but returns {found}")
                     });
                 }
                 self.returns
@@ -957,6 +1557,11 @@ impl<'a, 'ast> Visitor<'ast> for Checker<'a, 'ast> {
                 visitor::walk_expr(self, expr);
                 self.returns.pop();
                 self.class = saved;
+            }
+            ExprKind::Block(_) => {
+                self.scopes.push(HashMap::new());
+                visitor::walk_expr(self, expr);
+                self.scopes.pop();
             }
             _ => visitor::walk_expr(self, expr),
         }

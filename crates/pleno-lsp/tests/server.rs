@@ -217,6 +217,112 @@ fn diagnostics_for_misspelled_names_say_what_was_meant() {
     );
 }
 
+/// The diagnostics the server publishes for `text`, opened as `file` in a
+/// workspace that also holds `others`.
+fn diagnostics_for(name: &str, file: &str, text: &str, others: &[(&str, &str)]) -> Vec<Value> {
+    let workspace = TempWorkspace::new(name);
+    for (other, contents) in others {
+        std::fs::write(workspace.0.join(other), contents).unwrap();
+    }
+    let uri = workspace.uri(file);
+    let mut session = Session::new();
+    session.open(&uri, text);
+    session.run().diagnostics(&uri).clone()
+}
+
+#[test]
+fn compile_errors_are_reported_where_they_are() {
+    let diagnostics = diagnostics_for(
+        "compile-error",
+        "main.pln",
+        "let total = 1;\ntotal = 2;\nprint(total);\n",
+        &[],
+    );
+    let error = diagnostics
+        .iter()
+        .find(|d| d["code"] == "compile-error")
+        .expect("a compile error");
+    assert_eq!(error["message"], "cannot assign to immutable binding");
+    assert_eq!(error["severity"], 1);
+    assert_eq!(error["source"], "pleno");
+    assert_eq!(error["range"], range((1, 0), (1, 9)));
+
+    // An unused function is compiled too, as `pleno check` does.
+    let diagnostics = diagnostics_for(
+        "compile-error-unused",
+        "main.pln",
+        "fn unused() { break; }\n",
+        &[],
+    );
+    assert!(
+        diagnostics
+            .iter()
+            .any(|d| d["code"] == "compile-error" && d["message"] == "break used outside of loop"),
+        "{diagnostics:?}"
+    );
+}
+
+#[test]
+fn files_that_export_are_compiled_as_modules() {
+    let diagnostics = diagnostics_for(
+        "module-file",
+        "shapes.pln",
+        "module shapes;\nexport fn area(w, h) { return w * h; }\n",
+        &[],
+    );
+    assert!(
+        !diagnostics.iter().any(|d| d["code"] == "compile-error"),
+        "{diagnostics:?}"
+    );
+}
+
+#[test]
+fn a_redefinition_is_reported_once() {
+    let diagnostics = diagnostics_for(
+        "redefinition",
+        "main.pln",
+        "let a = 1;\nlet a = 2;\nprint(a);\n",
+        &[],
+    );
+    let about_a: Vec<&Value> = diagnostics.iter().filter(|d| d["severity"] == 1).collect();
+    assert_eq!(about_a.len(), 1, "{diagnostics:?}");
+}
+
+#[test]
+fn calls_into_other_files_and_known_classes_are_checked() {
+    let diagnostics = diagnostics_for(
+        "imports",
+        "main.pln",
+        "import { helper, nmae } from \"./m.pln\";\n\
+         class Point { fn shift(dx) { return dx; } }\n\
+         let p = Point();\n\
+         print(helper(1, 2), p.shfit(1), nmae);\n",
+        &[(
+            "m.pln",
+            "export fn helper(a) { return a; }\nexport let name = 1;\n",
+        )],
+    );
+    let messages: Vec<&str> = diagnostics
+        .iter()
+        .filter(|d| d["code"] == "check")
+        .filter_map(|d| d["message"].as_str())
+        .collect();
+    assert_eq!(
+        messages,
+        [
+            "'./m.pln' does not export 'nmae'; did you mean 'name'?",
+            "helper expects 1 argument, got 2",
+            "Point has no method 'shfit'; did you mean 'shift'?"
+        ]
+    );
+    let shfit = diagnostics
+        .iter()
+        .find(|d| d["message"].as_str().unwrap_or("").contains("shfit"))
+        .unwrap();
+    assert_eq!(shfit["severity"], 2);
+    assert_eq!(shfit["range"], range((3, 20), (3, 27)));
+}
+
 #[test]
 fn settings_turn_rules_off() {
     let workspace = TempWorkspace::new("settings");

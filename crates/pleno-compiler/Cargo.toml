@@ -12,8 +12,9 @@ pleno-diagnostics = { workspace = true }
 indexmap = { workspace = true }
 log = { workspace = true }
 pleno-optimizer = { workspace = true }
-
-[dev-dependencies]
+# `check` parses the modules a file imports.
 pleno-lexer = { workspace = true }
 pleno-parser = { workspace = true }
+
+[dev-dependencies]
 indexmap = { workspace = true }
