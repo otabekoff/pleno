@@ -3,6 +3,8 @@
 What was finished, newest first. Open work is in `v1.md`, `distribution.md` and `later.md`.
 
 ## 2026-10-27
+- [x] Runtime type checks that were missing: `Void` returns, returns and closures that mention a type parameter (bound by explicit type arguments, any value when inferred), the type arguments of user generic classes in parameters, returns and fields, and `@inline` functions, which keep their checks when inlined. Inferred type parameters and instances made without type arguments no longer reject right values
+- [x] Formatter: comments inside an index and in import and export lists stay in place, block comments in slices, parentheses and after a unary operator stay on the line
 - [x] Memory after a run (#60): dropping a VM frees every value it allocated, reference cycles included (#147), also cycles stored on the `Error` class (#149). Fuzzing runs with leak detection again (#155).
 - [x] `==` compares arrays, tuples, maps and sets by contents, as `assert.equal` already did (#159)
 - [x] Release 0.3.0: six targets, `.deb`, `.vsix` and Docker image, signed with cosign; the Homebrew tap updates itself; Scoop bucket at 0.3.0; package manifests in `packaging/` point at 0.3.0 (#146, #151)
