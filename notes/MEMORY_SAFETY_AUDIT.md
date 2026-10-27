@@ -9,7 +9,7 @@ Review of every `unsafe` block and of the garbage collector, completed 2026-10-2
 | `crates/pleno-value/src/nan_value.rs` | 27 | Decoding NaN-boxed pointers back into `GcRc` handles and native function pointers |
 | `crates/pleno-stdlib/src/dotenv.rs` | 1 | `std::env::set_var` (unsafe since Rust 2024) |
 | `crates/pleno-stdlib/src/os.rs` | 1 | Windows only: `GetTickCount64` for `OS.uptime()`, which takes no arguments and cannot fail |
-| Tests (`local_registry.rs`, `stdlib_process_tests.rs`) | 2 | `std::env::set_var` in single-test binaries |
+| Tests (`stdlib_process_tests.rs`) | 1 | `std::env::set_var` in a single-test binary |
 
 All other crates are safe Rust.
 

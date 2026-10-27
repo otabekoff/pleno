@@ -7,7 +7,7 @@ use std::process;
 use chrono::Datelike;
 use pleno_common::style::{self, Stream};
 use pleno_compiler::BuildProfile;
-use pleno_package::{Dependency, DependencyDetail, Manifest};
+use pleno_package::Manifest;
 
 /// Stack size for the thread that runs the CLI. Parsing, optimizing and
 /// compiling deeply nested code recurses, which can exceed the 1 MB default
@@ -57,6 +57,9 @@ pub fn run_pleno() {
         }
         "new" => {
             handle_new(&mut args);
+        }
+        "add" => {
+            handle_add(&mut args);
         }
         "install" => {
             handle_install(&mut args);
@@ -280,9 +283,11 @@ fn run_plm_core(args: &mut std::iter::Peekable<std::iter::Skip<std::env::Args>>)
     match sub_command.as_str() {
         "init" => handle_init(args),
         "new" => handle_new(args),
+        "add" => handle_add(args),
         "install" => handle_install(args),
         "update" => handle_update(args),
-        "remove" => handle_remove(args),
+        "remove" | "rm" => handle_remove(args),
+        "tree" | "list" => handle_tree(args),
         "run" => handle_plm_run(args),
         "publish" => handle_plm_publish(args),
         "search" => handle_plm_search(args),
@@ -308,15 +313,17 @@ fn run_plm_core(args: &mut std::iter::Peekable<std::iter::Skip<std::env::Args>>)
             println!("Commands:");
             println!("  new <folder>     Create a folder with a new Pleno package in it");
             println!("  init [name]      Create a Pleno package in the current folder");
-            println!("  install [url]    Install dependencies or a specific package");
-            println!("  update           Update all dependencies");
+            println!("  add <source>     Add a dependency (Git URL, github:owner/repo or folder)");
+            println!("  install          Install the dependencies locked in pleno.lock");
+            println!("  update [name]    Update dependencies to the newest allowed tags");
             println!("  remove <name>    Remove a dependency");
+            println!("  tree             Show the dependency tree");
             println!("  run <script>     Run a script defined in pleno.toml");
             println!("  info             Show the package from pleno.toml");
             println!("  build            Build the current package");
             println!("  test             Run the package's tests");
-            println!("  publish          Publish to the registry named by PLENO_REGISTRY");
-            println!("  search <query>   Search for packages in the registry");
+            println!("  publish          Check the package and tag a release (vX.Y.Z)");
+            println!("  search [words]   Where to find packages (GitHub topic pleno-package)");
             println!();
             println!("Options:");
             println!("  -h, --help       Show this help message");
@@ -384,15 +391,20 @@ pub fn print_help() {
                 ("init [name]", "Create a Pleno package in this folder"),
                 ("info", "Show the package from pleno.toml"),
                 (
-                    "install [url]",
-                    "Install dependencies or a specific package",
+                    "add <source>",
+                    "Add a dependency (Git URL, github:owner/repo or folder)",
                 ),
-                ("update", "Update all dependencies"),
+                ("install", "Install the dependencies locked in pleno.lock"),
+                (
+                    "update [name]",
+                    "Update dependencies to the newest allowed tags",
+                ),
                 ("remove <name>", "Remove a dependency"),
+                ("tree", "Show the dependency tree"),
                 ("run <script>", "Run a script defined in pleno.toml"),
                 ("build, test", "Build or test the package"),
-                ("publish", "Publish to the registry named by PLENO_REGISTRY"),
-                ("search <term>", "Search the registry"),
+                ("publish", "Check the package and tag a release (vX.Y.Z)"),
+                ("search [words]", "Where to find packages"),
             ],
         ),
         (
@@ -1925,168 +1937,227 @@ const INIT_FILES: &[&str] = &[
     ".vscode/extensions.json",
 ];
 
-fn handle_install(args: &mut std::iter::Peekable<std::iter::Skip<std::env::Args>>) {
-    let mut pkg_name = None;
-    let mut features = Vec::new();
-    let mut offline = false;
-    let mut is_dev = false;
-
-    let iter = args.by_ref();
-    while let Some(arg) = iter.next() {
-        if arg == "--features" {
-            if let Some(f_list) = iter.next() {
-                for f in f_list.split(',') {
-                    features.push(f.to_string());
-                }
-            }
-        } else if arg == "--offline" {
-            offline = true;
-        } else if arg == "--dev" || arg == "--save-dev" {
-            is_dev = true;
-        } else if pkg_name.is_none() && !arg.starts_with('-') {
-            pkg_name = Some(arg);
-        }
-    }
-
-    let mut manifest = match Manifest::load_from_file("pleno.toml") {
-        Ok(m) => m,
-        Err(e) => {
-            eprintln!("Failed to load pleno.toml: {}", e);
-            process::exit(1);
-        }
-    };
-
-    // Without PLENO_REGISTRY, packages come from local, path and Git sources.
-    let mut manager = pleno_package::PackageManager::new("packages").with_offline(offline);
-    if let Ok(registry_url) = std::env::var("PLENO_REGISTRY") {
-        manager = manager.with_registry(registry_url);
-    }
-
-    if let Some(pkg) = pkg_name {
-        let (name, source) = if let Some(pos) = pkg.rfind('@') {
-            let (n, s) = pkg.split_at(pos);
-            let version = s[1..].to_string();
-            if n.starts_with("github.com/") {
-                (n.to_string(), pkg.clone()) // Keep shorthand for source
-            } else if !n.starts_with("git+") && !n.starts_with("http") && !n.contains('/') {
-                (n.to_string(), version)
-            } else {
-                (
-                    n.split('/').next_back().unwrap().replace(".git", ""),
-                    pkg.clone(),
-                )
-            }
-        } else if pkg.starts_with("github.com/") {
-            (pkg.clone(), pkg.clone())
-        } else if pkg.contains('/') || pkg.starts_with("git+") {
-            let name = pkg.split('/').next_back().unwrap().replace(".git", "");
-            (name, pkg.clone())
-        } else {
-            (pkg.clone(), "*".to_string())
-        };
-
-        let dep = if source.starts_with("github.com/") {
-            let (git_url, version) = if let Some(pos) = source.rfind('@') {
-                (
-                    source[..pos].to_string(),
-                    Some(source[pos + 1..].to_string()),
-                )
-            } else {
-                (source.clone(), None)
-            };
-            Dependency::Detailed(DependencyDetail {
-                git: Some(format!("https://{}", git_url)),
-                version: None,
-                path: None,
-                branch: None,
-                tag: version,
-                rev: None,
-                optional: None,
-                features: None,
-            })
-        } else if source.contains('/') || source.starts_with("git+") || source.starts_with("http") {
-            Dependency::Detailed(DependencyDetail {
-                git: Some(source.clone()),
-                version: None,
-                path: None,
-                branch: None,
-                tag: None,
-                rev: None,
-                optional: None,
-                features: None,
-            })
-        } else if source.starts_with("./") || source.starts_with("../") || source.starts_with("/") {
-            Dependency::Detailed(DependencyDetail {
-                path: Some(source.clone()),
-                version: None,
-                git: None,
-                branch: None,
-                tag: None,
-                rev: None,
-                optional: None,
-                features: None,
-            })
-        } else {
-            Dependency::Version(source.clone())
-        };
-
-        if is_dev {
-            manifest.dev_dependencies.insert(name.clone(), dep);
-        } else {
-            manifest.dependencies.insert(name.clone(), dep);
-        }
-        if let Err(e) = manifest.save_to_file("pleno.toml") {
-            eprintln!("Failed to save pleno.toml: {}", e);
-            process::exit(1);
-        }
-        println!("Added {} to dependencies", name);
-
-        if let Err(e) = manager.install_all(&manifest, &features) {
-            eprintln!("Installation failed: {}", e);
-            process::exit(1);
-        }
-    } else {
-        println!("Installing dependencies...");
-        if let Err(e) = manager.install_all(&manifest, &features) {
-            eprintln!("Installation failed: {}", e);
-            process::exit(1);
-        }
-    }
-
-    println!("Installation successful.");
+/// Prints an error from the package manager and exits with status 1.
+fn package_failure(what: &str, err: pleno_package::PackageError) -> ! {
+    eprintln!("{} {what}: {err}", style::red(Stream::Stderr, "Error:"));
+    process::exit(1);
 }
 
-fn handle_update(_args: &mut std::iter::Peekable<std::iter::Skip<std::env::Args>>) {
-    let mut manifest = match Manifest::load_from_file("pleno.toml") {
-        Ok(m) => m,
-        Err(e) => {
-            eprintln!("Failed to load pleno.toml: {}", e);
-            process::exit(1);
-        }
-    };
-    let manager = pleno_package::PackageManager::new("packages");
-    if let Err(e) = manager.update(&mut manifest) {
-        eprintln!("Update failed: {}", e);
+/// The project in the current folder, with `--offline` applied.
+fn package_manager(offline: bool) -> pleno_package::PackageManager {
+    let root = env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    if !root.join("pleno.toml").is_file() {
+        eprintln!(
+            "{} no pleno.toml in this folder. Run plm in your package's folder, or create one with `plm init`",
+            style::red(Stream::Stderr, "Error:")
+        );
         process::exit(1);
+    }
+    pleno_package::PackageManager::new(root).with_offline(offline)
+}
+
+/// Prints what an install, update, add or remove changed.
+fn print_report(report: &pleno_package::Report) {
+    let out = Stream::Stdout;
+    for change in &report.changes {
+        let line = change.to_string();
+        let line = match change {
+            pleno_package::Change::Added { .. } => style::green(out, &line),
+            pleno_package::Change::Removed { .. } => style::red(out, &line),
+            pleno_package::Change::Updated { .. } => line,
+        };
+        println!("  {line}");
+    }
+    let count = report.installed();
+    println!(
+        "{} {count} package{} installed in packages/, locked in pleno.lock",
+        style::green(out, "Done:"),
+        if count == 1 { "" } else { "s" }
+    );
+}
+
+const ADD_USAGE: &str = "add <source>[@<version>] [--name <name>] [--tag <tag> | --rev <sha> | --branch <branch>] [--dev] [--offline]";
+const ADD_HELP: &str = "Adds a dependency to pleno.toml, installs it and locks it in pleno.lock.
+
+<source> is a Git URL (https://github.com/ada/greet, git@github.com:ada/greet.git,
+file:///path/to/repo), a shorthand (github:ada/greet, gitlab:team/greet) or a
+folder (../greet). @<version> is a version requirement such as ^1.2 or ~1.4.0;
+without one, plm takes the newest vX.Y.Z tag and writes ^X.Y.Z.";
+
+fn handle_add(args: &mut std::iter::Peekable<std::iter::Skip<std::env::Args>>) {
+    let parsed = SubcommandArgs::parse(
+        ADD_USAGE,
+        ADD_HELP,
+        args.by_ref(),
+        &["--dev", "--offline"],
+        &["--name", "--tag", "--rev", "--branch", "--version"],
+        1,
+    );
+    let spec = parsed.required_path(
+        "add",
+        "a package source (a Git URL, github:owner/repo or a folder)",
+    );
+    add_package(&parsed, &spec);
+}
+
+fn add_package(parsed: &SubcommandArgs, spec: &str) {
+    use pleno_package::{AddRequest, DepSource, Want};
+    let fail = |message: String| -> ! {
+        eprintln!("{} {message}", style::red(Stream::Stderr, "Error:"));
+        process::exit(2);
+    };
+    let parsed_spec =
+        pleno_package::parse_add_spec(spec).unwrap_or_else(|err| fail(err.to_string()));
+    let pins: Vec<(&str, &str)> = ["--version", "--tag", "--rev", "--branch"]
+        .iter()
+        .filter_map(|flag| parsed.value(flag).map(|v| (*flag, v)))
+        .collect();
+    if pins.len() + usize::from(parsed_spec.version.is_some()) > 1 {
+        fail("give only one of @<version>, --version, --tag, --rev and --branch".to_string());
+    }
+    if matches!(parsed_spec.source, DepSource::Path(_)) && !pins.is_empty() {
+        fail(format!(
+            "'{spec}' is a folder, so {} does not apply",
+            pins[0].0
+        ));
+    }
+    let version_text = parsed_spec
+        .version
+        .clone()
+        .or_else(|| parsed.value("--version").map(str::to_string));
+    let want = if let Some(text) = &version_text {
+        Some(Want::Range(
+            pleno_package::manifest::parse_requirement(text)
+                .unwrap_or_else(|err| fail(err.to_string())),
+        ))
+    } else if let Some(tag) = parsed.value("--tag") {
+        Some(Want::Tag(tag.to_string()))
+    } else if let Some(rev) = parsed.value("--rev") {
+        Some(Want::Rev(rev.to_ascii_lowercase()))
+    } else {
+        parsed
+            .value("--branch")
+            .map(|b| Want::Branch(b.to_string()))
+    };
+    let request = AddRequest {
+        name: parsed.value("--name").map(str::to_string),
+        source: parsed_spec.source,
+        want,
+        version_text,
+        dev: parsed.has("--dev"),
+    };
+    let manager = package_manager(parsed.has("--offline"));
+    match manager.add(&request) {
+        Ok((name, report)) => {
+            let table = if request.dev {
+                "[dev-dependencies]"
+            } else {
+                "[dependencies]"
+            };
+            println!("Added {name} to {table} in pleno.toml");
+            print_report(&report);
+        }
+        Err(err) => package_failure("could not add the package", err),
+    }
+}
+
+fn handle_install(args: &mut std::iter::Peekable<std::iter::Skip<std::env::Args>>) {
+    let parsed = SubcommandArgs::parse(
+        "install [--offline] [--features <a,b>]   (install <source> is the same as add <source>)",
+        "Installs the dependencies in pleno.toml into packages/. Commits locked in pleno.lock are kept, and \
+         their checksums checked; with a complete lockfile and cache, no network is used.",
+        args.by_ref(),
+        &["--dev", "--save-dev", "--offline"],
+        &[
+            "--features",
+            "--name",
+            "--tag",
+            "--rev",
+            "--branch",
+            "--version",
+        ],
+        1,
+    );
+    if let Some(spec) = parsed.paths.first().cloned() {
+        let mut parsed = parsed;
+        if parsed.has("--save-dev") {
+            parsed.flags.push("--dev".to_string());
+        }
+        add_package(&parsed, &spec);
+        return;
+    }
+    let features: Vec<String> = parsed
+        .value("--features")
+        .map(|list| {
+            list.split(',')
+                .map(str::trim)
+                .filter(|f| !f.is_empty())
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default();
+    let manager = package_manager(parsed.has("--offline"));
+    match manager.install(&features) {
+        Ok(report) => print_report(&report),
+        Err(err) => package_failure("install failed", err),
+    }
+}
+
+fn handle_update(args: &mut std::iter::Peekable<std::iter::Skip<std::env::Args>>) {
+    let parsed = SubcommandArgs::parse(
+        "update [name...] [--offline]",
+        "Chooses the newest versions that pleno.toml allows, for the named packages or all of them, and \
+         updates pleno.lock.",
+        args.by_ref(),
+        &["--offline"],
+        &[],
+        usize::MAX,
+    );
+    let manager = package_manager(parsed.has("--offline"));
+    match manager.update(&parsed.paths) {
+        Ok(report) => {
+            if report.changes.is_empty() {
+                println!("Everything is already at the newest version pleno.toml allows.");
+            }
+            print_report(&report);
+        }
+        Err(err) => package_failure("update failed", err),
     }
 }
 
 fn handle_remove(args: &mut std::iter::Peekable<std::iter::Skip<std::env::Args>>) {
-    let name = args.next().unwrap_or_else(|| {
-        eprintln!("Error: 'remove' requires a package name");
-        process::exit(1);
-    });
-    let mut manifest = match Manifest::load_from_file("pleno.toml") {
-        Ok(m) => m,
-        Err(e) => {
-            eprintln!("Failed to load pleno.toml: {}", e);
-            process::exit(1);
+    let parsed = SubcommandArgs::parse(
+        "remove <name> [--offline]",
+        "Removes a dependency from pleno.toml, packages/ and pleno.lock.",
+        args.by_ref(),
+        &["--offline"],
+        &[],
+        1,
+    );
+    let name = parsed.required_path("remove", "a package name");
+    let manager = package_manager(parsed.has("--offline"));
+    match manager.remove(&name) {
+        Ok(report) => {
+            println!("Removed {name} from pleno.toml");
+            print_report(&report);
         }
-    };
-    let manager = pleno_package::PackageManager::new("packages");
-    if let Err(e) = manager.remove(&mut manifest, &name) {
-        eprintln!("Remove failed: {}", e);
-        process::exit(1);
+        Err(err) => package_failure("remove failed", err),
+    }
+}
+
+fn handle_tree(args: &mut std::iter::Peekable<std::iter::Skip<std::env::Args>>) {
+    SubcommandArgs::parse(
+        "tree",
+        "Prints the dependency tree from pleno.toml and pleno.lock (no network). `(*)` marks a package \
+         whose dependencies are shown above.",
+        args.by_ref(),
+        &[],
+        &[],
+        0,
+    );
+    match package_manager(true).tree() {
+        Ok(tree) => print!("{tree}"),
+        Err(err) => package_failure("cannot show the tree", err),
     }
 }
 
@@ -2102,100 +2173,117 @@ fn handle_plm_run(args: &mut std::iter::Peekable<std::iter::Skip<std::env::Args>
             process::exit(1);
         }
     };
-    let manager = pleno_package::PackageManager::new("packages");
+    let manager = pleno_package::PackageManager::new(".");
     if let Err(e) = manager.run_script(&manifest, &script_name) {
         eprintln!("Run failed: {}", e);
         process::exit(1);
     }
 }
 
-fn handle_plm_publish(_args: &mut std::iter::Peekable<std::iter::Skip<std::env::Args>>) {
-    let manifest = match Manifest::load_from_file("pleno.toml") {
-        Ok(m) => m,
-        Err(e) => {
-            eprintln!("Failed to load pleno.toml: {}", e);
-            process::exit(1);
-        }
-    };
-    let registry_url = required_registry_url();
-    let manager = pleno_package::PackageManager::new("packages").with_registry(registry_url);
-    if let Err(e) = manager.publish(&manifest) {
-        eprintln!("Publish failed: {}", e);
-        process::exit(1);
-    }
-    println!(
-        "Published {} v{}",
-        manifest.package.name, manifest.package.version
+fn handle_plm_publish(args: &mut std::iter::Peekable<std::iter::Skip<std::env::Args>>) {
+    let parsed = SubcommandArgs::parse(
+        "publish [--push] [--no-test]",
+        "Publishing a Pleno package is pushing a Git tag vX.Y.Z. This checks the package (pleno.toml, \
+         a clean Git tree, a free tag, passing tests) and prints the git commands; --push runs them.",
+        args.by_ref(),
+        &["--push", "--no-test"],
+        &[],
+        0,
     );
-}
+    let root = env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    let plan = pleno_package::publish::check(&root)
+        .unwrap_or_else(|err| package_failure("cannot publish", err));
+    let out = Stream::Stdout;
+    println!(
+        "{} {} v{} at commit {}",
+        style::bold(out, "Checked"),
+        plan.name,
+        plan.version,
+        &plan.commit[..plan.commit.len().min(7)]
+    );
+    println!("  pleno.toml is valid and has no path dependencies");
+    println!("  the working tree is committed");
+    println!("  tag {} is free", plan.tag);
 
-/// The registry URL from `PLENO_REGISTRY`. There is no default: no public
-/// registry exists yet, and a guessed domain could be taken by anyone.
-fn required_registry_url() -> String {
-    std::env::var("PLENO_REGISTRY").unwrap_or_else(|_| {
-        eprintln!(
-            "{} no package registry is configured. Set PLENO_REGISTRY to the registry's URL.",
-            style::red(Stream::Stderr, "Error:")
+    if !parsed.has("--no-test") {
+        let test_dir = default_test_dir();
+        if Path::new(&test_dir).is_dir() {
+            println!("Running the tests in {test_dir}/ (skip with --no-test)...");
+            let exe = env::current_exe().unwrap_or_else(|_| PathBuf::from("pleno"));
+            let status = process::Command::new(exe)
+                .args(["test", &test_dir])
+                .status();
+            if !status.is_ok_and(|s| s.success()) {
+                eprintln!(
+                    "{} the tests failed; fix them before publishing",
+                    style::red(Stream::Stderr, "Error:")
+                );
+                process::exit(1);
+            }
+            println!("  tests passed");
+        }
+    }
+    for warning in &plan.warnings {
+        println!("{} {warning}", style::yellow(out, "Warning:"));
+    }
+
+    if parsed.has("--push") {
+        if let Err(err) = pleno_package::publish::push(&root, &plan) {
+            package_failure("publish failed", err);
+        }
+        println!(
+            "{} pushed tag {}",
+            style::green(out, "Published:"),
+            plan.tag
         );
-        process::exit(1);
-    })
+    } else {
+        println!();
+        println!("To publish, tag this commit and push the tag:");
+        println!();
+        for line in plan.command_lines() {
+            println!("  {line}");
+        }
+        println!();
+        println!("or run `plm publish --push` to do both.");
+    }
+    if let Some(url) = &plan.remote_url {
+        println!("Others can then depend on it with:");
+        println!("  plm add {url}@^{}", plan.version);
+    }
 }
 
 fn handle_plm_search(args: &mut std::iter::Peekable<std::iter::Skip<std::env::Args>>) {
-    let query = args.next();
-    let registry_url = required_registry_url();
-    let url = format!("{}/packages", registry_url);
-
-    println!("Searching for packages...");
-
-    let resp = match reqwest::blocking::get(&url) {
-        Ok(r) => r,
-        Err(e) => {
-            eprintln!("Failed to connect to registry: {}", e);
-            process::exit(1);
-        }
-    };
-
-    if !resp.status().is_success() {
-        eprintln!("Registry returned error: {}", resp.status());
-        process::exit(1);
+    let parsed = SubcommandArgs::parse(
+        "search [words]",
+        "Pleno has no central registry. Prints where to find packages: GitHub repositories with the \
+         pleno-package topic.",
+        args.by_ref(),
+        &[],
+        &[],
+        usize::MAX,
+    );
+    println!("Pleno packages are Git repositories; there is no central registry to search.");
+    println!("Packages that want to be found carry the GitHub topic `pleno-package`:");
+    if parsed.paths.is_empty() {
+        println!("  https://github.com/topics/pleno-package");
+    } else {
+        let words: Vec<String> = parsed
+            .paths
+            .iter()
+            .flat_map(|p| p.split_whitespace())
+            .map(|w| {
+                w.chars()
+                    .filter(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
+                    .collect()
+            })
+            .filter(|w: &String| !w.is_empty())
+            .collect();
+        println!(
+            "  https://github.com/search?q={}+topic%3Apleno-package&type=repositories",
+            words.join("+")
+        );
     }
-
-    let packages: Vec<serde_json::Value> = match resp.json() {
-        Ok(p) => p,
-        Err(e) => {
-            eprintln!("Failed to parse registry response: {}", e);
-            process::exit(1);
-        }
-    };
-
-    let filtered: Vec<_> = packages
-        .into_iter()
-        .filter(|pkg| {
-            if let Some(q) = &query {
-                let name = pkg["name"].as_str().unwrap_or("").to_lowercase();
-                let desc = pkg["description"].as_str().unwrap_or("").to_lowercase();
-                let q_lower = q.to_lowercase();
-                name.contains(&q_lower) || desc.contains(&q_lower)
-            } else {
-                true
-            }
-        })
-        .collect();
-
-    if filtered.is_empty() {
-        println!("No packages found.");
-        return;
-    }
-
-    println!("{:<20} {:<10} {:<40}", "NAME", "VERSION", "DESCRIPTION");
-    println!("{:-<20} {:-<10} {:-<40}", "", "", "");
-    for pkg in filtered {
-        let name = pkg["name"].as_str().unwrap_or("unknown");
-        let version = pkg["version"].as_str().unwrap_or("?.?.?");
-        let desc = pkg["description"].as_str().unwrap_or("");
-        println!("{:<20} {:<10} {:<40}", name, version, desc);
-    }
+    println!("Add one with `plm add github:<owner>/<repo>`.");
 }
 
 fn handle_build(args: &mut std::iter::Peekable<std::iter::Skip<std::env::Args>>) {
@@ -2378,7 +2466,7 @@ fn handle_run(args: &mut std::iter::Peekable<std::iter::Skip<std::env::Args>>) {
             } else {
                 match Manifest::load_from_file("pleno.toml") {
                     Ok(manifest) => {
-                        let manager = pleno_package::PackageManager::new("packages");
+                        let manager = pleno_package::PackageManager::new(".");
                         if let Err(_e) = manager.run_script(&manifest, &t) {
                             eprintln!(
                                 "Script '{}' not found in pleno.toml, and file '{}' does not exist.",
@@ -2397,7 +2485,7 @@ fn handle_run(args: &mut std::iter::Peekable<std::iter::Skip<std::env::Args>>) {
         None => {
             match Manifest::load_from_file("pleno.toml") {
                 Ok(manifest) => {
-                    let manager = pleno_package::PackageManager::new("packages");
+                    let manager = pleno_package::PackageManager::new(".");
                     // Default script to run if none provided? 'start' is a common default.
                     let script = "start";
                     if let Err(_e) = manager.run_script(&manifest, script) {
