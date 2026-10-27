@@ -200,3 +200,14 @@ fn calls_on_known_classes_and_lambdas() {
         );
     }
 }
+
+#[test]
+fn a_compile_error_does_not_hide_the_other_problems() {
+    // Before, `pleno check` stopped at the compile error and reported nothing else.
+    let out = check(
+        "compile-error-and-more",
+        "fn helper(a) { return a; }\nhelper(1, 2);\nlet total = 1;\ntotal = 2;\n",
+    );
+    assert!(out.contains("helper expects 1 argument, got 2"), "{out}");
+    assert!(out.contains("cannot assign to immutable binding"), "{out}");
+}

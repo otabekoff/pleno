@@ -18,6 +18,7 @@ Notable changes to Pleno. The format follows [Keep a Changelog](https://keepacha
 
 ### Fixed
 
+- `pleno check` stopped at the first compile error (such as `cannot assign to immutable binding`) and reported nothing else in the file; it now reports the compile error together with the other problems it found.
 - A static method called with positional arguments ignored their number and its defaults: `Point.at()` for `static at(x, y = 5)` gave `x` and `y` as `null`, extra arguments were dropped, `...rest` got only the first one, and an `async` static method returned the class. Static methods now bind arguments like any other call (`missing required argument`, `too many positional arguments`).
 - `pleno check` reported `export is only allowed in modules` for every file that exports names; such a file is now compiled as a module, as importing it does.
 - Compiling a file copied the whole source, and indexed its lines again, for every function, method and lambda in it, so compile time grew with the square of the file's size (70 ms for a 3,200-line file, now 21 ms). The language server, which now compiles on every change, and `pleno run` both benefit.
