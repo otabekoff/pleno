@@ -599,13 +599,10 @@ pub fn register(vm: &mut dyn VMProvider) {
     #[cfg(feature = "net")]
     {
         let mut net_module = IndexMap::new();
-        net_module.insert(
-            "listen".to_string(),
-            Value::NativeFunction(net::net_tcp_listen),
-        );
+        net_module.insert("listen".to_string(), Value::NativeFunction(net::net_listen));
         net_module.insert(
             "connect".to_string(),
-            Value::NativeFunction(net::net_tcp_connect),
+            Value::NativeFunction(net::net_connect),
         );
         modules.insert(
             "std:net".to_string(),

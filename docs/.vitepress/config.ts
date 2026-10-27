@@ -11,6 +11,14 @@ const plenoGrammar = JSON.parse(
 
 const BASE = '/'
 
+// Pleno's version, read from the workspace's Cargo.toml so the site never shows a stale one:
+// `v0.3` in the nav, `0.3.0` for the home page (through themeConfig.plenoVersion).
+const PLENO_VERSION =
+  fs
+    .readFileSync(path.resolve(__dirname, '../../Cargo.toml'), 'utf-8')
+    .match(/^version\s*=\s*"([^"]+)"/m)?.[1] ?? ''
+const PLENO_MINOR = PLENO_VERSION.split('.').slice(0, 2).join('.')
+
 // Modules the browser build cannot use; examples importing them stay offline.
 const OFFLINE_MODULES = /from\s+"std:(io|path|os|process|http|net|db|dotenv)"/
 
@@ -62,6 +70,7 @@ export default defineConfig({
     ['script', {}, BANNER_SCRIPT],
   ],
   themeConfig: {
+    plenoVersion: PLENO_VERSION,
     search: {
       provider: 'local',
     },
@@ -86,7 +95,7 @@ export default defineConfig({
       { text: 'Playground', link: '/playground' },
       { text: 'Blog', link: '/blog/', activeMatch: '/blog/' },
       {
-        text: 'v0.2',
+        text: `v${PLENO_MINOR}`,
         items: [
           {
             items: [

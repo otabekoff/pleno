@@ -272,18 +272,20 @@ if (found) {
 
 ## Low-level Networking
 
-`std:net` is experimental and not covered by the [compatibility promise](./compatibility.md). `listen` and `connect` only check that an address can be bound or reached; the socket is closed right away. See [std:net](/stdlib/net).
+`std:net` gives TCP sockets. `Net.listen(host, port)` returns a listener, and `Net.connect(host, port)` a promise for a socket; `accept`, `read`, `readLine` and `write` return promises too, so a server and a client can run in one program. Data is text (UTF-8). See [std:net](/stdlib/net).
 
 ```pleno
 import { Net } from "std:net";
 
-// TCP listener on any free port
-let listener = Net.listen("127.0.0.1:0");
+let listener = Net.listen("127.0.0.1", 0);   // port 0: any free port
+let connecting = Net.connect("127.0.0.1", listener.port);
+let server = await listener.accept();
+let client = await connecting;
 
-// TCP connection; throws if it fails
-try {
-    Net.connect("127.0.0.1:1");
-} catch (e) {
-    print("Cannot connect: " + e.message);
-}
+await client.write("ping
+");
+print(await server.readLine());   // ping
+client.close();
+server.close();
+listener.close();
 ```

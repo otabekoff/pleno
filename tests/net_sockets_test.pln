@@ -1,0 +1,67 @@
+// std:net over loopback: listen on a free port, connect, echo lines and raw
+// reads, time out, close twice, and a refused connection.
+import { assert as check } from "std:test";
+import { Net } from "std:net";
+
+let listener = Net.listen("127.0.0.1", 0);
+check.isTrue(listener.port > 0);
+check.equal(listener.host, "127.0.0.1");
+check.equal(listener.address, "127.0.0.1:" + listener.port.toString());
+
+// The server echoes each line in capitals until the client closes.
+async fn serve() {
+    let conn = await listener.accept();
+    let mut line = await conn.readLine();
+    while (line != null) {
+        await conn.write(line.upper() + "\n");
+        line = await conn.readLine();
+    }
+    conn.close();
+}
+
+let server = serve();
+let client = await Net.connect("127.0.0.1", listener.port);
+check.equal(client.remoteAddress, listener.address);
+check.isTrue(client.localAddress.startsWith("127.0.0.1:"));
+
+await client.write("hello\r\nwörld\n");
+check.equal(await client.readLine(), "HELLO");
+check.equal(await client.readLine(), "WÖRLD");
+
+// read(maxBytes) returns at most that many bytes.
+await client.write("abcdef\n");
+check.equal(await client.read(3), "ABC");
+check.equal(await client.readLine(), "DEF");
+
+// Nothing arrives: the read times out, and the socket still works.
+client.setTimeout(50);
+try {
+    await client.readLine();
+    check.isTrue(false);
+} catch (e) {
+    check.equal(e.name, "TimeoutError");
+    check.equal(e.message, "readLine() timed out after 50 ms");
+}
+client.setTimeout(null);
+
+client.close();
+client.close();
+await server;
+try {
+    client.read();
+    check.isTrue(false);
+} catch (e) {
+    check.equal(e.message, "cannot read(): the socket is closed");
+}
+
+let port = listener.port;
+listener.close();
+listener.close();
+try {
+    await Net.connect("127.0.0.1", port);
+    check.isTrue(false);
+} catch (e) {
+    check.equal(e.name, "Error");
+    check.equal(e.message, "connection refused: 127.0.0.1:" + port.toString());
+}
+print("net sockets: ok");

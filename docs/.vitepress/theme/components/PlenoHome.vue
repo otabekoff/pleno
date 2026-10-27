@@ -1,9 +1,14 @@
 <script setup lang="ts">
-import { withBase } from 'vitepress'
+import { computed } from 'vue'
+import { useData, withBase } from 'vitepress'
 import CodeRunner from './CodeRunner.vue'
 import HomeInstall from './HomeInstall.vue'
 import PlCode from './PlCode.vue'
 import PlIcon from './PlIcon.vue'
+
+// From Cargo.toml (see .vitepress/config.ts).
+const { theme } = useData()
+const version = computed(() => theme.value.plenoVersion as string)
 
 const heroCode = `enum Shape {
     Circle(radius),
@@ -124,9 +129,9 @@ const status = [
   <div class="home pl-container">
     <section class="hero">
       <div class="hero-text">
-        <a class="badge badge-home" :href="withBase('/blog/toward-1-0')">
-          <span class="badge-tag">v0.2</span>
-          <span>The road to Pleno 1.0</span>
+        <a class="badge badge-home" :href="withBase('/blog/pleno-0-3')">
+          <span class="badge-tag">v{{ version }}</span>
+          <span>Pleno {{ version }} is out</span>
           <PlIcon name="chevron-right" :size="14" />
         </a>
         <h1 class="pl-display">

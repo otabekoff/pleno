@@ -1,12 +1,20 @@
-import Net from "std:net";
+// args: --allow-network false
+// With network access denied, std:net throws a SecurityError.
+import { assert as check } from "std:test";
+import { Net } from "std:net";
 
-fn main() {
-    print("Starting Low-Level Network test...");
-    try {
-        let listener = Net.listen("127.0.0.1:9999");
-        print("Success? Net.listen should have been denied.");
-    } catch (e) {
-        print("Caught: " + e.message);
-    }
+try {
+    Net.listen("127.0.0.1", 0);
+    check.isTrue(false);
+} catch (e) {
+    check.equal(e.name, "SecurityError");
+    check.equal(e.message, "network access denied: listen on 127.0.0.1:0");
 }
-main();
+
+try {
+    Net.connect("127.0.0.1", 80);
+    check.isTrue(false);
+} catch (e) {
+    check.equal(e.name, "SecurityError");
+    check.equal(e.message, "network access denied: connect to 127.0.0.1:80");
+}
