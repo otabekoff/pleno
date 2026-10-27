@@ -18,33 +18,27 @@ Status as of 2026-10-27. The latest release is [0.3.0](https://github.com/otabek
 
 ### Must have
 
-1. **Freeze the reference.** [ ] The maintainer's last review of `docs/specs`, including the
-   decisions made for 1.0 (`==` compares containers by contents), then declare it frozen for 1.x.
-2. **Fuzzing time.** [ ] Long runs that find nothing for a full day in total. Every crash found
+1. **Fuzzing time.** [ ] Long runs that find nothing for a full day in total. Every crash found
    so far is fixed, and leak detection is on. A 5.5-hour run on `main` started on 2026-10-27.
-3. **A release people can install.** [ ] 1.0.0-rc.1, then 1.0.0, with signed Windows binaries,
-   WinGet, the VS Code Marketplace and Open VSX. Every channel's status and open step:
-   [`tasks/distribution.md`](tasks/distribution.md).
+2. **A release people can install.** [ ] 1.0.0-rc.1, then 1.0.0, with signed Windows binaries,
+   Linux binaries that run on older distributions, WinGet, the VS Code Marketplace and Open VSX.
+   Every channel's status and open step: [`tasks/distribution.md`](tasks/distribution.md).
 
 ### Should have (1.0 or soon after)
 
-- [ ] **More static checks** in `pleno check` and the editor: compile errors in the language
-  server, calls on other objects and imported functions, inferred types.
-- [ ] **Runtime type checks** still missing: `Void` returns, annotations with type parameters,
-  type arguments of generic classes, `@inline` functions.
+- [ ] **More static checks** in `pleno check` and the editor: the types of parameters, variables
+  and expressions, annotations that name classes or generic types, and classes imported from
+  other files.
 - [ ] **Speed**: Pleno is already faster than CPython on every benchmark. Left: cheaper calls, the
   fast loop while debugging, closures that share their code.
 - [ ] **HTTP server connections**: read requests without blocking the event loop, so one slow
   client does not delay the others.
-- [ ] **Web framework**: middleware, static files and cookies for `std:http`, so `Router` and
-  `Server` can become stable.
-- [ ] **Error suggestions** in the places not covered yet (enclosing functions' locals, other
-  modules' exports, type names).
-- [ ] **Formatter**: comments inside an index or an import list stay in place.
+- [ ] **Error suggestions** in the places not covered yet: at runtime, the locals of the functions
+  around a closure; type names in annotations.
+- [ ] **Formatter**: the comments that still move (after `.` or `is`, in an `if` condition, before
+  a declaration's first parameter, line comments in slices and parentheses).
 - [ ] **Code health**: split the VM's 8,000-line `lib.rs` into reviewable modules; replace `unsafe`
   blocks that do not pay for themselves with safe code.
-- [ ] **Docs** for the experimental `std:gc` and `std:db` modules, and for using Code Runner with
-  Pleno.
 - [ ] **More package channels**: Chocolatey, AUR and an apt repository
   ([`tasks/distribution.md`](tasks/distribution.md)).
 
