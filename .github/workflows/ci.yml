@@ -6,6 +6,9 @@ on:
   pull_request:
     branches: [main]
 
+permissions:
+  contents: read
+
 env:
   CARGO_TERM_COLOR: always
 
@@ -52,10 +55,9 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
       - name: Rust Cache
         uses: Swatinem/rust-cache@v2
-      - name: Run unit tests
+      # Runs the unit, integration and doc tests of every crate.
+      - name: Run tests
         run: cargo test --workspace
-      - name: Run integration tests
-        run: cargo test --workspace --test '*'
       - name: Build pleno
         run: cargo build --bin pleno
       - name: Run .pln test scripts and examples

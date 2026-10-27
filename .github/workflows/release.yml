@@ -108,7 +108,7 @@ jobs:
 
           # Generate .deb for Linux x64
           if [ "${{ runner.os }}" == "Linux" ] && [ "${{ matrix.job.target }}" == "x86_64-unknown-linux-gnu" ]; then
-             cargo install cargo-deb
+             cargo install cargo-deb --locked
              cargo deb -p pleno-cli --target ${{ matrix.job.target }} --output pleno_${{ github.ref_name }}_amd64.deb
           fi
 
@@ -164,7 +164,7 @@ jobs:
 
       - name: Package VSIX
         working-directory: ide/vscode
-        run: npx @vscode/vsce package --out pleno-language-${{ github.ref_name }}.vsix
+        run: npx --yes @vscode/vsce@3.2.1 package --out pleno-language-${{ github.ref_name }}.vsix
 
       - name: Upload VSIX
         uses: actions/upload-artifact@v7
