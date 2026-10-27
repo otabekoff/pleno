@@ -3,6 +3,9 @@
 What was finished, newest first. Open work is in `v1.md`, `distribution.md` and `later.md`.
 
 ## 2026-10-27
+- [x] Language reference frozen for 1.x: a "frozen" section in `docs/specs/compatibility.md` (additions only, documented behavior kept, errata process). The freeze review checked the prose claims of every page and settled what was underspecified: closures share variables (they used to keep a stale copy), whole Floats print as `3.0`, strings inside containers print quoted, negative slice positions count from the end in every slice form, unknown string escapes are errors, `typeof` gives class names and `Function`, `Math.min`/`max` take every argument, `i64::MIN % -1` no longer crashes the compiler, the formatter keeps `1e21` a Float, and `std:db` obeys the sandbox. Newly documented: numbers (overflow, division, remainder, zero), string literals and escapes, how values print, scope and shadowing, reserved words, default parameters per call, closures and loop variables, map and set order, the recursion and nesting limits.
+- [x] Pages for the experimental `std:gc` and `std:db` modules
+- [x] Code Runner: `docs/guide/editor.md` shows the `code-runner.executorMap` setting for Pleno
 - [x] Memory after a run (#60): dropping a VM frees every value it allocated, reference cycles included (#147), also cycles stored on the `Error` class (#149). Fuzzing runs with leak detection again (#155).
 - [x] `==` compares arrays, tuples, maps and sets by contents, as `assert.equal` already did (#159)
 - [x] Release 0.3.0: six targets, `.deb`, `.vsix` and Docker image, signed with cosign; the Homebrew tap updates itself; Scoop bucket at 0.3.0; package manifests in `packaging/` point at 0.3.0 (#146, #151)
