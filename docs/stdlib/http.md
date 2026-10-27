@@ -391,9 +391,11 @@ Cookies are not signed: a client can send any value. Store a random session id i
 
 Creates a server for a router.
 
-### `listen(port: Int, callback?: Function): Null`
+### `listen(port: Int, callback?: Function, host: String = "127.0.0.1"): Null`
 
-Starts listening on `0.0.0.0:port`, prints `Server listening on http://0.0.0.0:<port>`, and calls `callback` once the port is bound. Port `0` picks a free port; `server.port` holds the port in use. The program keeps running and serves requests until it is stopped. `listen` throws `SecurityError` when the sandbox denies network access.
+Starts listening on `host:port`, prints `Server listening on http://<host>:<port>`, and calls `callback` once the port is bound. Port `0` picks a free port; `server.port` and `server.host` hold what is in use.
+
+By default the server accepts connections only from this machine (`127.0.0.1`), like most development servers, so running it does not expose anything to the network (and does not trigger a firewall prompt). To accept connections from other machines, pass `host: "0.0.0.0"` (every IPv4 address) or `host: "::"` (IPv6); a host name such as `"localhost"` works too. A host that is not an address of this machine is an error. The program keeps running and serves requests until it is stopped. `listen` throws `SecurityError` when the sandbox denies network access.
 
 ```pleno norun
 import { Router, Server } from "std:http";
@@ -405,6 +407,11 @@ let server = Server(router);
 server.listen(8080, fn() {
     print(`Server running on port ${server.port}`);
 });
+```
+
+```pleno norun
+// Reachable from other machines on the network:
+Server(router).listen(8080, host: "0.0.0.0");
 ```
 
 ### Limits

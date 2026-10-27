@@ -347,12 +347,47 @@ pub fn http_server_listen(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Val
             ));
         }
     };
-    let addr = std::net::SocketAddr::from(([0, 0, 0, 0], port));
+    // Only this machine by default, like most development servers: a server
+    // reachable from the network is asked for with `host: "0.0.0.0"`.
+    let host = match vm.get_named_args().get("host").cloned() {
+        None | Some(Value::Null) => "127.0.0.1".to_string(),
+        Some(Value::String(host)) => host.to_string(),
+        Some(other) => {
+            return Err(RuntimeError::new(format!(
+                "listen(): host must be a String such as \"0.0.0.0\", got {}",
+                other.type_name()
+            )));
+        }
+    };
+    use std::net::ToSocketAddrs;
+    // A name such as `localhost` can resolve to both `::1` and `127.0.0.1`;
+    // IPv4 comes first, as in `std:net`, so `http://127.0.0.1:port` works.
+    let addr = (host.as_str(), port)
+        .to_socket_addrs()
+        .ok()
+        .and_then(|addrs| {
+            let addrs: Vec<_> = addrs.collect();
+            addrs
+                .iter()
+                .find(|a| a.is_ipv4())
+                .or(addrs.first())
+                .copied()
+        })
+        .ok_or_else(|| {
+            RuntimeError::new(format!(
+                "listen(): '{host}' is not an address or host name of this machine"
+            ))
+        })?;
     let mut listener = mio::net::TcpListener::bind(addr)
-        .map_err(|e| RuntimeError::new(format!("listen(): cannot bind port {port}: {e}")))?;
+        .map_err(|e| RuntimeError::new(format!("listen(): cannot bind {host}:{port}: {e}")))?;
     let port = listener.local_addr().map(|a| a.port()).unwrap_or(port);
     set(&server, "port", Value::Int(port as i64));
-    println!("Server listening on http://0.0.0.0:{port}");
+    set(
+        &server,
+        "host",
+        Value::String(std::rc::Rc::new(host.clone())),
+    );
+    println!("Server listening on http://{host}:{port}");
 
     let on_accept = bind(vm, &server, http_server_on_accept)?;
     vm.register_io(&mut listener, mio::Interest::READABLE, on_accept, true)?;
