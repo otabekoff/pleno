@@ -1,20 +1,30 @@
 ---
 name: Bug report
-about: Report a bug or regression
+about: Something in Pleno, its tools or the VS Code extension does not work as documented
 labels: bug
 ---
 
-## Summary
+<!-- Security problems: do not open an issue; report them privately (see SECURITY.md). -->
 
-## Steps to reproduce
+## What happened
 
-## Expected behavior
+## The smallest program that shows it
 
-## Actual behavior
+```pleno
+
+```
+
+Command you ran (for example `pleno run main.pln`):
+
+## What you expected
+
+## What you got
+
+<!-- The full output or error message. -->
 
 ## Environment
-- OS:
-- Rust version:
-- Pleno version/commit:
 
-## Additional context
+- Pleno version (`pleno --version`):
+- How you installed it (install script, Homebrew, Scoop, `.deb`, Docker, built from source):
+- Operating system and version:
+- VS Code and extension version, if it is about the extension:
