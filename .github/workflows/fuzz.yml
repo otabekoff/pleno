@@ -38,7 +38,7 @@ jobs:
       - uses: actions/checkout@v7
 
       - name: Install Rust nightly
-        uses: dtolnay/rust-toolchain@nightly
+        uses: dtolnay/rust-toolchain@2c76c034f9e32a5d6e2c104dc4df23a22476db04 # nightly branch
 
       - name: Install cargo-fuzz
         run: cargo install cargo-fuzz --locked

@@ -141,7 +141,7 @@ const status = [
   <div class="home pl-container">
     <section class="hero">
       <div class="hero-text">
-        <a class="badge badge-home" :href="withBase('/blog/pleno-0-3')">
+        <a class="badge badge-home" :href="withBase('/blog/pleno-0-4')">
           <span class="badge-tag">v{{ version }}</span>
           <span>Pleno {{ version }} is out</span>
           <PlIcon name="chevron-right" :size="14" />

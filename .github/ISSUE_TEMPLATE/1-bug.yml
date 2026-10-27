@@ -75,7 +75,7 @@ body:
     attributes:
       label: Pleno version
       description: The output of `pleno --version`.
-      placeholder: pleno 0.3.0
+      placeholder: pleno 0.4.0
     validations:
       required: true
 
@@ -109,4 +109,4 @@ body:
     attributes:
       label: VS Code and extension version
       description: Only if the bug is in the extension or the language server.
-      placeholder: VS Code 1.105, Pleno extension 0.3.0
+      placeholder: VS Code 1.105, Pleno extension 0.4.0

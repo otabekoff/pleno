@@ -69,7 +69,7 @@ For Windows (PowerShell):
 irm https://raw.githubusercontent.com/otabekoff/pleno/main/scripts/install.ps1 | iex
 ```
 
-The installers put `pleno`, `plm`, `pleno-lsp`, `pleno-dap` and `pleno-repl` in `~/.pleno/bin`, add it to your `PATH`, and verify each download's checksum. Set `PLENO_VERSION=v0.3.0` to install a given release, `PLENO_HOME` to install somewhere else, or `PLENO_NO_MODIFY_PATH=1` to leave `PATH` alone. To uninstall, run `scripts/uninstall.sh` or `scripts/uninstall.ps1` the same way.
+The installers put `pleno`, `plm`, `pleno-lsp`, `pleno-dap` and `pleno-repl` in `~/.pleno/bin`, add it to your `PATH`, and verify each download's checksum. Set `PLENO_VERSION=v0.4.0` to install a given release, `PLENO_HOME` to install somewhere else, or `PLENO_NO_MODIFY_PATH=1` to leave `PATH` alone. To uninstall, run `scripts/uninstall.sh` or `scripts/uninstall.ps1` the same way.
 
 Prebuilt archives for Linux, macOS and Windows are on the [Releases page](https://github.com/otabekoff/pleno/releases). See the [Code signing policy](https://pleno.mohirlab.uz/code-signing-policy) for how releases are signed and verified.
 

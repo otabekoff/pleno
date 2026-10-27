@@ -2,7 +2,7 @@
   "name": "pleno-language",
   "displayName": "Pleno",
   "description": "Pleno language support: highlighting, language server, debugger, test explorer and a toolchain installer.",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "publisher": "pleno",
   "icon": "resources/icon.png",
   "engines": {
