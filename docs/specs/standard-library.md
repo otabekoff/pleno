@@ -37,6 +37,7 @@ Every position and length counts Unicode characters (scalar values), not UTF-8 b
 | `s.indexOf(sub)` | The position of the first `sub`, `-1` when missing, `0` for `""` |
 | `s.split(sep)` | `split("")` gives the characters; `sep` defaults to `","` |
 | `s.repeat(n)` | Error when `n` is negative |
+| `s.padStart(width, fill = " ")`, `s.padEnd(...)` | `s` itself when it already has `width` characters; `fill` is repeated and cut to fit, and an empty `fill` is an error |
 
 ```pleno
 let str = "Hello, World!";
@@ -54,6 +55,8 @@ print(str.substring(0, 5));           // Hello
 print(str.charAt(0));                 // H
 print(str.indexOf("o"));              // 4
 print("ab".repeat(3));                // ababab
+print("7".padStart(3, "0"));          // 007
+print("ab".padEnd(5, "."));           // ab...
 
 // Positions count characters, also outside ASCII
 let word = "héllo";
