@@ -18,10 +18,9 @@ Status as of 2026-10-27. The latest release is [0.4.0](https://github.com/otabek
 
 ### Must have
 
-1. **Fuzzing time.** [ ] Long runs that find nothing for a full day in total. Every crash found
-   so far is fixed, and leak detection is on. A 5.5-hour run on `main` started on 2026-10-27.
-2. **A release people can install.** [ ] 1.0.0-rc.1, then 1.0.0, with signed Windows binaries,
-   Linux binaries that run on older distributions, WinGet, the VS Code Marketplace and Open VSX.
+1. **Fuzzing time.** [ ] Long runs that find nothing for a full day in total. The long runs of
+   2026-10-27 found three bugs, all fixed in #213; the clean day starts again from 0.4.0.
+2. **A release people can install.** [ ] 1.0.0-rc.1, then 1.0.0, with signed Windows binaries, WinGet, the VS Code Marketplace and Open VSX.
    Every channel's status and open step: [`tasks/distribution.md`](tasks/distribution.md).
 
 ### Should have (1.0 or soon after)
@@ -37,6 +36,9 @@ Status as of 2026-10-27. The latest release is [0.4.0](https://github.com/otabek
   around a closure; type names in annotations.
 - [ ] **Formatter**: the comments that still move (after `.` or `is`, in an `if` condition, before
   a declaration's first parameter, line comments in slices and parentheses).
+- [ ] **Compiler limits and loose ends**: more than about 250 `let`s in one function fail without
+  a line number; `a[1:3]` slices are undocumented; the order in which a function's classes and
+  `let`s are set up is not specified.
 - [ ] **Code health**: split the VM's 8,000-line `lib.rs` into reviewable modules; replace `unsafe`
   blocks that do not pay for themselves with safe code.
 - [ ] **More package channels**: Chocolatey, AUR and an apt repository

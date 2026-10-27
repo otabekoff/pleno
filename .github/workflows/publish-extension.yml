@@ -24,7 +24,7 @@ permissions:
 jobs:
   publish:
     name: Publish ${{ inputs.tag }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     env:
       TAG: ${{ inputs.tag }}
       VSCE_PAT: ${{ secrets.VSCE_PAT }}

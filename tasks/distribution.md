@@ -31,15 +31,8 @@ Status checked on 2026-10-27.
 
 ## Must have for 1.0
 
-- [ ] **Linux binaries that run on older distributions.** Status: the Linux archives and the
-      `.deb` are built on `ubuntu-latest` (Ubuntu 24.04), so they need glibc 2.39 and do not start
-      on Debian 12, Ubuntu 22.04, RHEL 9 or older (`GLIBC_2.39 not found`); the Homebrew formula
-      installs the same archives on Linux. The release Docker image moved to Debian 13 for this.
-      Missing: build the Linux targets against an older glibc, for example on `ubuntu-22.04`
-      (glibc 2.35), in a `manylinux`-style container, or with `cargo zigbuild` and a glibc
-      version suffix such as `x86_64-unknown-linux-gnu.2.28`, or add `musl` builds.
 - [ ] **WinGet: first version accepted.** Status: microsoft/winget-pkgs#460928 adds `Pleno.Pleno`
-      0.3.0. It passed validation for 0.2.0, the CLA is signed, and it is waiting for a volunteer
+      0.3.0; it moves to 0.4.0 once that release exists. It passed validation for 0.2.0, the CLA is signed, and it is waiting for a volunteer
       moderator (since 2026-10-24). Missing: a moderator's approval. Answer any review comment there.
       After that, every release opens its WinGet pull request by itself.
 - [ ] **VS Code Marketplace.** Status: the extension ID `pleno.pleno-language` and the publisher
@@ -66,7 +59,7 @@ Status checked on 2026-10-27.
       warns on first run. The SignPath Foundation application is written in
       [`notes/SIGNPATH_APPLICATION.md`](../notes/SIGNPATH_APPLICATION.md) and waits for approval.
       Missing: approval, then a signing step in `release.yml` before the Windows zip is packed.
-- [ ] **Releases 1.0.0-rc.1 and 1.0.0.** Status: 0.3.0 is the latest release (2026-10-26). The
+- [ ] **Releases 1.0.0-rc.1 and 1.0.0.** Status: 0.4.0 is the latest release (2026-10-27). The
       release workflow builds, signs (cosign) and publishes everything above. Missing: tag
       `v1.0.0-rc.1` once the other must-haves in [`v1.md`](v1.md) are done. A prerelease tag (with a
       `-`) skips the package managers and stores, so it is safe to test with. Then tag `v1.0.0`.
