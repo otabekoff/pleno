@@ -2,64 +2,174 @@
 
 Package definitions for each package manager. Every one installs the prebuilt release archives
 (`pleno`, `plm`, `pleno-lsp`, `pleno-dap` and `pleno-repl`) and pins their SHA-256 checksums,
-taken from the release's `SHA256SUMS.txt`.
+taken from the release's `SHA256SUMS.txt`. The VS Code extension is published separately; see
+[`ide/vscode/PUBLISHING.md`](../ide/vscode/PUBLISHING.md).
 
-| Directory        | Platform      | Package manager | How it is published                                    |
-| ---------------- | ------------- | --------------- | ------------------------------------------------------ |
-| `homebrew/`      | macOS, Linux  | Homebrew        | The release workflow pushes it to `otabekoff/homebrew-tap` |
-| `scoop/`         | Windows       | Scoop           | Copied to `bucket/pleno.json` in `otabekoff/scoop-bucket`  |
-| `winget/`        | Windows       | WinGet          | A pull request to `microsoft/winget-pkgs`               |
-| `chocolatey/`    | Windows       | Chocolatey      | `choco push` with the maintainer's API key              |
-| `aur/pleno-bin/` | Arch Linux    | AUR             | Pushed to the `pleno-bin` AUR repository                |
-| `snap/`, `flatpak/`, `asdf/` | Linux | —        | Not maintained yet                                     |
+| Directory        | Platform      | Package manager | How it is published                                                     |
+| ---------------- | ------------- | --------------- | ----------------------------------------------------------------------- |
+| `homebrew/`      | macOS, Linux  | Homebrew        | Automatically: the release workflow pushes it to `otabekoff/homebrew-tap` |
+| `scoop/`         | Windows       | Scoop           | Automatically: the release workflow pushes it to `otabekoff/scoop-bucket` |
+| `winget/`        | Windows       | WinGet          | Automatically after the first version: the release workflow opens a pull request to `microsoft/winget-pkgs` |
+| `chocolatey/`    | Windows       | Chocolatey      | By hand: `choco push` with the maintainer's API key                    |
+| `aur/pleno-bin/` | Arch Linux    | AUR             | By hand: pushed to the `pleno-bin` AUR repository                      |
+| `snap/`, `flatpak/`, `asdf/` | Linux | —        | Not maintained yet                                                      |
 
-## For each release
+The files in this directory are the source of truth. After a release, update the version, URLs and
+checksums here too (from `SHA256SUMS.txt`), so the copies and the published packages agree.
 
-The Homebrew formula is written and published by the release workflow
-(`scripts/homebrew-formula.sh`). The others are updated by hand: change the version, the URLs and the
-checksums (from `SHA256SUMS.txt` in the release), then publish.
+## Release workflow setup
 
-### Homebrew
+`.github/workflows/release.yml` publishes to Homebrew, Scoop and WinGet when a `vX.Y.Z` tag is
+pushed. It skips each one whose secret is missing, and it skips prereleases (`v1.0.0-rc.1`). Add
+the secrets under **Settings → Secrets and variables → Actions** in `otabekoff/pleno`.
+
+| Secret               | Used for | Token |
+| -------------------- | -------- | ----- |
+| `HOMEBREW_TAP_TOKEN` | Pushing `Formula/pleno.rb` to `otabekoff/homebrew-tap` | Fine-grained token, repository `homebrew-tap`, **Contents: Read and write** |
+| `SCOOP_BUCKET_TOKEN` | Pushing `bucket/pleno.json` to `otabekoff/scoop-bucket` | Fine-grained token, repository `scoop-bucket`, **Contents: Read and write** |
+| `WINGET_TOKEN`       | `wingetcreate update --submit`: pushes a branch to your `winget-pkgs` fork and opens the pull request | Classic token with the **public_repo** scope (fine-grained tokens cannot open pull requests in another owner's repository) |
+
+Create the tokens at [github.com/settings/tokens](https://github.com/settings/tokens), with a
+reminder to renew them before they expire. One fine-grained token can cover both `homebrew-tap`
+and `scoop-bucket`; save it under both names.
+
+## Homebrew
 
 ```sh
 brew install otabekoff/tap/pleno
 ```
 
-### Scoop
+`scripts/homebrew-formula.sh <version> SHA256SUMS.txt` writes the formula. The release workflow
+runs it and pushes the result.
+
+## Scoop
 
 ```powershell
 scoop bucket add pleno https://github.com/otabekoff/scoop-bucket
 scoop install pleno
 ```
 
-To publish, copy `scoop/pleno.json` to `bucket/pleno.json` in the bucket repository. Its
-`autoupdate` section also lets Scoop's tools update it from a new release.
+`scripts/scoop-manifest.sh <version> SHA256SUMS.txt` writes the manifest from `scoop/pleno.json`.
+The release workflow runs it and pushes the result. Its `autoupdate` section also lets Scoop's own
+tools update it.
 
-### WinGet
+## WinGet
+
+```powershell
+winget install Pleno.Pleno
+```
+
+**The first version** has to be submitted by hand. Validate the three files, then submit them as
+`manifests/p/Pleno/Pleno/<version>/` in a pull request to
+[microsoft/winget-pkgs](https://github.com/microsoft/winget-pkgs):
 
 ```powershell
 winget validate --manifest packaging/winget
+wingetcreate submit packaging/winget --token <token>
 ```
 
-Then submit the three files as `manifests/p/Pleno/Pleno/<version>/` in a pull request to
-[microsoft/winget-pkgs](https://github.com/microsoft/winget-pkgs), or use
-`wingetcreate submit packaging/winget`. Once it is accepted: `winget install Pleno.Pleno`.
+A volunteer moderator reviews new packages, which can take days or weeks. Pleno's first pull
+request is [#460928](https://github.com/microsoft/winget-pkgs/pull/460928) (0.3.0). Until it is
+merged, the release workflow's WinGet job skips with a notice.
 
-### Chocolatey
+**Later versions:** the workflow runs `wingetcreate update Pleno.Pleno --version <v> --urls <zip>
+--submit`. That command copies the metadata from the version winget already has and opens the
+pull request. Updates to an existing package are usually merged automatically once validation
+passes.
+
+## Chocolatey
+
+```powershell
+choco install pleno
+```
+
+### Once
+
+1. Create an account at [community.chocolatey.org](https://community.chocolatey.org/account/Register)
+   and confirm the email address.
+2. Copy your API key from **Account → API Keys**
+   ([community.chocolatey.org/account](https://community.chocolatey.org/account)).
+3. Save it for `choco`, so later pushes need no `--api-key`:
+
+   ```powershell
+   choco apikey add --source https://push.chocolatey.org/ --key <key>
+   ```
+
+The package ID `pleno` was free on 2026-10-27. The first push claims it.
+
+### Each release
+
+Update `<version>` and `<releaseNotes>` in `chocolatey/pleno.nuspec`, and `url64bit` and
+`checksum64` in `chocolatey/tools/chocolateyinstall.ps1`. The checksum is the Windows zip's line
+in `SHA256SUMS.txt`. Then, in an administrator PowerShell:
 
 ```powershell
 choco pack packaging/chocolatey/pleno.nuspec --outputdirectory packaging/chocolatey
-choco install pleno --source packaging/chocolatey   # test locally
-choco push packaging/chocolatey/pleno.0.3.0.nupkg --source https://push.chocolatey.org/ --api-key <key>
+choco install pleno --source packaging/chocolatey --version 0.3.0 -y   # test locally
+pleno --version
+choco uninstall pleno -y
+choco push packaging/chocolatey/pleno.0.3.0.nupkg --source https://push.chocolatey.org/
 ```
 
-### AUR
+Every version goes through moderation: an automatic validator, an install test in a clean VM, and
+for the first versions a human moderator. The package page shows each step's result. Messages from
+moderators arrive by email, and a package that does not get an answer within a few weeks is
+rejected. The `.nupkg` is generated, so don't commit it.
+
+## AUR
 
 ```sh
-git clone ssh://aur@aur.archlinux.org/pleno-bin.git
+yay -S pleno-bin      # or paru, or any AUR helper
+```
+
+### Once
+
+1. Create an account at [aur.archlinux.org](https://aur.archlinux.org/register).
+2. Make an SSH key for it and add the public key under **My Account → SSH Public Key**:
+
+   ```sh
+   ssh-keygen -t ed25519 -f ~/.ssh/aur -C "aur"
+   ```
+
+   Then tell SSH to use it, in `~/.ssh/config`:
+
+   ```
+   Host aur.archlinux.org
+     IdentityFile ~/.ssh/aur
+     User aur
+   ```
+
+3. Clone the package repository. A name nobody has used is created by the first push:
+
+   ```sh
+   git clone ssh://aur@aur.archlinux.org/pleno-bin.git
+   ```
+
+   The name `pleno-bin` (the `-bin` suffix means it installs prebuilt binaries) was free on
+   2026-10-27.
+
+### Each release
+
+Update `pkgver` in `aur/pleno-bin/PKGBUILD`, reset `pkgrel=1`, and update the checksums. Run
+`updpkgsums` on Arch, or copy them from `SHA256SUMS.txt`. Then regenerate `.SRCINFO`, test and
+push. This needs Arch Linux, because `makepkg` refuses to run as root. On Windows, use Docker:
+
+```sh
+docker run --rm -it -v "$PWD/packaging/aur/pleno-bin:/pkg" archlinux bash
+# inside the container:
+pacman -Syu --noconfirm base-devel namcap
+useradd -m builder && cp -r /pkg /home/builder/pkg && chown -R builder /home/builder/pkg
+su builder -c 'cd ~/pkg && makepkg --printsrcinfo > .SRCINFO && makepkg -f && namcap PKGBUILD *.pkg.tar.zst'
+cp /home/builder/pkg/.SRCINFO /pkg/   # keep the regenerated .SRCINFO
+```
+
+Then copy `PKGBUILD` and `.SRCINFO` into the `pleno-bin` clone and push:
+
+```sh
 cp packaging/aur/pleno-bin/PKGBUILD packaging/aur/pleno-bin/.SRCINFO pleno-bin/
-cd pleno-bin && makepkg -si   # test, then:
+cd pleno-bin
 git add PKGBUILD .SRCINFO && git commit -m "pleno-bin 0.3.0" && git push
 ```
 
-`.SRCINFO` must match the PKGBUILD; regenerate it with `makepkg --printsrcinfo > .SRCINFO`.
+The AUR accepts only `PKGBUILD`, `.SRCINFO` and small helper files, on the `master` branch. A
+push whose `.SRCINFO` does not match the `PKGBUILD` is rejected, so regenerate it every time.
