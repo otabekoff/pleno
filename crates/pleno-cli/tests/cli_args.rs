@@ -159,3 +159,60 @@ fn a_file_starting_with_a_byte_order_mark_runs() {
     assert!(out.status.success(), "{}", stderr(&out));
     assert_eq!(stdout(&out).trim(), "bom");
 }
+
+// A hook registered by a function that has returned was reachable only from
+// the test framework, so a collection freed what it captured and the test
+// saw reused memory (`[""]` instead of `["a-a!"]`).
+#[test]
+fn test_hooks_survive_a_collection() {
+    let dir = temp_dir("hooks-gc");
+    let file = dir.join("hooks_test.pln");
+    std::fs::write(
+        &file,
+        r#"import { describe, test, beforeEach, assert } from "std:test";
+import { collect } from "std:gc";
+let mut seen = [];
+fn register(tag: String) {
+    let parts = [tag, tag + "!"];
+    beforeEach(() => { seen.push(parts.join("-")); });
+}
+describe("a hook registered by a function that has returned", () => {
+    register("a");
+    for (i in 0..50000) { let junk = [i, {"k": [i, i]}, `s${i}`, (i, i)]; }
+    collect();
+    test("runs with its captured values", () => { assert.equal(seen, ["a-a!"]); });
+});
+"#,
+    )
+    .unwrap();
+    let out = pleno(&["test", file.to_str().unwrap()]);
+    assert!(out.status.success(), "{}{}", stdout(&out), stderr(&out));
+    assert!(stdout(&out).contains("Passed: 1"), "{}", stdout(&out));
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+// A hook outside `describe` applied to no test and was dropped without a word.
+#[test]
+fn test_hooks_outside_describe_are_errors() {
+    let dir = temp_dir("hooks-top");
+    for hook in ["beforeEach", "afterEach"] {
+        let file = dir.join(format!("{hook}_test.pln"));
+        std::fs::write(
+            &file,
+            format!(
+                "import {{ describe, test, {hook}, assert }} from \"std:test\";\n\
+                 {hook}(() => {{ print(\"hook\"); }});\n\
+                 describe(\"s\", () => {{ test(\"t\", () => {{ assert.isTrue(true); }}); }});\n"
+            ),
+        )
+        .unwrap();
+        let out = pleno(&["test", file.to_str().unwrap()]);
+        assert!(!out.status.success(), "{hook}");
+        let all = stdout(&out) + &stderr(&out);
+        assert!(
+            all.contains(&format!("{hook} must be called inside describe(...)")),
+            "{all}"
+        );
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}
