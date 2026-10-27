@@ -18,7 +18,7 @@ jobs:
   # Job-level 'if' conditions cannot access the 'secrets' context directly.
   check-secrets:
     name: Check for Secrets
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       has-dockerhub: ${{ steps.check.outputs.has-dockerhub }}
       has-homebrew: ${{ steps.check.outputs.has-homebrew }}
@@ -56,9 +56,9 @@ jobs:
       fail-fast: false
       matrix:
         job:
-          - { target: x86_64-unknown-linux-gnu, os: ubuntu-latest }
-          - { target: aarch64-unknown-linux-gnu, os: ubuntu-latest }
-          - { target: i686-unknown-linux-gnu, os: ubuntu-latest }
+          - { target: x86_64-unknown-linux-gnu, os: ubuntu-24.04 }
+          - { target: aarch64-unknown-linux-gnu, os: ubuntu-24.04 }
+          - { target: i686-unknown-linux-gnu, os: ubuntu-24.04 }
           - { target: x86_64-apple-darwin, os: macos-latest }
           - { target: aarch64-apple-darwin, os: macos-latest }
           - { target: x86_64-pc-windows-msvc, os: windows-latest }
@@ -78,12 +78,20 @@ jobs:
 
       # Linux binaries link against glibc 2.17 through Zig, so they run on any
       # distribution from 2014 on (CentOS 7, Ubuntu 14.04, Debian 8). A plain
-      # `cargo build` on ubuntu-latest would need the runner's glibc (2.39).
+      # `cargo build` on ubuntu-24.04 would need the runner's glibc (2.39).
       - name: Install Zig (Linux)
         if: runner.os == 'Linux'
-        uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2.2.1
-        with:
-          version: 0.14.1
+        # The official build, checked against the SHA-256 that ziglang.org
+        # publishes (download/index.json).
+        shell: bash
+        env:
+          ZIG: zig-x86_64-linux-0.14.1
+          ZIG_SHA256: 24aeeec8af16c381934a6cd7d95c807a8cb2cf7df9fa40d359aa884195c4716c
+        run: |
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/$ZIG.tar.xz" "https://ziglang.org/download/0.14.1/$ZIG.tar.xz"
+          echo "$ZIG_SHA256  $RUNNER_TEMP/$ZIG.tar.xz" | sha256sum --check
+          tar -xJf "$RUNNER_TEMP/$ZIG.tar.xz" -C "$RUNNER_TEMP"
+          echo "$RUNNER_TEMP/$ZIG" >> "$GITHUB_PATH"
 
       - name: Install cargo-zigbuild (Linux)
         if: runner.os == 'Linux'
@@ -176,7 +184,7 @@ jobs:
 
   vscode-extension:
     name: Build VS Code Extension
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -206,7 +214,7 @@ jobs:
 
   publish-github:
     name: GitHub Release
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: [build, vscode-extension]
     if: startsWith(github.ref, 'refs/tags/v')
     permissions:
@@ -255,7 +263,7 @@ jobs:
 
   publish-docker:
     name: Build Docker Image
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: [build, check-secrets]
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && needs.check-secrets.outputs.has-dockerhub == 'true'
     steps:
@@ -328,7 +336,7 @@ jobs:
   # The formula installs the prebuilt archives, with checksums from SHA256SUMS.txt.
   publish-homebrew:
     name: Update Homebrew
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: [publish-github, check-secrets]
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && !contains(github.ref_name, '-') && needs.check-secrets.outputs.has-homebrew == 'true'
     steps:
@@ -362,7 +370,7 @@ jobs:
   # (see packaging/README.md for the token).
   publish-scoop:
     name: Update Scoop
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: [publish-github, check-secrets]
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && !contains(github.ref_name, '-') && needs.check-secrets.outputs.has-scoop == 'true'
     steps:
@@ -433,7 +441,7 @@ jobs:
   # Events made with the GITHUB_TOKEN start no other workflow, except workflow_dispatch runs.
   publish-extension:
     name: Start publishing the VS Code extension
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     needs: [publish-github]
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && !contains(github.ref_name, '-')
     permissions:

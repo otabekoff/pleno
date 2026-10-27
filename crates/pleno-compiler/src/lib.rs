@@ -1491,6 +1491,9 @@ impl Compiler {
                 match op {
                     pleno_ast::BinaryOp::And => self.compile_logical_and(left, right),
                     pleno_ast::BinaryOp::Or => self.compile_logical_or(left, right),
+                    // Before the general case, which compiles both sides first:
+                    // the right side runs only when the left side is null.
+                    pleno_ast::BinaryOp::NullCoalesce => self.compile_null_coalesce(left, right),
                     pleno_ast::BinaryOp::Add | pleno_ast::BinaryOp::Subtract
                         if matches!(
                             right.kind,
@@ -1528,11 +1531,6 @@ impl Compiler {
                             pleno_ast::BinaryOp::Greater => Opcode::Gt,
                             pleno_ast::BinaryOp::GreaterEqual => Opcode::Ge,
                             pleno_ast::BinaryOp::Modulo => Opcode::Mod,
-                            pleno_ast::BinaryOp::NullCoalesce => {
-                                // For ?? operator: if left is null, use right, else use left
-                                // This requires a conditional jump, so we handle it specially
-                                return self.compile_null_coalesce(left, right);
-                            }
                             _ => return Err(self.error("unsupported binary op", expr.span)),
                         };
                         self.emit(opcode, dest, left_reg, right_reg);
@@ -2485,17 +2483,23 @@ impl Compiler {
         }
     }
 
+    /// A register holding whether `value` is null. A type test, not `==`, so a
+    /// class's `operator ==` is not called with `null`.
+    fn emit_is_null(&mut self, value: u8) -> Result<u8, CompileError> {
+        let type_reg = self.emit_reified_type("Null")?;
+        let is_null_reg = self.registers.allocate()?;
+        self.emit(Opcode::Is, is_null_reg, value, type_reg);
+        self.free_temp(type_reg);
+        Ok(is_null_reg)
+    }
+
     fn compile_null_coalesce(&mut self, left: &Expr, right: &Expr) -> Result<u8, CompileError> {
         // For ?? operator: if left is null, use right, else use left
         let dest = self.registers.allocate()?;
         let left_reg = self.compile_expr(left)?;
 
         // Check if left is null
-        let null_reg = self.registers.allocate()?;
-        self.emit(Opcode::LoadNull, null_reg, 0, 0);
-        let is_null_reg = self.registers.allocate()?;
-        self.emit(Opcode::Eq, is_null_reg, left_reg, null_reg);
-        self.free_temp(null_reg);
+        let is_null_reg = self.emit_is_null(left_reg)?;
 
         // If left is null, jump to use right
         let jump_to_right = self.emit_jump(Opcode::JumpIf, is_null_reg);
@@ -7065,9 +7069,7 @@ impl Compiler {
         // If optional and null, it's true
         let mut success_jumps = Vec::new();
         if is_optional {
-            let is_null_reg = self.registers.allocate()?;
-            self.emit(Opcode::LoadNull, is_null_reg, 0, 0);
-            self.emit(Opcode::Eq, is_null_reg, val_reg, is_null_reg);
+            let is_null_reg = self.emit_is_null(val_reg)?;
             let jump_success = self.emit_jump(Opcode::JumpIf, is_null_reg);
             success_jumps.push(jump_success);
             self.free_temp(is_null_reg);
