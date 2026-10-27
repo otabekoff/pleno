@@ -54,6 +54,51 @@ fn an_instruction_limit_cannot_be_caught() {
     }
 }
 
+// Loops whose steps are fused instructions add two or three to the count at
+// a time. The limit was checked only when the count was a multiple of 100, so
+// these could step past every check and run forever. Each runs in a thread so
+// that a regression fails the test instead of hanging it.
+#[test]
+fn the_instruction_limit_stops_loops_of_fused_instructions() {
+    for source in [
+        "let mut count = 0; while (count < 2) { }",
+        "let mut i = 0; do { i = i + 0; } while (i < 5);",
+        "fn f() { let mut c = 0; while (c < 2) { } } f();",
+    ] {
+        for fast_loop in [true, false] {
+            let (tx, rx) = std::sync::mpsc::channel();
+            std::thread::spawn(move || {
+                let tokens = pleno_lexer::lex(source).unwrap();
+                let mut program = pleno_parser::Parser::new(tokens, source)
+                    .parse_program()
+                    .unwrap();
+                let chunk = Compiler::new(source.to_string())
+                    .compile(&mut program)
+                    .unwrap();
+                let mut vm = VM::new();
+                vm.fast_loop = fast_loop;
+                vm.apply_config(SandboxConfig {
+                    max_instructions: 100_000,
+                    ..Default::default()
+                });
+                let _ = tx.send(
+                    vm.execute(chunk)
+                        .map(|v| v.to_string())
+                        .map_err(|e| e.message),
+                );
+            });
+            let result = rx
+                .recv_timeout(std::time::Duration::from_secs(60))
+                .unwrap_or_else(|_| panic!("{source} (fast loop {fast_loop}) did not stop"));
+            let err = result.unwrap_err();
+            assert!(
+                err.contains("SandboxError: instruction limit exceeded"),
+                "{source}: {err}"
+            );
+        }
+    }
+}
+
 #[test]
 fn a_memory_limit_cannot_be_caught() {
     let source =

@@ -1799,6 +1799,12 @@ impl VM {
         let debugging = self.debug_context.is_active();
         // The instruction `run_fast` last stopped at without running anything.
         let mut fast_skip: Option<(usize, usize)> = None;
+        // The instruction counts at which the sandbox limits and the tables of
+        // strings and big integers are checked next. Fused instructions and
+        // `run_fast` add more than one to the count, so a check on every
+        // hundredth count could be stepped over for good.
+        let mut next_limit_check = self.instruction_count;
+        let mut next_boxed_check = self.instruction_count;
         // The instruction after the one at `ip`, for instructions that also run
         // the following one they produce the input of (fused, saving a round
         // through this loop). Not while a debugger may stop at it.
@@ -1835,8 +1841,12 @@ impl VM {
             // another root, so this is where the collector may run: after
             // enough objects, or (checked now and then) after enough new strings
             // and big integers, which only a collection frees from their tables.
+            let check_boxed = self.instruction_count >= next_boxed_check;
+            if check_boxed {
+                next_boxed_check = self.instruction_count + 128;
+            }
             if self.gc.current_allocation >= self.gc.gc.allocation_threshold
-                || (self.instruction_count.is_multiple_of(128)
+                || (check_boxed
                     && self.gc.sweeps_boxed_values
                     && pleno_value::nan_value::boxed_values_added()
                         > BOXED_VALUES_PER_COLLECTION.max(self.gc.current_allocation))
@@ -1922,8 +1932,9 @@ impl VM {
 
             self.instruction_count += 1;
             if let Some(config) = &self.sandbox_config
-                && self.instruction_count.is_multiple_of(100)
+                && self.instruction_count >= next_limit_check
             {
+                next_limit_check = self.instruction_count + 100;
                 if config.max_instructions > 0 && self.instruction_count > config.max_instructions {
                     return Err(self.sandbox_limit_error("instruction limit exceeded"));
                 }
@@ -3509,12 +3520,10 @@ impl VM {
                     let constructor = resolve_method(&superclass, "constructor");
 
                     if let Some(info) = constructor {
-                        let handle_idx = match info.function.clone() {
-                            Value::Function(idx) => idx,
-                            _ => unreachable!("expected function"),
-                        };
+                        // A function, or a closure when the constructor uses a
+                        // variable from around the class.
                         self.call_function(
-                            Value::Function(handle_idx),
+                            info.function.clone(),
                             Some(Value::Object(this_obj.clone())),
                             &args,
                             base + a,

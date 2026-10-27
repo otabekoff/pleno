@@ -55,6 +55,9 @@ The changes below were made in the 1.0 review of the reference, because the comp
 
 ### Fixed
 
+- The instruction limit (`--max-instructions`, the playground and other sandboxes) could fail to stop a loop. It was checked only when the instruction count was a multiple of 100, and loops of fused instructions add two or three at a time, so `let mut i = 0; while (i < 2) { }` could step past every check and run forever. The limit is now checked against a threshold, and so is the collector's check of the string and big-integer tables. Found by fuzzing.
+- `super(...)` crashed the VM (`internal error: entered unreachable code: expected function`) when the parent's constructor used a variable from outside its class, such as a top-level `let`. Found by fuzzing.
+- A class declared in a function could not extend another class declared in the same function (`superclass must be class`), because the superclass was looked up only among globals.
 - A `.pln` file or `pleno.toml` that starts with a UTF-8 byte order mark, as Notepad and PowerShell's `Out-File` can write, failed with `Unexpected character`. The mark is ignored now.
 - An unknown command such as `pleno chek` was taken for a file name (`Only .pln format file extensions are supported`); it is now `unknown command 'chek'; did you mean 'check'?` (exit status 2), and `pleno tree` points to `pleno plm tree`.
 - `exit(code)` skipped `finally` blocks and `with` closes, so a file written inside `with` was not closed when the program exited. `exit` now throws a `SystemExit` error (with an Int `code`), as Python's `sys.exit` does: `finally` and `with` cleanup run, a plain `catch (e)` lets it through so the program still ends, and `catch (e: SystemExit)` can stop it on purpose.
