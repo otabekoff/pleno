@@ -76,19 +76,51 @@ jobs:
         with:
           shared-key: "release-build"
 
-      - name: Install System Dependencies (Linux)
+      # Linux binaries link against glibc 2.17 through Zig, so they run on any
+      # distribution from 2014 on (CentOS 7, Ubuntu 14.04, Debian 8). A plain
+      # `cargo build` on ubuntu-latest would need the runner's glibc (2.39).
+      - name: Install Zig (Linux)
         if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          if [ "${{ matrix.job.target }}" == "aarch64-unknown-linux-gnu" ]; then
-            sudo apt-get install -y gcc-aarch64-linux-gnu
-            echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc" >> $GITHUB_ENV
-          elif [ "${{ matrix.job.target }}" == "i686-unknown-linux-gnu" ]; then
-            sudo apt-get install -y gcc-multilib
-          fi
+        uses: mlugg/setup-zig@v2
+        with:
+          version: 0.14.1
+
+      - name: Install cargo-zigbuild (Linux)
+        if: runner.os == 'Linux'
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-zigbuild
 
       - name: Build
-        run: cargo build --release --workspace --target ${{ matrix.job.target }}
+        shell: bash
+        run: |
+          if [ "${{ runner.os }}" == "Linux" ]; then
+            cargo zigbuild --release --workspace --target ${{ matrix.job.target }}.2.17
+          else
+            cargo build --release --workspace --target ${{ matrix.job.target }}
+          fi
+
+      - name: Check the glibc requirement (Linux)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          status=0
+          for tool in pleno plm pleno-lsp pleno-repl pleno-dap; do
+            bin=target/${{ matrix.job.target }}/release/$tool
+            newest=$(readelf -W --version-info "$bin" | grep -o 'GLIBC_[0-9][0-9.]*' | sed 's/GLIBC_//' | sort -uV | tail -1)
+            echo "$tool needs glibc $newest"
+            if [ "$( (echo "$newest"; echo 2.17) | sort -V | tail -1)" != "2.17" ]; then
+              echo "::error::$tool needs glibc $newest, newer than 2.17"
+              status=1
+            fi
+          done
+          if [ "${{ matrix.job.target }}" == "x86_64-unknown-linux-gnu" ]; then
+            echo 'print("ok")' > smoke.pln
+            # Run it on CentOS 7, whose glibc is 2.17.
+            bin=./target/x86_64-unknown-linux-gnu/release/pleno
+            docker run --rm -v "$PWD:/w" -w /w centos:7 sh -c "$bin --version && $bin smoke.pln" || status=1
+          fi
+          exit $status
 
       - name: Packaging
         shell: bash
@@ -109,7 +141,7 @@ jobs:
           # Generate .deb for Linux x64
           if [ "${{ runner.os }}" == "Linux" ] && [ "${{ matrix.job.target }}" == "x86_64-unknown-linux-gnu" ]; then
              cargo install cargo-deb
-             cargo deb -p pleno-cli --target ${{ matrix.job.target }} --output pleno_${{ github.ref_name }}_amd64.deb
+             cargo deb --no-build -p pleno-cli --target ${{ matrix.job.target }} --output pleno_${{ github.ref_name }}_amd64.deb
           fi
 
           # Archive
