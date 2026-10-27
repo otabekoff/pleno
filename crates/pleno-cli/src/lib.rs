@@ -658,15 +658,22 @@ fn run_single_test(
     vm.main_path = std::fs::canonicalize(path).ok();
     pleno_stdlib::register(&mut vm);
     pleno_stdlib::test::take_failures();
-    let result = vm.execute(chunk).and_then(|value| {
-        // Failed `test(...)` cases fail the file even though it ran to the end.
-        match pleno_stdlib::test::take_failures() {
-            0 => Ok(value),
-            n => Err(pleno_value::RuntimeError::new(format!(
-                "{n} test(s) failed"
-            ))),
-        }
-    });
+    let result = vm
+        .execute(chunk)
+        // `exit(0)` ends a test file successfully; another code fails it.
+        .or_else(|err| match err.exit_code {
+            Some(0) => Ok(pleno_value::Value::Null),
+            _ => Err(err),
+        })
+        .and_then(|value| {
+            // Failed `test(...)` cases fail the file even though it ran to the end.
+            match pleno_stdlib::test::take_failures() {
+                0 => Ok(value),
+                n => Err(pleno_value::RuntimeError::new(format!(
+                    "{n} test(s) failed"
+                ))),
+            }
+        });
     match result {
         Ok(_) => {
             if is_expected_runtime_error {
@@ -847,6 +854,12 @@ fn execute_main_chunk(
                 );
                 process::exit(1);
             }
+        }
+        Ok(Err(err)) if err.exit_code.is_some() => {
+            // `exit(code)`: the program ended itself.
+            use std::io::Write;
+            let _ = std::io::stdout().flush();
+            process::exit(err.exit_code.unwrap_or(0));
         }
         Ok(Err(err)) => {
             match source {
