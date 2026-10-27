@@ -43,6 +43,8 @@ pub struct VM {
     /// (on by default). Turning it off runs everything in the general loop,
     /// which must give the same results: tests and the fuzzer compare both.
     pub fast_loop: bool,
+    /// The high byte a `Wide` instruction gives the next `Closure`.
+    wide_high: u8,
     /// Names of deprecated functions already warned about.
     deprecation_warnings: std::collections::HashSet<String>,
     /// How deeply calls from native code back into Pleno can nest before a
@@ -948,6 +950,7 @@ impl VM {
         Self {
             sandbox_config: None,
             fast_loop: true,
+            wide_high: 0,
             deprecation_warnings: std::collections::HashSet::new(),
             max_nested_runs: DEFAULT_MAX_NESTED_RUNS,
             gc,
@@ -2114,11 +2117,16 @@ impl VM {
                         fused_jump!(frame, ip + 1, dest, result);
                     }
                 }
+                Opcode::Wide => {
+                    self.wide_high = a as u8;
+                }
                 Opcode::Closure => {
+                    // A `Wide` just before gives the index's high byte.
+                    let index = b | (std::mem::take(&mut self.wide_high) as usize) << 8;
                     let proto = function
                         .chunk
                         .functions
-                        .get(b)
+                        .get(index)
                         .ok_or_else(|| RuntimeError::new("unknown function prototype"))?;
                     let func_index = self.functions.len();
                     self.functions.push(Function {
@@ -2172,7 +2180,7 @@ impl VM {
                     let proto = function
                         .chunk
                         .functions
-                        .get(b)
+                        .get(b | c << 8)
                         .ok_or_else(|| RuntimeError::new("unknown function prototype"))?;
                     let func_index = self.functions.len();
                     self.functions.push(Function {

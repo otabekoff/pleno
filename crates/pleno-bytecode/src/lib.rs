@@ -45,7 +45,10 @@ pub enum Opcode {
     Call,
     CallNamed,
     Return,
+    /// a = a new closure of the prototype b (plus 256 times the `Wide` that
+    /// comes just before it, if any), with c capture slots.
     Closure,
+    /// a = a new function of the prototype `b + 256 * c`.
     FunctionRef,
     LoadCapture,
     Capture,
@@ -168,6 +171,10 @@ pub enum Opcode {
     /// propagating. When a is an object (an `Error`), b is appended to its
     /// `suppressed` array, which is created if a has none.
     AddSuppressed,
+    /// Gives the next `Closure` the high byte a of its prototype index, for a
+    /// function that defines more than 256 functions (top-level functions,
+    /// methods and lambdas). Emitted only before such a `Closure`.
+    Wide,
 }
 
 /// Whether a value checked against the annotation `ty` is stored as a `Float`
@@ -210,7 +217,7 @@ pub fn annotation_widens_int(ty: &str) -> bool {
 }
 
 /// The opcode with the highest discriminant: keep it the last variant.
-const LAST_OPCODE: Opcode = Opcode::AddSuppressed;
+const LAST_OPCODE: Opcode = Opcode::Wide;
 
 /// `Destructure` mode: a tuple with exactly `c` elements.
 pub const DESTRUCTURE_TUPLE: u8 = 0;

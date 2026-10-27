@@ -2102,6 +2102,46 @@ impl Compiler {
         }
     }
 
+    /// The two bytes of a function prototype's index. A function can define
+    /// 65,536 functions (its own top-level functions, methods and lambdas);
+    /// before, the index was cut to one byte, so the 257th made the wrong
+    /// function.
+    fn prototype_index(&self, func_index: usize) -> Result<(u8, u8), CompileError> {
+        match u16::try_from(func_index) {
+            Ok(index) => Ok(((index & 0xff) as u8, (index >> 8) as u8)),
+            Err(_) => Err(self.error(
+                "more than 65,536 functions in one function or file; split it into modules",
+                self.current_span,
+            )),
+        }
+    }
+
+    /// A closure has one byte for its number of captured variables.
+    fn capture_count(&self, count: usize) -> Result<u8, CompileError> {
+        u8::try_from(count).map_err(|_| {
+            self.error(
+                "a closure captures more than 255 variables; pass some of them as arguments",
+                self.current_span,
+            )
+        })
+    }
+
+    /// `Closure dest, prototype, captures`, with a `Wide` before it when the
+    /// prototype index needs a second byte.
+    fn emit_closure(
+        &mut self,
+        dest: u8,
+        func_index: usize,
+        capture_count: u8,
+    ) -> Result<(), CompileError> {
+        let (low, high) = self.prototype_index(func_index)?;
+        if high != 0 {
+            self.emit(Opcode::Wide, high, 0, 0);
+        }
+        self.emit(Opcode::Closure, dest, low, capture_count);
+        Ok(())
+    }
+
     fn emit(&mut self, opcode: Opcode, a: u8, b: u8, c: u8) {
         if opcode == Opcode::Move && a == b {
             return;
@@ -3797,15 +3837,16 @@ impl Compiler {
         });
         let dest = self.registers.allocate()?;
         if store_as_function && captures.is_empty() {
-            self.emit(Opcode::FunctionRef, dest, func_index as u8, 0);
+            let (low, high) = self.prototype_index(func_index)?;
+            self.emit(Opcode::FunctionRef, dest, low, high);
         } else {
-            let capture_count = captures.len() as u8;
+            let capture_count = self.capture_count(captures.len())?;
             log::trace!(
                 "Emitting Closure for function {} with {} captures",
                 func_index,
                 capture_count
             );
-            self.emit(Opcode::Closure, dest, func_index as u8, capture_count);
+            self.emit_closure(dest, func_index, capture_count)?;
             for (idx, info) in captures.iter().enumerate() {
                 let reg = self.capture_source(info)?;
                 log::trace!("Emitting Capture: dest={}, reg={}, idx={}", dest, reg, idx);
@@ -4166,13 +4207,13 @@ impl Compiler {
         });
 
         let dest = self.registers.allocate()?;
-        let capture_count = captures.len() as u8;
+        let capture_count = self.capture_count(captures.len())?;
         log::trace!(
             "Emitting Closure for function {} with {} captures",
             func_index,
             capture_count
         );
-        self.emit(Opcode::Closure, dest, func_index as u8, capture_count);
+        self.emit_closure(dest, func_index, capture_count)?;
         for (idx, info) in captures.iter().enumerate() {
             let reg = self.capture_source(info)?;
             log::trace!("Emitting Capture: dest={}, reg={}, idx={}", dest, reg, idx);
