@@ -56,7 +56,7 @@ Errata are handled this way. When a page and the implementation disagree, or a p
 - If the implementation's behavior is the one to keep, the page is corrected instead, and the behavior does not change.
 - Either way, the changelog lists the erratum under **Fixed** with the page it concerns, and the corrected page says what changed if a program could notice.
 
-Not frozen, as described above: experimental modules and functions (`std:net`, `std:security`, `std:gc`, `std:db`, `Router` and `Server` in `std:http`, `vmStats` in `std:reflect`), `@pure` and its checks, the wording of error messages, compile errors and warnings (the error `name` is frozen), output meant for people, the pages under "Implementation notes", bytecode, and performance.
+Not frozen, as described above: experimental modules and functions (`std:security`, `std:gc`, `std:db`, `vmStats` in `std:reflect`), `@pure` and its checks, the wording of error messages, compile errors and warnings (the error `name` is frozen), output meant for people, the pages under "Implementation notes", bytecode, and performance.
 
 ## Not yet in 1.0
 
