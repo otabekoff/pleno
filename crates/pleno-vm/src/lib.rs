@@ -348,6 +348,14 @@ impl VMProvider for VM {
         self.event_loop.add_timer(delay_ms, callback, args)
     }
 
+    fn cancel_timer(&mut self, id: u64) {
+        self.event_loop.cancel_timer(id);
+    }
+
+    fn error_value(&mut self, message: &str) -> Value {
+        self.new_error(message)
+    }
+
     #[cfg(feature = "net")]
     fn register_io(
         &mut self,
@@ -494,6 +502,24 @@ impl VMProvider for VM {
             }
             for task in &self.pending_tasks {
                 task.mark(gc);
+            }
+            // Timers and I/O waits hold the callbacks (and through them the
+            // sockets and servers) that run when they fire.
+            for timer in &self.event_loop.timers {
+                timer.callback.mark(gc);
+                for arg in &timer.args {
+                    arg.mark(gc);
+                }
+            }
+            for task in &self.event_loop.ready_queue {
+                task.callback.mark(gc);
+                for arg in &task.args {
+                    arg.mark(gc);
+                }
+            }
+            #[cfg(feature = "net")]
+            for handler in self.event_loop.io_handlers.values() {
+                handler.callback.mark(gc);
             }
             for promise in self.promises.values() {
                 promise.mark(gc);

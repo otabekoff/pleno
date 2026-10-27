@@ -3,6 +3,7 @@
 What was finished, newest first. Open work is in `v1.md`, `distribution.md` and `later.md`.
 
 ## 2026-10-27
+- [x] TCP sockets: `std:net` is stable. `Net.listen(host, port)` returns a `Listener` (`accept`, `address`, `port`, `close`) and `Net.connect(host, port)` a promise for a `Socket` (`read`, `readLine`, `write`, `setTimeout`, `close`, `localAddress`, `remoteAddress`). They run on the event loop with `await`; denied network access is a `SecurityError`; sockets close on `close()`, when collected and when the VM is dropped. Tests over loopback in `crates/pleno-vm/tests/stdlib_net_test.rs` and `tests/net_sockets_test.pln`.
 - [x] Memory after a run (#60): dropping a VM frees every value it allocated, reference cycles included (#147), also cycles stored on the `Error` class (#149). Fuzzing runs with leak detection again (#155).
 - [x] `==` compares arrays, tuples, maps and sets by contents, as `assert.equal` already did (#159)
 - [x] Release 0.3.0: six targets, `.deb`, `.vsix` and Docker image, signed with cosign; the Homebrew tap updates itself; Scoop bucket at 0.3.0; package manifests in `packaging/` point at 0.3.0 (#146, #151)

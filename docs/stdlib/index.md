@@ -20,7 +20,7 @@ Behavior a page calls unspecified (for example the order of `Directory.list`) is
 | [`std:process`](process.md)             | stable       |                                                                                                                                              |
 | [`std:dotenv`](dotenv.md)               | stable       |                                                                                                                                              |
 | [`std:http`](http.md)                   | stable       | The client (`get`, `post`, `request`, ...) is stable. `Router` and `Server` are experimental: middleware, static files and cookies are still to come and may change `req` and `res`. |
-| [`std:net`](net.md)                     | experimental | `listen` and `connect` close the socket at once; there is no `accept`, `read` or `write` yet.                                               |
+| [`std:net`](net.md)                     | stable       | TCP sockets with `async`/`await`. Text only (UTF-8) until Pleno has a bytes type.                                                           |
 | [`std:url`](url.md)                     | stable       |                                                                                                                                              |
 | [`std:json`](json.md)                   | stable       |                                                                                                                                             |
 | [`std:yaml`](yaml.md)                   | stable       |                                                                                                                                              |
@@ -67,7 +67,7 @@ Behavior a page calls unspecified (for example the order of `Directory.list`) is
 | Module          | Description                             |
 | --------------- | --------------------------------------- |
 | [http](http.md) | HTTP client and server                  |
-| [net](net.md)   | Low-level TCP networking (experimental) |
+| [net](net.md)   | TCP sockets                             |
 | [url](url.md)   | URL parsing                             |
 
 ### Data Formats
