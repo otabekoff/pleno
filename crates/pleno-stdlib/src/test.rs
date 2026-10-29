@@ -2,8 +2,7 @@ use indexmap::IndexMap;
 use pleno_common::style::{self, Stream};
 use pleno_value::{
     ArrayState, BoundMethodState, BoundNativeMethodState, CallOptions, MapState, RuntimeError,
-    VMProvider,
-    Value,
+    VMProvider, Value,
 };
 use std::cell::RefCell;
 use std::rc::Rc;
