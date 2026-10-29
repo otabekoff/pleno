@@ -13,6 +13,8 @@ programs and libraries in it, and rely on it. Behavior is documented, does not c
 and the tools fail with a clear error instead of crashing or guessing.
 
 Status as of 2026-10-29. The latest release is [0.4.0](https://github.com/otabekoff/pleno/releases/tag/v0.4.0).
+The next one, 0.5.0, is about delivery: release and packaging tools, more binaries, and more
+platforms and devices. That work is tracked in [`tasks/distribution.md`](tasks/distribution.md).
 
 ## Left before 1.0
 

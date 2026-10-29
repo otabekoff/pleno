@@ -168,10 +168,10 @@ page). Then, in an administrator PowerShell:
 
 ```powershell
 choco pack packaging/chocolatey/pleno.nuspec --outputdirectory packaging/chocolatey
-choco install pleno --source packaging/chocolatey --version 0.3.0 -y   # test locally
+choco install pleno --source packaging/chocolatey --version 0.4.0 -y   # test locally
 pleno --version
 choco uninstall pleno -y
-choco push packaging/chocolatey/pleno.0.3.0.nupkg --source https://push.chocolatey.org/
+choco push packaging/chocolatey/pleno.0.4.0.nupkg --source https://push.chocolatey.org/
 ```
 
 Every version goes through moderation: an automatic validator, an install test in a clean VM, and
@@ -232,7 +232,7 @@ Then copy `PKGBUILD` and `.SRCINFO` into the `pleno-bin` clone and push:
 ```sh
 cp packaging/aur/pleno-bin/PKGBUILD packaging/aur/pleno-bin/.SRCINFO pleno-bin/
 cd pleno-bin
-git add PKGBUILD .SRCINFO && git commit -m "pleno-bin 0.3.0" && git push
+git add PKGBUILD .SRCINFO && git commit -m "pleno-bin 0.4.0" && git push
 ```
 
 The AUR accepts only `PKGBUILD`, `.SRCINFO` and small helper files, on the `master` branch. A

@@ -4,6 +4,10 @@ Notable changes to Pleno. The format follows [Keep a Changelog](https://keepacha
 
 ## Unreleased
 
+### Changed
+
+- The manifests in `packaging/` (Homebrew, Scoop, WinGet, Chocolatey, AUR) point at 0.4.0, written by `scripts/update-packaging.sh` from the release's checksums.
+
 ## 0.4.0 - 2026-10-29
 
 Upgrading from 0.3: `with` is now a keyword, `exit()` throws `SystemExit`, the HTTP server listens on `127.0.0.1` by default, and the changes in bold under "Changed" alter what existing programs print or accept. Compiled `.plc` files must be compiled again (bytecode format 7).

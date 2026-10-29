@@ -7,8 +7,8 @@ $toolsDir = "$(Split-Path -parent $MyInvocation.MyCommand.Definition)"
 $packageArgs = @{
   packageName    = $env:ChocolateyPackageName
   unzipLocation  = $toolsDir
-  url64bit       = 'https://github.com/otabekoff/pleno/releases/download/v0.3.0/pleno-v0.3.0-x86_64-pc-windows-msvc.zip'
-  checksum64     = '792caa68649a668a9a24a05b99683dd41e693e80de10b8eb4c18673f6cc6329d'
+  url64bit       = 'https://github.com/otabekoff/pleno/releases/download/v0.4.0/pleno-v0.4.0-x86_64-pc-windows-msvc.zip'
+  checksum64     = 'db104e5e2ca2d4534de5752c8e33b61dda1ec111725ab41ecf1f5f3dcae4bb07'
   checksumType64 = 'sha256'
 }
 
