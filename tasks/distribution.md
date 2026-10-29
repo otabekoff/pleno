@@ -29,12 +29,55 @@ Status checked on 2026-10-29, after the 0.4.0 release.
 | apt (Debian, Ubuntu)                                                         | `.deb` on the release page only | No                                                                     | An apt repository                          |
 | Snap, Flatpak, asdf, RPM                                                     | —                               | —                                                                      | Not planned for 1.0 (see "After 1.0")      |
 
+## 0.5.0: more binaries, platforms and devices
+
+0.5.0 is the delivery release. It covers the store and account steps below ("Must have for 1.0"
+and "Should have") and this build work. Each new target also needs a line in
+`ide/vscode/src/toolchain.ts` (the extension's "Install Toolchain"), the install scripts and
+`docs/guide/installation.md`.
+
+Released in 0.4.0: Linux glibc 2.17+ (x86_64, aarch64, i686), macOS (x86_64, aarch64), Windows
+x86_64 (ARM64 runs it under emulation), the `.deb` (amd64), the `.vsix`, and the Docker image
+(amd64, arm64). Each comes with a `.sha256`, `SHA256SUMS.txt` and a cosign bundle.
+
+- [ ] **Windows on ARM64** (`aarch64-pc-windows-msvc`), built natively on the free `windows-11-arm`
+      runner. Snapdragon laptops run it without emulation. Also a second installer in the WinGet
+      manifest, and `install.ps1` choosing it on ARM64.
+- [ ] **Static Linux builds with musl** (`x86_64-` and `aarch64-unknown-linux-musl`, with
+      cargo-zigbuild as now). They run on Alpine, in `scratch` or distroless containers, and in
+      Termux on Android. `install.sh` picks musl when `ldd --version` says musl.
+- [ ] **32-bit ARM Linux** (`armv7-unknown-linux-gnueabihf`): Raspberry Pi OS 32-bit and older
+      boards.
+- [ ] **More Linux packages**: the `.deb` for arm64 (and i386), and `.rpm` for x86_64 and aarch64
+      (cargo-generate-rpm), so Fedora, RHEL and openSUSE install with `dnf`/`zypper`.
+- [ ] **Package repositories**: the signed apt repository (below) and an rpm repository, both on
+      GitHub Pages, built by the release workflow with the GPG key already stored as a secret.
+- [ ] **Archives with LICENSE and README**, as Homebrew, Debian and Chocolatey reviewers expect.
+- [ ] **`pleno upgrade`**: updates an install in `~/.pleno/bin` to the latest release, as
+      `scripts/release-install.*` does. For an install made by a package manager, it names the
+      command to use instead (`brew upgrade pleno`, `scoop update pleno`, `winget upgrade Pleno.Pleno`).
+- [ ] **Build provenance**: `actions/attest-build-provenance` in `release.yml`, so
+      `gh attestation verify <file> -R otabekoff/pleno` works next to cosign.
+- [ ] **`packaging/` by pull request**: a release job that runs `scripts/update-packaging.sh` and
+      opens the pull request. It needs "Allow GitHub Actions to create pull requests" in the
+      repository settings.
+- [ ] **The Docker image on a smaller base**: the binaries need only glibc 2.17 now, so
+      `Dockerfile.release`'s note about glibc 2.39 and its `debian:trixie-slim` base are out of
+      date. With the musl build, the image can be distroless.
+- [ ] **WebAssembly**: an npm package of `crates/pleno-wasm`, for browsers, Node and Deno (see
+      [`later.md`](later.md)), and, if `pleno` builds for `wasm32-wasip1`, a WASI binary for
+      wasmtime and other WASI hosts.
+- Not planned: macOS notarization and the Apple Developer Program (paid; `curl` downloads and
+  Homebrew installs are not quarantined), iOS, MSI installers (WinGet, Scoop and the zip cover
+  Windows), and Homebrew core (it requires a notable, widely used project).
+
 ## Must have for 1.0
 
 - [ ] **WinGet: first version accepted.** Status: microsoft/winget-pkgs#460928 adds `Pleno.Pleno`
-      0.3.0; 0.4.0 now exists, so it can move to 0.4.0 (`packaging/winget/`). It passed validation for 0.2.0, the CLA is signed, and it is waiting for a volunteer
-      moderator (since 2026-10-24). Missing: a moderator's approval. Answer any review comment there.
-      After that, every release opens its WinGet pull request by itself.
+      0.4.0 (moved from 0.3.0 on 2026-10-29; `winget validate` passes). The CLA is signed, and it
+      is waiting for a volunteer moderator (since 2026-10-24). Missing: a moderator's approval.
+      Answer any review comment there. After that, every release opens its WinGet pull request by
+      itself.
 - [ ] **VS Code Marketplace.** Status: the extension ID `pleno.pleno-language` and the publisher
       name `pleno` are free, and the publishing workflow (`publish-extension.yml`, #163) is
       merged. Missing:
