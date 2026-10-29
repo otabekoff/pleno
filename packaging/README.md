@@ -14,8 +14,19 @@ taken from the release's `SHA256SUMS.txt`. The VS Code extension is published se
 | `aur/pleno-bin/` | Arch Linux    | AUR             | By hand: pushed to the `pleno-bin` AUR repository                      |
 | `snap/`, `flatpak/`, `asdf/` | Linux | —        | Not maintained yet                                                      |
 
-The files in this directory are the source of truth. After a release, update the version, URLs and
-checksums here too (from `SHA256SUMS.txt`), so the copies and the published packages agree.
+The files in this directory are the source of truth. After a release, point them all at it in one
+pull request, so the copies and the published packages agree:
+
+```sh
+gh release download v1.2.3 --pattern SHA256SUMS.txt --dir release
+scripts/update-packaging.sh 1.2.3 release/SHA256SUMS.txt
+git diff -- packaging
+```
+
+It sets the version, URLs and checksums in every manifest here (the LICENSE checksum for the AUR
+comes from the tag, so fetch the tags first) and WinGet's release date, which is today unless you
+pass a date as the third argument. If a checksum is missing it changes nothing.
+`scripts/test_update_packaging.sh`, run in CI, checks it.
 
 ## Release workflow setup
 
@@ -151,9 +162,9 @@ The package ID `pleno` was free on 2026-10-27. The first push claims it.
 
 ### Each release
 
-Update `<version>` and `<releaseNotes>` in `chocolatey/pleno.nuspec`, and `url64bit` and
-`checksum64` in `chocolatey/tools/chocolateyinstall.ps1`. The checksum is the Windows zip's line
-in `SHA256SUMS.txt`. Then, in an administrator PowerShell:
+`scripts/update-packaging.sh` updates `<version>` and `<releaseNotes>` in `chocolatey/pleno.nuspec`,
+and `url64bit` and `checksum64` in `chocolatey/tools/chocolateyinstall.ps1` (see the top of this
+page). Then, in an administrator PowerShell:
 
 ```powershell
 choco pack packaging/chocolatey/pleno.nuspec --outputdirectory packaging/chocolatey
@@ -202,9 +213,10 @@ yay -S pleno-bin      # or paru, or any AUR helper
 
 ### Each release
 
-Update `pkgver` in `aur/pleno-bin/PKGBUILD`, reset `pkgrel=1`, and update the checksums. Run
-`updpkgsums` on Arch, or copy them from `SHA256SUMS.txt`. Then regenerate `.SRCINFO`, test and
-push. This needs Arch Linux, because `makepkg` refuses to run as root. On Windows, use Docker:
+`scripts/update-packaging.sh` sets `pkgver`, resets `pkgrel=1` and writes the checksums in both
+`aur/pleno-bin/PKGBUILD` and `.SRCINFO` (see the top of this page). If you change anything else in
+`PKGBUILD`, regenerate `.SRCINFO` with `makepkg --printsrcinfo > .SRCINFO`. Test and push. This
+needs Arch Linux, because `makepkg` refuses to run as root. On Windows, use Docker:
 
 ```sh
 docker run --rm -it -v "$PWD/packaging/aur/pleno-bin:/pkg" archlinux bash

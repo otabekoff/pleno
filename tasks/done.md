@@ -2,6 +2,9 @@
 
 What was finished, newest first. Open work is in `v1.md`, `distribution.md` and `later.md`.
 
+## 2026-10-29
+- [x] `packaging/` kept in step with releases: `scripts/update-packaging.sh` rewrites the Homebrew, Scoop, WinGet, Chocolatey and AUR manifests from a release's `SHA256SUMS.txt`, tested in CI (#233)
+
 ## 2026-10-27
 - [x] Linux release binaries need only glibc 2.17: built with cargo-zigbuild, checked in CI, and run on CentOS 7 (#207); every GitHub Action and CI tool pinned to an exact commit or version (#215, #217)
 - [x] Fuzzing finds fixed: the instruction limit always stops a loop, `super()` into a closure constructor, a class in a function extending another one there (#213); a self-connecting TCP test (#211)
