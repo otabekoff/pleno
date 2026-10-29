@@ -12,7 +12,7 @@ their own tracker, [`tasks/distribution.md`](tasks/distribution.md). The promise
 programs and libraries in it, and rely on it. Behavior is documented, does not change within 1.x,
 and the tools fail with a clear error instead of crashing or guessing.
 
-Status as of 2026-10-27. The latest release is [0.4.0](https://github.com/otabekoff/pleno/releases/tag/v0.4.0).
+Status as of 2026-10-29. The latest release is [0.4.0](https://github.com/otabekoff/pleno/releases/tag/v0.4.0).
 
 ## Left before 1.0
 

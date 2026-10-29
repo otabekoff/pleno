@@ -1,6 +1,6 @@
 ---
 title: "Pleno 0.4.0: resources that close themselves, sockets, and a web framework"
-date: 2026-10-27T22:30:00+05:00
+date: 2026-10-29T12:00:00+05:00
 author: Otabek
 description: The with statement, TCP sockets, HTTP middleware, static files and cookies, Git packages without a registry, and Linux builds that run on distributions back to 2014.
 ---
@@ -29,6 +29,8 @@ Or download it from [the release page](https://github.com/otabekoff/pleno/releas
 - Some output changes:
   - `print(10 / 2)` prints `5.0`;
   - strings inside arrays and maps print quoted;
+  - `sort()` sorts numbers by value, so `[10, 9, 2].sort()` gives `[2, 9, 10]` (it gave
+    `[10, 2, 9]`), and it uses the comparator you pass;
   - an unknown escape such as `"\d"` is a compile error.
 
   The [changelog](https://github.com/otabekoff/pleno/blob/main/CHANGELOG.md) lists every change,
@@ -80,6 +82,12 @@ plm add github:ada/greet@^1.2
   - unbounded loop unrolling in the optimizer.
 - `pleno check` and the editor catch more mistakes before you run anything: methods of a known
   class, return types, and compile errors such as assigning to an immutable binding.
+- `pleno format`, and so format-on-save, no longer changes what a program computes. It wrote
+  `n *= 3 + 1` as `n = n * 3 + 1`; compound assignments now stay as they are.
+- Errors in an imported module point at the module's file and line, in the message and in the
+  backtrace.
+- New methods: `array.sortBy(key)`, `array.concat(other)`, `s.padStart(width)` and
+  `s.padEnd(width)`.
 
 ## Next: 1.0
 

@@ -59,7 +59,7 @@ Status checked on 2026-10-27.
       warns on first run. The SignPath Foundation application is written in
       [`notes/SIGNPATH_APPLICATION.md`](../notes/SIGNPATH_APPLICATION.md) and waits for approval.
       Missing: approval, then a signing step in `release.yml` before the Windows zip is packed.
-- [ ] **Releases 1.0.0-rc.1 and 1.0.0.** Status: 0.4.0 is the latest release (2026-10-27). The
+- [ ] **Releases 1.0.0-rc.1 and 1.0.0.** Status: 0.4.0 is the latest release (2026-10-29). The
       release workflow builds, signs (cosign) and publishes everything above. Missing: tag
       `v1.0.0-rc.1` once the other must-haves in [`v1.md`](v1.md) are done. A prerelease tag (with a
       `-`) skips the package managers and stores, so it is safe to test with. Then tag `v1.0.0`.
@@ -82,10 +82,6 @@ Status checked on 2026-10-27.
       once the extension is on the Marketplace, file a claim at
       [EclipseFdn/open-vsx.org](https://github.com/EclipseFdn/open-vsx.org/issues/new?template=claim-namespace-ownership.yml&namespace=pleno&title=Claiming%20namespace%20%60pleno%60)
       with **Option 1**, using the extension's repository `github.com/otabekoff/pleno` as evidence.
-- [ ] **Keep `packaging/` in step with releases.** Status: the published Homebrew formula and
-      Scoop manifest are generated from the release. The copies in `packaging/` (and the WinGet,
-      Chocolatey and AUR files) were updated by hand for 0.3.0 (#151). Missing: a release step or
-      script that updates them all from `SHA256SUMS.txt` in one pull request.
 
 ## After 1.0
 

@@ -64,6 +64,8 @@ jobs:
         run: bash scripts/run_pln_tests.sh
       - name: HTTP server smoke test
         run: bash scripts/test_http_server.sh
+      - name: Package manifest update test
+        run: bash scripts/test_update_packaging.sh
       - name: Run the examples in the docs
         run: python3 scripts/check-doc-examples.py target/debug/pleno docs
 
