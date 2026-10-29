@@ -1,8 +1,8 @@
 use indexmap::IndexMap;
 use pleno_common::style::{self, Stream};
 use pleno_value::{
-    BoundMethodState, BoundNativeMethodState, CallOptions, MapState, RuntimeError, VMProvider,
-    Value,
+    ArrayState, BoundMethodState, BoundNativeMethodState, CallOptions, MapState, RuntimeError,
+    VMProvider, Value,
 };
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -11,9 +11,17 @@ thread_local! {
     static CONTEXT: RefCell<TestContext> = RefCell::new(TestContext::default());
 }
 
+/// The global that keeps the hooks alive (see `TestContext::hooks`).
+const HOOKS_GLOBAL: &str = "__pleno_test_hooks";
+
 #[derive(Default)]
 struct TestContext {
     suites: Vec<SuiteState>,
+    /// Every hook registered in the current outermost `describe`, in an array
+    /// the VM holds as a global: the collector only sees values the VM can
+    /// reach, and a hook kept only here would be freed (and its captured
+    /// values reused) while its tests had not run yet.
+    hooks: Option<Value>,
     /// Tests that failed since the last `take_failures`.
     failures: usize,
 }
@@ -42,6 +50,13 @@ pub fn test_describe(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, R
     let depth = CONTEXT.with(|ctx| ctx.borrow().suites.len());
     let indent = "  ".repeat(depth);
     vm.print(&format!("{}{}\n", indent, name));
+
+    // An outermost suite (a new file runs in a new VM) gets a new array.
+    if depth == 0 {
+        let hooks = Value::Array(vm.get_gc().allocate(ArrayState::new(Vec::new()))?);
+        vm.register_global(HOOKS_GLOBAL.to_string(), hooks.clone());
+        CONTEXT.with(|ctx| ctx.borrow_mut().hooks = Some(hooks));
+    }
 
     CONTEXT.with(|ctx| {
         ctx.borrow_mut().suites.push(SuiteState {
@@ -212,28 +227,37 @@ fn async_test_failed(vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, R
     Ok(Value::Null)
 }
 
-pub fn test_before_each(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
-    if args.is_empty() {
-        return Err(RuntimeError::new("beforeEach expects 1 argument: fn"));
-    }
+/// Adds `hook` to the innermost suite, or fails when there is none: a hook
+/// outside `describe` would apply to no test.
+fn add_hook(name: &str, args: &[Value], after: bool) -> Result<Value, RuntimeError> {
+    let Some(hook) = args.first() else {
+        return Err(RuntimeError::new(format!("{name} expects 1 argument: fn")));
+    };
     CONTEXT.with(|ctx| {
-        if let Some(suite) = ctx.borrow_mut().suites.last_mut() {
-            suite.before_each.push(args[0].clone());
+        let mut ctx = ctx.borrow_mut();
+        let Some(suite) = ctx.suites.last_mut() else {
+            return Err(RuntimeError::new(format!(
+                "{name} must be called inside describe(...), where it runs for each test of that suite"
+            )));
+        };
+        if after {
+            suite.after_each.push(hook.clone());
+        } else {
+            suite.before_each.push(hook.clone());
         }
-    });
-    Ok(Value::Null)
+        if let Some(Value::Array(hooks)) = &ctx.hooks {
+            hooks.borrow_mut().elements.push(hook.clone());
+        }
+        Ok(Value::Null)
+    })
+}
+
+pub fn test_before_each(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
+    add_hook("beforeEach", args, false)
 }
 
 pub fn test_after_each(_vm: &mut dyn VMProvider, args: &[Value]) -> Result<Value, RuntimeError> {
-    if args.is_empty() {
-        return Err(RuntimeError::new("afterEach expects 1 argument: fn"));
-    }
-    CONTEXT.with(|ctx| {
-        if let Some(suite) = ctx.borrow_mut().suites.last_mut() {
-            suite.after_each.push(args[0].clone());
-        }
-    });
-    Ok(Value::Null)
+    add_hook("afterEach", args, true)
 }
 
 // Assertions
