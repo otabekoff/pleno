@@ -3,6 +3,7 @@
 What was finished, newest first. Open work is in `v1.md`, `distribution.md` and `later.md`.
 
 ## 2026-10-29
+- [x] Release 0.4.0: six targets, `.deb`, `.vsix` and Docker image, signed with cosign; Homebrew tap and Scoop bucket at 0.4.0 from the release workflow; `packaging/` moved to 0.4.0 with `scripts/update-packaging.sh` (#234, #235)
 - [x] `packaging/` kept in step with releases: `scripts/update-packaging.sh` rewrites the Homebrew, Scoop, WinGet, Chocolatey and AUR manifests from a release's `SHA256SUMS.txt`, tested in CI (#233)
 
 ## 2026-10-27

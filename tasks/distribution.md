@@ -11,19 +11,19 @@ How-to guides, with exact steps, links and commands:
   workflow's secrets (Homebrew, Scoop, WinGet, Chocolatey, AUR).
 - [`ide/vscode/PUBLISHING.md`](../ide/vscode/PUBLISHING.md): the VS Code Marketplace and Open VSX.
 
-Status checked on 2026-10-27.
+Status checked on 2026-10-29, after the 0.4.0 release.
 
 ## Where each channel stands
 
 | Channel                                                                      | Version there                   | Updated on release                                                     | Left                                       |
 | ---------------------------------------------------------------------------- | ------------------------------- | ---------------------------------------------------------------------- | ------------------------------------------ |
-| GitHub release (6 targets, `.deb`, `.vsix`, Docker image, cosign signatures) | 0.3.0                           | Yes                                                                    | Windows signing, older glibc (below)       |
+| GitHub release (6 targets, `.deb`, `.vsix`, Docker image, cosign signatures) | 0.4.0                           | Yes                                                                    | Windows signing (below)                    |
 | Install scripts (`scripts/install.sh`, `install.ps1`)                        | latest release                  | Yes                                                                    | —                                          |
-| Homebrew (`otabekoff/homebrew-tap`)                                          | 0.3.0                           | Yes                                                                    | —                                          |
-| Scoop (`otabekoff/scoop-bucket`)                                             | 0.3.0                           | Yes (from the next tag; the `SCOOP_BUCKET_TOKEN` secret is set)        | —                                          |
+| Homebrew (`otabekoff/homebrew-tap`)                                          | 0.4.0                           | Yes                                                                    | —                                          |
+| Scoop (`otabekoff/scoop-bucket`)                                             | 0.4.0                           | Yes                                                                    | —                                          |
 | WinGet (`microsoft/winget-pkgs`)                                             | not listed yet                  | After the first version is accepted (the `WINGET_TOKEN` secret is set) | First version accepted                     |
 | VS Code Marketplace                                                          | not published                   | Yes, once the `VSCE_PAT` secret is set                                 | Publisher and token                        |
-| Open VSX                                                                     | not published                   | Yes, once trusted publishing is set up                                 | Trusted publisher, variable, first publish |
+| Open VSX                                                                     | not published                   | Yes, once trusted publishing is set up (skipped for 0.4.0)             | Trusted publisher, variable, first publish |
 | Chocolatey                                                                   | not published                   | No                                                                     | Account, first push, maybe automation      |
 | AUR (`pleno-bin`)                                                            | not published                   | No                                                                     | Account, first push                        |
 | apt (Debian, Ubuntu)                                                         | `.deb` on the release page only | No                                                                     | An apt repository                          |
@@ -32,7 +32,7 @@ Status checked on 2026-10-27.
 ## Must have for 1.0
 
 - [ ] **WinGet: first version accepted.** Status: microsoft/winget-pkgs#460928 adds `Pleno.Pleno`
-      0.3.0; it moves to 0.4.0 once that release exists. It passed validation for 0.2.0, the CLA is signed, and it is waiting for a volunteer
+      0.3.0; 0.4.0 now exists, so it can move to 0.4.0 (`packaging/winget/`). It passed validation for 0.2.0, the CLA is signed, and it is waiting for a volunteer
       moderator (since 2026-10-24). Missing: a moderator's approval. Answer any review comment there.
       After that, every release opens its WinGet pull request by itself.
 - [ ] **VS Code Marketplace.** Status: the extension ID `pleno.pleno-language` and the publisher
@@ -40,7 +40,7 @@ Status checked on 2026-10-27.
       merged. Missing:
   - an Azure DevOps token with **Marketplace → Manage**, saved as the `VSCE_PAT` secret;
   - the `pleno` publisher at marketplace.visualstudio.com/manage;
-  - the first upload: run the Publish Extension workflow for v0.3.0.
+  - the first upload: run the Publish Extension workflow for v0.4.0.
     Steps: `ide/vscode/PUBLISHING.md` → "VS Code Marketplace".
 - [ ] **Open VSX.** Status: the `pleno` namespace exists (created 2026-10-27) and the publishing
       workflow is merged. Missing:
@@ -49,7 +49,7 @@ Status checked on 2026-10-27.
   - the trusted publisher registered for `otabekoff/pleno`, workflow `publish-extension.yml`,
     no environment;
   - the repository variable `OPEN_VSX_PUBLISH` set to `true`;
-  - the first upload: run the Publish Extension workflow for v0.3.0.
+  - the first upload: run the Publish Extension workflow for v0.4.0.
     Steps: `ide/vscode/PUBLISHING.md` → "Open VSX".
 - [ ] **Docs once the extension is in the stores.** Status: `docs/guide/editor.md`,
       `docs/guide/installation.md`, `docs/specs/release.md` and `ide/vscode/README.md` say to install

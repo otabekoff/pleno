@@ -50,8 +50,8 @@ the extension again, so claim both before the first release.
 The **Publish Extension** workflow does it (see below). By hand:
 
 ```sh
-gh release download v0.3.0 --pattern 'pleno-language-*.vsix'
-npx @vscode/vsce publish --packagePath pleno-language-v0.3.0.vsix --pat <token>
+gh release download v0.4.0 --pattern 'pleno-language-*.vsix'
+npx @vscode/vsce publish --packagePath pleno-language-v0.4.0.vsix --pat <token>
 ```
 
 The version comes from the `.vsix`, and the Marketplace rejects a version it already has. The
@@ -118,10 +118,10 @@ Actions, and Open VSX accepts it because you register that workflow as a *truste
 - **Open VSX:** when `OPEN_VSX_PUBLISH` is `true`, by trusted publishing.
 
 The release workflow starts it for every new `vX.Y.Z` tag (not for prereleases). To publish a
-release that already exists, such as v0.3.0, start it by hand:
+release that already exists, such as v0.4.0, start it by hand:
 
 ```sh
-gh workflow run publish-extension.yml --repo otabekoff/pleno --ref main -f tag=v0.3.0
+gh workflow run publish-extension.yml --repo otabekoff/pleno --ref main -f tag=v0.4.0
 ```
 
 Or use **Actions → Publish Extension → Run workflow** on GitHub. Each store rejects a version it
