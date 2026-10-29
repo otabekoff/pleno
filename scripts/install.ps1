@@ -41,8 +41,12 @@
     $AssetName = "pleno-$Tag-$Arch-pc-windows-msvc.zip"
     $DownloadUrl = "https://github.com/$Repo/releases/download/$Tag/$AssetName"
     $ZipPath = Join-Path ([System.IO.Path]::GetTempPath()) $AssetName
+    $ExtractDir = Join-Path ([System.IO.Path]::GetTempPath()) "pleno-install-$([DateTime]::Now.Ticks)"
 
     New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
+    # Files a previous update could not delete because they were running.
+    Get-ChildItem $InstallDir -Filter "*.old.exe" -ErrorAction SilentlyContinue |
+        ForEach-Object { Remove-Item $_.FullName -Force -ErrorAction SilentlyContinue }
 
     Write-Host "Downloading Pleno $Tag..."
     try {
@@ -62,10 +66,38 @@
             throw "Checksum mismatch for $AssetName (expected $ExpectedHash, got $ActualHash)"
         }
 
-        Write-Host "Extracting to $InstallDir..."
-        Expand-Archive -Path $ZipPath -DestinationPath $InstallDir -Force
+        Write-Host "Installing in $InstallDir..."
+        Expand-Archive -Path $ZipPath -DestinationPath $ExtractDir -Force
+        foreach ($file in Get-ChildItem $ExtractDir -File) {
+            $target = Join-Path $InstallDir $file.Name
+            if (Test-Path $target) {
+                # A running program (such as the language server VS Code started) cannot be
+                # overwritten or deleted on Windows, but it can be renamed; it keeps running
+                # from the renamed file, and the next update deletes it.
+                try {
+                    Remove-Item $target -Force
+                } catch {
+                    Move-Item $target (Join-Path $InstallDir "$($file.BaseName).$([DateTime]::Now.Ticks).old.exe") -Force
+                }
+            }
+            Move-Item $file.FullName $target
+        }
     } finally {
         Remove-Item $ZipPath -ErrorAction SilentlyContinue
+        Remove-Item $ExtractDir -Recurse -Force -ErrorAction SilentlyContinue
+    }
+
+    # Every tool must now be the new version; a mix of versions would fail in confusing ways.
+    $Expected = $Tag.TrimStart("v")
+    foreach ($tool in @("pleno", "plm", "pleno-lsp", "pleno-dap", "pleno-repl")) {
+        $exe = Join-Path $InstallDir "$tool.exe"
+        if (-not (Test-Path $exe)) { continue }
+        # Collect the output before taking the first line: in Windows PowerShell 5.1, `| Select-Object
+        # -First 1` on a program's output stops the program as soon as the first line arrives.
+        $reported = @(& $exe --version 2>$null)[0]
+        if ($reported -notmatch "(^|\s)v?$([regex]::Escape($Expected))(\s|$)") {
+            throw "$exe reports '$reported', not $Expected; close the programs that use it (such as VS Code) and run the installer again"
+        }
     }
 
     if ($env:PLENO_NO_MODIFY_PATH -eq "1") {

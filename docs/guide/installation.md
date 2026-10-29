@@ -37,7 +37,9 @@ irm https://raw.githubusercontent.com/otabekoff/pleno/main/scripts/install.ps1 |
 
 :::
 
-The script downloads the latest release from GitHub into `~/.pleno/bin` (Windows: `%USERPROFILE%\.pleno\bin`) and adds that folder to your `PATH`. Open a new terminal afterwards.
+The script downloads the latest release from GitHub into `~/.pleno/bin` (Windows: `%USERPROFILE%\.pleno\bin`) and adds that folder to your `PATH`. Open a new terminal afterwards. Run it again to update. On Windows the update also works while VS Code is using the language server: the running file is renamed and deleted by the next update.
+
+In a clone of the repository, `scripts/release-install.sh` (Windows: `scripts\release-install.ps1`) does the same and also installs the release's VS Code extension. It says which version is installed and which it installs, and does nothing if they are the same. `--version v0.3.0` (`-Version v0.3.0`) installs an older release.
 
 ## By hand
 

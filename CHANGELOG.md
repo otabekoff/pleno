@@ -4,6 +4,14 @@ Notable changes to Pleno. The format follows [Keep a Changelog](https://keepacha
 
 ## Unreleased
 
+### Added
+
+- `scripts/release-install.sh` and `scripts/release-install.ps1`, the release counterpart of `dev-install`: they install or update the tools from a GitHub release (the latest, or `--version v0.3.0`), and the VS Code extension from the same release, after checking its checksum against `SHA256SUMS.txt`. They print the installed and the new version, do nothing if those are the same (unless `--force`), remove a toolchain the extension downloaded, and warn about another copy earlier on `PATH`, naming its package manager (`scoop uninstall pleno`, `brew uninstall pleno`, `cargo uninstall ...`). They find the latest release through `github.com/.../releases/latest` instead of the API, which has an hourly limit. A CI job runs them on Linux, macOS and Windows (also Windows PowerShell 5.1) against the real releases.
+
+### Fixed
+
+- `install.ps1` could not update while VS Code was running the language server, because Windows cannot overwrite a running program: the update stopped with `Access to the path ... pleno-lsp.exe is denied`, or, when errors did not stop it, reported success and left an older `pleno-lsp.exe` beside the new tools. The archive is now unpacked to a temporary folder, a running program is renamed aside (and deleted by the next update), and the installer checks that every tool reports the new version.
+
 ### Changed
 
 - The manifests in `packaging/` (Homebrew, Scoop, WinGet, Chocolatey, AUR) point at 0.4.0, written by `scripts/update-packaging.sh` from the release's checksums.
