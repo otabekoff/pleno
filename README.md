@@ -82,6 +82,13 @@ scripts\dev-install.ps1       # Windows (PowerShell)
 
 It needs Rust, plus Node.js and VS Code's `code` command for the extension (skip that part with `--skip-extension` / `-SkipExtension`).
 
+To go back from a checkout build to a release, or to update a release install, run `release-install` from the repository. It installs the latest release's tools and its VS Code extension in the same places, checks their checksums, and does nothing if they are already current. `--version v0.3.0` / `-Version v0.3.0` installs an older release, and `--force` / `-Force` installs again:
+
+```bash
+scripts/release-install.sh    # Linux and macOS
+scriptselease-install.ps1   # Windows (PowerShell)
+```
+
 ### Your First Script
 
 Create a file named `hello.pln`:

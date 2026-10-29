@@ -69,6 +69,29 @@ jobs:
       - name: Run the examples in the docs
         run: python3 scripts/check-doc-examples.py target/debug/pleno docs
 
+  # Installs the published releases with the install scripts, as users do: the latest, an older
+  # one, and an update while the language server runs. Needs network access to github.com.
+  release-install:
+    name: Release installer (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Test release-install.sh
+        if: runner.os != 'Windows'
+        run: bash scripts/test_release_install.sh
+      - name: Test release-install.ps1
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./scripts/test_release_install.ps1
+      - name: Test release-install.ps1 in Windows PowerShell 5.1
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: ./scripts/test_release_install.ps1
+
   wasm:
     name: WASM build
     runs-on: ubuntu-24.04
