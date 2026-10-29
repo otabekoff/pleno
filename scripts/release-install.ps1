@@ -47,7 +47,9 @@ function Invoke-Code {
 function Get-InstalledVersion {
     $exe = Join-Path $InstallDir "pleno.exe"
     if (-not (Test-Path $exe)) { return $null }
-    $line = (& $exe --version 2>$null | Select-Object -First 1)
+    # Collect the output before taking the first line: in Windows PowerShell 5.1, `| Select-Object
+    # -First 1` on a program's output stops the program as soon as the first line arrives.
+    $line = @(& $exe --version 2>$null)[0]
     if ($line -match "(\d+\.\d+\.\d+\S*)") { return $Matches[1] }
     return $null
 }
@@ -123,8 +125,8 @@ if (-not $SkipExtension) {
     if (-not (Get-Command code -ErrorAction SilentlyContinue)) {
         Warn "VS Code's 'code' command was not found, so the extension was not installed (pass -SkipExtension to leave it out)"
     } else {
-        $current = Invoke-Code --list-extensions --show-versions |
-            Where-Object { $_ -like "$ExtensionId@*" } | Select-Object -First 1
+        $current = @(Invoke-Code --list-extensions --show-versions) | Where-Object { $_ -like "$ExtensionId@*" } |
+            Select-Object -First 1
         $currentVersion = if ($current) { $current.Split("@")[1] } else { $null }
         if ($currentVersion -eq $Wanted -and -not $Force) {
             Step "The VS Code extension is already $Wanted"

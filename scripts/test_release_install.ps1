@@ -56,7 +56,8 @@ $script:failures = 0
 function Fail($message) { Write-Host "FAIL: $message" -ForegroundColor Red; $script:failures++ }
 function Test-Tools($version, $label) {
     foreach ($tool in @("pleno", "plm", "pleno-lsp", "pleno-dap", "pleno-repl")) {
-        $got = (& (Join-Path $Bin "$tool.exe") --version 2>$null | Select-Object -First 1)
+        # @(...)[0], not | Select-Object -First 1, which stops the program early in Windows PowerShell 5.1.
+        $got = @(& (Join-Path $Bin "$tool.exe") --version 2>$null)[0]
         if ($got -ne "$tool $version") { Fail "${label}: $tool --version is '$got', expected '$tool $version'" }
     }
 }
@@ -115,3 +116,4 @@ if ($script:failures -ne 0) {
     exit 1
 }
 Write-Host "release-install.ps1: all checks passed"
+exit 0

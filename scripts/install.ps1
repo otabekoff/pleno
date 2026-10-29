@@ -92,7 +92,9 @@
     foreach ($tool in @("pleno", "plm", "pleno-lsp", "pleno-dap", "pleno-repl")) {
         $exe = Join-Path $InstallDir "$tool.exe"
         if (-not (Test-Path $exe)) { continue }
-        $reported = (& $exe --version 2>$null | Select-Object -First 1)
+        # Collect the output before taking the first line: in Windows PowerShell 5.1, `| Select-Object
+        # -First 1` on a program's output stops the program as soon as the first line arrives.
+        $reported = @(& $exe --version 2>$null)[0]
         if ($reported -notmatch "(^|\s)v?$([regex]::Escape($Expected))(\s|$)") {
             throw "$exe reports '$reported', not $Expected; close the programs that use it (such as VS Code) and run the installer again"
         }
