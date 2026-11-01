@@ -13,7 +13,7 @@ thiserror = "2"
 sha2 = "0.11"
 hex = "0.4"
 dirs = "7.0"
-bincode = "1"
+bincode = "2"
 tar = "0.4"
 pleno-lexer = { workspace = true }
 pleno-parser = { workspace = true }
