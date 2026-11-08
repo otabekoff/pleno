@@ -55,7 +55,7 @@ jobs:
 
       - name: Install cargo-zigbuild (Linux)
         if: runner.os == 'Linux'
-        uses: taiki-e/install-action@5488ac5a951645ce95062214902ac4b6bc1a1037 # v2.87.32
+        uses: taiki-e/install-action@c509219cf42fba86913069efd0ade2458c59337b # v2.90.1
         with:
           tool: cargo-zigbuild@0.24.0
 
@@ -119,7 +119,7 @@ jobs:
       # just checks that every release target builds.
       - name: Create Nightly Release
         if: github.event_name == 'schedule' && github.ref == 'refs/heads/main'
-        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
+        uses: softprops/action-gh-release@8a0cd651e5b2365bd640854a3fa5dfc70e4875f3 # v3.0.4
         with:
           tag_name: nightly-${{ github.sha }}
           name: Nightly Build (${{ github.sha }})
